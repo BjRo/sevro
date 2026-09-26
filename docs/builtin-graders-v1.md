@@ -1,4 +1,4 @@
-# Built-in output graders v1
+# Built-in graders v1
 
 The first built-in graders inspect a complete, bounded final-message
 observation. The engine compiles evaluator-owned check declarations before host
@@ -35,5 +35,19 @@ home, configured host homes, and active peer fixtures. The caller's list must
 include any other source worktrees or private roots. A peer path already
 canonicalized by the engine remains in the deny profile if that peer is
 removed before the sandbox starts; unverified missing roots still fail.
-Semantic-output checks and advisory quality judgments still need host routing
-implementations.
+
+`sevro.semantic` accepts a single nonempty `proposition` string (at most 8 KiB)
+per check. The operator supplies a separate semantic host route. After a
+complete candidate response, the engine sends the bounded final message and
+all declared propositions to that route in an empty, temporary workspace. It
+requires exactly one `pass` or `fail` verdict with a reason for every declared
+check ID. A failed proposition fails the task. A missing or incomplete candidate
+message makes semantic checks unavailable without calling the semantic host; a
+failed, incomplete, or malformed semantic response makes grading an error.
+
+The engine retains the raw semantic response outside the candidate workspace
+as `sevro.semantic.verdicts`, plus per-check observations and any bounded
+artifacts returned by the semantic route. The route identity enters the
+evaluation identity and run evidence. Semantic host usage is retained
+separately from candidate usage. Advisory quality judgments still need a host
+routing implementation.

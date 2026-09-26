@@ -41,6 +41,15 @@ only passive conditions. `--host` and `--adapter-module` are exclusive. Use
 `--protected-root` to add private roots for Codex, including when no shell
 checks are selected.
 
+For cases with `sevro.semantic` checks, also pass
+`--semantic-adapter-module /absolute/path/semantic-adapter.ts`. This loads an
+explicit second `HostAdapter` for grading. The candidate and semantic routes
+are recorded separately in evidence and evaluation identity. The semantic
+adapter runs after a complete candidate response in its own empty workspace;
+missing or malformed semantic verdicts produce a grading error. This
+development CLI does not yet expose the bundled Codex adapter as the semantic
+route.
+
 To resolve one case through a versioned extension, replace `--case-file` in
 either command with:
 
@@ -83,7 +92,7 @@ and preparation artifacts targeting `.git/` are refused.
 
 The case file follows the `ResolvedCase`
 interface in `src/engine.ts`; this slice accepts inline files or a declared
-repository, built-in output checks, and isolated shell checks. For shell checks, add
+repository, built-in output and semantic checks, and isolated shell checks. For shell checks, add
 `--shell-isolation` and repeat `--protected-root /absolute/path` for every
 additional source worktree or private root. The engine always protects the
 selected project, results, runner source, user home, configured host homes,

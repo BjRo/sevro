@@ -333,6 +333,132 @@ test("host artifacts are retained per trial and can satisfy required evidence", 
   expect(invalid.result.task.verdict).toBe("not_assessed");
 });
 
+test("semantic checks use an isolated grader route and retain verdict evidence", async () => {
+  const paths = await rootsForRun();
+  const evalCase = {
+    ...baseCase,
+    checks: [
+      ...baseCase.checks,
+      {
+        id: "promise",
+        grader: "sevro.semantic",
+        configuration: { proposition: "The response promises readiness." },
+      },
+    ],
+  };
+  const host: HostAdapter = {
+    id: "sevro.host.synthetic",
+    model: "candidate-v1",
+    effort: "none",
+    async run() {
+      return { finalMessage: "ready", complete: true };
+    },
+  };
+  let semanticCalls = 0;
+  const semanticHost: HostAdapter = {
+    id: "sevro.host.semantic",
+    model: "grader-v1",
+    effort: "low",
+    async run({ prompt, workspace }) {
+      semanticCalls++;
+      expect(prompt).toContain("The response promises readiness.");
+      expect(await Bun.file(join(workspace, "README.md")).exists()).toBeFalse();
+      return {
+        finalMessage:
+          '{"checks":[{"id":"promise","verdict":"pass","reason":"Ready is stated"}]}',
+        complete: true,
+        inputTokens: 10,
+        outputTokens: 4,
+        usageComplete: true,
+        artifacts: [
+          { id: "example.trace", bytes: Buffer.from("grader trace\n") },
+        ],
+      };
+    },
+  };
+  const options = {
+    ...paths,
+    case: evalCase,
+    host,
+    semanticHost,
+    runnerBuildDigest: digest,
+    projectDigest: digest,
+    condition: "passive" as const,
+    trialCount: 1,
+    passThreshold: 1,
+  };
+  const passed = await runEvaluation(options);
+  expect(semanticCalls).toBe(1);
+  expect(passed.result.task.verdict).toBe("passed");
+  const evidence = JSON.parse(
+    await readFile(passed.result.evidencePath, "utf8"),
+  );
+  expect(evidence.routes.map((route: { role: string }) => route.role)).toEqual([
+    "candidate",
+    "semantic",
+  ]);
+  expect(evidence.trials[0].observations).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        source: semanticHost.id,
+        data: { verdict: "pass", reason: "Ready is stated" },
+      }),
+    ]),
+  );
+  const artifacts = evidence.trials[0].artifactRefs;
+  const raw = artifacts.find(
+    (item: { id: string }) => item.id === "sevro.semantic.verdicts",
+  );
+  const trace = artifacts.find(
+    (item: { id: string }) => item.id === "sevro.semantic.example.trace",
+  );
+  expect(await readFile(new URL(raw.path), "utf8")).toContain('"id":"promise"');
+  expect(await readFile(new URL(trace.path), "utf8")).toBe("grader trace\n");
+
+  await expect(
+    runEvaluation({ ...options, semanticHost: undefined }),
+  ).rejects.toThrow(/explicit semantic host/);
+  const incomplete = await runEvaluation({
+    ...options,
+    host: {
+      ...host,
+      async run() {
+        return { finalMessage: null, complete: false };
+      },
+    },
+  });
+  expect(semanticCalls).toBe(1);
+  expect(incomplete.result.grading.status).toBe("unavailable");
+  expect(incomplete.result.cases[0]?.trials[0]?.checks[0]?.status).toBe(
+    "unavailable",
+  );
+  const malformed = await runEvaluation({
+    ...options,
+    semanticHost: {
+      ...semanticHost,
+      async run() {
+        return { finalMessage: "invalid", complete: true };
+      },
+    },
+  });
+  expect(malformed.result.grading.status).toBe("error");
+  expect(malformed.result.exitCode).toBe(3);
+  const failed = await runEvaluation({
+    ...options,
+    semanticHost: {
+      ...semanticHost,
+      async run() {
+        return {
+          finalMessage:
+            '{"checks":[{"id":"promise","verdict":"fail","reason":"No promise"}]}',
+          complete: true,
+        };
+      },
+    },
+  });
+  expect(failed.result.task.verdict).toBe("failed");
+});
+
 test("host failure retains completed trials and reports execution failure", async () => {
   const paths = await rootsForRun();
   let call = 0;

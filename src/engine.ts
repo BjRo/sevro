@@ -21,6 +21,12 @@ import {
   runShellCheck,
   type ShellCheckDeclaration,
 } from "./graders/shell";
+import {
+  parseSemanticVerdicts,
+  prepareSemanticChecks,
+  semanticPrompt,
+  type SemanticCheckDeclaration,
+} from "./graders/semantic";
 import { evaluationProtectedRoots } from "./hosts/isolation-roots";
 import { canonicalJson, createEvaluationIdentity, hashJson } from "./identity";
 import {
@@ -106,6 +112,7 @@ export interface EvaluationOptions {
   runStateRoot?: string;
   case: ResolvedCase;
   host: HostAdapter;
+  semanticHost?: HostAdapter;
   runnerBuildDigest: string;
   projectDigest: string;
   condition: "passive" | "enforced";
@@ -339,9 +346,28 @@ export async function runEvaluation(
   const shellDeclarations = options.case.checks.filter(
     (check) => check.grader === "sevro.shell",
   ) as ShellCheckDeclaration[];
+  const semanticDeclarations = options.case.checks.filter(
+    (check) => check.grader === "sevro.semantic",
+  ) as SemanticCheckDeclaration[];
   const extensionDeclarations = options.case.checks.filter(
-    (check) => !isOutputGrader(check.grader) && check.grader !== "sevro.shell",
+    (check) =>
+      !isOutputGrader(check.grader) &&
+      check.grader !== "sevro.shell" &&
+      check.grader !== "sevro.semantic",
   );
+  if (semanticDeclarations.length && !options.semanticHost)
+    throw new EvaluationConfigurationError(
+      "semantic checks require an explicit semantic host",
+    );
+  if (
+    options.semanticHost &&
+    (!options.semanticHost.id ||
+      !options.semanticHost.model ||
+      !options.semanticHost.effort)
+  )
+    throw new EvaluationConfigurationError(
+      "semantic host identity is incomplete",
+    );
   if (shellDeclarations.length && !options.shellIsolation)
     throw new EvaluationConfigurationError(
       "shell checks require explicit protected source roots",
@@ -390,9 +416,11 @@ export async function runEvaluation(
   }
   let prepared: ReturnType<typeof prepareOutputChecks>;
   let preparedShell: ReturnType<typeof prepareShellChecks>;
+  let preparedSemantic: ReturnType<typeof prepareSemanticChecks>;
   try {
     prepared = prepareOutputChecks(builtinDeclarations);
     preparedShell = prepareShellChecks(shellDeclarations);
+    preparedSemantic = prepareSemanticChecks(semanticDeclarations);
     for (const path of Object.keys(options.case.fixture.files ?? {}))
       fixtureParts(path);
   } catch (error) {
@@ -450,6 +478,13 @@ export async function runEvaluation(
     throw new EvaluationConfigurationError(
       "preparation artifacts cannot modify repository metadata",
     );
+  if (
+    semanticDeclarations.length &&
+    inlineArtifacts.some((item) => item.id === "sevro.semantic.verdicts")
+  )
+    throw new EvaluationConfigurationError(
+      "preparation artifact uses a reserved semantic evidence ID",
+    );
   const extensionData = options.extension
     ? {
         ...options.extension.resolvedCase.extensionData,
@@ -463,6 +498,19 @@ export async function runEvaluation(
     model: options.host.model,
     effort: options.host.effort,
   };
+  const routes = [
+    route,
+    ...(preparedSemantic.length
+      ? [
+          {
+            role: "semantic" as const,
+            host: options.semanticHost!.id,
+            model: options.semanticHost!.model,
+            effort: options.semanticHost!.effort,
+          },
+        ]
+      : []),
+  ];
   const redactedConfig = {
     condition: options.condition,
     executionMode: options.dry ? "dry" : "executed",
@@ -477,9 +525,11 @@ export async function runEvaluation(
     version: string;
   }[] = [
     ...new Set(
-      [...builtinDeclarations, ...shellDeclarations].map(
-        (check) => check.grader,
-      ),
+      [
+        ...builtinDeclarations,
+        ...shellDeclarations,
+        ...semanticDeclarations,
+      ].map((check) => check.grader),
     ),
   ]
     .sort()
@@ -529,7 +579,7 @@ export async function runEvaluation(
       }),
       graderDigest: hashJson(activeGraders),
       instrumentationDigest: hashJson({ requested: [], applied: [] }),
-      routeDigest: hashJson(route),
+      routeDigest: hashJson(preparedSemantic.length ? routes : route),
       condition: options.condition,
       trialCount: options.trialCount,
       passThreshold: options.passThreshold,
@@ -646,6 +696,7 @@ export async function runEvaluation(
                 ...preparedShell.map(
                   (item) => `sevro.observation.shell.${item.id}`,
                 ),
+                ...(preparedSemantic.length ? ["sevro.semantic.verdicts"] : []),
               ]),
             );
           } catch {
@@ -708,6 +759,12 @@ export async function runEvaluation(
           id: string;
           source: string;
           completeness: "complete";
+          data: Record<string, unknown>;
+        }[] = [];
+        const semanticObservations: {
+          id: string;
+          source: string;
+          completeness: "complete" | "partial";
           data: Record<string, unknown>;
         }[] = [];
         let checks: CheckOutcome[] = [];
@@ -789,6 +846,154 @@ export async function runEvaluation(
             }
           }
         }
+        if (
+          execution === "completed" &&
+          !graderError &&
+          preparedSemantic.length
+        ) {
+          if (hostResult?.finalMessage == null || !hostResult.complete) {
+            checks.push(
+              ...preparedSemantic.map((check) => ({
+                id: check.id,
+                grader: "sevro.semantic",
+                status: "unavailable" as const,
+                evidenceRefs: [],
+              })),
+            );
+          } else {
+            const semanticWorkspace = await createFixture(
+              { files: {} },
+              [],
+              undefined,
+              null,
+            );
+            let semanticResult: HostResult | null = null;
+            let semanticArtifacts: ReturnType<typeof hostArtifacts> = [];
+            try {
+              const response = await options.semanticHost!.run({
+                prompt: semanticPrompt(
+                  hostResult.finalMessage,
+                  preparedSemantic,
+                ),
+                workspace: semanticWorkspace,
+                condition: "passive",
+                signal: options.signal,
+              });
+              semanticArtifacts = hostArtifacts(
+                {
+                  ...response,
+                  artifacts: response.artifacts?.map((item) => ({
+                    ...item,
+                    id: `sevro.semantic.${item.id}`,
+                  })),
+                },
+                new Set([
+                  ...trialArtifactRefs.map((item) => item.id),
+                  ...options.case.checks.map((item) => item.id),
+                  "sevro.semantic.verdicts",
+                ]),
+              );
+              semanticResult = response;
+            } catch {
+              if (options.signal?.aborted) {
+                execution = "cancelled";
+                diagnostic = {
+                  code: "sevro.run.cancelled",
+                  message: "run cancelled",
+                };
+              } else {
+                graderError = true;
+                diagnostic = {
+                  code: "sevro.grader.error",
+                  message: "semantic grading did not complete",
+                };
+              }
+            } finally {
+              await rm(semanticWorkspace, { recursive: true, force: true });
+            }
+            if (semanticResult) {
+              for (const artifact of semanticArtifacts) {
+                const path = join(runDir, `trial-${trial}-${artifact.id}.bin`);
+                try {
+                  await writeFile(path, artifact.bytes, {
+                    flag: "wx",
+                    mode: 0o600,
+                  });
+                } catch {
+                  throw new Error(
+                    `trial persistence failed; fixture retained at ${workspace}`,
+                  );
+                }
+                trialArtifactRefs.push({
+                  id: artifact.id,
+                  path: pathToFileURL(path).href,
+                  sha256: sha256(artifact.bytes),
+                });
+              }
+              semanticObservations.push({
+                id: "sevro.observation.semantic.usage",
+                source: options.semanticHost!.id,
+                completeness: semanticResult.usageComplete
+                  ? "complete"
+                  : "partial",
+                data: usage(semanticResult),
+              });
+              if (
+                semanticResult.finalMessage !== null &&
+                Buffer.byteLength(semanticResult.finalMessage, "utf8") <=
+                  1024 * 1024
+              ) {
+                const bytes = Buffer.from(semanticResult.finalMessage, "utf8");
+                const path = join(
+                  runDir,
+                  `trial-${trial}-semantic-verdicts.json`,
+                );
+                try {
+                  await writeFile(path, bytes, { flag: "wx", mode: 0o600 });
+                } catch {
+                  throw new Error(
+                    `trial persistence failed; fixture retained at ${workspace}`,
+                  );
+                }
+                trialArtifactRefs.push({
+                  id: "sevro.semantic.verdicts",
+                  path: pathToFileURL(path).href,
+                  sha256: sha256(bytes),
+                });
+              }
+              try {
+                if (!semanticResult.complete || !semanticResult.finalMessage)
+                  throw new Error("semantic grader result is incomplete");
+                const verdicts = parseSemanticVerdicts(
+                  semanticResult.finalMessage,
+                  preparedSemantic,
+                );
+                for (const verdict of verdicts) {
+                  const observationId = `sevro.observation.semantic.${sha256(verdict.id)}`;
+                  semanticObservations.push({
+                    id: observationId,
+                    source: options.semanticHost!.id,
+                    completeness: "complete",
+                    data: { verdict: verdict.verdict, reason: verdict.reason },
+                  });
+                  checks.push({
+                    id: verdict.id,
+                    grader: "sevro.semantic",
+                    status: verdict.verdict === "pass" ? "passed" : "failed",
+                    detail: verdict.reason,
+                    evidenceRefs: [observationId],
+                  });
+                }
+              } catch {
+                graderError = true;
+                diagnostic = {
+                  code: "sevro.grader.error",
+                  message: "semantic grading did not complete",
+                };
+              }
+            }
+          }
+        }
         if (options.extension && !graderError && execution === "completed") {
           try {
             const extensionResult = await options.extension.session.evaluate({
@@ -806,6 +1011,7 @@ export async function runEvaluation(
                   },
                 },
                 ...shellObservations,
+                ...semanticObservations,
                 ...additionalObservations,
               ],
               builtinChecks: checks.map((check) => ({
@@ -859,6 +1065,7 @@ export async function runEvaluation(
               ![
                 observation,
                 ...shellObservations,
+                ...semanticObservations,
                 ...additionalObservations,
               ].some(
                 (item) => item.id === id && item.completeness === "complete",
@@ -896,10 +1103,11 @@ export async function runEvaluation(
           observations: [
             observation,
             ...shellObservations,
+            ...semanticObservations,
             ...additionalObservations,
           ],
           metrics: extensionMetrics,
-          routes: [route],
+          routes,
           usage: usage(hostResult),
           rawResult: {
             source: options.host.id,
@@ -1009,7 +1217,7 @@ export async function runEvaluation(
         appliedInstrumentation: [],
       },
       graders: { active: activeGraders, replacedDefaults: [] },
-      routes: [route],
+      routes,
       result,
       trials: trialEvidence,
       ...(diagnostic ? { diagnostic } : {}),

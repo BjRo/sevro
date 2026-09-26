@@ -14,6 +14,11 @@ import { pathToFileURL } from "node:url";
 const roots: string[] = [];
 const cli = join(import.meta.dir, "..", "src", "cli.ts");
 const adapter = join(import.meta.dir, "fixtures", "host-adapter.ts");
+const semanticAdapter = join(
+  import.meta.dir,
+  "fixtures",
+  "semantic-adapter.ts",
+);
 const extensionSource = join(import.meta.dir, "fixtures", "extension.ts");
 const digest = "a".repeat(64);
 
@@ -177,6 +182,38 @@ test("CLI reports unavailable required host evidence", async () => {
     source: "sevro.host.synthetic",
     completeness: "complete",
   });
+});
+
+test("CLI runs semantic checks through an explicit grader route", async () => {
+  const { args, caseFile } = await fixture();
+  const definition = JSON.parse(await readFile(caseFile, "utf8"));
+  definition.checks.push({
+    id: "semantic-ready",
+    grader: "sevro.semantic",
+    configuration: { proposition: "The response promises readiness." },
+  });
+  await writeFile(caseFile, JSON.stringify(definition));
+  const missing = await invoke(args);
+  expect(missing.code).toBe(64);
+  expect(missing.result.diagnostic.message).toMatch(/explicit semantic host/);
+  const command = [...args, "--semantic-adapter-module", semanticAdapter];
+  const passed = await invoke(command);
+  expect(passed.code).toBe(0);
+  const evidence = JSON.parse(
+    await readFile(passed.result.evidencePath, "utf8"),
+  );
+  expect(evidence.routes.map((route: { role: string }) => route.role)).toEqual([
+    "candidate",
+    "semantic",
+  ]);
+  expect(passed.result.cases[0].trials[0].checks[1]).toMatchObject({
+    id: "semantic-ready",
+    status: "passed",
+  });
+  const failed = await invoke(command, "semantic-fail");
+  expect(failed.code).toBe(1);
+  const malformed = await invoke(command, "semantic-malformed");
+  expect(malformed.code).toBe(3);
 });
 
 test("CLI resolves an explicit extension case and retains extension evidence", async () => {

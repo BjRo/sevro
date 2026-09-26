@@ -56,6 +56,12 @@ fails execution. The engine also accepts shell checks when the caller supplies
 protected source roots. They run through the macOS outer sandbox after host
 execution, and their exit observations are retained with the trial. An
 unavailable boundary produces a grading error rather than a passing check.
+Semantic checks use a separately supplied host identity and an empty grader
+workspace. A complete candidate final message is sent to that route with the
+declared propositions. The engine requires one bounded verdict per check,
+retains the raw response and grader artifacts outside the fixture, and records
+the route and per-check observations. Missing candidate output makes semantic
+checks unavailable; failed or malformed grader output makes grading an error.
 An optional negotiated extension can add declared checks. The engine calls its
 `prepare` method before host execution and its `evaluate` method for each
 trial. It retains extension identity, configuration digest, protocol,

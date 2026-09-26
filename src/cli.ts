@@ -83,6 +83,7 @@ function parseInvocation(argv: string[]) {
           "case-source-root": { type: "string" },
           "case-source-map-file": { type: "string" },
           "adapter-module": { type: "string" },
+          "semantic-adapter-module": { type: "string" },
           host: { type: "string" },
           "codex-bin": { type: "string" },
           "codex-auth-file": { type: "string" },
@@ -229,6 +230,12 @@ function parseInvocation(argv: string[]) {
     adapterModule: codex
       ? undefined
       : absoluteOption(values["adapter-module"], "--adapter-module"),
+    semanticAdapterModule: values["semantic-adapter-module"]
+      ? absoluteOption(
+          values["semantic-adapter-module"],
+          "--semantic-adapter-module",
+        )
+      : undefined,
     codex: codex
       ? {
           binary: absoluteOption(values["codex-bin"], "--codex-bin"),
@@ -407,12 +414,15 @@ async function main(argv: string[]): Promise<void> {
   let invocation: ReturnType<typeof parseInvocation>;
   let caseData: ResolvedCase | undefined;
   let host: HostAdapter;
+  let semanticHost: HostAdapter | undefined;
   try {
     invocation = parseInvocation(argv);
     if (invocation.caseFile) caseData = await loadCase(invocation.caseFile);
     host = invocation.codex
       ? createCodexHost(invocation.codex)
       : await loadHost(invocation.adapterModule!);
+    if (invocation.semanticAdapterModule)
+      semanticHost = await loadHost(invocation.semanticAdapterModule);
   } catch (error) {
     const result = failure(
       64,
@@ -462,6 +472,7 @@ async function main(argv: string[]): Promise<void> {
       extension,
       preparationSources,
       host,
+      semanticHost,
       shellIsolation: invocation.shellIsolation,
       runnerBuildDigest: invocation.runnerBuildDigest,
       projectDigest: invocation.projectDigest,
