@@ -1,18 +1,22 @@
 # Codex host integration
 
-The Codex adapter will consume `codex exec --json` as one JSONL turn. The
+The Codex adapter consumes `codex exec --json` as one JSONL turn. The
 `summarizeCodexEvents` parser requires one thread start and a completed turn
 with a zero process exit before reporting completion. Malformed, ambiguous,
 and oversized streams are errors. Missing or invalid final usage remains
 incomplete and is never estimated. The last completed `agent_message` before
 turn completion supplies the bounded final response; missing text stays
-unavailable. This parser does not launch Codex.
+unavailable.
 
-The adapter must hide source worktrees, peer fixtures, retained evidence,
-global host configuration, and copied authentication from candidate commands
-while allowing the explicit fixture workspace. It needs a private Codex home.
-Until the process adapter is built, the development CLI accepts only
-operator-provided trusted adapters.
+`createCodexHost` copies file-based authentication into a private Codex home
+for one turn. It supplies only explicit environment variables to the parent
+process and uses a runner-generated permission profile for candidate commands.
+It refuses fixture-local `.codex` configuration, unsupported enforced
+conditions, unreadable or oversized auth files, malformed event streams, and
+incomplete turns. The host bounds output and runtime, kills its process group
+on timeout or cancellation, and removes private state after the turn. It is
+available through the engine's injected host interface; the development CLI
+does not yet expose a bundled Codex route.
 
 `prepareMacSandboxCommand` provides the macOS shell-grading boundary. Callers
 provide absolute protected roots and a private state root; the primitive
@@ -30,4 +34,4 @@ home. It also disables command network access and clears inherited command
 environment variables. The Codex parent can read authentication before it
 starts sandboxed commands. A test invokes the installed `codex sandbox` CLI
 to prove fixture access and denied source/auth reads. The process adapter
-must select and verify this profile for every turn.
+selects and verifies this profile before every turn.

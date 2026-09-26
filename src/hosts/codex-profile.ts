@@ -50,6 +50,8 @@ export function codexPermissionProfile(options: {
     ...[...new Set(options.protectedRoots)]
       .sort()
       .map((root) => `${toml(root)} = "deny"`),
+    `${toml(options.commandHome)} = "write"`,
+    `${toml(options.commandTemp)} = "write"`,
     "",
     `[permissions.${name}.filesystem.\":workspace_roots\"]`,
     '"." = "write"',

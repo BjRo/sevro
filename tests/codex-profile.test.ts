@@ -32,11 +32,13 @@ test("actual Codex sandbox keeps fixture access and denies source and auth", asy
   const root = await mkdtemp(join(tmpdir(), "sevro-codex-policy-"));
   const fixture = join(root, "fixture");
   const source = join(root, "source");
-  const codexHome = join(root, "codex-home");
-  const commandHome = join(fixture, "home");
-  const commandTemp = join(fixture, "tmp");
+  const state = join(root, "state");
+  const codexHome = join(state, "codex-home");
+  const commandHome = join(state, "command-home");
+  const commandTemp = join(state, "command-tmp");
   try {
-    await Promise.all([mkdir(fixture), mkdir(source), mkdir(codexHome)]);
+    await Promise.all([mkdir(fixture), mkdir(source), mkdir(state)]);
+    await mkdir(codexHome);
     await Promise.all([mkdir(commandHome), mkdir(commandTemp)]);
     await writeFile(join(fixture, "visible.txt"), "visible\n");
     await writeFile(join(source, "hidden.txt"), "hidden\n");
@@ -50,7 +52,7 @@ test("actual Codex sandbox keeps fixture access and denies source and auth", asy
         workspace: fixture,
         commandHome,
         commandTemp,
-        protectedRoots: [source, codexHome],
+        protectedRoots: [source, state],
       }),
       { mode: 0o600 },
     );
