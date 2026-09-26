@@ -202,6 +202,9 @@ test("requires separate runner, project, and extension provenance", () => {
       dimensions: {
         runnerBuildDigest: digest,
         projectDigest: digest,
+        configurationDigest: digest,
+        extensionDigest: null,
+        extensionProtocol: null,
         caseDigest: digest,
         fixtureDigest: digest,
         checksDigest: digest,

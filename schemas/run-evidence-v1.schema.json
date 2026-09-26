@@ -31,6 +31,9 @@
           "required": [
             "runnerBuildDigest",
             "projectDigest",
+            "configurationDigest",
+            "extensionDigest",
+            "extensionProtocol",
             "caseDigest",
             "fixtureDigest",
             "checksDigest",
@@ -46,6 +49,11 @@
           "properties": {
             "runnerBuildDigest": { "$ref": "#/$defs/digest" },
             "projectDigest": { "$ref": "#/$defs/digest" },
+            "configurationDigest": { "$ref": "#/$defs/digest" },
+            "extensionDigest": {
+              "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }]
+            },
+            "extensionProtocol": { "enum": ["sevro.extension.v1", null] },
             "caseDigest": { "$ref": "#/$defs/digest" },
             "fixtureDigest": { "$ref": "#/$defs/digest" },
             "checksDigest": { "$ref": "#/$defs/digest" },

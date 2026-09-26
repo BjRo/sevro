@@ -77,6 +77,9 @@ identity. Historical Darrow artifacts keep their original schema version;
 fields absent from them remain unknown unless explicit historical provenance
 establishes the value.
 
+[`identity-v1.md`](identity-v1.md) defines the canonical digest and each
+comparison dimension.
+
 The versioned machine-readable contracts are
 [`cli-result-v1.schema.json`](../schemas/cli-result-v1.schema.json) and
 [`run-evidence-v1.schema.json`](../schemas/run-evidence-v1.schema.json). A

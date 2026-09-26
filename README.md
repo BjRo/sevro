@@ -20,3 +20,6 @@ process-group cancellation. The engine and public CLI are still being built.
 [`results.ts`](src/results.ts) reduces checks to separate execution, grading,
 and task states, applies case thresholds, and maps the aggregate to a CLI exit
 category.
+[`identity.ts`](src/identity.ts) computes versioned comparison identities from
+canonical JSON. The [identity contract](docs/identity-v1.md) defines the input
+dimensions.
