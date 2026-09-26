@@ -115,6 +115,21 @@ test("accepts discovery and each extension operation", () => {
       configuration: {},
     }),
     envelope(extension, "evaluate", "result", { checks: [], metrics: [] }),
+    envelope(extension, "evaluate", "params", {
+      caseId: "case-1",
+      execution: complete,
+      observations: [],
+      builtinChecks: [],
+      artifacts: [],
+      extensionData: {},
+      selectedTaskVerdictPolicy: "example.policy",
+      configuration: {},
+    }),
+    envelope(extension, "evaluate", "result", {
+      checks: [],
+      metrics: [],
+      taskVerdictRecommendation: "passed",
+    }),
     envelope(extension, "evaluate", "error", {
       code: "example.unavailable",
       message: "required observation is unavailable",
@@ -263,6 +278,7 @@ test("requires separate runner, project, and extension provenance", () => {
         observationCompleteness: "complete",
         observations: [],
         metrics: [],
+        taskVerdictPolicy: null,
         routes: [],
         usage: {
           inputTokens: null,

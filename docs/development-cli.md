@@ -68,7 +68,13 @@ those files and the executable, negotiates `sevro.extension.v1`, resolves the
 selected case, then calls `prepare` and `evaluate` around host execution.
 `--case-file` and `--extension-command-file` are exclusive. This CLI currently
 accepts inline or repository fixtures and additive extension checks. Requested
-instrumentation and task verdict policy replacement are not yet supported.
+instrumentation and built-in grader replacement are not yet supported.
+To select an advertised extension task-verdict policy, pass
+`--task-verdict-policy <namespaced-policy-id>` with the extension command. A
+completed, fully graded trial uses the policy's recommendation for its task
+verdict; failed execution, grading errors, and unavailable required evidence
+cannot become a pass. Without this option, the runner uses its default task
+verdict and rejects unsolicited recommendations.
 
 If the extension needs configuration, supply both
 `--extension-configuration-file` and

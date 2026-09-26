@@ -62,7 +62,7 @@ New retained evidence separately identifies:
   is the runner checkout;
 - the extension ID, version, source/content digest, configuration digest,
   negotiated protocol and capabilities, active graders, replaced defaults,
-  requested and applied instrumentation;
+  selected task-verdict policy, and requested and applied instrumentation;
 - each candidate, semantic grader, and advisory judge's exact host, model,
   effort, raw-result provenance, and observation completeness; and
 - the declared passive/enforced condition, case inputs, check definitions,
@@ -76,6 +76,9 @@ temporary paths, run IDs, and output locations do not change evaluation
 identity. Historical Darrow artifacts keep their original schema version;
 fields absent from them remain unknown unless explicit historical provenance
 establishes the value.
+When a task-verdict policy is selected, each trial records its recommendation
+separately from the final task verdict. A missing recommendation cannot produce
+a passing assessment.
 
 [`identity-v1.md`](identity-v1.md) defines the canonical digest and each
 comparison dimension.

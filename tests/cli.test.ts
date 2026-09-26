@@ -258,6 +258,55 @@ test("CLI resolves an explicit extension case and retains extension evidence", a
   expect(ambiguous.code).toBe(64);
 });
 
+test("CLI selects an advertised extension task policy explicitly", async () => {
+  const { args, caseFile } = await fixture();
+  const commandFile = join(caseFile, "..", "extension-command.json");
+  await writeFile(
+    commandFile,
+    JSON.stringify([process.execPath, extensionSource, "lifecycle-policy"]),
+  );
+  const command = args.filter(
+    (part, index) =>
+      part !== "--case-file" && args[index - 1] !== "--case-file",
+  );
+  command.push(
+    "--extension-command-file",
+    commandFile,
+    "--extension-source-file",
+    extensionSource,
+    "--case-id",
+    "extension-case",
+  );
+  const defaultRun = await invoke(command);
+  expect(defaultRun.code).toBe(1);
+  const selected = await invoke([
+    ...command,
+    "--task-verdict-policy",
+    "example.policy",
+  ]);
+  expect(selected.code).toBe(0);
+  expect(selected.result.cases[0].trials[0].checks[0].status).toBe("failed");
+  const evidence = JSON.parse(
+    await readFile(selected.result.evidencePath, "utf8"),
+  );
+  const defaultEvidence = JSON.parse(
+    await readFile(defaultRun.result.evidencePath, "utf8"),
+  );
+  expect(evidence.evaluationIdentity.digest).not.toBe(
+    defaultEvidence.evaluationIdentity.digest,
+  );
+  expect(evidence.extension.replacements.taskVerdictPolicy).toBe(
+    "example.policy",
+  );
+  expect(evidence.trials[0].taskVerdictPolicy.recommendation).toBe("passed");
+  const rejected = await invoke([
+    ...args,
+    "--task-verdict-policy",
+    "example.policy",
+  ]);
+  expect(rejected.code).toBe(64);
+});
+
 test("CLI mounts only declared preparation source files", async () => {
   const { args, caseFile } = await fixture();
   const projectRoot = join(caseFile, "..");

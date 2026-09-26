@@ -43,6 +43,7 @@ import {
 import type { ExtensionCase } from "./extension-session";
 import { openExtensionSession } from "./extension-session";
 import {
+  applyTaskVerdictPolicy,
   assessTrial,
   exitCodeFor,
   summarizeAssessments,
@@ -336,10 +337,6 @@ export async function runEvaluation(
     )
   )
     throw new EvaluationConfigurationError("invalid required evidence IDs");
-  if (options.extension?.session.identity.selectedTaskVerdictPolicy)
-    throw new EvaluationConfigurationError(
-      "extension task policy replacement is not supported by this engine path",
-    );
   const builtinDeclarations = options.case.checks.filter((check) =>
     isOutputGrader(check.grader),
   ) as OutputCheckDeclaration[];
@@ -773,6 +770,8 @@ export async function runEvaluation(
           value: number | null;
           unit: string;
         }[] = [];
+        let taskPolicyRecommendation:
+          "passed" | "failed" | "not_assessed" | null = null;
         let graderError = false;
         if (execution === "completed") {
           try {
@@ -1038,6 +1037,8 @@ export async function runEvaluation(
               })),
             );
             extensionMetrics = extensionResult.metrics;
+            taskPolicyRecommendation =
+              extensionResult.taskVerdictRecommendation ?? null;
           } catch {
             if (options.signal?.aborted) {
               execution = "cancelled";
@@ -1054,7 +1055,7 @@ export async function runEvaluation(
             }
           }
         }
-        const assessment = assessTrial({
+        const defaultAssessment = assessTrial({
           execution,
           declaredChecks: options.case.checks.map((check) => check.id),
           checks,
@@ -1072,6 +1073,13 @@ export async function runEvaluation(
               ),
           ),
         });
+        const assessment = applyTaskVerdictPolicy(
+          defaultAssessment,
+          taskPolicyRecommendation,
+          Boolean(
+            options.extension?.session.identity.selectedTaskVerdictPolicy,
+          ),
+        );
         await verifyRetainedArtifacts(trialArtifactRefs);
         const rawPath =
           hostResult?.finalMessage !== null &&
@@ -1107,6 +1115,14 @@ export async function runEvaluation(
             ...additionalObservations,
           ],
           metrics: extensionMetrics,
+          taskVerdictPolicy: options.extension?.session.identity
+            .selectedTaskVerdictPolicy
+            ? {
+                id: options.extension.session.identity
+                  .selectedTaskVerdictPolicy,
+                recommendation: taskPolicyRecommendation,
+              }
+            : null,
           routes,
           usage: usage(hostResult),
           rawResult: {
@@ -1207,7 +1223,11 @@ export async function runEvaluation(
               options.extension.session.identity.configurationDigest,
             protocol: options.extension.session.identity.protocol,
             capabilities: options.extension.session.identity.capabilities,
-            replacements: { graders: [], taskVerdictPolicy: null },
+            replacements: {
+              graders: [],
+              taskVerdictPolicy:
+                options.extension.session.identity.selectedTaskVerdictPolicy,
+            },
           }
         : null,
       condition: {

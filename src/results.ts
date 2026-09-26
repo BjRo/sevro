@@ -62,6 +62,22 @@ export function assessTrial(input: TrialInput): Assessment {
   };
 }
 
+/** Apply an explicitly selected policy only to a fully assessed trial. */
+export function applyTaskVerdictPolicy(
+  assessment: Assessment,
+  recommendation: TaskVerdict | null,
+  selected: boolean,
+): Assessment {
+  if (!selected) return assessment;
+  if (
+    recommendation === null ||
+    assessment.execution.status !== "completed" ||
+    assessment.grading.status !== "completed"
+  )
+    return { ...assessment, task: { verdict: "not_assessed" } };
+  return { ...assessment, task: { verdict: recommendation } };
+}
+
 /** Apply a case's pass threshold after every required trial has an assessment. */
 export function summarizeAssessments(
   assessments: Assessment[],

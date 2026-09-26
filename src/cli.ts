@@ -80,6 +80,7 @@ function parseInvocation(argv: string[]) {
           "extension-source-file": { type: "string", multiple: true },
           "extension-configuration-file": { type: "string" },
           "extension-redacted-configuration-file": { type: "string" },
+          "task-verdict-policy": { type: "string" },
           "case-source-root": { type: "string" },
           "case-source-map-file": { type: "string" },
           "adapter-module": { type: "string" },
@@ -165,6 +166,12 @@ function parseInvocation(argv: string[]) {
     ? absoluteOption(values["run-state-root"], "--run-state-root")
     : resultsRoot;
   const extensionCommandFile = values["extension-command-file"];
+  const taskVerdictPolicy = values["task-verdict-policy"];
+  if (
+    taskVerdictPolicy !== undefined &&
+    !/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$/.test(taskVerdictPolicy)
+  )
+    throw new InvocationError("invalid --task-verdict-policy");
   if (Boolean(values["case-file"]) === Boolean(extensionCommandFile))
     throw new InvocationError(
       "select exactly one of --case-file or --extension-command-file",
@@ -179,7 +186,8 @@ function parseInvocation(argv: string[]) {
     values["case-id"] ||
     values["extension-source-file"] ||
     values["extension-configuration-file"] ||
-    values["extension-redacted-configuration-file"]
+    values["extension-redacted-configuration-file"] ||
+    taskVerdictPolicy !== undefined
   )
     throw new InvocationError(
       "extension options require --extension-command-file",
@@ -251,6 +259,7 @@ function parseInvocation(argv: string[]) {
                 "--extension-redacted-configuration-file",
               )
             : undefined,
+          taskVerdictPolicy,
         }
       : undefined,
     caseSourceRoot: values["case-source-root"]
@@ -490,6 +499,7 @@ async function main(argv: string[]): Promise<void> {
         sourceFiles: selected.sourceFiles,
         engineCapabilities: ["sevro.host.exec"],
         hostCapabilities: [],
+        taskVerdictPolicy: selected.taskVerdictPolicy,
         signal: cancellation.signal,
       });
       const chosen = selectExtensionCase(

@@ -254,6 +254,7 @@
         "observationCompleteness",
         "observations",
         "metrics",
+        "taskVerdictPolicy",
         "routes",
         "usage",
         "rawResult",
@@ -295,6 +296,22 @@
         "metrics": {
           "type": "array",
           "items": { "$ref": "#/$defs/metric" }
+        },
+        "taskVerdictPolicy": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": ["id", "recommendation"],
+              "properties": {
+                "id": { "type": "string", "minLength": 1 },
+                "recommendation": {
+                  "enum": ["passed", "failed", "not_assessed", null]
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
         },
         "routes": { "type": "array", "items": { "$ref": "#/$defs/route" } },
         "usage": {

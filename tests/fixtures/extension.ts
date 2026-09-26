@@ -25,7 +25,9 @@ const discovery = {
   requiredCapabilities: ["sevro.host.exec"],
   optionalCapabilities: ["sevro.host.extra"],
   graders: ["example.extension"],
-  taskVerdictPolicies: [],
+  taskVerdictPolicies: scenario.startsWith("lifecycle-policy")
+    ? ["example.policy"]
+    : [],
 };
 let hostArtifactReady = true;
 if (scenario === "lifecycle-host-artifact" && request.method === "evaluate") {
@@ -57,7 +59,11 @@ const result = scenario.startsWith("lifecycle")
               {
                 id: "ready",
                 grader: "sevro.regex",
-                configuration: { pattern: "ready" },
+                configuration: {
+                  pattern: scenario.startsWith("lifecycle-policy")
+                    ? "never"
+                    : "ready",
+                },
               },
               {
                 id: "example.extension.ready",
@@ -70,7 +76,9 @@ const result = scenario.startsWith("lifecycle")
                 ? ["darrow.activation"]
                 : scenario === "lifecycle-host-artifact"
                   ? ["example.host.trace"]
-                  : [],
+                  : scenario === "lifecycle-policy-unavailable"
+                    ? ["example.missing"]
+                    : [],
             extensionData: { "example.extension": { marker: "resolved" } },
           },
         ],
@@ -125,6 +133,12 @@ const result = scenario.startsWith("lifecycle")
             metrics: [
               { id: "example.extension.score", value: 1, unit: "ratio" },
             ],
+            ...(scenario.startsWith("lifecycle-policy") &&
+            scenario !== "lifecycle-policy-missing" &&
+            (request.params as Record<string, unknown>)
+              .selectedTaskVerdictPolicy === "example.policy"
+              ? { taskVerdictRecommendation: "passed" }
+              : {}),
           }
         : discovery
   : discovery;

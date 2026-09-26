@@ -98,9 +98,13 @@ and the extension's namespaced case data. It returns namespaced checks and
 metrics. A check is `passed`, `failed`, or `unavailable`; it names the evidence
 used. A missing required observation remains unavailable. The extension may
 return a task-verdict recommendation only when an explicitly configured
-task-verdict policy names that extension policy. The engine computes the final
-verdict and cannot let that recommendation conceal execution failure, grader
-error, or unavailable required evidence.
+task-verdict policy names that extension policy. In that case, `evaluate`
+receives `selectedTaskVerdictPolicy` and must return a recommendation. The
+engine uses it only for a completed trial with completed grading and available
+required evidence. It retains the selected policy and each trial's
+recommendation. An omitted recommendation is a grading error. A policy may
+change a failed check's task verdict, but cannot conceal execution failure,
+grader error, or unavailable required evidence.
 Host adapters can supply additional namespaced observations. The engine bounds
 and retains those records, then passes them to `evaluate`. Required observation
 IDs must be present with `complete` evidence before a task can pass.
@@ -126,7 +130,7 @@ and persists check outcomes, evidence references, and metrics before fixture
 cleanup. It applies and retains bounded inline preparation artifacts after
 checking their path and digest. Source references require a caller-declared
 ID-to-file-URL map under a case source root and receive the same checks.
-Instrumentation and policy replacement still need engine support.
+Instrumentation and built-in grader replacement still need engine support.
 
 ## Grading and replacement
 

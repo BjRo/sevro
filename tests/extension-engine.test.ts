@@ -31,6 +31,9 @@ async function runWithExtension(
     redactedConfiguration: {},
     engineCapabilities: ["sevro.host.exec"],
     hostCapabilities: [],
+    ...(scenario.startsWith("lifecycle-policy")
+      ? { taskVerdictPolicy: "example.policy" }
+      : {}),
   });
   const [resolvedCase] = await session.resolve(
     new URL(`file://${projectRoot}/`).href,
@@ -137,6 +140,44 @@ test("extension checks add to built-ins and retain negotiated provenance", async
   expect(
     evidence.graders.active.map((grader: { id: string }) => grader.id),
   ).toEqual(["sevro.regex", "example.extension"]);
+});
+
+test("selected task policy may replace a failed check verdict and retains its decision", async () => {
+  const { outcome, evidence } = await runWithExtension("lifecycle-policy");
+  expect(outcome.result).toMatchObject({
+    execution: { status: "completed" },
+    grading: { status: "completed" },
+    task: { verdict: "passed" },
+    exitCode: 0,
+  });
+  expect(outcome.result.cases[0]?.trials[0]?.checks[0]?.status).toBe("failed");
+  expect(evidence.extension.replacements.taskVerdictPolicy).toBe(
+    "example.policy",
+  );
+  expect(evidence.trials[0].taskVerdictPolicy).toEqual({
+    id: "example.policy",
+    recommendation: "passed",
+  });
+  const missing = await runWithExtension("lifecycle-policy-missing");
+  expect(missing.outcome.result).toMatchObject({
+    grading: { status: "error" },
+    task: { verdict: "not_assessed" },
+    exitCode: 3,
+  });
+  const unavailable = await runWithExtension("lifecycle-policy-unavailable");
+  expect(unavailable.outcome.result).toMatchObject({
+    grading: { status: "unavailable" },
+    task: { verdict: "not_assessed" },
+    exitCode: 4,
+  });
+  const failedHost = await runWithExtension("lifecycle-policy", async () => {
+    throw new Error("host failed");
+  });
+  expect(failedHost.outcome.result).toMatchObject({
+    execution: { status: "failed" },
+    task: { verdict: "not_assessed" },
+    exitCode: 2,
+  });
 });
 
 test("extension grading receives complete host observations", async () => {

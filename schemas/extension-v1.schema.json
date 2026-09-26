@@ -445,6 +445,7 @@
           "items": { "$ref": "#/$defs/artifactRef" }
         },
         "extensionData": { "$ref": "#/$defs/extensionData" },
+        "selectedTaskVerdictPolicy": { "$ref": "#/$defs/namespacedId" },
         "configuration": { "type": "object" }
       },
       "additionalProperties": false

@@ -217,10 +217,12 @@ export async function openExtensionSession(options: ExtensionSessionOptions) {
       })) as unknown as PreparationResult;
     },
     async evaluate(request: EvaluationRequest): Promise<EvaluationResult> {
-      const result = (await call(
-        "evaluate",
-        request,
-      )) as unknown as EvaluationResult;
+      const result = (await call("evaluate", {
+        ...request,
+        ...(taskVerdictPolicy
+          ? { selectedTaskVerdictPolicy: taskVerdictPolicy }
+          : {}),
+      })) as unknown as EvaluationResult;
       const ids = result.checks.map((check) => check.id);
       if (
         new Set(ids).size !== ids.length ||
@@ -232,6 +234,10 @@ export async function openExtensionSession(options: ExtensionSessionOptions) {
       if (result.taskVerdictRecommendation && !taskVerdictPolicy)
         throw new ExtensionProtocolError(
           "extension task policy was not selected",
+        );
+      if (taskVerdictPolicy && !result.taskVerdictRecommendation)
+        throw new ExtensionProtocolError(
+          "extension omitted the selected task policy recommendation",
         );
       const available = new Map(
         request.observations.map((item) => [item.id, item.completeness]),

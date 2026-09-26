@@ -72,7 +72,12 @@ against their SHA-256 digests, mounted into each fixture, and retained outside
 it for later inspection. Source-reference artifacts resolve only through a
 caller-declared ID-to-file-URL map under an explicit case source root. Their
 bytes receive the same size, path, and digest checks before mounting and
-retention. Instrumentation and task-policy replacement remain unsupported and
-are rejected before execution.
+retention.
+An explicitly selected extension task-verdict policy receives its policy ID
+during `evaluate` and must return a recommendation. The engine uses that
+recommendation only when execution and grading completed with all required
+evidence available. It retains the selected policy and trial recommendation;
+missing recommendations are grading errors. Built-in grader replacement and
+instrumentation remain unsupported.
 
 Additional host adapters and condition instrumentation remain in progress.
