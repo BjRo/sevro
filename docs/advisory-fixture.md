@@ -1,0 +1,19 @@
+# Advisory review fixture
+
+`buildBlindAdvisoryFixture(candidateWorkspace, { baseRevision, excludedPaths })`
+creates a temporary Git workspace for a separate quality reviewer. The caller
+supplies the candidate workspace and its `HEAD` revision from before the host
+ran. The helper starts with that revision, replaces the original Git history
+with one synthetic baseline commit, then applies committed, staged, unstaged,
+and non-ignored untracked candidate changes. The returned directory is owned
+by the caller, which must remove it after review.
+
+Root `.agents`, `.claude`, `.codex`, and `.git` paths are withheld from both the
+baseline and the change. `excludedPaths` withholds any additional evaluator
+paths. The review workspace has no remote. The helper rejects escaping or
+broken symlinks and limits Git output, untracked file count, and untracked
+bytes. A failed build removes its temporary directory.
+
+This helper constructs the review view; it does not yet run a reviewer or
+interpret its assessment. An advisory assessment must stay separate from the
+task verdict.

@@ -33,5 +33,7 @@ and inline schema assertions on bounded final-message observations.
 
 The [first engine slice](docs/engine-slice.md) executes resolved cases through
 an injected host adapter and retains trial evidence before fixture cleanup.
+The [advisory review fixture](docs/advisory-fixture.md) builds a separate Git
+view of the complete candidate change while withholding evaluator paths.
 The [development CLI](docs/development-cli.md) runs that path with a trusted
 adapter module or the bundled Codex route and emits a machine-readable result.
