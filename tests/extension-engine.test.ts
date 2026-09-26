@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { runEvaluation, type HostAdapter } from "../src/engine";
 import { openExtensionSession } from "../src/extension-session";
 
@@ -20,6 +21,9 @@ async function runWithExtension(
 ) {
   const projectRoot = await mkdtemp(join(tmpdir(), "sevro-extension-engine-"));
   roots.push(projectRoot);
+  const sourcePath = join(projectRoot, "case-sources", "data.txt");
+  if (scenario === "lifecycle-source-artifact")
+    await Bun.write(sourcePath, "prepared data\n");
   const session = await openExtensionSession({
     command: [process.execPath, source, scenario],
     sourceFiles: [source],
@@ -42,7 +46,7 @@ async function runWithExtension(
       expect(await readFile(join(workspace, "README.md"), "utf8")).toBe(
         "fixture\n",
       );
-      if (scenario === "lifecycle-artifact")
+      if (scenario === "lifecycle-artifact" || scenario === "lifecycle-source-artifact")
         expect(
           await readFile(join(workspace, "generated/data.txt"), "utf8"),
         ).toBe("prepared data\n");
@@ -65,6 +69,14 @@ async function runWithExtension(
       requiredEvidence: resolvedCase.requiredEvidence,
     },
     extension: { session, resolvedCase },
+    ...(scenario === "lifecycle-source-artifact"
+      ? {
+          preparationSources: {
+            root: join(projectRoot, "case-sources"),
+            refs: { "input-data": pathToFileURL(sourcePath).href },
+          },
+        }
+      : {}),
     host,
     runnerBuildDigest: digest,
     projectDigest: digest,
@@ -183,6 +195,15 @@ test("prepared inline artifacts survive fixture cleanup with their digest", asyn
   const [artifact] = evidence.trials[0].artifactRefs;
   expect(artifact.id).toBe("generated-file");
   expect(artifact.sha256).toMatch(/^[a-f0-9]{64}$/);
+  expect(await readFile(new URL(artifact.path), "utf8")).toBe(
+    "prepared data\n",
+  );
+});
+
+test("declared source artifacts are retained and mounted with verified bytes", async () => {
+  const { outcome, evidence } = await runWithExtension("lifecycle-source-artifact");
+  expect(outcome.result.exitCode).toBe(0);
+  const [artifact] = evidence.trials[0].artifactRefs;
   expect(await readFile(new URL(artifact.path), "utf8")).toBe(
     "prepared data\n",
   );

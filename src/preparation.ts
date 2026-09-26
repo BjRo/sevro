@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
-import { isAbsolute } from "node:path";
+import { readFile, realpath, stat } from "node:fs/promises";
+import { isAbsolute, relative, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const MAX_ARTIFACT_BYTES = 8 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 32 * 1024 * 1024;
@@ -17,6 +19,11 @@ export interface InlineArtifact {
   relativePath: string;
   sha256: string;
   bytes: Uint8Array;
+}
+
+export interface PreparationSources {
+  root: string;
+  refs: Record<string, string>;
 }
 
 export function fixtureParts(relativePath: string): string[] {
@@ -89,4 +96,67 @@ export function prepareInlineArtifacts(
       bytes,
     };
   });
+}
+
+/** Resolve opaque source IDs only through an explicitly declared case source map. */
+export async function prepareArtifacts(
+  declarations: PreparationArtifact[],
+  fixturePaths: string[],
+  sources?: PreparationSources,
+): Promise<InlineArtifact[]> {
+  if (!declarations.some((item) => item.sourceRef !== undefined))
+    return prepareInlineArtifacts(declarations, fixturePaths);
+  if (!sources || !isAbsolute(sources.root))
+    throw new Error("preparation source root is required and must be absolute");
+  const root = await realpath(sources.root).catch(() => {
+    throw new Error("preparation source root is unreadable");
+  });
+  const resolved: PreparationArtifact[] = [];
+  let sourceBytes = 0;
+  for (const item of declarations) {
+    if (item.sourceRef === undefined) {
+      resolved.push(item);
+      continue;
+    }
+    if (item.contentBase64 !== undefined)
+      throw new Error("preparation artifact has two content sources");
+    if (!Object.hasOwn(sources.refs, item.sourceRef))
+      throw new Error("preparation source reference is not declared");
+    const url = sources.refs[item.sourceRef];
+    if (typeof url !== "string" || !url.startsWith("file:///"))
+      throw new Error("preparation source reference must be a file URL");
+    let path: string;
+    try {
+      path = await realpath(fileURLToPath(url));
+    } catch {
+      throw new Error("preparation source is unreadable");
+    }
+    const child = relative(root, path);
+    if (!child || child === ".." || child.startsWith(`..${sep}`) || isAbsolute(child))
+      throw new Error("preparation source escapes its declared root");
+    let size: number;
+    try {
+      size = (await stat(path)).size;
+    } catch {
+      throw new Error("preparation source is unreadable");
+    }
+    if (size > MAX_ARTIFACT_BYTES || sourceBytes + size > MAX_TOTAL_BYTES)
+      throw new Error("preparation artifacts exceed the size limit");
+    let bytes: Buffer;
+    try {
+      bytes = await readFile(path);
+    } catch {
+      throw new Error("preparation source is unreadable");
+    }
+    sourceBytes += bytes.byteLength;
+    if (bytes.byteLength > MAX_ARTIFACT_BYTES || sourceBytes > MAX_TOTAL_BYTES)
+      throw new Error("preparation artifacts exceed the size limit");
+    resolved.push({
+      id: item.id,
+      relativePath: item.relativePath,
+      sha256: item.sha256,
+      contentBase64: bytes.toString("base64"),
+    });
+  }
+  return prepareInlineArtifacts(resolved, fixturePaths);
 }

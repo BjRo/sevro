@@ -65,8 +65,12 @@ const result = scenario.startsWith("lifecycle")
                       : createHash("sha256")
                           .update("prepared data\n")
                           .digest("hex"),
-                  contentBase64:
-                    Buffer.from("prepared data\n").toString("base64"),
+                  ...(scenario === "lifecycle-source-artifact"
+                    ? { sourceRef: "input-data" }
+                    : {
+                        contentBase64:
+                          Buffer.from("prepared data\n").toString("base64"),
+                      }),
                 },
               ]
             : [],

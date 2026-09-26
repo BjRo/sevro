@@ -117,8 +117,9 @@ extension check must cite available, complete evidence. The engine now accepts
 inline cases with additive extension checks, runs `prepare` before the host,
 and persists check outcomes, evidence references, and metrics before fixture
 cleanup. It applies and retains bounded inline preparation artifacts after
-checking their path and digest. Source-reference artifacts, instrumentation,
-and policy replacement still need engine support.
+checking their path and digest. Source references require a caller-declared
+ID-to-file-URL map under a case source root and receive the same checks.
+Instrumentation and policy replacement still need engine support.
 
 ## Grading and replacement
 

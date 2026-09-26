@@ -20,8 +20,9 @@ import {
 import { createEvaluationIdentity, hashJson } from "./identity";
 import {
   fixtureParts,
-  prepareInlineArtifacts,
+  prepareArtifacts,
   type InlineArtifact,
+  type PreparationSources,
 } from "./preparation";
 import type { ExtensionCase } from "./extension-session";
 import { openExtensionSession } from "./extension-session";
@@ -94,6 +95,7 @@ export interface EvaluationOptions {
     session: Awaited<ReturnType<typeof openExtensionSession>>;
     resolvedCase: ExtensionCase;
   };
+  preparationSources?: PreparationSources;
 }
 
 interface TrialSummary extends Assessment {
@@ -281,9 +283,10 @@ export async function runEvaluation(
     );
   let inlineArtifacts: InlineArtifact[];
   try {
-    inlineArtifacts = prepareInlineArtifacts(
+    inlineArtifacts = await prepareArtifacts(
       extensionPreparation?.artifacts ?? [],
       Object.keys(options.case.fixture.files),
+      options.preparationSources,
     );
   } catch (error) {
     throw new EvaluationConfigurationError(
