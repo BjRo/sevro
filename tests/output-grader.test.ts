@@ -126,3 +126,73 @@ test("missing or incomplete observations cannot pass any output check", () => {
     "unavailable",
   ]);
 });
+
+test("composite output checks keep text and JSON assertions in one outcome", () => {
+  const [check] = prepareOutputChecks([
+    {
+      id: "contract",
+      grader: "sevro.output",
+      configuration: {
+        validJson: true,
+        schema: { type: "object", required: ["items"] },
+        jsonPath: "/items",
+        containsJson: { name: "ready" },
+        expectRegex: "ready",
+        notRegex: "secret",
+        flags: "i",
+      },
+    },
+  ]);
+  expect(
+    gradeOutput('{"items":[{"name":"READY"}]}', true, [check!])[0]?.status,
+  ).toBe("failed");
+  expect(
+    gradeOutput('{"items":[{"name":"ready"}]}', true, [check!])[0]?.status,
+  ).toBe("passed");
+  expect(
+    gradeOutput('before\n{"items":[{"name":"ready"}]}', true, [check!])[0]
+      ?.status,
+  ).toBe("failed");
+  expect(
+    gradeOutput('{"items":[{"name":"ready"}],"secret":true}', true, [check!])[0]
+      ?.status,
+  ).toBe("failed");
+  expect(gradeOutput(null, true, [check!])[0]?.status).toBe("unavailable");
+});
+
+test("composite exact text matching is strict and validates patterns before execution", () => {
+  const [check] = prepareOutputChecks([
+    {
+      id: "exact",
+      grader: "sevro.output",
+      configuration: {
+        expectExact: "ready",
+      },
+    },
+  ]);
+  expect(gradeOutput("ready", true, [check!])[0]?.status).toBe("passed");
+  expect(gradeOutput("ready\n", true, [check!])[0]?.status).toBe("failed");
+  expect(() =>
+    prepareOutputChecks([
+      {
+        id: "bad",
+        grader: "sevro.output",
+        configuration: {
+          expectRegex: "(",
+        },
+      },
+    ]),
+  ).toThrow(/regex/);
+  expect(() =>
+    prepareOutputChecks([
+      {
+        id: "bad",
+        grader: "sevro.output",
+        configuration: {
+          validJson: true,
+          jsonPath: "/bad~2pointer",
+        },
+      },
+    ]),
+  ).toThrow(/pointer/);
+});

@@ -144,7 +144,8 @@ The bundled Codex host currently advertises no instrumentation capabilities.
 
 ## Grading and replacement
 
-The runner provides built-in shell, regex, JSON/schema, semantic-output, and
+The runner provides built-in shell, regex, JSON/schema, combined output,
+semantic-output, and
 advisory quality graders. A run can use those without any extension. An
 extension's graders add checks and metrics by default. The run configuration
 must explicitly name each built-in grader it replaces, or explicitly select

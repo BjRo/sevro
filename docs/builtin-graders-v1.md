@@ -14,6 +14,7 @@ output graders are:
 | `sevro.regex`  | `pattern` string; optional `negate` boolean and `flags` string     | Tests final-message text with multiline matching.           |
 | `sevro.json`   | Optional RFC 6901 `pointer`, `equals`, `contains`, `exactDocument` | Parses JSON, then checks selected value or an array member. |
 | `sevro.schema` | Inline `schema` object; optional `exactDocument`                   | Validates the parsed JSON with JSON Schema Draft 2020-12.   |
+| `sevro.output` | Optional text, JSON, and schema assertions in one declaration      | Retains one outcome for a combined final-message contract.  |
 
 JSON may be raw or contained in one `json` code fence. `exactDocument` requires
 the whole trimmed message to be that JSON document or fence. `contains` selects
@@ -21,6 +22,14 @@ an array and compares one member against a recursive subset; an object with
 only `$regex` matches a string value. Invalid patterns, pointers, and schemas
 fail preflight. Schema references are resolved only from the inline schema; the
 grader does not read paths supplied by a candidate.
+
+`sevro.output` accepts `expectExact`, `expectRegex`, `notRegex`, and regex
+`flags`; `validJson`; an inline `schema`; and `jsonPath` with optional
+`expectJson` or `containsJson`. It checks them in that order: JSON validity,
+schema, selected JSON value, exact text, positive regex, then negative regex.
+`validJson: true` requires the entire trimmed message to be one JSON document
+or fence. Exact text compares the untrimmed final message. A bad declaration
+fails before host execution.
 
 The shell-check process runner accepts a bounded evaluator-owned `run` string,
 optional `expectedExitCode` and `timeoutMs`, plus `expectExact`, `expectRegex`,

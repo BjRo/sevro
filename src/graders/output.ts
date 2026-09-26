@@ -3,10 +3,15 @@ import Ajv2020, { type ValidateFunction } from "ajv/dist/2020.js";
 import { canonicalJson } from "../identity";
 import type { CheckOutcome } from "../results";
 
-type GraderId = "sevro.regex" | "sevro.json" | "sevro.schema";
+type GraderId = "sevro.regex" | "sevro.json" | "sevro.schema" | "sevro.output";
 
 export function isOutputGrader(id: string): id is GraderId {
-  return id === "sevro.regex" || id === "sevro.json" || id === "sevro.schema";
+  return (
+    id === "sevro.regex" ||
+    id === "sevro.json" ||
+    id === "sevro.schema" ||
+    id === "sevro.output"
+  );
 }
 
 export interface OutputCheckDeclaration {
@@ -201,6 +206,83 @@ function compileSchema(
   };
 }
 
+/** One named assertion may combine independent final-message predicates. */
+function compileCompositeOutput(
+  config: Record<string, unknown>,
+): PreparedOutputCheck["evaluate"] {
+  configKeys(config, [
+    "validJson",
+    "schema",
+    "jsonPath",
+    "expectJson",
+    "containsJson",
+    "expectExact",
+    "expectRegex",
+    "notRegex",
+    "flags",
+  ]);
+  if (config.validJson !== undefined && typeof config.validJson !== "boolean")
+    throw new Error("validJson must be a boolean");
+  if (
+    config.expectExact !== undefined &&
+    typeof config.expectExact !== "string"
+  )
+    throw new Error("expectExact must be a string");
+  if (
+    (Object.hasOwn(config, "expectJson") ||
+      Object.hasOwn(config, "containsJson")) &&
+    config.jsonPath === undefined
+  )
+    throw new Error("JSON expectations require a pointer");
+  if (
+    config.flags !== undefined &&
+    config.expectRegex === undefined &&
+    config.notRegex === undefined
+  )
+    throw new Error("regex flags require a pattern");
+  const stages: PreparedOutputCheck["evaluate"][] = [];
+  if (config.validJson) stages.push(compileJson({ exactDocument: true }));
+  if (config.schema !== undefined)
+    stages.push(compileSchema({ schema: config.schema }));
+  if (config.jsonPath !== undefined)
+    stages.push(
+      compileJson({
+        pointer: config.jsonPath,
+        ...(Object.hasOwn(config, "expectJson")
+          ? { equals: config.expectJson }
+          : {}),
+        ...(Object.hasOwn(config, "containsJson")
+          ? { contains: config.containsJson }
+          : {}),
+      }),
+    );
+  if (config.expectExact !== undefined) {
+    const expected = config.expectExact;
+    stages.push((text) =>
+      text === expected ? undefined : "exact output did not match",
+    );
+  }
+  if (config.expectRegex !== undefined)
+    stages.push(
+      compileRegex({ pattern: config.expectRegex, flags: config.flags }),
+    );
+  if (config.notRegex !== undefined)
+    stages.push(
+      compileRegex({
+        pattern: config.notRegex,
+        negate: true,
+        flags: config.flags,
+      }),
+    );
+  return (text, document) => {
+    for (const stage of stages) {
+      const failure = stage(text, document);
+      if (failure !== undefined) return failure;
+    }
+    return undefined;
+  };
+}
+
 /** Compile evaluator-owned checks before candidate execution. */
 export function prepareOutputChecks(
   declarations: OutputCheckDeclaration[],
@@ -223,7 +305,9 @@ export function prepareOutputChecks(
           ? compileJson(configuration)
           : grader === "sevro.schema"
             ? compileSchema(configuration)
-            : undefined;
+            : grader === "sevro.output"
+              ? compileCompositeOutput(configuration)
+              : undefined;
     if (!evaluate) throw new Error(`unsupported output grader: ${grader}`);
     return { id, grader, evaluate };
   });
