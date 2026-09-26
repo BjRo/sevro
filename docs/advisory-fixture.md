@@ -20,4 +20,4 @@ pass or fail recommendation, overall score, four dimension scores, strengths,
 weaknesses, and a summary. The engine invokes this route when given an
 `advisoryHost` and a Git fixture. It records the route, response, assessment,
 and usage in trial evidence. A reviewer failure or recommendation never
-changes the task verdict. The development CLI does not yet expose this route.
+changes the task verdict. The development CLI exposes adapter and Codex routes.

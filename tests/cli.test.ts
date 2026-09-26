@@ -24,6 +24,11 @@ const semanticAdapter = join(
   "fixtures",
   "semantic-adapter.ts",
 );
+const advisoryAdapter = join(
+  import.meta.dir,
+  "fixtures",
+  "advisory-adapter.ts",
+);
 const extensionSource = join(import.meta.dir, "fixtures", "extension.ts");
 const digest = "a".repeat(64);
 
@@ -219,6 +224,52 @@ test("CLI runs semantic checks through an explicit grader route", async () => {
   expect(failed.code).toBe(1);
   const malformed = await invoke(command, "semantic-malformed");
   expect(malformed.code).toBe(3);
+});
+
+test("CLI selects an advisory route and retains its independent assessment", async () => {
+  const { args, caseFile } = await fixture();
+  const definition = JSON.parse(await readFile(caseFile, "utf8"));
+  definition.fixture = {
+    kind: "generated",
+    commits: [
+      {
+        message: "Add baseline",
+        files: {
+          "README.md": "fixture\n",
+          "app.ts": "export const value = 1;\n",
+          ".agents/condition.txt": "private condition\n",
+        },
+      },
+    ],
+    files: { "app.ts": "export const value = 2;\n" },
+  };
+  await writeFile(caseFile, JSON.stringify(definition));
+  const command = [...args, "--advisory-adapter-module", advisoryAdapter];
+  const passed = await invoke(command);
+  expect(passed.code).toBe(0);
+  expect(passed.result.task.verdict).toBe("passed");
+  const evidence = JSON.parse(
+    await readFile(passed.result.evidencePath, "utf8"),
+  );
+  expect(evidence.routes[1]).toMatchObject({
+    role: "advisory",
+    host: "sevro.host.advisory-synthetic",
+  });
+  expect(evidence.trials[0].advisoryReview).toMatchObject({
+    status: "completed",
+    assessment: { verdict: "fail", overallScore: 2 },
+  });
+  const plain = await invoke(args);
+  const plainEvidence = JSON.parse(
+    await readFile(plain.result.evidencePath, "utf8"),
+  );
+  expect(evidence.evaluationIdentity.digest).not.toBe(
+    plainEvidence.evaluationIdentity.digest,
+  );
+  const conflicting = await invoke([...command, "--advisory-host", "codex"]);
+  expect(conflicting.code).toBe(64);
+  const invalid = await invoke([...args, "--advisory-exclude", "private.txt"]);
+  expect(invalid.code).toBe(64);
 });
 
 test("CLI resolves an explicit extension case and retains extension evidence", async () => {
@@ -760,6 +811,25 @@ test("CLI runs its bundled Codex route with explicit auth and model", async () =
       }),
     },
   });
+  const advisoryEvent = JSON.stringify({
+    type: "item.completed",
+    item: {
+      type: "agent_message",
+      text: JSON.stringify({
+        verdict: "fail",
+        overallScore: 2,
+        dimensions: {
+          correctness: 2,
+          maintainability: 3,
+          testQuality: 2,
+          scopeDiscipline: 4,
+        },
+        strengths: ["Small change"],
+        weaknesses: ["Missing validation"],
+        summary: "A correctness gap remains.",
+      }),
+    },
+  });
   await writeFile(authFile, "test-only-auth\n", { mode: 0o600 });
   await writeFile(
     binary,
@@ -775,6 +845,11 @@ for arg in "$@"; do
   if [ "$arg" = synthetic-judge ]; then
     printf '%s\\n' '${semanticEvent}'
     printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'
+    exit 0
+  fi
+  if [ "$arg" = synthetic-reviewer ]; then
+    printf '%s\\n' '${advisoryEvent}'
+    printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":2,"output_tokens":2}}'
     exit 0
   fi
 done
@@ -849,6 +924,47 @@ printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_token
       expect.objectContaining({ id: "sevro.semantic.sevro.codex.events" }),
     ]),
   );
+  definition.checks.pop();
+  definition.fixture = {
+    kind: "generated",
+    commits: [
+      {
+        message: "Add baseline",
+        files: {
+          "README.md": "fixture\n",
+          "app.ts": "export const value = 1;\n",
+        },
+      },
+    ],
+    files: { "app.ts": "export const value = 2;\n" },
+  };
+  await writeFile(caseFile, JSON.stringify(definition));
+  const advisoryRun = await invoke([
+    ...args,
+    "--advisory-host",
+    "codex",
+    "--codex-bin",
+    binary,
+    "--codex-auth-file",
+    authFile,
+    "--advisory-model",
+    "synthetic-reviewer",
+    "--advisory-effort",
+    "low",
+  ]);
+  expect(advisoryRun.code).toBe(0);
+  const advisoryEvidence = JSON.parse(
+    await readFile(advisoryRun.result.evidencePath, "utf8"),
+  );
+  expect(advisoryEvidence.routes[1]).toMatchObject({
+    role: "advisory",
+    host: "codex",
+    model: "synthetic-reviewer",
+  });
+  expect(advisoryEvidence.trials[0].advisoryReview).toMatchObject({
+    status: "completed",
+    assessment: { verdict: "fail" },
+  });
   const conflicting = await invoke([
     ...semanticArgs,
     "--semantic-adapter-module",

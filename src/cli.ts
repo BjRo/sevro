@@ -100,6 +100,11 @@ function parseInvocation(argv: string[]) {
           "semantic-host": { type: "string" },
           "semantic-model": { type: "string" },
           "semantic-effort": { type: "string" },
+          "advisory-adapter-module": { type: "string" },
+          "advisory-host": { type: "string" },
+          "advisory-model": { type: "string" },
+          "advisory-effort": { type: "string" },
+          "advisory-exclude": { type: "string", multiple: true },
           host: { type: "string" },
           "codex-bin": { type: "string" },
           "codex-auth-file": { type: "string" },
@@ -142,12 +147,19 @@ function parseInvocation(argv: string[]) {
     throw new InvocationError("--protected-root must be absolute");
   const codex = values.host === "codex";
   const semanticCodex = values["semantic-host"] === "codex";
+  const advisoryCodex = values["advisory-host"] === "codex";
   if (values.host && !codex) throw new InvocationError("unsupported --host");
   if (values["semantic-host"] && !semanticCodex)
     throw new InvocationError("unsupported --semantic-host");
+  if (values["advisory-host"] && !advisoryCodex)
+    throw new InvocationError("unsupported --advisory-host");
   if (semanticCodex && values["semantic-adapter-module"])
     throw new InvocationError(
       "--semantic-host and --semantic-adapter-module are exclusive",
+    );
+  if (advisoryCodex && values["advisory-adapter-module"])
+    throw new InvocationError(
+      "--advisory-host and --advisory-adapter-module are exclusive",
     );
   if (codex && values["adapter-module"])
     throw new InvocationError("--host and --adapter-module are exclusive");
@@ -159,9 +171,20 @@ function parseInvocation(argv: string[]) {
     throw new InvocationError(
       "semantic model options require --semantic-host codex",
     );
+  if (!advisoryCodex && (values["advisory-model"] || values["advisory-effort"]))
+    throw new InvocationError(
+      "advisory model options require --advisory-host codex",
+    );
+  if (
+    values["advisory-exclude"]?.length &&
+    !advisoryCodex &&
+    !values["advisory-adapter-module"]
+  )
+    throw new InvocationError("--advisory-exclude requires an advisory route");
   if (
     !codex &&
     !semanticCodex &&
+    !advisoryCodex &&
     (values["codex-bin"] || values["codex-auth-file"])
   )
     throw new InvocationError("Codex options require a Codex host route");
@@ -169,7 +192,8 @@ function parseInvocation(argv: string[]) {
     protectedRoots.length &&
     !values["shell-isolation"] &&
     !codex &&
-    !semanticCodex
+    !semanticCodex &&
+    !advisoryCodex
   )
     throw new InvocationError("--protected-root requires isolation");
   const projectRoot = absoluteOption(values["project-root"], "--project-root");
@@ -238,9 +262,15 @@ function parseInvocation(argv: string[]) {
       : []),
     ...(values["case-source-root"] ? [values["case-source-root"]] : []),
     ...(values["case-source-map-file"] ? [values["case-source-map-file"]] : []),
+    ...(values["semantic-adapter-module"]
+      ? [values["semantic-adapter-module"]]
+      : []),
+    ...(values["advisory-adapter-module"]
+      ? [values["advisory-adapter-module"]]
+      : []),
   ];
   const codexCommon =
-    codex || semanticCodex
+    codex || semanticCodex || advisoryCodex
       ? {
           binary: absoluteOption(values["codex-bin"], "--codex-bin"),
           authFile: absoluteOption(
@@ -309,6 +339,23 @@ function parseInvocation(argv: string[]) {
           ),
         }
       : undefined,
+    advisoryAdapterModule: values["advisory-adapter-module"]
+      ? absoluteOption(
+          values["advisory-adapter-module"],
+          "--advisory-adapter-module",
+        )
+      : undefined,
+    advisoryCodex: advisoryCodex
+      ? {
+          ...codexCommon!,
+          model: requiredOption(values["advisory-model"], "--advisory-model"),
+          effort: requiredOption(
+            values["advisory-effort"],
+            "--advisory-effort",
+          ),
+        }
+      : undefined,
+    advisoryExcludedPaths: values["advisory-exclude"] ?? [],
     codex: codex
       ? {
           ...codexCommon!,
@@ -493,6 +540,7 @@ async function main(argv: string[]): Promise<void> {
   let caseData: ResolvedCase | undefined;
   let host: HostAdapter;
   let semanticHost: HostAdapter | undefined;
+  let advisoryHost: HostAdapter | undefined;
   try {
     invocation = parseInvocation(argv);
     if (invocation.caseFile) caseData = await loadCase(invocation.caseFile);
@@ -503,6 +551,10 @@ async function main(argv: string[]): Promise<void> {
       semanticHost = await loadHost(invocation.semanticAdapterModule);
     else if (invocation.semanticCodex)
       semanticHost = createCodexHost(invocation.semanticCodex);
+    if (invocation.advisoryAdapterModule)
+      advisoryHost = await loadHost(invocation.advisoryAdapterModule);
+    else if (invocation.advisoryCodex)
+      advisoryHost = createCodexHost(invocation.advisoryCodex);
   } catch (error) {
     const result = failure(
       64,
@@ -555,6 +607,8 @@ async function main(argv: string[]): Promise<void> {
       preparationSources,
       host,
       semanticHost,
+      advisoryHost,
+      advisoryExcludedPaths: invocation.advisoryExcludedPaths,
       shellIsolation: invocation.shellIsolation,
       runnerBuildDigest: invocation.runnerBuildDigest,
       projectDigest: invocation.projectDigest,

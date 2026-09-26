@@ -52,6 +52,17 @@ recorded separately in evidence and evaluation identity. The semantic adapter
 runs after a complete candidate response in its own empty workspace; missing
 or malformed semantic verdicts produce a grading error.
 
+For generated Git or repository fixtures, add
+`--advisory-adapter-module /absolute/path/advisory-adapter.ts` to request an
+independent quality review. Alternatively, use `--advisory-host codex
+--advisory-model <model> --advisory-effort <effort>` with the shared Codex binary
+and auth file options. Repeat `--advisory-exclude <fixture-relative-path>` for
+additional evaluator files to omit from the review view. The reviewer sees the
+candidate change in a separate Git workspace, with root `.agents`, `.claude`,
+`.codex`, and Git history withheld. Its structured assessment, usage, and raw
+response are retained separately; reviewer failure or a failing recommendation
+does not change the task verdict.
+
 To resolve one case through a versioned extension, replace `--case-file` in
 either command with:
 
