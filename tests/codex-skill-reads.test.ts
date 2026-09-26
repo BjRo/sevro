@@ -72,6 +72,43 @@ test("completed direct Codex reads produce bounded ordered skill evidence", asyn
   expect(wrapped.data.primarySkill).toBe("example");
 });
 
+test("exact sed pages establish a mounted body only after complete coverage", async () => {
+  const workspace = await fixture();
+  const lines = body.match(/[^\n]*\n|[^\n]+$/g)!;
+  const first = read(
+    "sed -n '1,3p' .agents/skills/example/SKILL.md",
+    lines.slice(0, 3).join(""),
+  );
+  const second = read(
+    "sed -n '4,20p' .agents/skills/example/SKILL.md",
+    lines.slice(3).join(""),
+  );
+  const partial = await codexSkillReadObservation(stream([first]), workspace);
+  expect(partial).toMatchObject({
+    completeness: "partial",
+    data: { observedSkills: [] },
+  });
+  const complete = await codexSkillReadObservation(
+    stream([first, second]),
+    workspace,
+  );
+  expect(complete).toMatchObject({
+    completeness: "complete",
+    data: { primarySkill: "example", observedSkills: ["example"] },
+  });
+  const altered = await codexSkillReadObservation(
+    stream([
+      first,
+      read(
+        "sed -n '4,20p' .agents/skills/example/SKILL.md",
+        "different output",
+      ),
+    ]),
+    workspace,
+  );
+  expect(altered.completeness).toBe("partial");
+});
+
 test("incomplete, indirect, and escaping reads cannot establish selection", async () => {
   const workspace = await fixture();
   const path = join(workspace, ".agents/skills/example/SKILL.md");

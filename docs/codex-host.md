@@ -14,7 +14,8 @@ the run JSON.
 The host also retains a bounded `sevro.codex.skill-reads` observation. It
 records the first verified mounted skill and ordered skill names, without
 commands or skill bodies. A completed direct `cat` of a mounted `SKILL.md`
-counts only when the command output contains that file's exact body. An
+counts only when the command output contains that file's exact body. Direct
+`sed -n` pages count after their verified line ranges cover the whole body. An
 attempted indirect, malformed, or incomplete read makes the observation
 partial. This is a host observation; an extension decides what selection means
 for its case.

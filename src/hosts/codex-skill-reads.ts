@@ -25,13 +25,33 @@ function shellPayload(command: string): string {
   return wrapper?.[2] ?? command;
 }
 
-function directReadPath(command: string): string | null {
-  const match = shellPayload(command)
-    .trim()
-    .match(
-      /^(?:\/bin\/)?cat\s+(?:--\s+)?(?:"([^"]+)"|'([^']+)'|([^\s'"`$;&|<>]+))$/,
-    );
-  return match?.[1] ?? match?.[2] ?? match?.[3] ?? null;
+interface DirectRead {
+  path: string;
+  firstLine?: number;
+  lastLine?: number;
+}
+
+function directRead(command: string): DirectRead | null {
+  const payload = shellPayload(command).trim();
+  const path = "(?:\"([^\"]+)\"|'([^']+)'|([^\\s'\"`$;&|<>]+))";
+  const cat = payload.match(
+    new RegExp(`^(?:/bin/)?cat\\s+(?:--\\s+)?${path}$`),
+  );
+  if (cat) return { path: cat[1] ?? cat[2] ?? cat[3]! };
+  const sed = payload.match(
+    new RegExp(`^(?:/bin/)?sed\\s+-n\\s+['"]?(\\d+),(\\d+)p['"]?\\s+${path}$`),
+  );
+  if (!sed) return null;
+  const firstLine = Number(sed[1]);
+  const lastLine = Number(sed[2]);
+  if (
+    !Number.isSafeInteger(firstLine) ||
+    firstLine < 1 ||
+    !Number.isSafeInteger(lastLine) ||
+    lastLine < firstLine
+  )
+    return null;
+  return { path: sed[3] ?? sed[4] ?? sed[5]!, firstLine, lastLine };
 }
 
 function within(root: string, path: string): boolean {
@@ -39,14 +59,27 @@ function within(root: string, path: string): boolean {
   return child !== ".." && !child.startsWith(`..${sep}`) && !isAbsolute(child);
 }
 
+function readRange(body: string, read: DirectRead): [number, number] {
+  if (read.firstLine === undefined || read.lastLine === undefined)
+    return [0, body.length];
+  const lines = body.match(/[^\n]*\n|[^\n]+$/g) ?? [];
+  const start = lines.slice(0, read.firstLine - 1).join("").length;
+  const end = lines.slice(0, read.lastLine).join("").length;
+  return [start, end];
+}
+
 async function verifiedSkillRead(
   item: CodexItem,
   workspace: string,
-): Promise<string | null> {
+): Promise<{
+  skill: string;
+  range: [number, number];
+  bodyLength: number;
+} | null> {
   if (typeof item.command !== "string") return null;
-  const path = directReadPath(item.command);
-  if (!path || typeof item.aggregated_output !== "string") return null;
-  const resolved = resolve(workspace, path);
+  const read = directRead(item.command);
+  if (!read || typeof item.aggregated_output !== "string") return null;
+  const resolved = resolve(workspace, read.path);
   if (!within(workspace, resolved)) return null;
   const match = relative(workspace, resolved)
     .split(sep)
@@ -62,7 +95,23 @@ async function verifiedSkillRead(
   const skill = match[1]!;
   if (!text.startsWith("---\n") || !text.includes(`\nname: ${skill}\n`))
     return null;
-  return item.aggregated_output.includes(text) ? skill : null;
+  const range = readRange(text, read);
+  if (range[0] === range[1]) return null;
+  if (!item.aggregated_output.includes(text.slice(...range))) return null;
+  return { skill, range, bodyLength: text.length };
+}
+
+function fullCoverage(
+  ranges: Array<[number, number]>,
+  length: number,
+): boolean {
+  const ordered = ranges.sort((left, right) => left[0] - right[0]);
+  let covered = 0;
+  for (const [start, end] of ordered) {
+    if (start > covered) return false;
+    covered = Math.max(covered, end);
+  }
+  return covered === length;
 }
 
 /** Retain only ordered mounted-skill names, never commands or skill bodies. */
@@ -79,6 +128,10 @@ export async function codexSkillReadObservation(
   };
 }> {
   const observedSkills: string[] = [];
+  const attempted = new Map<
+    string,
+    { ranges: Array<[number, number]>; bodyLength: number }
+  >();
   const pending = new Set<string>();
   let partial = false;
   let completedTurn = false;
@@ -110,14 +163,34 @@ export async function codexSkillReadObservation(
       partial = true;
       continue;
     }
-    const skill = await verifiedSkillRead(item, workspace);
-    if (!skill) partial = true;
-    else if (!observedSkills.includes(skill)) observedSkills.push(skill);
+    const read = await verifiedSkillRead(item, workspace);
+    if (!read) {
+      partial = true;
+      continue;
+    }
+    const coverage = attempted.get(read.skill) ?? {
+      ranges: [],
+      bodyLength: read.bodyLength,
+    };
+    coverage.ranges.push(read.range);
+    attempted.set(read.skill, coverage);
+    if (
+      fullCoverage(coverage.ranges, coverage.bodyLength) &&
+      !observedSkills.includes(read.skill)
+    )
+      observedSkills.push(read.skill);
   }
   return {
     id: "sevro.codex.skill-reads",
     completeness:
-      completedTurn && !partial && pending.size === 0 ? "complete" : "partial",
+      completedTurn &&
+      !partial &&
+      pending.size === 0 &&
+      [...attempted.values()].every(({ ranges, bodyLength }) =>
+        fullCoverage(ranges, bodyLength),
+      )
+        ? "complete"
+        : "partial",
     data: {
       method: "skill_file_read_probe",
       primarySkill: observedSkills[0] ?? null,
