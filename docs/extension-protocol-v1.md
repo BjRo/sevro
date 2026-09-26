@@ -84,6 +84,19 @@ Fixtures may contain inline files, a declared clean repository source, or a
 bounded generated Git history with optional working-tree and staged files.
 Generated history is generic fixture data; repository-specific policy and
 custom setup remain in the extension.
+
+An extension that negotiates `sevro.fixture.setup` may return an optional
+`fixtureSetup` from `prepare`. It names an absolute executable and bounded argv,
+plus optional environment variables. Sevro runs that trusted command once per
+trial in the Git fixture after source history and working-tree files are built,
+before extension artifacts are mounted or the host starts. The command is never
+interpreted through a shell by Sevro; an extension may explicitly select a
+shell executable. `{{sevro.project}}` and `{{sevro.workspace}}` in environment
+values resolve to the declared roots at execution time. The symbolic values and
+command enter fixture and comparison identity, while retained configuration
+records only their digest. Setup has a two-minute limit, inherits no credential
+environment variables, and its output is discarded. Failure or interruption
+stops the run before host execution; it cannot become a passing assessment.
 Absolute path references in this protocol use `file:///` URLs so Windows and
 Unix hosts share one serialized form. Fixture-relative paths use `/` separators
 and cannot escape their declared root.

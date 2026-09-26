@@ -3,6 +3,7 @@ import { createReadStream } from "node:fs";
 import { isAbsolute } from "node:path";
 import { canonicalJson, hashJson } from "./identity";
 import type { GeneratedFixture } from "./generated-fixture";
+import type { FixtureSetupDeclaration } from "./fixture-setup";
 import {
   ExtensionProtocolError,
   exchangeExtension,
@@ -43,6 +44,7 @@ export interface PreparationResult {
     id: string;
     configuration: Record<string, unknown>;
   }[];
+  fixtureSetup?: FixtureSetupDeclaration;
   extensionData: Record<string, unknown>;
 }
 

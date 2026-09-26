@@ -135,6 +135,15 @@ test("accepts discovery and each extension operation", () => {
       requestedInstrumentation: [],
       extensionData: {},
     }),
+    envelope(extension, "prepare", "result", {
+      artifacts: [],
+      requestedInstrumentation: [],
+      fixtureSetup: {
+        command: ["/bin/sh", "-c", "printf ready > setup.txt"],
+        environment: { CASE_ROOT: "{{sevro.project}}/cases" },
+      },
+      extensionData: {},
+    }),
     envelope(extension, "evaluate", "params", {
       caseId: "case-1",
       execution: complete,

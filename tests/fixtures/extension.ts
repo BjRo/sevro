@@ -31,6 +31,7 @@ const discovery = {
     ...(scenario === "lifecycle-instrumentation-observational"
       ? ["example.extension.trace"]
       : []),
+    ...(scenario === "lifecycle-setup" ? ["sevro.fixture.setup"] : []),
   ],
   graders: ["example.extension"],
   taskVerdictPolicies: scenario.startsWith("lifecycle-policy")
@@ -83,6 +84,7 @@ const result = scenario.startsWith("lifecycle")
               scenario === "lifecycle-repository"
                 ? { kind: "repository", sourceRef: "fixture-repo" }
                 : scenario === "lifecycle-generated" ||
+                    scenario.startsWith("lifecycle-setup") ||
                     scenario === "lifecycle-git-excluded-artifact"
                   ? {
                       kind: "generated",
@@ -126,42 +128,44 @@ const result = scenario.startsWith("lifecycle")
       }
     : request.method === "prepare"
       ? {
-          artifacts: scenario.includes("artifact")
-            ? [
-                {
-                  id: "generated-file",
-                  relativePath:
-                    scenario === "lifecycle-git-excluded-artifact"
-                      ? ".agents/skills/example/SKILL.md"
-                      : "generated/data.txt",
-                  sha256:
-                    scenario === "lifecycle-bad-artifact"
-                      ? "a".repeat(64)
-                      : createHash("sha256")
-                          .update(
+          artifacts:
+            scenario.includes("artifact") ||
+            scenario.startsWith("lifecycle-setup")
+              ? [
+                  {
+                    id: "generated-file",
+                    relativePath:
+                      scenario === "lifecycle-git-excluded-artifact"
+                        ? ".agents/skills/example/SKILL.md"
+                        : "generated/data.txt",
+                    sha256:
+                      scenario === "lifecycle-bad-artifact"
+                        ? "a".repeat(64)
+                        : createHash("sha256")
+                            .update(
+                              scenario === "lifecycle-executable-artifact"
+                                ? "#!/bin/sh\nprintf 'ready\\n'\n"
+                                : "prepared data\n",
+                            )
+                            .digest("hex"),
+                    ...(scenario === "lifecycle-source-artifact"
+                      ? { sourceRef: "input-data" }
+                      : {
+                          contentBase64: Buffer.from(
                             scenario === "lifecycle-executable-artifact"
                               ? "#!/bin/sh\nprintf 'ready\\n'\n"
                               : "prepared data\n",
-                          )
-                          .digest("hex"),
-                  ...(scenario === "lifecycle-source-artifact"
-                    ? { sourceRef: "input-data" }
-                    : {
-                        contentBase64: Buffer.from(
-                          scenario === "lifecycle-executable-artifact"
-                            ? "#!/bin/sh\nprintf 'ready\\n'\n"
-                            : "prepared data\n",
-                        ).toString("base64"),
-                      }),
-                  ...(scenario.startsWith("lifecycle-git-excluded")
-                    ? { gitExclude: true }
-                    : {}),
-                  ...(scenario === "lifecycle-executable-artifact"
-                    ? { executable: true }
-                    : {}),
-                },
-              ]
-            : [],
+                          ).toString("base64"),
+                        }),
+                    ...(scenario.startsWith("lifecycle-git-excluded")
+                      ? { gitExclude: true }
+                      : {}),
+                    ...(scenario === "lifecycle-executable-artifact"
+                      ? { executable: true }
+                      : {}),
+                  },
+                ]
+              : [],
           requestedInstrumentation:
             scenario === "lifecycle-instrumentation-observational"
               ? [{ id: "example.extension.trace", configuration: {} }]
@@ -169,6 +173,18 @@ const result = scenario.startsWith("lifecycle")
                   scenario === "lifecycle-instrumentation-supported"
                 ? [{ id: "example.extension.guard", configuration: {} }]
                 : [],
+          ...(scenario.startsWith("lifecycle-setup")
+            ? {
+                fixtureSetup: {
+                  command: [
+                    process.execPath,
+                    "-e",
+                    'if (await Bun.file("generated/data.txt").exists()) throw new Error("artifact mounted early"); await Bun.write("setup.txt", process.env.CASE_ROOT + "\\n");',
+                  ],
+                  environment: { CASE_ROOT: "{{sevro.project}}/cases" },
+                },
+              }
+            : {}),
           extensionData: { "example.extension": { marker: "prepared" } },
         }
       : request.method === "evaluate"

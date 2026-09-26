@@ -611,7 +611,7 @@ async function main(argv: string[]): Promise<void> {
       const session = await openExtensionSession({
         ...options,
         sourceFiles: selected.sourceFiles,
-        engineCapabilities: ["sevro.host.exec"],
+        engineCapabilities: ["sevro.host.exec", "sevro.fixture.setup"],
         hostCapabilities: (host.instrumentation ?? []).map((item) => item.id),
         taskVerdictPolicy: selected.taskVerdictPolicy,
         replaceBuiltinGraders: selected.replaceBuiltinGraders,

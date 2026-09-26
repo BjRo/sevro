@@ -1,5 +1,12 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -33,7 +40,7 @@ async function runWithExtension(
     sourceFiles: [source],
     configuration: {},
     redactedConfiguration: {},
-    engineCapabilities: ["sevro.host.exec"],
+    engineCapabilities: ["sevro.host.exec", "sevro.fixture.setup"],
     hostCapabilities: (hostOverride?.instrumentation ?? []).map(
       (item) => item.id,
     ),
@@ -503,6 +510,43 @@ test("prepared inline artifacts survive fixture cleanup with their digest", asyn
   expect(artifact.sha256).toMatch(/^[a-f0-9]{64}$/);
   expect(await readFile(new URL(artifact.path), "utf8")).toBe(
     "prepared data\n",
+  );
+});
+
+test("negotiated fixture setup runs before artifacts and enters comparison identity", async () => {
+  const seen: string[] = [];
+  const host: HostAdapter = {
+    id: "sevro.host.setup-test",
+    model: "synthetic-v1",
+    effort: "none",
+    async run({ workspace }) {
+      seen.push(await readFile(join(workspace, "setup.txt"), "utf8"));
+      seen.push(await readFile(join(workspace, "generated/data.txt"), "utf8"));
+      return { finalMessage: "ready", complete: true };
+    },
+  };
+  const { outcome, evidence, session } = await runWithExtension(
+    "lifecycle-setup",
+    undefined,
+    [],
+    host,
+  );
+  expect(outcome.result.exitCode, JSON.stringify(evidence.diagnostic)).toBe(0);
+  expect(seen[0]).toMatch(/\/cases\n$/);
+  expect(seen[1]).toBe("prepared data\n");
+  expect(session.identity.capabilities).toContain("sevro.fixture.setup");
+  expect(evidence.configuration.redacted.fixtureSetupDigest).toMatch(
+    /^[a-f0-9]{64}$/,
+  );
+  expect(evidence.evaluationIdentity.dimensions.fixtureDigest).toMatch(
+    /^[a-f0-9]{64}$/,
+  );
+  expect(evidence.trials[0].artifactRefs[0].id).toBe("generated-file");
+});
+
+test("fixture setup refuses an extension without its negotiated capability", async () => {
+  expect(runWithExtension("lifecycle-setup-unnegotiated")).rejects.toThrow(
+    "fixture setup capability was not negotiated",
   );
 });
 

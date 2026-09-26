@@ -53,6 +53,11 @@ import {
   type GeneratedFixture,
 } from "./generated-fixture";
 import {
+  prepareFixtureSetup,
+  runFixtureSetup,
+  type FixtureSetup,
+} from "./fixture-setup";
+import {
   fixtureParts,
   prepareArtifacts,
   type InlineArtifact,
@@ -185,6 +190,9 @@ async function createFixture(
   sources: PreparationSources | undefined,
   repository: RepositorySource | null,
   generated: GeneratedFixture | null,
+  setup: FixtureSetup | null,
+  projectRoot: string,
+  signal?: AbortSignal,
 ): Promise<string> {
   const paths = Object.entries(generated ? {} : (fixture.files ?? {})).map(
     ([path, content]) => ({
@@ -208,6 +216,7 @@ async function createFixture(
       await mkdir(dirname(target), { recursive: true, mode: 0o700 });
       await writeFile(target, file.content, { flag: "wx", mode: 0o600 });
     }
+    if (setup) await runFixtureSetup(setup, { workspace, projectRoot, signal });
     for (const artifact of artifacts) {
       const target = join(workspace, ...fixtureParts(artifact.relativePath));
       await mkdir(dirname(target), { recursive: true, mode: 0o700 });
@@ -596,6 +605,27 @@ export async function runEvaluation(
         options.condition,
       )
     : null;
+  let fixtureSetup: FixtureSetup | null;
+  try {
+    fixtureSetup = prepareFixtureSetup(extensionPreparation?.fixtureSetup);
+  } catch (error) {
+    throw new EvaluationConfigurationError(
+      error instanceof Error ? error.message : "invalid fixture setup",
+    );
+  }
+  if (
+    fixtureSetup &&
+    !options.extension?.session.identity.capabilities.includes(
+      "sevro.fixture.setup",
+    )
+  )
+    throw new EvaluationConfigurationError(
+      "fixture setup capability was not negotiated",
+    );
+  if (fixtureSetup && !generated && !repository)
+    throw new EvaluationConfigurationError(
+      "fixture setup requires a Git fixture",
+    );
   let requestedInstrumentation: InstrumentationRequest[];
   try {
     requestedInstrumentation = prepareInstrumentation(
@@ -698,6 +728,7 @@ export async function runEvaluation(
     passThreshold: options.passThreshold,
     extensionConfigurationDigest:
       options.extension?.session.identity.configurationDigest ?? null,
+    ...(fixtureSetup ? { fixtureSetupDigest: hashJson(fixtureSetup) } : {}),
     ...(options.advisoryHost
       ? {
           advisoryExcludedPaths: [
@@ -762,6 +793,7 @@ export async function runEvaluation(
             ...(executable ? { executable: true } : {}),
           }),
         ),
+        ...(fixtureSetup ? { fixtureSetup } : {}),
       }),
       checksDigest: hashJson(options.case.checks),
       requiredEvidenceDigest: hashJson(options.case.requiredEvidence),
@@ -859,6 +891,9 @@ export async function runEvaluation(
         options.preparationSources,
         repository,
         generated,
+        fixtureSetup,
+        projectRoot,
+        options.signal,
       );
       const trialPrompt = options.case.prompt.replaceAll(
         "{{sevro.workspace}}",
@@ -997,7 +1032,8 @@ export async function runEvaluation(
           value: number | null;
           unit: string;
         }[] = [];
-        let domainOutcomes: NonNullable<EvaluationResult["domainOutcomes"]> = [];
+        let domainOutcomes: NonNullable<EvaluationResult["domainOutcomes"]> =
+          [];
         let taskPolicyRecommendation:
           "passed" | "failed" | "not_assessed" | null = null;
         let graderError = false;
@@ -1106,6 +1142,8 @@ export async function runEvaluation(
               undefined,
               null,
               null,
+              null,
+              projectRoot,
             );
             let semanticResult: HostResult | null = null;
             let semanticArtifacts: ReturnType<typeof hostArtifacts> = [];
