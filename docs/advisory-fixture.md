@@ -14,6 +14,8 @@ paths. The review workspace has no remote. The helper rejects escaping or
 broken symlinks and limits Git output, untracked file count, and untracked
 bytes. A failed build removes its temporary directory.
 
-This helper constructs the review view; it does not yet run a reviewer or
-interpret its assessment. An advisory assessment must stay separate from the
-task verdict.
+`advisoryPrompt` passes the task and deterministic check facts to a separate
+review host. `parseAdvisoryAssessment` accepts one bounded JSON response with a
+pass or fail recommendation, overall score, four dimension scores, strengths,
+weaknesses, and a summary. The engine does not yet invoke this route. Once it
+does, the assessment must stay separate from the task verdict.
