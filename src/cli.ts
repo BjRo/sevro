@@ -76,6 +76,7 @@ function parseInvocation(argv: string[]) {
           "protected-root": { type: "string", multiple: true },
           "project-root": { type: "string" },
           "results-root": { type: "string" },
+          "run-state-root": { type: "string" },
           "runner-build-digest": { type: "string" },
           "project-digest": { type: "string" },
           condition: { type: "string" },
@@ -124,6 +125,9 @@ function parseInvocation(argv: string[]) {
     throw new InvocationError("--protected-root requires isolation");
   const projectRoot = absoluteOption(values["project-root"], "--project-root");
   const resultsRoot = absoluteOption(values["results-root"], "--results-root");
+  const runStateRoot = values["run-state-root"]
+    ? absoluteOption(values["run-state-root"], "--run-state-root")
+    : resultsRoot;
   return {
     json: values.json ?? false,
     caseFile: absoluteOption(values["case-file"], "--case-file"),
@@ -141,12 +145,13 @@ function parseInvocation(argv: string[]) {
           effort: requiredOption(values.effort, "--effort"),
           projectRoot,
           resultsRoot,
-          additionalProtectedRoots: protectedRoots,
+          additionalProtectedRoots: [...protectedRoots, runStateRoot],
         }
       : undefined,
     shellIsolation: values["shell-isolation"] ? { protectedRoots } : undefined,
     projectRoot,
     resultsRoot,
+    runStateRoot,
     runnerBuildDigest: requiredOption(
       values["runner-build-digest"],
       "--runner-build-digest",
@@ -248,6 +253,7 @@ async function main(argv: string[]): Promise<void> {
     const { result } = await runEvaluation({
       projectRoot: invocation.projectRoot,
       resultsRoot: invocation.resultsRoot,
+      runStateRoot: invocation.runStateRoot,
       case: caseData,
       host,
       shellIsolation: invocation.shellIsolation,

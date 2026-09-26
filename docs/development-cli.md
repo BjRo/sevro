@@ -54,3 +54,7 @@ configuration failures. The process exit code follows `docs/results-v1.md`.
 Run evidence and trial files live under `--results-root`; no runner Git
 checkout is required. The digest arguments are explicit until package and
 project provenance are collected automatically.
+Use `--run-state-root /absolute/path/state` to keep active records and trial
+checkpoints separate from results; it defaults to `--results-root`. Shell
+grading and the bundled Codex route protect this state root from candidate
+commands.

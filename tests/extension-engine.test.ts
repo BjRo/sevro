@@ -46,7 +46,10 @@ async function runWithExtension(
       expect(await readFile(join(workspace, "README.md"), "utf8")).toBe(
         "fixture\n",
       );
-      if (scenario === "lifecycle-artifact" || scenario === "lifecycle-source-artifact")
+      if (
+        scenario === "lifecycle-artifact" ||
+        scenario === "lifecycle-source-artifact"
+      )
         expect(
           await readFile(join(workspace, "generated/data.txt"), "utf8"),
         ).toBe("prepared data\n");
@@ -201,7 +204,9 @@ test("prepared inline artifacts survive fixture cleanup with their digest", asyn
 });
 
 test("declared source artifacts are retained and mounted with verified bytes", async () => {
-  const { outcome, evidence } = await runWithExtension("lifecycle-source-artifact");
+  const { outcome, evidence } = await runWithExtension(
+    "lifecycle-source-artifact",
+  );
   expect(outcome.result.exitCode).toBe(0);
   const [artifact] = evidence.trials[0].artifactRefs;
   expect(await readFile(new URL(artifact.path), "utf8")).toBe(
@@ -267,7 +272,9 @@ test("a changed retained artifact cannot support a successful result", async () 
     await expect(
       runWithExtension("lifecycle-artifact", async (fixture, resultsRoot) => {
         workspace = fixture;
-        const [runId] = await readdir(resultsRoot);
+        const runId = (await readdir(resultsRoot)).find(
+          (name) => name !== "active",
+        );
         await writeFile(
           join(resultsRoot, runId!, "prepared/generated/data.txt"),
           "tampered\n",

@@ -163,6 +163,24 @@ test("CLI runs shell checks only with explicit isolation roots", async () => {
   expect(relativeRoot.code).toBe(64);
 });
 
+test("CLI accepts an independent run-state root", async () => {
+  const { args } = await fixture();
+  const runStateRoot = await mkdtemp(join(tmpdir(), "sevro-cli-state-"));
+  roots.push(runStateRoot);
+  const run = await invoke([...args, "--run-state-root", runStateRoot]);
+  expect(run.code).toBe(0);
+  const active = JSON.parse(
+    await readFile(
+      join(runStateRoot, "active", `${run.result.runId}.json`),
+      "utf8",
+    ),
+  );
+  expect(active.status).toBe("complete");
+  expect(active.artifactPath).toBe(run.result.evidencePath);
+  const invalid = await invoke([...args, "--run-state-root", "relative"]);
+  expect(invalid.code).toBe(64);
+});
+
 test("CLI runs its bundled Codex route with explicit auth and model", async () => {
   const installedCodex = Bun.which("codex");
   if (process.platform !== "darwin" || !installedCodex) return;

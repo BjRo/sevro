@@ -89,6 +89,7 @@ export interface ResolvedCase {
 export interface EvaluationOptions {
   projectRoot: string;
   resultsRoot: string;
+  runStateRoot?: string;
   case: ResolvedCase;
   host: HostAdapter;
   runnerBuildDigest: string;
@@ -184,9 +185,13 @@ function usage(result: HostResult | null) {
 export async function runEvaluation(
   options: EvaluationOptions,
 ): Promise<{ result: CliResult }> {
-  if (!isAbsolute(options.projectRoot) || !isAbsolute(options.resultsRoot))
+  if (
+    !isAbsolute(options.projectRoot) ||
+    !isAbsolute(options.resultsRoot) ||
+    (options.runStateRoot !== undefined && !isAbsolute(options.runStateRoot))
+  )
     throw new EvaluationConfigurationError(
-      "project and results roots must be absolute",
+      "project, results, and run-state roots must be absolute",
     );
   if (
     !options.case.id ||
@@ -396,6 +401,14 @@ export async function runEvaluation(
   await mkdir(options.resultsRoot, { recursive: true, mode: 0o700 });
   const runDir = resolve(await realpath(options.resultsRoot), runId);
   await mkdir(runDir, { mode: 0o700 });
+  const runStateRoot = options.runStateRoot ?? options.resultsRoot;
+  await mkdir(runStateRoot, { recursive: true, mode: 0o700 });
+  const stateRoot = await realpath(runStateRoot);
+  const stateDir = join(stateRoot, runId);
+  if (stateDir !== runDir) await mkdir(stateDir, { mode: 0o700 });
+  const activePath = join(stateRoot, "active", `${runId}.json`);
+  const checkpointPath = join(stateDir, "checkpoint.json");
+  const evidencePath = join(runDir, "run.json");
   const artifactRefs: { id: string; path: string; sha256: string }[] = [];
   for (const artifact of inlineArtifacts) {
     const retainedPath = join(
@@ -414,6 +427,27 @@ export async function runEvaluation(
 
   const trialSummaries: TrialSummary[] = [];
   const trialEvidence: Record<string, unknown>[] = [];
+  async function saveState(status: "running" | "complete"): Promise<void> {
+    const completedTrials = trialSummaries.map((trial) => ({
+      trial: trial.trial,
+      artifactPath: trial.artifactPath,
+    }));
+    await atomicWriteJson(checkpointPath, {
+      format: "sevro.run-checkpoint.v1",
+      runId,
+      completedTrials,
+    });
+    await atomicWriteJson(activePath, {
+      format: "sevro.active-run.v1",
+      runId,
+      status,
+      artifactPath: evidencePath,
+      evidenceDirectory: stateDir,
+      checkpointPath,
+      completedTrials,
+    });
+  }
+  await saveState("running");
   let diagnostic: { code: string; message: string } | undefined;
   for (let trial = 1; trial <= options.trialCount; trial++) {
     const workspace = await createFixture(
@@ -505,13 +539,16 @@ export async function runEvaluation(
             workspace,
             projectRoot,
             resultsRoot: options.resultsRoot,
-            additionalRoots: options.shellIsolation!.protectedRoots,
+            additionalRoots: [
+              ...options.shellIsolation!.protectedRoots,
+              runStateRoot,
+            ],
           });
           for (const check of preparedShell) {
             const exitCode = await runShellCheck(check, {
               workspace,
               protectedRoots,
-              privateStateRoot: join(runDir, "shell-sandbox"),
+              privateStateRoot: join(stateDir, "shell-sandbox"),
               signal: options.signal,
             });
             const observationId = `sevro.observation.shell.${check.id}`;
@@ -655,6 +692,7 @@ export async function runEvaluation(
       persisted = true;
       trialSummaries.push(trialSummary);
       trialEvidence.push(evidence);
+      await saveState("running");
       if (execution !== "completed" || graderError) break;
     } finally {
       if (persisted) {
@@ -677,7 +715,6 @@ export async function runEvaluation(
     trials: trialSummaries,
   };
   const runAssessment = summarizeCases([caseResult]);
-  const evidencePath = join(runDir, "run.json");
   const result: CliResult = {
     format: "sevro.cli-result.v1",
     runId,
@@ -739,5 +776,6 @@ export async function runEvaluation(
   assertCliResult(result);
   assertRunEvidence(runEvidence);
   await atomicWriteJson(evidencePath, runEvidence);
+  await saveState("complete");
   return { result };
 }

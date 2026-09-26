@@ -131,6 +131,70 @@ test("host failure retains completed trials and reports execution failure", asyn
   );
 });
 
+test("stores checkpoints apart from results and hides run state from shell checks", async () => {
+  if (process.platform !== "darwin") return;
+  const paths = await rootsForRun();
+  const runStateRoot = await mkdtemp(join(tmpdir(), "sevro-state-test-"));
+  roots.push(runStateRoot);
+  const secret = join(runStateRoot, "private-state.txt");
+  await writeFile(secret, "hidden run state\n");
+  const outcome = await runEvaluation({
+    ...paths,
+    runStateRoot,
+    case: {
+      ...baseCase,
+      checks: [
+        ...baseCase.checks,
+        {
+          id: "state-hidden",
+          grader: "sevro.shell",
+          configuration: {
+            run: `if cat '${secret}' >/dev/null 2>&1; then exit 1; fi`,
+          },
+        },
+      ],
+    },
+    host: {
+      id: "sevro.host.synthetic",
+      model: "synthetic-v1",
+      effort: "none",
+      async run() {
+        return { finalMessage: "ready", complete: true };
+      },
+    },
+    shellIsolation: { protectedRoots: [] },
+    runnerBuildDigest: digest,
+    projectDigest: digest,
+    condition: "passive",
+    trialCount: 1,
+    passThreshold: 1,
+  });
+  expect(outcome.result.exitCode).toBe(0);
+  expect(outcome.result.cases[0]?.trials[0]?.checks[1]?.status).toBe("passed");
+  const activePath = join(
+    runStateRoot,
+    "active",
+    `${outcome.result.runId}.json`,
+  );
+  const active = JSON.parse(await readFile(activePath, "utf8"));
+  expect(active).toMatchObject({
+    format: "sevro.active-run.v1",
+    status: "complete",
+    artifactPath: outcome.result.evidencePath,
+    completedTrials: [
+      {
+        trial: 1,
+        artifactPath: outcome.result.cases[0]!.trials[0]!.artifactPath,
+      },
+    ],
+  });
+  const checkpoint = JSON.parse(await readFile(active.checkpointPath, "utf8"));
+  expect(checkpoint.format).toBe("sevro.run-checkpoint.v1");
+  expect(checkpoint.completedTrials).toEqual(active.completedTrials);
+  expect(existsSync(join(paths.resultsRoot, "active"))).toBeFalse();
+  expect(await readFile(secret, "utf8")).toBe("hidden run state\n");
+});
+
 test("failed trial persistence retains its fixture and never returns success", async () => {
   const paths = await rootsForRun();
   let workspace = "";
@@ -140,7 +204,9 @@ test("failed trial persistence retains its fixture and never returns success", a
     effort: "none",
     async run(request) {
       workspace = request.workspace;
-      const [runId] = await readdir(paths.resultsRoot);
+      const runId = (await readdir(paths.resultsRoot)).find(
+        (name) => name !== "active",
+      );
       await mkdir(join(paths.resultsRoot, runId!, "trial-1.json"));
       return { finalMessage: "ready", complete: true };
     },

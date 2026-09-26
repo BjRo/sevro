@@ -18,7 +18,10 @@ execution, grading, and task states. It records the exact runner build and
 project content digests supplied by the caller, plus a computed evaluation
 identity. Missing optional usage stays `null` and incomplete. Results storage
 is explicit and independent of the project root; the engine does not invoke
-Git.
+Git. An optional independent run-state root holds an active record and a
+checkpoint pointing to each retained trial. The record reaches `complete`
+only after final run evidence is written. These records track progress but do
+not yet enforce exclusive process ownership or abandoned-run recovery.
 
 This slice accepts output checks with no additional required host evidence.
 It also accepts shell checks when the caller explicitly supplies protected
