@@ -11,3 +11,8 @@ projects own their cases and evaluator policy.
 Machine-readable contracts live in [`schemas/`](schemas/). Run `bun install`,
 `bun test`, `bun run typecheck`, and `bun run format:check` to validate them
 locally.
+
+The first runtime module, [`extension-client.ts`](src/extension-client.ts),
+validates one request and response per extension process and negotiates the v1
+protocol. It enforces message limits, timeouts, response identity, and
+process-group cancellation. The engine and public CLI are still being built.

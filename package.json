@@ -7,7 +7,7 @@
   "scripts": {
     "test": "bun test",
     "typecheck": "tsc --noEmit",
-    "format:check": "prettier --check README.md docs/*.md schemas/*.json tests/*.ts package.json tsconfig.json"
+    "format:check": "prettier --check README.md docs/*.md schemas/*.json src/**/*.ts tests/**/*.ts package.json tsconfig.json"
   },
   "dependencies": {
     "ajv": "8.20.0"
