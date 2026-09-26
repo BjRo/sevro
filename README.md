@@ -16,3 +16,7 @@ The first runtime module, [`extension-client.ts`](src/extension-client.ts),
 validates one request and response per extension process and negotiates the v1
 protocol. It enforces message limits, timeouts, response identity, and
 process-group cancellation. The engine and public CLI are still being built.
+
+[`results.ts`](src/results.ts) reduces checks to separate execution, grading,
+and task states, applies case thresholds, and maps the aggregate to a CLI exit
+category.

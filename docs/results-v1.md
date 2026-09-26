@@ -24,28 +24,29 @@ run is `not_run` / `not_requested` / `not_assessed` even when preparation checks
 pass. Missing optional cost or usage remains `null` or explicitly incomplete;
 it is never converted to zero.
 
-For multiple trials, an aggregate status preserves every trial. The aggregate
-task verdict is `failed` if any assessed trial fails, otherwise `not_assessed`
-if any trial is unassessed, otherwise `passed`. A failed aggregate verdict can
-coexist with an execution or grading error from another trial. Execution and
-grading aggregate states expose errors or unavailability instead of averaging
-them away.
+For multiple trials, a case applies its declared pass threshold only after all
+required trials are assessed. An unassessed trial makes the case
+`not_assessed`; otherwise its pass rate determines `passed` or `failed`. The
+run verdict is `failed` if any case fails, otherwise `not_assessed` if any case
+is unassessed, otherwise `passed`. A failed run verdict can coexist with an
+execution or grading error from another case. Execution and grading aggregate
+states expose errors or unavailability instead of averaging them away.
 
 ## Exit codes
 
 The CLI uses this precedence when several outcomes occur in one invocation:
 
-| Code  | Outcome                                                                                                                                                                                        |
-| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `0`   | Execution completed with no failed assessment or required-evidence error. Includes a prompt-only run whose task verdict is `not_assessed`; JSON and human output distinguish it from `passed`. |
-| `1`   | At least one completed task assessment failed.                                                                                                                                                 |
-| `2`   | Host execution failed.                                                                                                                                                                         |
-| `3`   | A required grader or extension failed.                                                                                                                                                         |
-| `4`   | Required evidence was unavailable.                                                                                                                                                             |
-| `64`  | Invalid invocation or configuration before a run.                                                                                                                                              |
-| `70`  | Internal runner or persistence failure.                                                                                                                                                        |
-| `130` | Interrupted by SIGINT.                                                                                                                                                                         |
-| `143` | Interrupted by SIGTERM.                                                                                                                                                                        |
+| Code  | Outcome                                                                                                                                                                             |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0`   | No execution or grading error and no failed assessment. Includes prompt-only and successful dry runs whose task verdict is `not_assessed`; output distinguishes them from `passed`. |
+| `1`   | At least one completed task assessment failed.                                                                                                                                      |
+| `2`   | Host execution failed.                                                                                                                                                              |
+| `3`   | A required grader or extension failed.                                                                                                                                              |
+| `4`   | Required evidence was unavailable.                                                                                                                                                  |
+| `64`  | Invalid invocation or configuration before a run.                                                                                                                                   |
+| `70`  | Internal runner or persistence failure.                                                                                                                                             |
+| `130` | Interrupted by SIGINT.                                                                                                                                                              |
+| `143` | Interrupted by SIGTERM.                                                                                                                                                             |
 
 Interruption and internal failure outrank execution failure, which outranks
 grading error, unavailable evidence, and task failure. The exit code is a
