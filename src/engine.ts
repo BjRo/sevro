@@ -42,6 +42,7 @@ import {
 import { assertCliResult, assertRunEvidence } from "./schema";
 import { atomicWriteJson } from "./storage";
 import { projectProvenance, runnerProvenance } from "./provenance";
+import { checkpointRunOwner, startRunOwner } from "./run-owner";
 
 const MAX_FINAL_MESSAGE_BYTES = 8 * 1024 * 1024;
 
@@ -413,364 +414,390 @@ export async function runEvaluation(
   const activePath = join(stateRoot, "active", `${runId}.json`);
   const checkpointPath = join(stateDir, "checkpoint.json");
   const evidencePath = join(runDir, "run.json");
-  const artifactRefs: { id: string; path: string; sha256: string }[] = [];
-  for (const artifact of inlineArtifacts) {
-    const retainedPath = join(
-      runDir,
-      "prepared",
-      ...fixtureParts(artifact.relativePath),
-    );
-    await mkdir(dirname(retainedPath), { recursive: true, mode: 0o700 });
-    await writeFile(retainedPath, artifact.bytes, { flag: "wx", mode: 0o600 });
-    artifactRefs.push({
-      id: artifact.id,
-      path: pathToFileURL(retainedPath).href,
-      sha256: artifact.sha256,
-    });
-  }
-
   const trialSummaries: TrialSummary[] = [];
-  const trialEvidence: Record<string, unknown>[] = [];
-  async function saveState(status: "running" | "complete"): Promise<void> {
-    const completedTrials = trialSummaries.map((trial) => ({
-      trial: trial.trial,
-      artifactPath: trial.artifactPath,
-    }));
-    await atomicWriteJson(checkpointPath, {
-      format: "sevro.run-checkpoint.v1",
-      runId,
-      completedTrials,
-    });
-    await atomicWriteJson(activePath, {
-      format: "sevro.active-run.v1",
-      runId,
-      status,
-      artifactPath: evidencePath,
-      evidenceDirectory: stateDir,
+  let owner: ReturnType<typeof startRunOwner>;
+  try {
+    owner = startRunOwner({
+      stateRoot,
+      evaluationDigest: evaluationIdentity.digest,
+      attemptId: runId,
+      activeRunPath: activePath,
       checkpointPath,
-      completedTrials,
+      evidenceDirectory: stateDir,
+      artifactPath: evidencePath,
     });
+  } catch (error) {
+    await rm(runDir, { recursive: true, force: true });
+    if (stateDir !== runDir)
+      await rm(stateDir, { recursive: true, force: true });
+    throw error;
   }
-  await saveState("running");
-  let diagnostic: { code: string; message: string } | undefined;
-  for (let trial = 1; trial <= options.trialCount; trial++) {
-    const workspace = await createFixture(
-      options.case.fixture.files,
-      inlineArtifacts,
-    );
-    let persisted = false;
-    try {
-      let hostResult: HostResult | null = null;
-      let execution: "completed" | "failed" | "cancelled" = "completed";
-      try {
-        if (options.signal?.aborted) throw new Error("cancelled");
-        hostResult = await options.host.run({
-          prompt: options.case.prompt,
-          workspace,
-          condition: options.condition,
-          signal: options.signal,
-        });
-        if (
-          hostResult.finalMessage !== null &&
-          Buffer.byteLength(hostResult.finalMessage, "utf8") >
-            MAX_FINAL_MESSAGE_BYTES
-        )
-          throw new Error("oversized host result");
-      } catch {
-        execution = options.signal?.aborted ? "cancelled" : "failed";
-        hostResult = null;
-        diagnostic = {
-          code: "sevro.host.failed",
-          message: "host execution did not complete",
-        };
-      }
-      await verifyRetainedArtifacts(artifactRefs);
-      const rawDigest =
-        hostResult?.finalMessage == null
-          ? null
-          : sha256(hostResult.finalMessage);
-      const completeness =
-        hostResult?.finalMessage == null
-          ? "unavailable"
-          : hostResult.complete
-            ? "complete"
-            : "partial";
-      const observation = {
-        id: "sevro.observation.final-message",
-        source: options.host.id,
-        completeness,
-        data: rawDigest
-          ? {
-              sha256: rawDigest,
-              byteLength: Buffer.byteLength(hostResult!.finalMessage!, "utf8"),
-            }
-          : {},
-      };
-      const shellObservations: {
-        id: string;
-        source: string;
-        completeness: "complete";
-        data: Record<string, unknown>;
-      }[] = [];
-      let checks: CheckOutcome[] = [];
-      let extensionMetrics: {
-        id: string;
-        value: number | null;
-        unit: string;
-      }[] = [];
-      let graderError = false;
-      if (execution === "completed") {
-        try {
-          checks = gradeOutput(
-            hostResult!.finalMessage,
-            hostResult!.complete,
-            prepared,
-          ).map((check) => ({
-            ...check,
-            evidenceRefs: rawDigest ? [observation.id] : [],
-          }));
-        } catch {
-          graderError = true;
-          diagnostic = {
-            code: "sevro.grader.error",
-            message: "output grading did not complete",
-          };
-        }
-      }
-      if (execution === "completed" && !graderError && preparedShell.length) {
-        try {
-          const protectedRoots = await evaluationProtectedRoots({
-            workspace,
-            projectRoot,
-            resultsRoot: options.resultsRoot,
-            additionalRoots: [
-              ...options.shellIsolation!.protectedRoots,
-              runStateRoot,
-            ],
-          });
-          for (const check of preparedShell) {
-            const exitCode = await runShellCheck(check, {
-              workspace,
-              protectedRoots,
-              privateStateRoot: join(stateDir, "shell-sandbox"),
-              signal: options.signal,
-            });
-            const observationId = `sevro.observation.shell.${check.id}`;
-            shellObservations.push({
-              id: observationId,
-              source: "sevro.shell",
-              completeness: "complete",
-              data: { exitCode, expectedExitCode: check.expectedExitCode },
-            });
-            checks.push({
-              id: check.id,
-              grader: "sevro.shell",
-              status: exitCode === check.expectedExitCode ? "passed" : "failed",
-              detail: `exit code ${exitCode}`,
-              evidenceRefs: [observationId],
-            });
-          }
-        } catch {
-          graderError = true;
-          diagnostic = {
-            code: "sevro.grader.error",
-            message: "shell grading did not complete",
-          };
-        }
-      }
-      if (options.extension && !graderError) {
-        try {
-          const extensionResult = await options.extension.session.evaluate({
-            caseId: options.case.id,
-            execution: { status: execution },
-            observations: [
-              {
-                ...observation,
-                completeness,
-                data: {
-                  ...observation.data,
-                  ...(hostResult?.finalMessage == null
-                    ? {}
-                    : { text: hostResult.finalMessage }),
-                },
-              },
-              ...shellObservations,
-            ],
-            builtinChecks: checks.map((check) => ({
-              id: check.id,
-              status: check.status,
-              ...(check.detail ? { detail: check.detail } : {}),
-              evidenceRefs: check.evidenceRefs ?? [],
-            })),
-            artifacts: artifactRefs,
-            extensionData,
-          });
-          const declared = new Map(
-            extensionDeclarations.map((check) => [check.id, check.grader]),
-          );
-          if (extensionResult.checks.some((check) => !declared.has(check.id)))
-            throw new Error("extension returned an undeclared check");
-          checks.push(
-            ...extensionResult.checks.map((check) => ({
-              id: check.id,
-              grader: declared.get(check.id)!,
-              status: check.status,
-              ...(check.detail ? { detail: check.detail } : {}),
-              evidenceRefs: check.evidenceRefs,
-            })),
-          );
-          extensionMetrics = extensionResult.metrics;
-        } catch {
-          graderError = true;
-          diagnostic = {
-            code: "sevro.grader.error",
-            message: "extension grading did not complete",
-          };
-        }
-      }
-      const assessment = assessTrial({
-        execution,
-        declaredChecks: options.case.checks.map((check) => check.id),
-        checks,
-        graderError,
+  try {
+    const artifactRefs: { id: string; path: string; sha256: string }[] = [];
+    for (const artifact of inlineArtifacts) {
+      const retainedPath = join(
+        runDir,
+        "prepared",
+        ...fixtureParts(artifact.relativePath),
+      );
+      await mkdir(dirname(retainedPath), { recursive: true, mode: 0o700 });
+      await writeFile(retainedPath, artifact.bytes, {
+        flag: "wx",
+        mode: 0o600,
       });
-      await verifyRetainedArtifacts(artifactRefs);
-      const rawPath =
-        hostResult?.finalMessage !== null &&
-        hostResult?.finalMessage !== undefined
-          ? join(runDir, `trial-${trial}-raw.txt`)
-          : null;
-      if (rawPath) {
+      artifactRefs.push({
+        id: artifact.id,
+        path: pathToFileURL(retainedPath).href,
+        sha256: artifact.sha256,
+      });
+    }
+
+    const trialEvidence: Record<string, unknown>[] = [];
+    function saveState(status: "active" | "complete"): void {
+      const completedTrials = trialSummaries.map((trial) => ({
+        trial: trial.trial,
+        artifactPath: trial.artifactPath,
+      }));
+      checkpointRunOwner(owner, completedTrials, status);
+    }
+    let diagnostic: { code: string; message: string } | undefined;
+    for (let trial = 1; trial <= options.trialCount; trial++) {
+      const workspace = await createFixture(
+        options.case.fixture.files,
+        inlineArtifacts,
+      );
+      let persisted = false;
+      try {
+        let hostResult: HostResult | null = null;
+        let execution: "completed" | "failed" | "cancelled" = "completed";
         try {
-          await writeFile(rawPath, hostResult!.finalMessage!, {
-            flag: "wx",
-            mode: 0o600,
+          if (options.signal?.aborted) throw new Error("cancelled");
+          hostResult = await options.host.run({
+            prompt: options.case.prompt,
+            workspace,
+            condition: options.condition,
+            signal: options.signal,
+          });
+          if (
+            hostResult.finalMessage !== null &&
+            Buffer.byteLength(hostResult.finalMessage, "utf8") >
+              MAX_FINAL_MESSAGE_BYTES
+          )
+            throw new Error("oversized host result");
+        } catch {
+          execution = options.signal?.aborted ? "cancelled" : "failed";
+          hostResult = null;
+          diagnostic = {
+            code: "sevro.host.failed",
+            message: "host execution did not complete",
+          };
+        }
+        await verifyRetainedArtifacts(artifactRefs);
+        const rawDigest =
+          hostResult?.finalMessage == null
+            ? null
+            : sha256(hostResult.finalMessage);
+        const completeness =
+          hostResult?.finalMessage == null
+            ? "unavailable"
+            : hostResult.complete
+              ? "complete"
+              : "partial";
+        const observation = {
+          id: "sevro.observation.final-message",
+          source: options.host.id,
+          completeness,
+          data: rawDigest
+            ? {
+                sha256: rawDigest,
+                byteLength: Buffer.byteLength(
+                  hostResult!.finalMessage!,
+                  "utf8",
+                ),
+              }
+            : {},
+        };
+        const shellObservations: {
+          id: string;
+          source: string;
+          completeness: "complete";
+          data: Record<string, unknown>;
+        }[] = [];
+        let checks: CheckOutcome[] = [];
+        let extensionMetrics: {
+          id: string;
+          value: number | null;
+          unit: string;
+        }[] = [];
+        let graderError = false;
+        if (execution === "completed") {
+          try {
+            checks = gradeOutput(
+              hostResult!.finalMessage,
+              hostResult!.complete,
+              prepared,
+            ).map((check) => ({
+              ...check,
+              evidenceRefs: rawDigest ? [observation.id] : [],
+            }));
+          } catch {
+            graderError = true;
+            diagnostic = {
+              code: "sevro.grader.error",
+              message: "output grading did not complete",
+            };
+          }
+        }
+        if (execution === "completed" && !graderError && preparedShell.length) {
+          try {
+            const protectedRoots = await evaluationProtectedRoots({
+              workspace,
+              projectRoot,
+              resultsRoot: options.resultsRoot,
+              additionalRoots: [
+                ...options.shellIsolation!.protectedRoots,
+                runStateRoot,
+              ],
+            });
+            for (const check of preparedShell) {
+              const exitCode = await runShellCheck(check, {
+                workspace,
+                protectedRoots,
+                privateStateRoot: join(stateDir, "shell-sandbox"),
+                signal: options.signal,
+              });
+              const observationId = `sevro.observation.shell.${check.id}`;
+              shellObservations.push({
+                id: observationId,
+                source: "sevro.shell",
+                completeness: "complete",
+                data: { exitCode, expectedExitCode: check.expectedExitCode },
+              });
+              checks.push({
+                id: check.id,
+                grader: "sevro.shell",
+                status:
+                  exitCode === check.expectedExitCode ? "passed" : "failed",
+                detail: `exit code ${exitCode}`,
+                evidenceRefs: [observationId],
+              });
+            }
+          } catch {
+            graderError = true;
+            diagnostic = {
+              code: "sevro.grader.error",
+              message: "shell grading did not complete",
+            };
+          }
+        }
+        if (options.extension && !graderError) {
+          try {
+            const extensionResult = await options.extension.session.evaluate({
+              caseId: options.case.id,
+              execution: { status: execution },
+              observations: [
+                {
+                  ...observation,
+                  completeness,
+                  data: {
+                    ...observation.data,
+                    ...(hostResult?.finalMessage == null
+                      ? {}
+                      : { text: hostResult.finalMessage }),
+                  },
+                },
+                ...shellObservations,
+              ],
+              builtinChecks: checks.map((check) => ({
+                id: check.id,
+                status: check.status,
+                ...(check.detail ? { detail: check.detail } : {}),
+                evidenceRefs: check.evidenceRefs ?? [],
+              })),
+              artifacts: artifactRefs,
+              extensionData,
+            });
+            const declared = new Map(
+              extensionDeclarations.map((check) => [check.id, check.grader]),
+            );
+            if (extensionResult.checks.some((check) => !declared.has(check.id)))
+              throw new Error("extension returned an undeclared check");
+            checks.push(
+              ...extensionResult.checks.map((check) => ({
+                id: check.id,
+                grader: declared.get(check.id)!,
+                status: check.status,
+                ...(check.detail ? { detail: check.detail } : {}),
+                evidenceRefs: check.evidenceRefs,
+              })),
+            );
+            extensionMetrics = extensionResult.metrics;
+          } catch {
+            graderError = true;
+            diagnostic = {
+              code: "sevro.grader.error",
+              message: "extension grading did not complete",
+            };
+          }
+        }
+        const assessment = assessTrial({
+          execution,
+          declaredChecks: options.case.checks.map((check) => check.id),
+          checks,
+          graderError,
+        });
+        await verifyRetainedArtifacts(artifactRefs);
+        const rawPath =
+          hostResult?.finalMessage !== null &&
+          hostResult?.finalMessage !== undefined
+            ? join(runDir, `trial-${trial}-raw.txt`)
+            : null;
+        if (rawPath) {
+          try {
+            await writeFile(rawPath, hostResult!.finalMessage!, {
+              flag: "wx",
+              mode: 0o600,
+            });
+          } catch {
+            throw new Error(
+              `trial persistence failed; fixture retained at ${workspace}`,
+            );
+          }
+        }
+        const evidence = {
+          caseId: options.case.id,
+          trial,
+          executionMode: "executed",
+          condition: {
+            requested: options.condition,
+            actual: hostResult?.actualCondition ?? "unknown",
+            appliedInstrumentation: [],
+          },
+          observationCompleteness: completeness,
+          observations: [observation, ...shellObservations],
+          metrics: extensionMetrics,
+          routes: [route],
+          usage: usage(hostResult),
+          rawResult: {
+            source: options.host.id,
+            path: rawPath ? pathToFileURL(rawPath).href : null,
+            sha256: rawDigest,
+          },
+          artifactRefs,
+        };
+        const artifactPath = join(runDir, `trial-${trial}.json`);
+        const trialSummary: TrialSummary = {
+          trial,
+          ...assessment,
+          checks,
+          artifactPath,
+        };
+        try {
+          await atomicWriteJson(artifactPath, {
+            format: "sevro.trial-evidence.v1",
+            caseId: options.case.id,
+            trial,
+            result: trialSummary,
+            evidence,
           });
         } catch {
           throw new Error(
             `trial persistence failed; fixture retained at ${workspace}`,
           );
         }
-      }
-      const evidence = {
-        caseId: options.case.id,
-        trial,
-        executionMode: "executed",
-        condition: {
-          requested: options.condition,
-          actual: hostResult?.actualCondition ?? "unknown",
-          appliedInstrumentation: [],
-        },
-        observationCompleteness: completeness,
-        observations: [observation, ...shellObservations],
-        metrics: extensionMetrics,
-        routes: [route],
-        usage: usage(hostResult),
-        rawResult: {
-          source: options.host.id,
-          path: rawPath ? pathToFileURL(rawPath).href : null,
-          sha256: rawDigest,
-        },
-        artifactRefs,
-      };
-      const artifactPath = join(runDir, `trial-${trial}.json`);
-      const trialSummary: TrialSummary = {
-        trial,
-        ...assessment,
-        checks,
-        artifactPath,
-      };
-      try {
-        await atomicWriteJson(artifactPath, {
-          format: "sevro.trial-evidence.v1",
-          caseId: options.case.id,
-          trial,
-          result: trialSummary,
-          evidence,
-        });
-      } catch {
-        throw new Error(
-          `trial persistence failed; fixture retained at ${workspace}`,
-        );
-      }
-      persisted = true;
-      trialSummaries.push(trialSummary);
-      trialEvidence.push(evidence);
-      await saveState("running");
-      if (execution !== "completed" || graderError) break;
-    } finally {
-      if (persisted) {
-        try {
-          await rm(workspace, { recursive: true, force: true });
-        } catch {
-          console.warn(`fixture cleanup failed; retained at ${workspace}`);
+        persisted = true;
+        trialSummaries.push(trialSummary);
+        trialEvidence.push(evidence);
+        saveState("active");
+        if (execution !== "completed" || graderError) break;
+      } finally {
+        if (persisted) {
+          try {
+            await rm(workspace, { recursive: true, force: true });
+          } catch {
+            console.warn(`fixture cleanup failed; retained at ${workspace}`);
+          }
         }
       }
     }
-  }
 
-  const caseAssessment = summarizeAssessments(
-    trialSummaries,
-    options.passThreshold,
-  );
-  const caseResult: CaseSummary = {
-    caseId: options.case.id,
-    ...caseAssessment,
-    trials: trialSummaries,
-  };
-  const runAssessment = summarizeCases([caseResult]);
-  const result: CliResult = {
-    format: "sevro.cli-result.v1",
-    runId,
-    ...runAssessment,
-    exitCode: exitCodeFor(runAssessment),
-    evidencePath,
-    cases: [caseResult],
-  };
-  const actualConditions = [
-    ...new Set(
-      trialEvidence.map(
-        (entry) => (entry.condition as { actual: string }).actual,
+    const caseAssessment = summarizeAssessments(
+      trialSummaries,
+      options.passThreshold,
+    );
+    const caseResult: CaseSummary = {
+      caseId: options.case.id,
+      ...caseAssessment,
+      trials: trialSummaries,
+    };
+    const runAssessment = summarizeCases([caseResult]);
+    const result: CliResult = {
+      format: "sevro.cli-result.v1",
+      runId,
+      ...runAssessment,
+      exitCode: exitCodeFor(runAssessment),
+      evidencePath,
+      cases: [caseResult],
+    };
+    const actualConditions = [
+      ...new Set(
+        trialEvidence.map(
+          (entry) => (entry.condition as { actual: string }).actual,
+        ),
       ),
-    ),
-  ];
-  const runEvidence = {
-    format: "sevro.run-evidence.v1",
-    runId,
-    evaluationIdentity,
-    configuration: {
-      digest: hashJson(redactedConfig),
-      redacted: redactedConfig,
-    },
-    runner,
-    project,
-    extension: options.extension
-      ? {
-          id: options.extension.session.identity.id,
-          version: options.extension.session.identity.version,
-          sourceDigest: options.extension.session.identity.sourceDigest,
-          configurationDigest:
-            options.extension.session.identity.configurationDigest,
-          protocol: options.extension.session.identity.protocol,
-          capabilities: options.extension.session.identity.capabilities,
-          replacements: { graders: [], taskVerdictPolicy: null },
-        }
-      : null,
-    condition: {
-      requested: options.condition,
-      actual: actualConditions.length === 1 ? actualConditions[0] : "unknown",
-      requestedInstrumentation: [],
-      appliedInstrumentation: [],
-    },
-    graders: { active: activeGraders, replacedDefaults: [] },
-    routes: [route],
-    result,
-    trials: trialEvidence,
-    ...(diagnostic ? { diagnostic } : {}),
-  };
-  assertCliResult(result);
-  assertRunEvidence(runEvidence);
-  await atomicWriteJson(evidencePath, runEvidence);
-  await saveState("complete");
-  return { result };
+    ];
+    const runEvidence = {
+      format: "sevro.run-evidence.v1",
+      runId,
+      evaluationIdentity,
+      configuration: {
+        digest: hashJson(redactedConfig),
+        redacted: redactedConfig,
+      },
+      runner,
+      project,
+      extension: options.extension
+        ? {
+            id: options.extension.session.identity.id,
+            version: options.extension.session.identity.version,
+            sourceDigest: options.extension.session.identity.sourceDigest,
+            configurationDigest:
+              options.extension.session.identity.configurationDigest,
+            protocol: options.extension.session.identity.protocol,
+            capabilities: options.extension.session.identity.capabilities,
+            replacements: { graders: [], taskVerdictPolicy: null },
+          }
+        : null,
+      condition: {
+        requested: options.condition,
+        actual: actualConditions.length === 1 ? actualConditions[0] : "unknown",
+        requestedInstrumentation: [],
+        appliedInstrumentation: [],
+      },
+      graders: { active: activeGraders, replacedDefaults: [] },
+      routes: [route],
+      result,
+      trials: trialEvidence,
+      ...(diagnostic ? { diagnostic } : {}),
+    };
+    assertCliResult(result);
+    assertRunEvidence(runEvidence);
+    await atomicWriteJson(evidencePath, runEvidence);
+    saveState("complete");
+    return { result };
+  } catch (error) {
+    try {
+      checkpointRunOwner(
+        owner,
+        trialSummaries.map((trial) => ({
+          trial: trial.trial,
+          artifactPath: trial.artifactPath,
+        })),
+        "diagnostic",
+      );
+    } catch {
+      // Preserve the original failure; retained artifacts remain inspectable.
+    }
+    throw error;
+  }
 }

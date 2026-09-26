@@ -24,9 +24,14 @@ identity. A Git-backed project records its own revision and dirty content;
 a project without a commit retains unknown Git provenance alongside the
 explicit caller-supplied project content digest. An optional independent
 run-state root holds an active record and a checkpoint pointing to each
-retained trial. The record reaches `complete`
-only after final run evidence is written. These records track progress but do
-not yet enforce exclusive process ownership or abandoned-run recovery.
+retained trial. An evaluation-identity claim uses a short SQLite transaction
+to admit one verified process owner. A live owner blocks an equivalent run;
+an unverifiable owner is refused, while a confirmed dead owner is marked
+interrupted and its prior attempt files are kept before a new claim starts.
+The active record reaches `complete` only after final run evidence is written.
+Process identity includes the PID, host, and operating-system start time to
+protect against PID reuse. If start time cannot be verified, the run stops
+before host execution.
 
 This slice accepts output checks with no additional required host evidence.
 It also accepts shell checks when the caller explicitly supplies protected

@@ -272,8 +272,8 @@ test("a changed retained artifact cannot support a successful result", async () 
     await expect(
       runWithExtension("lifecycle-artifact", async (fixture, resultsRoot) => {
         workspace = fixture;
-        const runId = (await readdir(resultsRoot)).find(
-          (name) => name !== "active",
+        const runId = (await readdir(resultsRoot)).find((name) =>
+          /^[a-f0-9]{8}-/.test(name),
         );
         await writeFile(
           join(resultsRoot, runId!, "prepared/generated/data.txt"),

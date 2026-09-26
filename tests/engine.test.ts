@@ -141,6 +141,56 @@ test("host failure retains completed trials and reports execution failure", asyn
   );
 });
 
+test("engine refuses an equivalent live run before a second host starts", async () => {
+  const paths = await rootsForRun();
+  let releaseHost: (() => void) | undefined;
+  let hostStarted: (() => void) | undefined;
+  const gate = new Promise<void>((resolve) => {
+    releaseHost = resolve;
+  });
+  const started = new Promise<void>((resolve) => {
+    hostStarted = resolve;
+  });
+  let calls = 0;
+  const host: HostAdapter = {
+    id: "sevro.host.synthetic",
+    model: "synthetic-v1",
+    effort: "none",
+    async run() {
+      calls++;
+      hostStarted?.();
+      await gate;
+      return { finalMessage: "ready", complete: true };
+    },
+  };
+  const options = {
+    ...paths,
+    case: baseCase,
+    host,
+    runnerBuildDigest: digest,
+    projectDigest: digest,
+    condition: "passive" as const,
+    trialCount: 1,
+    passThreshold: 1,
+  };
+  const first = runEvaluation(options);
+  try {
+    await Promise.race([
+      started,
+      Bun.sleep(5000).then(() => {
+        throw new Error("first host did not start");
+      }),
+    ]);
+    await expect(runEvaluation(options)).rejects.toThrow(
+      /equivalent Sevro run is active/,
+    );
+    expect(calls).toBe(1);
+  } finally {
+    releaseHost?.();
+  }
+  expect((await first).result.exitCode).toBe(0);
+});
+
 test("stores checkpoints apart from results and hides run state from shell checks", async () => {
   if (process.platform !== "darwin") return;
   const paths = await rootsForRun();
@@ -214,8 +264,8 @@ test("failed trial persistence retains its fixture and never returns success", a
     effort: "none",
     async run(request) {
       workspace = request.workspace;
-      const runId = (await readdir(paths.resultsRoot)).find(
-        (name) => name !== "active",
+      const runId = (await readdir(paths.resultsRoot)).find((name) =>
+        /^[a-f0-9]{8}-/.test(name),
       );
       await mkdir(join(paths.resultsRoot, runId!, "trial-1.json"));
       return { finalMessage: "ready", complete: true };
@@ -235,6 +285,11 @@ test("failed trial persistence retains its fixture and never returns success", a
       }),
     ).rejects.toThrow(/trial persistence failed; fixture retained/);
     expect(existsSync(workspace)).toBe(true);
+    const [activeName] = await readdir(join(paths.resultsRoot, "active"));
+    const active = JSON.parse(
+      await readFile(join(paths.resultsRoot, "active", activeName!), "utf8"),
+    );
+    expect(active.status).toBe("diagnostic");
   } finally {
     if (workspace) await rm(workspace, { recursive: true, force: true });
   }
