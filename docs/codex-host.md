@@ -29,9 +29,11 @@ candidate commands and shell grading.
 Codex cannot start its native sandbox inside an outer `sandbox-exec` process
 on this host. Its runner-generated permission profile therefore sets an
 explicit workspace rule, denies all other filesystem roots except minimal
-runtime files, and specifically denies protected roots and the private Codex
-home. It also disables command network access and clears inherited command
-environment variables. The Codex parent can read authentication before it
-starts sandboxed commands. A test invokes the installed `codex sandbox` CLI
-to prove fixture access and denied source/auth reads. The process adapter
-selects and verifies this profile before every turn.
+runtime files and the selected executable's install directories, and
+specifically denies protected roots and the private Codex home. An executable
+inside a protected root is rejected. The profile also disables command
+network access and clears inherited command environment variables. The Codex
+parent can read authentication before it starts sandboxed commands. Tests
+invoke the installed `codex sandbox` CLI to prove fixture access, denied
+source/auth reads, and executable access. The process adapter verifies these
+properties before every turn.

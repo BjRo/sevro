@@ -12,6 +12,7 @@ export function codexPermissionProfile(options: {
   workspace: string;
   commandHome: string;
   commandTemp: string;
+  executableReadRoots: string[];
   protectedRoots: string[];
 }): string {
   if (!/^[a-z][a-z0-9_]*$/.test(options.id))
@@ -20,6 +21,10 @@ export function codexPermissionProfile(options: {
     !isAbsolute(options.workspace) ||
     !isAbsolute(options.commandHome) ||
     !isAbsolute(options.commandTemp) ||
+    !options.executableReadRoots.length ||
+    options.executableReadRoots.some(
+      (path) => !isAbsolute(path) || path === "/",
+    ) ||
     !options.protectedRoots.length ||
     options.protectedRoots.some((root) => !isAbsolute(root))
   )
@@ -50,6 +55,9 @@ export function codexPermissionProfile(options: {
     ...[...new Set(options.protectedRoots)]
       .sort()
       .map((root) => `${toml(root)} = "deny"`),
+    ...[...new Set(options.executableReadRoots)]
+      .sort()
+      .map((path) => `${toml(path)} = "read"`),
     `${toml(options.commandHome)} = "write"`,
     `${toml(options.commandTemp)} = "write"`,
     "",

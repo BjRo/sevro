@@ -175,3 +175,26 @@ test("Codex host terminates a timed out turn", async () => {
     host.run({ prompt: "ready", workspace, condition: "passive" }),
   ).rejects.toThrow(/timed out/);
 });
+
+test("Codex host refuses an executable inside a protected project", async () => {
+  const installedCodex = Bun.which("codex");
+  if (process.platform !== "darwin" || !installedCodex) return;
+  const paths = await fixture();
+  const workspace = await mkdtemp(join(tmpdir(), "sevro-case-codex-rejected-"));
+  roots.push(workspace);
+  const insideProject = join(paths.projectRoot, "fake-codex");
+  await writeFile(insideProject, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+  const host = createCodexHost({
+    binary: insideProject,
+    sandboxBinary: installedCodex,
+    authFile: paths.authFile,
+    model: "synthetic-codex",
+    effort: "low",
+    projectRoot: paths.projectRoot,
+    resultsRoot: paths.resultsRoot,
+    additionalProtectedRoots: [],
+  });
+  await expect(
+    host.run({ prompt: "ready", workspace, condition: "passive" }),
+  ).rejects.toThrow(/executable resides inside a protected root/);
+});

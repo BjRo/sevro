@@ -1,7 +1,14 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { codexPermissionProfile } from "../src/hosts/codex-profile";
 
 test("Codex profile denies roots and strips command credentials", () => {
@@ -10,6 +17,7 @@ test("Codex profile denies roots and strips command credentials", () => {
     workspace: "/tmp/fixture",
     commandHome: "/tmp/fixture/home",
     commandTemp: "/tmp/fixture/tmp",
+    executableReadRoots: ["/bin"],
     protectedRoots: ["/source", "/auth"],
   });
   expect(profile).toContain('"/source" = "deny"');
@@ -22,13 +30,15 @@ test("Codex profile denies roots and strips command credentials", () => {
       workspace: "/tmp/fixture",
       commandHome: "/tmp/fixture/home",
       commandTemp: "/tmp/fixture/tmp",
+      executableReadRoots: ["/bin"],
       protectedRoots: ["/source"],
     }),
   ).toThrow(/profile ID/);
 });
 
 test("actual Codex sandbox keeps fixture access and denies source and auth", async () => {
-  if (process.platform !== "darwin" || !Bun.which("codex")) return;
+  const installedCodex = Bun.which("codex");
+  if (process.platform !== "darwin" || !installedCodex) return;
   const root = await mkdtemp(join(tmpdir(), "sevro-codex-policy-"));
   const fixture = join(root, "fixture");
   const source = join(root, "source");
@@ -52,6 +62,10 @@ test("actual Codex sandbox keeps fixture access and denies source and auth", asy
         workspace: fixture,
         commandHome,
         commandTemp,
+        executableReadRoots: [
+          dirname(installedCodex),
+          dirname(await realpath(installedCodex)),
+        ],
         protectedRoots: [source, state],
       }),
       { mode: 0o600 },
@@ -91,6 +105,7 @@ test("actual Codex sandbox keeps fixture access and denies source and auth", asy
     expect(await readFile(join(fixture, "created.txt"), "utf8")).toBe(
       "created",
     );
+    expect((await run([installedCodex, "--version"])).code).toBe(0);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

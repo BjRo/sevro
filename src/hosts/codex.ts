@@ -4,12 +4,13 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  realpath,
   rm,
   stat,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join, sep } from "node:path";
 import type { HostAdapter } from "../engine";
 import { summarizeCodexEvents } from "./codex-events";
 import { codexPermissionProfile } from "./codex-profile";
@@ -184,6 +185,23 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
           resultsRoot: options.resultsRoot,
           additionalRoots: [...options.additionalProtectedRoots, stateRoot],
         });
+        const sandboxBinary = options.sandboxBinary ?? options.binary;
+        const executableReadRoots = await Promise.all(
+          [options.binary, sandboxBinary].flatMap((binary) => [
+            realpath(dirname(binary)),
+            realpath(binary).then(dirname),
+          ]),
+        );
+        if (
+          executableReadRoots.some((readRoot) =>
+            protectedRoots.some(
+              (protectedRoot) =>
+                readRoot === protectedRoot ||
+                readRoot.startsWith(`${protectedRoot}${sep}`),
+            ),
+          )
+        )
+          throw new Error("Codex executable resides inside a protected root");
         const profileId = `sevro_${randomUUID().replaceAll("-", "")}`;
         await writeFile(
           join(codexHome, "config.toml"),
@@ -192,6 +210,7 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
             workspace: request.workspace,
             commandHome,
             commandTemp,
+            executableReadRoots,
             protectedRoots,
           }),
           { flag: "wx", mode: 0o600 },
@@ -208,7 +227,7 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
         await writeFile(probe, "probe\n", { flag: "wx", mode: 0o600 });
         const checked = await runProcess({
           argv: [
-            options.sandboxBinary ?? options.binary,
+            sandboxBinary,
             "sandbox",
             "-P",
             profileId,
@@ -229,6 +248,24 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
         });
         if (checked.code !== 0)
           throw new Error("Codex isolation preflight failed");
+        const executableCheck = await runProcess({
+          argv: [
+            sandboxBinary,
+            "sandbox",
+            "-P",
+            profileId,
+            "-C",
+            request.workspace,
+            sandboxBinary,
+            "--version",
+          ],
+          cwd: request.workspace,
+          env,
+          timeoutMs: 10_000,
+          signal: request.signal,
+        });
+        if (executableCheck.code !== 0)
+          throw new Error("Codex executable preflight failed");
         await rm(probe);
         const execution = await runProcess({
           argv: [

@@ -169,11 +169,14 @@ test("CLI runs its bundled Codex route with explicit auth and model", async () =
   const { args, caseFile } = await fixture();
   const projectRoot = join(caseFile, "..");
   const authFile = join(projectRoot, "auth.json");
-  const binary = join(projectRoot, "codex-wrapper");
+  const binRoot = await mkdtemp(join(tmpdir(), "sevro-codex-bin-"));
+  roots.push(binRoot);
+  const binary = join(binRoot, "codex-wrapper");
   await writeFile(authFile, "test-only-auth\n", { mode: 0o600 });
   await writeFile(
     binary,
     `#!/bin/sh
+if [ "$1" = --version ]; then printf 'synthetic-codex\\n'; exit 0; fi
 if [ "$1" = sandbox ]; then
   shift
   exec "${installedCodex}" sandbox "$@"
