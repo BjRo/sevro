@@ -138,16 +138,26 @@ const result = scenario.startsWith("lifecycle")
                     scenario === "lifecycle-bad-artifact"
                       ? "a".repeat(64)
                       : createHash("sha256")
-                          .update("prepared data\n")
+                          .update(
+                            scenario === "lifecycle-executable-artifact"
+                              ? "#!/bin/sh\nprintf 'ready\\n'\n"
+                              : "prepared data\n",
+                          )
                           .digest("hex"),
                   ...(scenario === "lifecycle-source-artifact"
                     ? { sourceRef: "input-data" }
                     : {
-                        contentBase64:
-                          Buffer.from("prepared data\n").toString("base64"),
+                        contentBase64: Buffer.from(
+                          scenario === "lifecycle-executable-artifact"
+                            ? "#!/bin/sh\nprintf 'ready\\n'\n"
+                            : "prepared data\n",
+                        ).toString("base64"),
                       }),
                   ...(scenario.startsWith("lifecycle-git-excluded")
                     ? { gitExclude: true }
+                    : {}),
+                  ...(scenario === "lifecycle-executable-artifact"
+                    ? { executable: true }
                     : {}),
                 },
               ]

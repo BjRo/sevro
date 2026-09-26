@@ -13,6 +13,7 @@ export interface PreparationArtifact {
   contentBase64?: string;
   sourceRef?: string;
   gitExclude?: boolean;
+  executable?: boolean;
 }
 
 export interface InlineArtifact {
@@ -21,6 +22,7 @@ export interface InlineArtifact {
   sha256: string;
   bytes: Uint8Array;
   gitExclude?: boolean;
+  executable?: boolean;
 }
 
 export interface PreparationSources {
@@ -75,6 +77,8 @@ export function prepareInlineArtifacts(
     ids.add(item.id);
     if (item.gitExclude !== undefined && typeof item.gitExclude !== "boolean")
       throw new Error("preparation artifact gitExclude must be boolean");
+    if (item.executable !== undefined && typeof item.executable !== "boolean")
+      throw new Error("preparation artifact executable must be boolean");
     if (item.gitExclude && /[\u0000-\u001f\u007f]/.test(item.relativePath))
       throw new Error("Git-excluded artifact path contains control characters");
     if (item.sourceRef !== undefined || typeof item.contentBase64 !== "string")
@@ -101,6 +105,7 @@ export function prepareInlineArtifacts(
       sha256: item.sha256,
       bytes,
       ...(item.gitExclude === undefined ? {} : { gitExclude: item.gitExclude }),
+      ...(item.executable === undefined ? {} : { executable: item.executable }),
     };
   });
 }
@@ -169,6 +174,7 @@ export async function prepareArtifacts(
       sha256: item.sha256,
       contentBase64: bytes.toString("base64"),
       ...(item.gitExclude === undefined ? {} : { gitExclude: item.gitExclude }),
+      ...(item.executable === undefined ? {} : { executable: item.executable }),
     });
   }
   return prepareInlineArtifacts(resolved, fixturePaths);

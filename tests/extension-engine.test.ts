@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -513,6 +513,32 @@ test("prepared skill files stay outside Git status without hiding candidate edit
   expect(evidence.evaluationIdentity.dimensions.fixtureDigest).toMatch(
     /^[a-f0-9]{64}$/,
   );
+});
+
+test("prepared executable artifact runs from the fixture and retains its mode", async () => {
+  const { outcome, evidence } = await runWithExtension(
+    "lifecycle-executable-artifact",
+    async (workspace) => {
+      if (process.platform === "win32") return;
+      const file = join(workspace, "generated/data.txt");
+      const child = Bun.spawn([file], { stdout: "pipe", stderr: "pipe" });
+      const [stdout, code] = await Promise.all([
+        new Response(child.stdout).text(),
+        child.exited,
+      ]);
+      expect(code).toBe(0);
+      expect(stdout).toBe("ready\n");
+    },
+  );
+  expect(outcome.result.exitCode).toBe(0);
+  expect(evidence.trials[0].artifactRefs[0]).toMatchObject({
+    id: "generated-file",
+    executable: true,
+  });
+  if (process.platform !== "win32") {
+    const retained = new URL(evidence.trials[0].artifactRefs[0].path);
+    expect((await stat(retained)).mode & 0o100).toBe(0o100);
+  }
 });
 
 test("Git-excluded preparation artifacts require a Git fixture", async () => {

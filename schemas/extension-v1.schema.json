@@ -355,7 +355,8 @@
         "sha256": { "$ref": "#/$defs/digest" },
         "contentBase64": { "type": "string", "contentEncoding": "base64" },
         "sourceRef": { "$ref": "#/$defs/id" },
-        "gitExclude": { "type": "boolean" }
+        "gitExclude": { "type": "boolean" },
+        "executable": { "type": "boolean" }
       },
       "oneOf": [
         { "required": ["contentBase64"], "not": { "required": ["sourceRef"] } },
@@ -451,7 +452,8 @@
         "id": { "$ref": "#/$defs/id" },
         "path": { "type": "string", "pattern": "^file:///" },
         "sha256": { "$ref": "#/$defs/digest" },
-        "gitExclude": { "type": "boolean" }
+        "gitExclude": { "type": "boolean" },
+        "executable": { "type": "boolean" }
       },
       "additionalProperties": false
     },

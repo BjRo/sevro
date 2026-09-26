@@ -91,7 +91,9 @@ extension may request a host-declared instrumentation capability during
 `prepare`. The host adapter receives the request and must report exactly what
 it applied. An execution-changing request is refused for `--condition passive`;
 an unsupported or unconfirmed request cannot pass. The bundled Codex route
-currently advertises no instrumentation capabilities. Repeat
+currently advertises no instrumentation capabilities. Set `executable: true`
+on a preparation artifact to install it with owner execute permission; Sevro
+retains the flag and mode in evidence. Repeat
 `--replace-builtin-grader <sevro.grader-id>` to explicitly replace built-in
 graders declared by the selected case. The case must also declare an advertised
 extension check. The runner validates the replaced declarations but does not

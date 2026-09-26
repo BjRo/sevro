@@ -49,6 +49,13 @@ test("preparation validates bytes, digest, and portable path containment", () =>
   expect(() =>
     prepareInlineArtifacts([{ ...artifact, gitExclude: "yes" as never }], []),
   ).toThrow(/gitExclude/);
+  expect(
+    prepareInlineArtifacts([{ ...artifact, executable: true }], [])[0]
+      ?.executable,
+  ).toBeTrue();
+  expect(() =>
+    prepareInlineArtifacts([{ ...artifact, executable: "yes" as never }], []),
+  ).toThrow(/executable/);
   expect(() =>
     prepareInlineArtifacts(
       [{ ...artifact, relativePath: "generated/bad\npath", gitExclude: true }],
@@ -88,6 +95,15 @@ test("source references resolve only from the declared case source map", async (
           sources,
         )
       )[0]?.gitExclude,
+    ).toBeTrue();
+    expect(
+      (
+        await prepareArtifacts(
+          [{ ...declaration, executable: true }],
+          [],
+          sources,
+        )
+      )[0]?.executable,
     ).toBeTrue();
     await expect(
       prepareArtifacts(

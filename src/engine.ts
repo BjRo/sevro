@@ -210,7 +210,10 @@ async function createFixture(
     for (const artifact of artifacts) {
       const target = join(workspace, ...fixtureParts(artifact.relativePath));
       await mkdir(dirname(target), { recursive: true, mode: 0o700 });
-      await writeFile(target, artifact.bytes, { flag: "wx", mode: 0o600 });
+      await writeFile(target, artifact.bytes, {
+        flag: "wx",
+        mode: artifact.executable ? 0o700 : 0o600,
+      });
     }
     const gitExcluded = artifacts.filter((artifact) => artifact.gitExclude);
     if (gitExcluded.length) {
@@ -750,11 +753,12 @@ export async function runEvaluation(
               }
             : { files: options.case.fixture.files }),
         artifacts: inlineArtifacts.map(
-          ({ id, relativePath, sha256, gitExclude }) => ({
+          ({ id, relativePath, sha256, gitExclude, executable }) => ({
             id,
             relativePath,
             sha256,
             ...(gitExclude ? { gitExclude: true } : {}),
+            ...(executable ? { executable: true } : {}),
           }),
         ),
       }),
@@ -816,6 +820,7 @@ export async function runEvaluation(
       path: string;
       sha256: string;
       gitExclude?: boolean;
+      executable?: boolean;
     }[] = [];
     for (const artifact of inlineArtifacts) {
       const retainedPath = join(
@@ -826,13 +831,14 @@ export async function runEvaluation(
       await mkdir(dirname(retainedPath), { recursive: true, mode: 0o700 });
       await writeFile(retainedPath, artifact.bytes, {
         flag: "wx",
-        mode: 0o600,
+        mode: artifact.executable ? 0o700 : 0o600,
       });
       artifactRefs.push({
         id: artifact.id,
         path: pathToFileURL(retainedPath).href,
         sha256: artifact.sha256,
         ...(artifact.gitExclude ? { gitExclude: true } : {}),
+        ...(artifact.executable ? { executable: true } : {}),
       });
     }
 

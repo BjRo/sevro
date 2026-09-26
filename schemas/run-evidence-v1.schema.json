@@ -458,7 +458,8 @@
               "id": { "type": "string", "minLength": 1 },
               "path": { "$ref": "#/$defs/fileUrl" },
               "sha256": { "$ref": "#/$defs/digest" },
-              "gitExclude": { "type": "boolean" }
+              "gitExclude": { "type": "boolean" },
+              "executable": { "type": "boolean" }
             },
             "additionalProperties": false
           }
