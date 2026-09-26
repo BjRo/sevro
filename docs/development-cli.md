@@ -151,7 +151,10 @@ are not part of this generated-fixture contract yet.
 The case file follows the `ResolvedCase`
 interface in `src/engine.ts`; this slice accepts inline files, generated Git
 history, or a declared repository, built-in output and semantic checks, and
-isolated shell checks. For shell checks, add
+isolated shell checks. Add `{{sevro.workspace}}` to a case prompt when the host
+needs the trial's absolute fixture path. Sevro resolves it after fixture
+creation for each trial and retains the template in evaluation identity. For
+shell checks, add
 `--shell-isolation` and repeat `--protected-root /absolute/path` for every
 additional source worktree or private root. The engine always protects the
 selected project, results, runner source, user home, configured host homes,

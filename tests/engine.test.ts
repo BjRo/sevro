@@ -106,6 +106,37 @@ test("runs trials, applies threshold, and retains evidence before fixture cleanu
   expect(evidence.result).toEqual(outcome.result);
 });
 
+test("renders the workspace token separately for each trial", async () => {
+  const paths = await rootsForRun();
+  const seen: string[] = [];
+  const host: HostAdapter = {
+    id: "sevro.host.synthetic",
+    model: "synthetic-v1",
+    effort: "none",
+    async run({ prompt, workspace }) {
+      expect(prompt).toBe(`Inspect ${workspace} and ${workspace}`);
+      seen.push(workspace);
+      return { finalMessage: "ready", complete: true };
+    },
+  };
+  const outcome = await runEvaluation({
+    ...paths,
+    case: {
+      ...baseCase,
+      prompt: "Inspect {{sevro.workspace}} and {{sevro.workspace}}",
+    },
+    host,
+    runnerBuildDigest: digest,
+    projectDigest: digest,
+    condition: "passive",
+    trialCount: 2,
+    passThreshold: 1,
+  });
+  expect(outcome.result.exitCode).toBe(0);
+  expect(seen).toHaveLength(2);
+  expect(seen[0]).not.toBe(seen[1]);
+});
+
 test("dry preparation records every trial without executing the host", async () => {
   const paths = await rootsForRun();
   let hostCalls = 0;

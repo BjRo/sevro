@@ -859,6 +859,10 @@ export async function runEvaluation(
         repository,
         generated,
       );
+      const trialPrompt = options.case.prompt.replaceAll(
+        "{{sevro.workspace}}",
+        workspace,
+      );
       let persisted = false;
       try {
         const advisoryRevision = options.advisoryHost
@@ -874,7 +878,7 @@ export async function runEvaluation(
           try {
             if (options.signal?.aborted) throw new Error("cancelled");
             hostResult = await options.host.run({
-              prompt: options.case.prompt,
+              prompt: trialPrompt,
               workspace,
               condition: options.condition,
               instrumentation: requestedInstrumentation,
@@ -1353,7 +1357,7 @@ export async function runEvaluation(
                 excludedPaths: options.advisoryExcludedPaths,
               });
               const response = await options.advisoryHost.run({
-                prompt: advisoryPrompt(options.case.prompt, checks),
+                prompt: advisoryPrompt(trialPrompt, checks),
                 workspace: reviewWorkspace,
                 condition: "passive",
                 signal: options.signal,
