@@ -14,6 +14,11 @@ import { prepareGeneratedFixture } from "./generated-fixture";
 import { prepareInstrumentation } from "./instrumentation";
 import { openExtensionSession, type ExtensionCase } from "./extension-session";
 import { assertCliResult } from "./schema";
+import {
+  packageBuildDigest,
+  projectIdentityDigest,
+  projectProvenance,
+} from "./provenance";
 
 class InvocationError extends Error {}
 
@@ -30,6 +35,12 @@ function absoluteOption(value: string | undefined, name: string): string {
   const path = requiredOption(value, name);
   if (!isAbsolute(path)) throw new InvocationError(`${name} must be absolute`);
   return path;
+}
+
+function optionalDigest(value: string | undefined, name: string) {
+  if (value !== undefined && !/^[a-f0-9]{64}$/.test(value))
+    throw new InvocationError(`${name} must be a 64-character SHA-256 digest`);
+  return value;
 }
 
 function validFixture(value: unknown): boolean {
@@ -370,14 +381,14 @@ function parseInvocation(argv: string[]) {
     projectRoot,
     resultsRoot,
     runStateRoot,
-    runnerBuildDigest: requiredOption(
+    runnerBuildDigest: optionalDigest(
       values["runner-build-digest"],
       "--runner-build-digest",
     ),
     runnerCheckoutRoot: values["runner-checkout-root"]
       ? absoluteOption(values["runner-checkout-root"], "--runner-checkout-root")
       : undefined,
-    projectDigest: requiredOption(values["project-digest"], "--project-digest"),
+    projectDigest: optionalDigest(values["project-digest"], "--project-digest"),
     condition: condition as "passive" | "enforced",
     trialCount,
     passThreshold,
@@ -627,9 +638,16 @@ async function main(argv: string[]): Promise<void> {
       advisoryHost,
       advisoryExcludedPaths: invocation.advisoryExcludedPaths,
       shellIsolation: invocation.shellIsolation,
-      runnerBuildDigest: invocation.runnerBuildDigest,
+      runnerBuildDigest:
+        invocation.runnerBuildDigest ?? (await packageBuildDigest()),
       runnerCheckoutRoot: invocation.runnerCheckoutRoot,
-      projectDigest: invocation.projectDigest,
+      projectDigest:
+        invocation.projectDigest ??
+        (await projectIdentityDigest(
+          invocation.projectRoot,
+          await projectProvenance(invocation.projectRoot),
+          [invocation.resultsRoot, invocation.runStateRoot],
+        )),
       condition: invocation.condition,
       trialCount: invocation.trialCount,
       passThreshold: invocation.passThreshold,

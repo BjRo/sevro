@@ -5,7 +5,6 @@ import { join, resolve } from "node:path";
 
 const sourceRoot = resolve(import.meta.dir, "..");
 const root = await mkdtemp(join(tmpdir(), "sevro-package-install-"));
-const digest = "a".repeat(64);
 
 async function run(argv: string[], cwd: string): Promise<string> {
   const child = Bun.spawn(argv, { cwd, stdout: "pipe", stderr: "pipe" });
@@ -93,10 +92,6 @@ try {
       project,
       "--results-root",
       results,
-      "--runner-build-digest",
-      digest,
-      "--project-digest",
-      digest,
       "--condition",
       "passive",
       "--trials",
@@ -111,13 +106,25 @@ try {
     evidencePath: string;
   };
   const evidence = JSON.parse(await readFile(result.evidencePath, "utf8")) as {
-    runner: { source: string; packageName: string; version: string };
+    runner: {
+      source: string;
+      packageName: string;
+      version: string;
+      buildDigest: string;
+    };
+    evaluationIdentity: {
+      dimensions: { runnerBuildDigest: string; projectDigest: string };
+    };
   };
   if (
     result.exitCode !== 0 ||
     evidence.runner.source !== "package" ||
     evidence.runner.packageName !== "sevro" ||
-    evidence.runner.version !== manifest.version
+    evidence.runner.version !== manifest.version ||
+    !/^[a-f0-9]{64}$/.test(evidence.runner.buildDigest) ||
+    evidence.evaluationIdentity.dimensions.runnerBuildDigest !==
+      evidence.runner.buildDigest ||
+    !/^[a-f0-9]{64}$/.test(evidence.evaluationIdentity.dimensions.projectDigest)
   )
     throw new Error("installed package did not retain release provenance");
   process.stdout.write(

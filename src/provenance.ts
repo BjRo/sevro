@@ -1,14 +1,94 @@
 import { createHash } from "node:crypto";
-import { lstat, readFile, readlink, realpath } from "node:fs/promises";
+import { lstat, readFile, readdir, readlink, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import packageJson from "../package.json";
 import { hashJson } from "./identity";
 
 const MAX_DIRTY_BYTES = 32 * 1024 * 1024;
+const MAX_BUILD_BYTES = 64 * 1024 * 1024;
+const MAX_BUILD_FILES = 4096;
 
 function sha256(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
+}
+
+/** Digest the packaged runtime and public contract files in path order. */
+export async function packageBuildDigest(
+  root = join(import.meta.dir, ".."),
+): Promise<string> {
+  const canonicalRoot = await realpath(root);
+  const files: { path: string; sha256: string }[] = [];
+  let totalBytes = 0;
+  async function collect(path: string): Promise<void> {
+    const absolute = join(canonicalRoot, path);
+    const info = await lstat(absolute);
+    if (info.isSymbolicLink())
+      throw new Error("package build contains a symbolic link");
+    if (info.isDirectory()) {
+      for (const entry of (await readdir(absolute)).sort())
+        await collect(join(path, entry));
+      return;
+    }
+    if (!info.isFile()) throw new Error("package build contains a non-file");
+    const bytes = await readFile(absolute);
+    totalBytes += bytes.byteLength;
+    if (files.length >= MAX_BUILD_FILES || totalBytes > MAX_BUILD_BYTES)
+      throw new Error("package build exceeds the size limit");
+    files.push({ path: path.split(sep).join("/"), sha256: sha256(bytes) });
+  }
+  for (const path of ["package.json", "README.md", "docs", "schemas", "src"])
+    await collect(path);
+  files.sort((left, right) =>
+    left.path < right.path ? -1 : left.path > right.path ? 1 : 0,
+  );
+  return hashJson({ format: "sevro.build.v1", files });
+}
+
+export async function projectIdentityDigest(
+  root: string,
+  provenance: { revision: string | null; dirtyPatchDigest: string | null },
+  excludedRoots: string[] = [],
+): Promise<string> {
+  if (provenance.revision)
+    return hashJson({
+      format: "sevro.project.v1",
+      revision: provenance.revision,
+      dirtyPatchDigest: provenance.dirtyPatchDigest,
+    });
+  const projectRoot = resolve(root);
+  const excluded = new Set(
+    excludedRoots.map((path) => relative(projectRoot, resolve(path))),
+  );
+  const files: { path: string; sha256: string; executable: boolean }[] = [];
+  let totalBytes = 0;
+  async function collect(path: string): Promise<void> {
+    if (path === ".git" || excluded.has(path)) return;
+    const absolute = join(projectRoot, path);
+    const info = await lstat(absolute);
+    if (info.isSymbolicLink())
+      throw new Error("project snapshot contains a symbolic link");
+    if (info.isDirectory()) {
+      for (const entry of (await readdir(absolute)).sort())
+        await collect(path === "" ? entry : join(path, entry));
+      return;
+    }
+    if (!info.isFile()) throw new Error("project snapshot contains a non-file");
+    const bytes = await readFile(absolute);
+    totalBytes += bytes.byteLength;
+    if (files.length >= MAX_BUILD_FILES || totalBytes > MAX_BUILD_BYTES)
+      throw new Error("project snapshot exceeds the size limit");
+    files.push({
+      path: path.split(sep).join("/"),
+      sha256: sha256(bytes),
+      executable: Boolean(info.mode & 0o111),
+    });
+  }
+  await collect("");
+  files.sort((left, right) =>
+    left.path < right.path ? -1 : left.path > right.path ? 1 : 0,
+  );
+  return hashJson({ format: "sevro.project.v1", files });
 }
 
 function git(root: string, ...arguments_: string[]): Buffer {

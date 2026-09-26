@@ -124,13 +124,37 @@ test("CLI emits one JSON result and uses the task exit category", async () => {
   ).toEqual(passed.result);
 
   const failed = await invoke(args, "fail");
-  expect(failed.code).toBe(1);
+  expect(failed.code, JSON.stringify(failed.result.diagnostic)).toBe(1);
   expect(failed.result).toMatchObject({
     execution: { status: "completed" },
     grading: { status: "completed" },
     task: { verdict: "failed" },
     exitCode: 1,
   });
+});
+
+test("CLI derives stable build and project digests without caller inputs", async () => {
+  const { args } = await fixture();
+  const automatic = args.filter(
+    (part, index) =>
+      !["--runner-build-digest", "--project-digest"].includes(part) &&
+      !["--runner-build-digest", "--project-digest"].includes(args[index - 1] ?? ""),
+  );
+  const first = await invoke(automatic);
+  const second = await invoke(automatic);
+  expect(first.code, first.stderr).toBe(0);
+  expect(second.code, second.stderr).toBe(0);
+  const firstEvidence = JSON.parse(await readFile(first.result.evidencePath, "utf8"));
+  const secondEvidence = JSON.parse(await readFile(second.result.evidencePath, "utf8"));
+  const dimensions = firstEvidence.evaluationIdentity.dimensions;
+  expect(dimensions.runnerBuildDigest).toMatch(/^[a-f0-9]{64}$/);
+  expect(dimensions.projectDigest).toMatch(/^[a-f0-9]{64}$/);
+  expect(firstEvidence.runner.buildDigest).toBe(dimensions.runnerBuildDigest);
+  expect(secondEvidence.evaluationIdentity.dimensions.projectDigest).toBe(
+    dimensions.projectDigest,
+  );
+  const invalid = await invoke([...automatic, "--project-digest", "bad"]);
+  expect(invalid.code).toBe(64);
 });
 
 test("CLI records an explicitly selected local runner checkout", async () => {

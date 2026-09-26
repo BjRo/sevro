@@ -1,8 +1,13 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { projectProvenance, runnerProvenance } from "../src/provenance";
+import {
+  packageBuildDigest,
+  projectIdentityDigest,
+  projectProvenance,
+  runnerProvenance,
+} from "../src/provenance";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -27,6 +32,42 @@ test("project provenance stays unknown without a Git revision", async () => {
     revision: null,
     dirtyPatchDigest: null,
   });
+});
+
+test("package build digest tracks packed runtime files without Git metadata", async () => {
+  const root = await mkdtemp(join(tmpdir(), "sevro-package-digest-"));
+  roots.push(root);
+  for (const directory of ["docs", "schemas", "src"])
+    await mkdir(join(root, directory));
+  for (const path of [
+    "package.json",
+    "README.md",
+    "docs/spec.md",
+    "schemas/evidence.json",
+    "src/cli.ts",
+  ])
+    await writeFile(join(root, path), "original\n");
+  const first = await packageBuildDigest(root);
+  expect(first).toMatch(/^[a-f0-9]{64}$/);
+  expect(await packageBuildDigest(root)).toBe(first);
+  await writeFile(join(root, "src/cli.ts"), "changed\n");
+  expect(await packageBuildDigest(root)).not.toBe(first);
+});
+
+test("project identity snapshots non-Git content but excludes result storage", async () => {
+  const root = await mkdtemp(join(tmpdir(), "sevro-project-digest-"));
+  roots.push(root);
+  const results = join(root, "results");
+  await mkdir(results);
+  await writeFile(join(root, "case.json"), "original\n");
+  const provenance = await projectProvenance(root);
+  const first = await projectIdentityDigest(root, provenance, [results]);
+  await writeFile(join(results, "run.json"), "retained result\n");
+  expect(await projectIdentityDigest(root, provenance, [results])).toBe(first);
+  await writeFile(join(root, "case.json"), "changed\n");
+  expect(await projectIdentityDigest(root, provenance, [results])).not.toBe(
+    first,
+  );
 });
 
 test("runner provenance uses package identity unless the running checkout is explicit", async () => {
@@ -69,13 +110,17 @@ test("project provenance distinguishes revision, tracked edits, and untracked fi
   const clean = await projectProvenance(root);
   expect(clean.revision).toMatch(/^[a-f0-9]{40,64}$/);
   expect(clean.dirtyPatchDigest).toBeNull();
+  const cleanDigest = await projectIdentityDigest(root, clean);
   await writeFile(join(root, "README.md"), "changed\n");
   const tracked = await projectProvenance(root);
   expect(tracked.revision).toBe(clean.revision);
   expect(tracked.dirtyPatchDigest).toMatch(/^[a-f0-9]{64}$/);
+  const trackedDigest = await projectIdentityDigest(root, tracked);
+  expect(trackedDigest).not.toBe(cleanDigest);
   await writeFile(join(root, "new.txt"), "untracked\n");
   const untracked = await projectProvenance(root);
   expect(untracked.revision).toBe(clean.revision);
   expect(untracked.dirtyPatchDigest).toMatch(/^[a-f0-9]{64}$/);
   expect(untracked.dirtyPatchDigest).not.toBe(tracked.dirtyPatchDigest);
+  expect(await projectIdentityDigest(root, untracked)).not.toBe(trackedDigest);
 });

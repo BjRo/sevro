@@ -28,6 +28,13 @@ numbers and unpaired Unicode surrogates. The final evaluation digest is:
 SHA-256(UTF-8("sevro.identity.v1\n") || UTF-8(JCS(dimensions)))
 ```
 
+The CLI derives `runnerBuildDigest` from sorted packaged file paths and their
+SHA-256 bytes under `src/`, `schemas/`, and `docs/`, plus `README.md` and
+`package.json`. For a Git project, `projectDigest` binds the revision and dirty
+patch digest without the checkout path. Without a revision it hashes a bounded
+file snapshot, excluding `.git`, results, and run-state storage. A caller may
+provide explicit 64-character digests for controlled development runs.
+
 The prefix separates this digest from component digests and future identity
 versions. An exact-repeat comparison requires equal identities. An ablation may
 deliberately differ on `condition` or instrumentation; its report must name

@@ -6,8 +6,11 @@ It uses the engine's normal grading and evidence path. This remains a
 development entrypoint while the Claude adapter, full extension lifecycle,
 and production provenance collection are being built.
 
-An installed package records its name, version, and caller-supplied build
-digest without reading runner Git metadata. When running this source checkout
+An installed package records its name, version, and a digest of its packaged
+runtime and public contract files without reading runner Git metadata. The CLI
+derives the project digest from its revision and dirty patch, or from a bounded
+content snapshot when the project has no Git revision. Result and run-state
+directories are excluded from that snapshot. When running this source checkout
 for coordinated development, pass `--runner-checkout-root` with the absolute
 path to this checkout. Sevro verifies that it is the code actually running and
 records its revision and dirty-patch digest instead of package provenance.
@@ -20,8 +23,6 @@ bun src/cli.ts run --json \
   --adapter-module /absolute/path/host-adapter.ts \
   --project-root /absolute/path/project \
   --results-root /absolute/path/results \
-  --runner-build-digest <64-hex-digest> \
-  --project-digest <64-hex-digest> \
   --condition passive --trials 1 --threshold 1
 ```
 
@@ -37,8 +38,6 @@ bun src/cli.ts run --json \
   --model <model> --effort medium \
   --project-root /absolute/path/project \
   --results-root /absolute/path/results \
-  --runner-build-digest <64-hex-digest> \
-  --project-digest <64-hex-digest> \
   --condition passive --trials 1 --threshold 1
 ```
 
@@ -173,9 +172,9 @@ successfully when preparation succeeds. Dry and executed runs have different
 evaluation identities.
 Run evidence and trial files live under `--results-root`. A packaged runner
 needs no Git checkout. This private development checkout records its Git
-revision and dirty content; `--runner-build-digest` and `--project-digest`
-remain explicit until build and project content digests are collected
-automatically.
+revision and dirty content. `--runner-build-digest` and `--project-digest`
+remain optional explicit overrides for test fixtures and coordinated
+development; normal CLI runs derive both values.
 Use `--run-state-root /absolute/path/state` to keep active records and trial
 checkpoints separate from results; it defaults to `--results-root`. Shell
 grading and the bundled Codex route protect this state root from candidate
