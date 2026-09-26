@@ -193,6 +193,24 @@ const result = scenario.startsWith("lifecycle")
             metrics: [
               { id: "example.extension.score", value: 1, unit: "ratio" },
             ],
+            ...(scenario.startsWith("lifecycle-domain-outcome")
+              ? {
+                  domainOutcomes: [
+                    {
+                      id: "example.extension.activation",
+                      status:
+                        scenario === "lifecycle-domain-outcome-invalid"
+                          ? "passed"
+                          : "failed",
+                      evidenceRefs:
+                        scenario === "lifecycle-domain-outcome-invalid"
+                          ? []
+                          : ["sevro.observation.final-message"],
+                      data: { primarySkill: "other-skill" },
+                    },
+                  ],
+                }
+              : {}),
             ...(scenario.startsWith("lifecycle-policy") &&
             scenario !== "lifecycle-policy-missing" &&
             (request.params as Record<string, unknown>)

@@ -162,6 +162,13 @@ must explicitly name each built-in grader it replaces, or explicitly select
 one advertised task-verdict policy. Unknown or duplicate replacement IDs are
 errors. Retained evidence lists every active grader, its identity and route,
 and any replaced default.
+
+An extension may also return namespaced `domainOutcomes` with passed, failed,
+or unavailable status, evidence references, and bounded domain data. Sevro
+validates their evidence and retains them separately from task checks. They do
+not change the task verdict. Older evidence without this field leaves domain
+outcomes unknown.
+
 When a built-in grader is selected for replacement, the engine validates its
 declared check configuration but does not run its checks. It requires at least
 one declared, advertised extension check, and grades those checks instead.

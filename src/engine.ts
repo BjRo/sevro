@@ -63,7 +63,7 @@ import {
   resolveRepositorySource,
   type RepositorySource,
 } from "./repository-fixture";
-import type { ExtensionCase } from "./extension-session";
+import type { EvaluationResult, ExtensionCase } from "./extension-session";
 import { openExtensionSession } from "./extension-session";
 import {
   applyTaskVerdictPolicy,
@@ -162,6 +162,7 @@ export interface EvaluationOptions {
 interface TrialSummary extends Assessment {
   trial: number;
   checks: CheckOutcome[];
+  domainOutcomes: NonNullable<EvaluationResult["domainOutcomes"]>;
   artifactPath: string;
 }
 
@@ -996,6 +997,7 @@ export async function runEvaluation(
           value: number | null;
           unit: string;
         }[] = [];
+        let domainOutcomes: NonNullable<EvaluationResult["domainOutcomes"]> = [];
         let taskPolicyRecommendation:
           "passed" | "failed" | "not_assessed" | null = null;
         let graderError = false;
@@ -1276,6 +1278,7 @@ export async function runEvaluation(
               })),
             );
             extensionMetrics = extensionResult.metrics;
+            domainOutcomes = extensionResult.domainOutcomes ?? [];
             taskPolicyRecommendation =
               extensionResult.taskVerdictRecommendation ?? null;
           } catch {
@@ -1482,6 +1485,7 @@ export async function runEvaluation(
             ...additionalObservations,
           ],
           metrics: extensionMetrics,
+          domainOutcomes,
           taskVerdictPolicy: options.extension?.session.identity
             .selectedTaskVerdictPolicy
             ? {
@@ -1505,6 +1509,7 @@ export async function runEvaluation(
           trial,
           ...assessment,
           checks,
+          domainOutcomes,
           artifactPath,
         };
         try {

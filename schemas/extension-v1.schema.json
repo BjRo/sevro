@@ -445,6 +445,22 @@
       },
       "additionalProperties": false
     },
+    "domainOutcome": {
+      "type": "object",
+      "required": ["id", "status", "evidenceRefs"],
+      "properties": {
+        "id": { "$ref": "#/$defs/namespacedId" },
+        "status": { "enum": ["passed", "failed", "unavailable"] },
+        "detail": { "type": "string", "maxLength": 4096 },
+        "evidenceRefs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/id" },
+          "uniqueItems": true
+        },
+        "data": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
     "artifactRef": {
       "type": "object",
       "required": ["id", "path", "sha256"],
@@ -508,6 +524,10 @@
           "items": { "$ref": "#/$defs/extensionCheckResult" }
         },
         "metrics": { "type": "array", "items": { "$ref": "#/$defs/metric" } },
+        "domainOutcomes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/domainOutcome" }
+        },
         "taskVerdictRecommendation": {
           "enum": ["passed", "failed", "not_assessed"]
         }

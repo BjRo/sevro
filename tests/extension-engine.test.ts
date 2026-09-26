@@ -166,6 +166,32 @@ test("extension checks add to built-ins and retain negotiated provenance", async
   ).toEqual(["sevro.regex", "example.extension"]);
 });
 
+test("domain outcomes remain separate from the task verdict", async () => {
+  const { outcome, evidence } = await runWithExtension(
+    "lifecycle-domain-outcome",
+  );
+  expect(outcome.result.task.verdict).toBe("passed");
+  expect(outcome.result.cases[0]?.trials[0]?.domainOutcomes).toEqual(
+    evidence.trials[0].domainOutcomes,
+  );
+  expect(evidence.trials[0].domainOutcomes).toEqual([
+    {
+      id: "example.extension.activation",
+      status: "failed",
+      evidenceRefs: ["sevro.observation.final-message"],
+      data: { primarySkill: "other-skill" },
+    },
+  ]);
+  expect(
+    outcome.result.cases[0]?.trials[0]?.checks.map((check) => check.id),
+  ).toEqual(["ready", "example.extension.ready"]);
+  const invalid = await runWithExtension("lifecycle-domain-outcome-invalid");
+  expect(invalid.outcome.result).toMatchObject({
+    grading: { status: "error" },
+    task: { verdict: "not_assessed" },
+  });
+});
+
 test("explicit grader replacement removes only the selected built-in checks", async () => {
   const defaultRun = await runWithExtension("lifecycle-replace-regex");
   expect(defaultRun.outcome.result.task.verdict).toBe("failed");

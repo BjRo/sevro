@@ -82,6 +82,13 @@ export interface EvaluationResult {
     evidenceRefs: string[];
   }[];
   metrics: { id: string; value: number | null; unit: string }[];
+  domainOutcomes?: {
+    id: string;
+    status: "passed" | "failed" | "unavailable";
+    detail?: string;
+    evidenceRefs: string[];
+    data?: Record<string, unknown>;
+  }[];
   taskVerdictRecommendation?: "passed" | "failed" | "not_assessed";
 }
 
@@ -243,13 +250,17 @@ export async function openExtensionSession(options: ExtensionSessionOptions) {
           ? { selectedTaskVerdictPolicy: taskVerdictPolicy }
           : {}),
       })) as unknown as EvaluationResult;
-      const ids = result.checks.map((check) => check.id);
+      const outcomes = result.domainOutcomes ?? [];
+      const ids = [
+        ...result.checks.map((check) => check.id),
+        ...outcomes.map((outcome) => outcome.id),
+      ];
       if (
         new Set(ids).size !== ids.length ||
         ids.some((id) => !id.startsWith(`${identity.id}.`))
       )
         throw new ExtensionProtocolError(
-          "extension returned duplicate or foreign check IDs",
+          "extension returned duplicate or foreign result IDs",
         );
       if (result.taskVerdictRecommendation && !taskVerdictPolicy)
         throw new ExtensionProtocolError(
@@ -268,21 +279,21 @@ export async function openExtensionSession(options: ExtensionSessionOptions) {
           item.id,
           item.status === "unavailable" ? "unavailable" : "complete",
         );
-      for (const check of result.checks) {
-        if (check.status === "passed" && check.evidenceRefs.length === 0)
+      for (const item of [...result.checks, ...outcomes]) {
+        if (item.status === "passed" && item.evidenceRefs.length === 0)
           throw new ExtensionProtocolError(
-            "extension passed a check without evidence",
+            "extension passed a result without evidence",
           );
-        if (check.evidenceRefs.some((id) => !available.has(id)))
+        if (item.evidenceRefs.some((id) => !available.has(id)))
           throw new ExtensionProtocolError(
-            "extension check cites unknown evidence",
+            "extension result cites unknown evidence",
           );
         if (
-          check.status === "passed" &&
-          check.evidenceRefs.some((id) => available.get(id) !== "complete")
+          item.status === "passed" &&
+          item.evidenceRefs.some((id) => available.get(id) !== "complete")
         )
           throw new ExtensionProtocolError(
-            "extension passed a check with incomplete evidence",
+            "extension passed a result with incomplete evidence",
           );
       }
       return result;

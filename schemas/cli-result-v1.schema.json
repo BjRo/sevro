@@ -113,6 +113,26 @@
       },
       "additionalProperties": false
     },
+    "domainOutcome": {
+      "type": "object",
+      "required": ["id", "status", "evidenceRefs"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$",
+          "maxLength": 128
+        },
+        "status": { "enum": ["passed", "failed", "unavailable"] },
+        "detail": { "type": "string", "maxLength": 4096 },
+        "evidenceRefs": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "data": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
     "trial": {
       "type": "object",
       "required": [
@@ -129,6 +149,10 @@
         "grading": { "$ref": "#/$defs/grading" },
         "task": { "$ref": "#/$defs/task" },
         "checks": { "type": "array", "items": { "$ref": "#/$defs/check" } },
+        "domainOutcomes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/domainOutcome" }
+        },
         "artifactPath": { "type": ["string", "null"] }
       },
       "allOf": [{ "$ref": "#/$defs/stateConsistency" }],
