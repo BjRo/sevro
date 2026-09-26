@@ -20,8 +20,11 @@ identity. Missing optional usage stays `null` and incomplete. Results storage
 is explicit and independent of the project root. A packaged runner records its
 package identity without Git; a private development checkout reads its own Git
 revision and hashes tracked and untracked changes for the local runner
-identity. An optional independent run-state root holds an active record and a
-checkpoint pointing to each retained trial. The record reaches `complete`
+identity. A Git-backed project records its own revision and dirty content;
+a project without a commit retains unknown Git provenance alongside the
+explicit caller-supplied project content digest. An optional independent
+run-state root holds an active record and a checkpoint pointing to each
+retained trial. The record reaches `complete`
 only after final run evidence is written. These records track progress but do
 not yet enforce exclusive process ownership or abandoned-run recovery.
 

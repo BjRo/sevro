@@ -41,7 +41,7 @@ import {
 } from "./results";
 import { assertCliResult, assertRunEvidence } from "./schema";
 import { atomicWriteJson } from "./storage";
-import { runnerProvenance } from "./provenance";
+import { projectProvenance, runnerProvenance } from "./provenance";
 
 const MAX_FINAL_MESSAGE_BYTES = 8 * 1024 * 1024;
 
@@ -291,7 +291,10 @@ export async function runEvaluation(
   const projectRoot = await realpath(options.projectRoot).catch(() => {
     throw new EvaluationConfigurationError("project root is unreadable");
   });
-  const runner = await runnerProvenance(options.runnerBuildDigest);
+  const [runner, project] = await Promise.all([
+    runnerProvenance(options.runnerBuildDigest),
+    projectProvenance(projectRoot),
+  ]);
   const extensionPreparation = options.extension
     ? await options.extension.session.prepare(
         options.extension.resolvedCase,
@@ -740,11 +743,7 @@ export async function runEvaluation(
       redacted: redactedConfig,
     },
     runner,
-    project: {
-      root: pathToFileURL(projectRoot).href,
-      revision: null,
-      dirtyPatchDigest: null,
-    },
+    project,
     extension: options.extension
       ? {
           id: options.extension.session.identity.id,
