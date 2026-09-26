@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const roots: string[] = [];
 const cli = join(import.meta.dir, "..", "src", "cli.ts");
@@ -138,6 +139,62 @@ test("CLI resolves an explicit extension case and retains extension evidence", a
   expect(missing.result.evidencePath).toBeNull();
   const ambiguous = await invoke([...command, "--case-file", caseFile]);
   expect(ambiguous.code).toBe(64);
+});
+
+test("CLI mounts only declared preparation source files", async () => {
+  const { args, caseFile } = await fixture();
+  const projectRoot = join(caseFile, "..");
+  const commandFile = join(projectRoot, "extension-command.json");
+  const sourceRoot = join(projectRoot, "sources");
+  const sourceFile = join(sourceRoot, "data.txt");
+  const mapFile = join(projectRoot, "source-map.json");
+  await Bun.write(sourceFile, "prepared data\n");
+  await writeFile(
+    commandFile,
+    JSON.stringify([
+      process.execPath,
+      extensionSource,
+      "lifecycle-source-artifact",
+    ]),
+  );
+  await writeFile(
+    mapFile,
+    JSON.stringify({ "input-data": pathToFileURL(sourceFile).href }),
+  );
+  const command = args.filter(
+    (part, index) =>
+      part !== "--case-file" && args[index - 1] !== "--case-file",
+  );
+  command.push(
+    "--extension-command-file",
+    commandFile,
+    "--extension-source-file",
+    extensionSource,
+    "--case-id",
+    "extension-case",
+    "--case-source-root",
+    sourceRoot,
+    "--case-source-map-file",
+    mapFile,
+  );
+  const run = await invoke(command);
+  expect(run.code).toBe(0);
+  const evidence = JSON.parse(await readFile(run.result.evidencePath, "utf8"));
+  const [artifact] = evidence.trials[0].artifactRefs;
+  expect(await readFile(new URL(artifact.path), "utf8")).toBe(
+    "prepared data\n",
+  );
+
+  await writeFile(
+    mapFile,
+    JSON.stringify({ "input-data": pathToFileURL(commandFile).href }),
+  );
+  const escaped = await invoke(command);
+  expect(escaped.code).toBe(64);
+  expect(escaped.result.evidencePath).toBeNull();
+  expect(escaped.result.diagnostic.message).toMatch(
+    /escapes its declared root/,
+  );
 });
 
 test("CLI reports invalid invocation as versioned JSON without a run", async () => {

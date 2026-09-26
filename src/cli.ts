@@ -72,6 +72,8 @@ function parseInvocation(argv: string[]) {
           "extension-source-file": { type: "string", multiple: true },
           "extension-configuration-file": { type: "string" },
           "extension-redacted-configuration-file": { type: "string" },
+          "case-source-root": { type: "string" },
+          "case-source-map-file": { type: "string" },
           "adapter-module": { type: "string" },
           host: { type: "string" },
           "codex-bin": { type: "string" },
@@ -161,6 +163,27 @@ function parseInvocation(argv: string[]) {
     throw new InvocationError(
       "extension configuration requires a redacted file",
     );
+  if (
+    Boolean(values["case-source-root"]) !==
+    Boolean(values["case-source-map-file"])
+  )
+    throw new InvocationError("case sources require a root and map file");
+  if (!extensionCommandFile && values["case-source-root"])
+    throw new InvocationError("case sources require --extension-command-file");
+  const privateRoots = [
+    ...protectedRoots,
+    ...(values["case-file"] ? [values["case-file"]] : []),
+    ...(extensionCommandFile ? [extensionCommandFile] : []),
+    ...(values["extension-source-file"] ?? []),
+    ...(values["extension-configuration-file"]
+      ? [values["extension-configuration-file"]]
+      : []),
+    ...(values["extension-redacted-configuration-file"]
+      ? [values["extension-redacted-configuration-file"]]
+      : []),
+    ...(values["case-source-root"] ? [values["case-source-root"]] : []),
+    ...(values["case-source-map-file"] ? [values["case-source-map-file"]] : []),
+  ];
   return {
     json: values.json ?? false,
     caseFile: values["case-file"]
@@ -188,6 +211,15 @@ function parseInvocation(argv: string[]) {
                 "--extension-redacted-configuration-file",
               )
             : undefined,
+          caseSourceRoot: values["case-source-root"]
+            ? absoluteOption(values["case-source-root"], "--case-source-root")
+            : undefined,
+          caseSourceMapFile: values["case-source-map-file"]
+            ? absoluteOption(
+                values["case-source-map-file"],
+                "--case-source-map-file",
+              )
+            : undefined,
         }
       : undefined,
     adapterModule: codex
@@ -204,10 +236,12 @@ function parseInvocation(argv: string[]) {
           effort: requiredOption(values.effort, "--effort"),
           projectRoot,
           resultsRoot,
-          additionalProtectedRoots: [...protectedRoots, runStateRoot],
+          additionalProtectedRoots: [...privateRoots, runStateRoot],
         }
       : undefined,
-    shellIsolation: values["shell-isolation"] ? { protectedRoots } : undefined,
+    shellIsolation: values["shell-isolation"]
+      ? { protectedRoots: privateRoots }
+      : undefined,
     projectRoot,
     resultsRoot,
     runStateRoot,
@@ -266,6 +300,27 @@ async function loadExtensionOptions(
   if (!record(configuration) || !record(redactedConfiguration))
     throw new InvocationError("extension configuration must be JSON objects");
   return { command: command as string[], configuration, redactedConfiguration };
+}
+
+async function loadPreparationSources(
+  selected: NonNullable<ReturnType<typeof parseInvocation>["extension"]>,
+) {
+  if (!selected.caseSourceRoot || !selected.caseSourceMapFile) return undefined;
+  const refs = await loadJson(
+    selected.caseSourceMapFile,
+    "case source map file",
+  );
+  if (
+    !record(refs) ||
+    !Object.values(refs).every(
+      (value) => typeof value === "string" && value.startsWith("file:///"),
+    )
+  )
+    throw new InvocationError("case source map must contain file URLs");
+  return {
+    root: selected.caseSourceRoot,
+    refs: refs as Record<string, string>,
+  };
 }
 
 function selectExtensionCase(
@@ -370,6 +425,7 @@ async function main(argv: string[]): Promise<void> {
   process.on("SIGINT", interrupt);
   process.on("SIGTERM", terminate);
   try {
+    let preparationSources: Awaited<ReturnType<typeof loadPreparationSources>>;
     let extension:
       | {
           session: Awaited<ReturnType<typeof openExtensionSession>>;
@@ -379,6 +435,7 @@ async function main(argv: string[]): Promise<void> {
     if (invocation.extension) {
       const selected = invocation.extension;
       const options = await loadExtensionOptions(selected);
+      preparationSources = await loadPreparationSources(selected);
       const session = await openExtensionSession({
         ...options,
         sourceFiles: selected.sourceFiles,
@@ -401,6 +458,7 @@ async function main(argv: string[]): Promise<void> {
       runStateRoot: invocation.runStateRoot,
       case: caseData!,
       extension,
+      preparationSources,
       host,
       shellIsolation: invocation.shellIsolation,
       runnerBuildDigest: invocation.runnerBuildDigest,

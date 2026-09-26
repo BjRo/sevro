@@ -66,6 +66,14 @@ If the extension needs configuration, supply both
 The latter replaces secret values for the retained configuration digest. Keep
 secrets out of the command argv and the redacted file.
 
+An extension may return preparation artifacts that cite source IDs. Declare
+those sources with `--case-source-root /absolute/path/sources` and
+`--case-source-map-file /absolute/path/map.json` together. The map is a JSON
+object from source ID to `file:///` URL. The runner checks that each referenced
+file stays under the declared root and matches the extension's digest. The
+selected case file, extension inputs, and source root are protected from
+candidate execution and isolated shell checks.
+
 The case file follows the `ResolvedCase`
 interface in `src/engine.ts`; this slice accepts inline fixture files,
 built-in output checks, and isolated shell checks. For shell checks, add
