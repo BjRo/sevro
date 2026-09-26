@@ -23,6 +23,13 @@ import { atomicWriteJson } from "./storage";
 
 const MAX_FINAL_MESSAGE_BYTES = 8 * 1024 * 1024;
 
+export class EvaluationConfigurationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "EvaluationConfigurationError";
+  }
+}
+
 export interface HostResult {
   finalMessage: string | null;
   complete: boolean;
@@ -137,7 +144,9 @@ export async function runEvaluation(
   options: EvaluationOptions,
 ): Promise<{ result: CliResult }> {
   if (!isAbsolute(options.projectRoot) || !isAbsolute(options.resultsRoot))
-    throw new Error("project and results roots must be absolute");
+    throw new EvaluationConfigurationError(
+      "project and results roots must be absolute",
+    );
   if (
     !options.case.id ||
     !options.case.prompt ||
@@ -145,24 +154,39 @@ export async function runEvaluation(
     !options.host.model ||
     !options.host.effort
   )
-    throw new Error("case and host identities must be nonempty");
+    throw new EvaluationConfigurationError(
+      "case and host identities must be nonempty",
+    );
   if (!Number.isSafeInteger(options.trialCount) || options.trialCount < 1)
-    throw new Error("trial count must be a positive integer");
+    throw new EvaluationConfigurationError(
+      "trial count must be a positive integer",
+    );
   if (
     !Number.isFinite(options.passThreshold) ||
     options.passThreshold <= 0 ||
     options.passThreshold > 1
   )
-    throw new Error("pass threshold must be greater than zero and at most one");
+    throw new EvaluationConfigurationError(
+      "pass threshold must be greater than zero and at most one",
+    );
   if (options.case.requiredEvidence.length)
-    throw new Error(
+    throw new EvaluationConfigurationError(
       "required host evidence is not supported by this engine path",
     );
-  const prepared = prepareOutputChecks(options.case.checks);
-  for (const path of Object.keys(options.case.fixture.files))
-    fixtureParts(path);
+  let prepared: ReturnType<typeof prepareOutputChecks>;
+  try {
+    prepared = prepareOutputChecks(options.case.checks);
+    for (const path of Object.keys(options.case.fixture.files))
+      fixtureParts(path);
+  } catch (error) {
+    throw new EvaluationConfigurationError(
+      error instanceof Error ? error.message : "invalid case configuration",
+    );
+  }
 
-  const projectRoot = await realpath(options.projectRoot);
+  const projectRoot = await realpath(options.projectRoot).catch(() => {
+    throw new EvaluationConfigurationError("project root is unreadable");
+  });
   const runId = randomUUID();
   const route = {
     role: "candidate",
@@ -180,24 +204,34 @@ export async function runEvaluation(
   ]
     .sort()
     .map((id) => ({ id, source: "builtin", version: "1.0.0" }));
-  const evaluationIdentity = createEvaluationIdentity({
-    runnerBuildDigest: options.runnerBuildDigest,
-    projectDigest: options.projectDigest,
-    configurationDigest: hashJson(redactedConfig),
-    extensionDigest: null,
-    extensionProtocol: null,
-    caseDigest: hashJson({ id: options.case.id, prompt: options.case.prompt }),
-    fixtureDigest: hashJson(options.case.fixture.files),
-    checksDigest: hashJson(options.case.checks),
-    requiredEvidenceDigest: hashJson(options.case.requiredEvidence),
-    evaluatorDigest: hashJson({ policy: "sevro.builtin-output.v1" }),
-    graderDigest: hashJson(activeGraders),
-    instrumentationDigest: hashJson({ requested: [], applied: [] }),
-    routeDigest: hashJson(route),
-    condition: options.condition,
-    trialCount: options.trialCount,
-    passThreshold: options.passThreshold,
-  });
+  let evaluationIdentity: ReturnType<typeof createEvaluationIdentity>;
+  try {
+    evaluationIdentity = createEvaluationIdentity({
+      runnerBuildDigest: options.runnerBuildDigest,
+      projectDigest: options.projectDigest,
+      configurationDigest: hashJson(redactedConfig),
+      extensionDigest: null,
+      extensionProtocol: null,
+      caseDigest: hashJson({
+        id: options.case.id,
+        prompt: options.case.prompt,
+      }),
+      fixtureDigest: hashJson(options.case.fixture.files),
+      checksDigest: hashJson(options.case.checks),
+      requiredEvidenceDigest: hashJson(options.case.requiredEvidence),
+      evaluatorDigest: hashJson({ policy: "sevro.builtin-output.v1" }),
+      graderDigest: hashJson(activeGraders),
+      instrumentationDigest: hashJson({ requested: [], applied: [] }),
+      routeDigest: hashJson(route),
+      condition: options.condition,
+      trialCount: options.trialCount,
+      passThreshold: options.passThreshold,
+    });
+  } catch {
+    throw new EvaluationConfigurationError(
+      "invalid evaluation identity inputs",
+    );
+  }
 
   await mkdir(options.resultsRoot, { recursive: true, mode: 0o700 });
   const runDir = resolve(await realpath(options.resultsRoot), runId);

@@ -29,3 +29,5 @@ and inline schema assertions on bounded final-message observations.
 
 The [first engine slice](docs/engine-slice.md) executes resolved cases through
 an injected host adapter and retains trial evidence before fixture cleanup.
+The [development CLI](docs/development-cli.md) runs that path as a subprocess
+with an explicit trusted adapter module and machine-readable result.

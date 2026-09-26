@@ -4,7 +4,11 @@
   "description": "A standalone evaluation runner for agentic coding capabilities",
   "type": "module",
   "private": true,
+  "bin": {
+    "sevro": "./src/cli.ts"
+  },
   "scripts": {
+    "cli:dev": "bun src/cli.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "format:check": "prettier --check README.md docs/*.md schemas/*.json src/**/*.ts tests/**/*.ts package.json tsconfig.json"
