@@ -27,12 +27,16 @@ function quoted(path: string): string {
 }
 
 /** Deny both observation and mutation of every protected canonical root. */
-export function macSandboxProfile(deniedRoots: string[]): string {
+export function macSandboxProfile(
+  deniedRoots: string[],
+  denyNetwork = false,
+): string {
   if (!deniedRoots.length || deniedRoots.some((path) => !path.startsWith("/")))
     throw new HostIsolationError("sandbox roots must be absolute and nonempty");
   return [
     "(version 1)",
     "(allow default)",
+    ...(denyNetwork ? ["(deny network*)"] : []),
     ...[...new Set(deniedRoots)]
       .sort()
       .flatMap((path) => [
@@ -54,6 +58,7 @@ export async function prepareMacSandboxCommand(options: {
   workspace: string;
   protectedRoots: string[];
   privateStateRoot: string;
+  denyNetwork?: boolean;
 }): Promise<IsolatedCommand> {
   if (process.platform !== "darwin" || !existsSync(SANDBOX_EXEC))
     throw new HostIsolationError("macOS sandbox-exec isolation is unavailable");
@@ -85,10 +90,14 @@ export async function prepareMacSandboxCommand(options: {
       "sandbox state is inside the candidate workspace",
     );
   const profilePath = resolve(stateRoot, `host-${randomUUID()}.sb`);
-  await writeFile(profilePath, macSandboxProfile([...roots, stateRoot]), {
-    flag: "wx",
-    mode: 0o600,
-  });
+  await writeFile(
+    profilePath,
+    macSandboxProfile([...roots, stateRoot], options.denyNetwork),
+    {
+      flag: "wx",
+      mode: 0o600,
+    },
+  );
   return {
     argv: [SANDBOX_EXEC, "-f", profilePath, ...options.argv],
     release: async () => {

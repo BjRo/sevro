@@ -22,6 +22,10 @@ only `$regex` matches a string value. Invalid patterns, pointers, and schemas
 fail preflight. Schema references are resolved only from the inline schema; the
 grader does not read paths supplied by a candidate.
 
-Shell checks, semantic-output checks, and advisory quality judgments still
-need their isolation and host routing implementations. They are part of the
-target runner contract, not supported by this output-grader module yet.
+The shell-check process runner accepts a bounded evaluator-owned `run` string,
+optional expected exit code, and timeout. On macOS it executes through the
+outer sandbox with network access denied, a credential-free environment, and
+caller-declared protected roots. Only the exit code is returned; stdout and
+stderr are discarded. It is not connected to the engine's check assessment
+yet. Semantic-output checks and advisory quality judgments still need host
+routing implementations.

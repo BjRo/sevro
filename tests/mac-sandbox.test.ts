@@ -12,6 +12,9 @@ test("profile denies reads and writes of each protected root", () => {
   const profile = macSandboxProfile(["/private/source", "/private/evidence"]);
   expect(profile).toContain('(deny file-read* (subpath "/private/source"))');
   expect(profile).toContain('(deny file-write* (subpath "/private/evidence"))');
+  expect(macSandboxProfile(["/private/source"], true)).toContain(
+    "(deny network*)",
+  );
   expect(() => macSandboxProfile([])).toThrow(HostIsolationError);
   expect(() => macSandboxProfile(["/bad\npath"])).toThrow(/control character/);
 });
