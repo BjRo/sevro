@@ -26,9 +26,11 @@ An optional negotiated extension can add declared checks. The engine calls its
 trial. It retains extension identity, configuration digest, protocol,
 capabilities, grader selection, check evidence references, and metrics.
 Missing declared extension checks remain unavailable; extension errors cannot
-become a passing assessment. Preparation
-artifacts, instrumentation, task-policy replacement, and other host evidence
-remain unsupported and are rejected before execution.
+become a passing assessment. Inline preparation artifacts are decoded, checked
+against their SHA-256 digests, mounted into each fixture, and retained outside
+it for later inspection. Source-reference artifacts, instrumentation,
+task-policy replacement, and other host evidence remain unsupported and are
+rejected before execution.
 
 The future host adapters must provide fixture isolation, credential
 protection, and verified condition observations before the CLI can expose

@@ -1,5 +1,7 @@
 export {};
 
+import { createHash } from "node:crypto";
+
 const scenario = process.argv[2] ?? "echo";
 const request = JSON.parse(await Bun.stdin.text()) as Record<string, unknown>;
 
@@ -52,7 +54,22 @@ const result = scenario.startsWith("lifecycle")
       }
     : request.method === "prepare"
       ? {
-          artifacts: [],
+          artifacts: scenario.includes("artifact")
+            ? [
+                {
+                  id: "generated-file",
+                  relativePath: "generated/data.txt",
+                  sha256:
+                    scenario === "lifecycle-bad-artifact"
+                      ? "a".repeat(64)
+                      : createHash("sha256")
+                          .update("prepared data\n")
+                          .digest("hex"),
+                  contentBase64:
+                    Buffer.from("prepared data\n").toString("base64"),
+                },
+              ]
+            : [],
           requestedInstrumentation:
             scenario === "lifecycle-instrumentation"
               ? [{ id: "example.extension.guard", configuration: {} }]

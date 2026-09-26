@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runEvaluation, type HostAdapter } from "../src/engine";
@@ -14,7 +14,10 @@ afterEach(async () => {
   );
 });
 
-async function runWithExtension(scenario: string) {
+async function runWithExtension(
+  scenario: string,
+  hostAction?: (workspace: string, resultsRoot: string) => Promise<void>,
+) {
   const projectRoot = await mkdtemp(join(tmpdir(), "sevro-extension-engine-"));
   roots.push(projectRoot);
   const session = await openExtensionSession({
@@ -39,6 +42,11 @@ async function runWithExtension(scenario: string) {
       expect(await readFile(join(workspace, "README.md"), "utf8")).toBe(
         "fixture\n",
       );
+      if (scenario === "lifecycle-artifact")
+        expect(
+          await readFile(join(workspace, "generated/data.txt"), "utf8"),
+        ).toBe("prepared data\n");
+      await hostAction?.(workspace, join(projectRoot, "results"));
       return {
         finalMessage: "ready",
         complete: true,
@@ -165,6 +173,87 @@ test("unsupported instrumentation stops before host execution", async () => {
       trialCount: 1,
       passThreshold: 1,
     }),
-  ).rejects.toThrow(/unsupported artifacts or instrumentation/);
+  ).rejects.toThrow(/unsupported instrumentation/);
   expect(called).toBe(false);
+});
+
+test("prepared inline artifacts survive fixture cleanup with their digest", async () => {
+  const { outcome, evidence } = await runWithExtension("lifecycle-artifact");
+  expect(outcome.result.exitCode).toBe(0);
+  const [artifact] = evidence.trials[0].artifactRefs;
+  expect(artifact.id).toBe("generated-file");
+  expect(artifact.sha256).toMatch(/^[a-f0-9]{64}$/);
+  expect(await readFile(new URL(artifact.path), "utf8")).toBe(
+    "prepared data\n",
+  );
+});
+
+test("a wrong preparation digest fails before host execution", async () => {
+  const projectRoot = await mkdtemp(
+    join(tmpdir(), "sevro-extension-bad-artifact-"),
+  );
+  roots.push(projectRoot);
+  const session = await openExtensionSession({
+    command: [process.execPath, source, "lifecycle-bad-artifact"],
+    sourceFiles: [source],
+    configuration: {},
+    redactedConfiguration: {},
+    engineCapabilities: ["sevro.host.exec"],
+    hostCapabilities: [],
+  });
+  const [resolvedCase] = await session.resolve(
+    new URL(`file://${projectRoot}/`).href,
+    {},
+  );
+  if (!resolvedCase || resolvedCase.fixture.kind !== "inline")
+    throw new Error("fixture mismatch");
+  let called = false;
+  const host: HostAdapter = {
+    id: "sevro.host.synthetic",
+    model: "synthetic-v1",
+    effort: "none",
+    async run() {
+      called = true;
+      return { finalMessage: "ready", complete: true };
+    },
+  };
+  await expect(
+    runEvaluation({
+      projectRoot,
+      resultsRoot: join(projectRoot, "results"),
+      case: {
+        id: resolvedCase.id,
+        prompt: resolvedCase.prompt,
+        fixture: { files: resolvedCase.fixture.files },
+        checks: resolvedCase.checks,
+        requiredEvidence: resolvedCase.requiredEvidence,
+      },
+      extension: { session, resolvedCase },
+      host,
+      runnerBuildDigest: digest,
+      projectDigest: digest,
+      condition: "passive",
+      trialCount: 1,
+      passThreshold: 1,
+    }),
+  ).rejects.toThrow(/preparation artifact digest/);
+  expect(called).toBe(false);
+});
+
+test("a changed retained artifact cannot support a successful result", async () => {
+  let workspace = "";
+  try {
+    await expect(
+      runWithExtension("lifecycle-artifact", async (fixture, resultsRoot) => {
+        workspace = fixture;
+        const [runId] = await readdir(resultsRoot);
+        await writeFile(
+          join(resultsRoot, runId!, "prepared/generated/data.txt"),
+          "tampered\n",
+        );
+      }),
+    ).rejects.toThrow(/retained preparation artifact changed/);
+  } finally {
+    if (workspace) await rm(workspace, { recursive: true, force: true });
+  }
 });

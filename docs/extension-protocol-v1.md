@@ -115,8 +115,10 @@ and after later calls. The redacted configuration and command argv affect the
 configuration digest. Command argv must not contain credentials. A passing
 extension check must cite available, complete evidence. The engine now accepts
 inline cases with additive extension checks, runs `prepare` before the host,
-and persists check outcomes, evidence references, and metrics before fixture cleanup. Artifact
-preparation, instrumentation, and policy replacement still need engine support.
+and persists check outcomes, evidence references, and metrics before fixture
+cleanup. It applies and retains bounded inline preparation artifacts after
+checking their path and digest. Source-reference artifacts, instrumentation,
+and policy replacement still need engine support.
 
 ## Grading and replacement
 

@@ -1,8 +1,15 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import packageJson from "../package.json";
 import {
   gradeOutput,
@@ -11,6 +18,11 @@ import {
   type OutputCheckDeclaration,
 } from "./graders/output";
 import { createEvaluationIdentity, hashJson } from "./identity";
+import {
+  fixtureParts,
+  prepareInlineArtifacts,
+  type InlineArtifact,
+} from "./preparation";
 import type { ExtensionCase } from "./extension-session";
 import { openExtensionSession } from "./extension-session";
 import {
@@ -103,21 +115,10 @@ export interface CliResult extends Assessment {
   cases: CaseSummary[];
 }
 
-function fixtureParts(relativePath: string): string[] {
-  if (
-    !relativePath ||
-    isAbsolute(relativePath) ||
-    relativePath.includes("\\") ||
-    /:/.test(relativePath)
-  )
-    throw new Error(`invalid fixture path: ${relativePath}`);
-  const parts = relativePath.split("/");
-  if (parts.some((part) => !part || part === "." || part === ".."))
-    throw new Error(`invalid fixture path: ${relativePath}`);
-  return parts;
-}
-
-async function createFixture(files: Record<string, string>): Promise<string> {
+async function createFixture(
+  files: Record<string, string>,
+  artifacts: InlineArtifact[],
+): Promise<string> {
   const paths = Object.entries(files).map(([path, content]) => ({
     path,
     parts: fixtureParts(path),
@@ -130,6 +131,11 @@ async function createFixture(files: Record<string, string>): Promise<string> {
       await mkdir(dirname(target), { recursive: true, mode: 0o700 });
       await writeFile(target, file.content, { flag: "wx", mode: 0o600 });
     }
+    for (const artifact of artifacts) {
+      const target = join(workspace, ...fixtureParts(artifact.relativePath));
+      await mkdir(dirname(target), { recursive: true, mode: 0o700 });
+      await writeFile(target, artifact.bytes, { flag: "wx", mode: 0o600 });
+    }
     return workspace;
   } catch (error) {
     await rm(workspace, { recursive: true, force: true });
@@ -137,8 +143,23 @@ async function createFixture(files: Record<string, string>): Promise<string> {
   }
 }
 
-function sha256(text: string): string {
-  return createHash("sha256").update(text, "utf8").digest("hex");
+function sha256(content: string | Uint8Array): string {
+  return createHash("sha256").update(content).digest("hex");
+}
+
+async function verifyRetainedArtifacts(
+  artifacts: { path: string; sha256: string }[],
+): Promise<void> {
+  for (const artifact of artifacts) {
+    let actual: string;
+    try {
+      actual = sha256(await readFile(fileURLToPath(artifact.path)));
+    } catch {
+      throw new Error("retained preparation artifact is unreadable");
+    }
+    if (actual !== artifact.sha256)
+      throw new Error("retained preparation artifact changed");
+  }
 }
 
 function usage(result: HostResult | null) {
@@ -254,13 +275,21 @@ export async function runEvaluation(
         options.condition,
       )
     : null;
-  if (
-    extensionPreparation?.artifacts.length ||
-    extensionPreparation?.requestedInstrumentation.length
-  )
+  if (extensionPreparation?.requestedInstrumentation.length)
     throw new EvaluationConfigurationError(
-      "extension preparation requested unsupported artifacts or instrumentation",
+      "extension preparation requested unsupported instrumentation",
     );
+  let inlineArtifacts: InlineArtifact[];
+  try {
+    inlineArtifacts = prepareInlineArtifacts(
+      extensionPreparation?.artifacts ?? [],
+      Object.keys(options.case.fixture.files),
+    );
+  } catch (error) {
+    throw new EvaluationConfigurationError(
+      error instanceof Error ? error.message : "invalid preparation artifacts",
+    );
+  }
   const extensionData = options.extension
     ? {
         ...options.extension.resolvedCase.extensionData,
@@ -311,7 +340,14 @@ export async function runEvaluation(
         prompt: options.case.prompt,
         extensionData,
       }),
-      fixtureDigest: hashJson(options.case.fixture.files),
+      fixtureDigest: hashJson({
+        files: options.case.fixture.files,
+        artifacts: inlineArtifacts.map(({ id, relativePath, sha256 }) => ({
+          id,
+          relativePath,
+          sha256,
+        })),
+      }),
       checksDigest: hashJson(options.case.checks),
       requiredEvidenceDigest: hashJson(options.case.requiredEvidence),
       evaluatorDigest: hashJson({
@@ -335,12 +371,30 @@ export async function runEvaluation(
   await mkdir(options.resultsRoot, { recursive: true, mode: 0o700 });
   const runDir = resolve(await realpath(options.resultsRoot), runId);
   await mkdir(runDir, { mode: 0o700 });
+  const artifactRefs: { id: string; path: string; sha256: string }[] = [];
+  for (const artifact of inlineArtifacts) {
+    const retainedPath = join(
+      runDir,
+      "prepared",
+      ...fixtureParts(artifact.relativePath),
+    );
+    await mkdir(dirname(retainedPath), { recursive: true, mode: 0o700 });
+    await writeFile(retainedPath, artifact.bytes, { flag: "wx", mode: 0o600 });
+    artifactRefs.push({
+      id: artifact.id,
+      path: pathToFileURL(retainedPath).href,
+      sha256: artifact.sha256,
+    });
+  }
 
   const trialSummaries: TrialSummary[] = [];
   const trialEvidence: Record<string, unknown>[] = [];
   let diagnostic: { code: string; message: string } | undefined;
   for (let trial = 1; trial <= options.trialCount; trial++) {
-    const workspace = await createFixture(options.case.fixture.files);
+    const workspace = await createFixture(
+      options.case.fixture.files,
+      inlineArtifacts,
+    );
     let persisted = false;
     try {
       let hostResult: HostResult | null = null;
@@ -367,6 +421,7 @@ export async function runEvaluation(
           message: "host execution did not complete",
         };
       }
+      await verifyRetainedArtifacts(artifactRefs);
       const rawDigest =
         hostResult?.finalMessage == null
           ? null
@@ -436,7 +491,7 @@ export async function runEvaluation(
               ...(check.detail ? { detail: check.detail } : {}),
               evidenceRefs: check.evidenceRefs ?? [],
             })),
-            artifacts: [],
+            artifacts: artifactRefs,
             extensionData,
           });
           const declared = new Map(
@@ -468,6 +523,7 @@ export async function runEvaluation(
         checks,
         graderError,
       });
+      await verifyRetainedArtifacts(artifactRefs);
       const rawPath =
         hostResult?.finalMessage !== null &&
         hostResult?.finalMessage !== undefined
@@ -504,7 +560,7 @@ export async function runEvaluation(
           path: rawPath ? pathToFileURL(rawPath).href : null,
           sha256: rawDigest,
         },
-        artifactRefs: [],
+        artifactRefs,
       };
       const artifactPath = join(runDir, `trial-${trial}.json`);
       const trialSummary: TrialSummary = {
