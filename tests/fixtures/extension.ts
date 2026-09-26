@@ -34,7 +34,10 @@ const result = scenario.startsWith("lifecycle")
           {
             id: "extension-case",
             prompt: "Return ready.",
-            fixture: { kind: "inline", files: { "README.md": "fixture\n" } },
+            fixture:
+              scenario === "lifecycle-repository"
+                ? { kind: "repository", sourceRef: "fixture-repo" }
+                : { kind: "inline", files: { "README.md": "fixture\n" } },
             checks: [
               {
                 id: "ready",

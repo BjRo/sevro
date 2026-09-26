@@ -1,11 +1,16 @@
 # First engine slice
 
-`runEvaluation` accepts a resolved inline-fixture case and an injected host
+`runEvaluation` accepts a resolved inline or repository fixture case and an injected host
 adapter. It is an internal API while the host isolation adapters, extension
 lifecycle, and public CLI are being built. The synthetic adapter in the tests
 exercises the actual engine path without a model call.
 
 The engine validates check configuration and fixture paths before execution.
+Repository sources must be declared under an explicit source root, clean, and
+committed. Each trial clones the fixed commit without hardlinks or remotes.
+The source revision contributes to fixture identity; a changed or dirty source
+is refused before it can silently alter a trial. Submodules and preparation
+artifacts targeting `.git/` are refused.
 For each trial it creates a separate workspace, asks the adapter to run the
 prompt, grades its bounded final message, writes the raw-message reference and
 trial artifact, and only then removes the workspace. An adapter exception
@@ -47,8 +52,8 @@ message. The engine retains them and sends them to extension grading. A required
 observation that is absent or incomplete makes grading unavailable; malformed
 host observations fail execution. The engine also accepts shell checks when the
 caller explicitly supplies protected source roots. They run through the macOS
-outer sandbox after host execution,
-and their exit observations are retained with the trial. An unavailable
+outer sandbox after host execution, and their exit observations are retained
+with the trial. An unavailable
 boundary produces a grading error rather than a passing check.
 An optional negotiated extension can add declared checks. The engine calls its
 `prepare` method before host execution and its `evaluate` method for each
@@ -63,6 +68,4 @@ bytes receive the same size, path, and digest checks before mounting and
 retention. Instrumentation and task-policy replacement remain unsupported and
 are rejected before execution.
 
-The future host adapters must provide fixture isolation, credential
-protection, and verified condition observations before the CLI can expose
-model-backed runs.
+Additional host adapters and condition instrumentation remain in progress.

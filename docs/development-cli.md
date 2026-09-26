@@ -56,9 +56,8 @@ The command file is a JSON argv array such as
 those files and the executable, negotiates `sevro.extension.v1`, resolves the
 selected case, then calls `prepare` and `evaluate` around host execution.
 `--case-file` and `--extension-command-file` are exclusive. This CLI currently
-accepts inline fixtures and additive extension checks; repository fixtures,
-requested instrumentation, and task verdict policy replacement are not yet
-supported.
+accepts inline or repository fixtures and additive extension checks. Requested
+instrumentation and task verdict policy replacement are not yet supported.
 
 If the extension needs configuration, supply both
 `--extension-configuration-file` and
@@ -73,10 +72,18 @@ object from source ID to `file:///` URL. The runner checks that each referenced
 file stays under the declared root and matches the extension's digest. The
 selected case file, extension inputs, and source root are protected from
 candidate execution and isolated shell checks.
+The same map can declare a repository directory for a case fixture. A direct
+case file uses `"fixture": {"sourceRef": "fixture-repo"}`; an extension uses
+`{"kind": "repository", "sourceRef": "fixture-repo"}`. The repository must be
+clean and committed. Sevro clones that commit for each trial without hardlinks
+or remotes, and includes the commit in fixture identity. Uncommitted source
+files, hooks, and working-tree state are not copied. Fixture setup operations
+beyond a clean repository snapshot are not yet supported. Repository submodules
+and preparation artifacts targeting `.git/` are refused.
 
 The case file follows the `ResolvedCase`
-interface in `src/engine.ts`; this slice accepts inline fixture files,
-built-in output checks, and isolated shell checks. For shell checks, add
+interface in `src/engine.ts`; this slice accepts inline files or a declared
+repository, built-in output checks, and isolated shell checks. For shell checks, add
 `--shell-isolation` and repeat `--protected-root /absolute/path` for every
 additional source worktree or private root. The engine always protects the
 selected project, results, runner source, user home, configured host homes,

@@ -30,6 +30,17 @@ function absoluteOption(value: string | undefined, name: string): string {
   return path;
 }
 
+function validFixture(value: unknown): boolean {
+  if (!record(value)) return false;
+  if (Object.hasOwn(value, "files"))
+    return (
+      !Object.hasOwn(value, "sourceRef") &&
+      record(value.files) &&
+      Object.values(value.files).every((content) => typeof content === "string")
+    );
+  return typeof value.sourceRef === "string" && Boolean(value.sourceRef);
+}
+
 function parseCase(value: unknown): ResolvedCase {
   if (
     !record(value) ||
@@ -37,11 +48,7 @@ function parseCase(value: unknown): ResolvedCase {
     !value.id ||
     typeof value.prompt !== "string" ||
     !value.prompt ||
-    !record(value.fixture) ||
-    !record(value.fixture.files) ||
-    !Object.values(value.fixture.files).every(
-      (content) => typeof content === "string",
-    ) ||
+    !validFixture(value.fixture) ||
     !Array.isArray(value.checks) ||
     !value.checks.every(
       (check) =>
@@ -169,8 +176,6 @@ function parseInvocation(argv: string[]) {
     Boolean(values["case-source-map-file"])
   )
     throw new InvocationError("case sources require a root and map file");
-  if (!extensionCommandFile && values["case-source-root"])
-    throw new InvocationError("case sources require --extension-command-file");
   const privateRoots = [
     ...protectedRoots,
     ...(values["case-file"] ? [values["case-file"]] : []),
@@ -213,16 +218,13 @@ function parseInvocation(argv: string[]) {
                 "--extension-redacted-configuration-file",
               )
             : undefined,
-          caseSourceRoot: values["case-source-root"]
-            ? absoluteOption(values["case-source-root"], "--case-source-root")
-            : undefined,
-          caseSourceMapFile: values["case-source-map-file"]
-            ? absoluteOption(
-                values["case-source-map-file"],
-                "--case-source-map-file",
-              )
-            : undefined,
         }
+      : undefined,
+    caseSourceRoot: values["case-source-root"]
+      ? absoluteOption(values["case-source-root"], "--case-source-root")
+      : undefined,
+    caseSourceMapFile: values["case-source-map-file"]
+      ? absoluteOption(values["case-source-map-file"], "--case-source-map-file")
       : undefined,
     adapterModule: codex
       ? undefined
@@ -305,7 +307,7 @@ async function loadExtensionOptions(
 }
 
 async function loadPreparationSources(
-  selected: NonNullable<ReturnType<typeof parseInvocation>["extension"]>,
+  selected: ReturnType<typeof parseInvocation>,
 ) {
   if (!selected.caseSourceRoot || !selected.caseSourceMapFile) return undefined;
   const refs = await loadJson(
@@ -332,13 +334,12 @@ function selectExtensionCase(
   const resolvedCase = cases.find((item) => item.id === caseId);
   if (!resolvedCase)
     throw new InvocationError("extension did not resolve the selected case");
-  if (resolvedCase.fixture.kind !== "inline")
-    throw new InvocationError(
-      "repository fixtures are not supported by this CLI",
-    );
   const caseData = parseCase({
     ...resolvedCase,
-    fixture: { files: resolvedCase.fixture.files },
+    fixture:
+      resolvedCase.fixture.kind === "inline"
+        ? { files: resolvedCase.fixture.files }
+        : { sourceRef: resolvedCase.fixture.sourceRef },
   });
   return { caseData, resolvedCase };
 }
@@ -427,7 +428,7 @@ async function main(argv: string[]): Promise<void> {
   process.on("SIGINT", interrupt);
   process.on("SIGTERM", terminate);
   try {
-    let preparationSources: Awaited<ReturnType<typeof loadPreparationSources>>;
+    const preparationSources = await loadPreparationSources(invocation);
     let extension:
       | {
           session: Awaited<ReturnType<typeof openExtensionSession>>;
@@ -437,7 +438,6 @@ async function main(argv: string[]): Promise<void> {
     if (invocation.extension) {
       const selected = invocation.extension;
       const options = await loadExtensionOptions(selected);
-      preparationSources = await loadPreparationSources(selected);
       const session = await openExtensionSession({
         ...options,
         sourceFiles: selected.sourceFiles,

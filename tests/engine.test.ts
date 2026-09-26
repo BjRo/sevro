@@ -546,6 +546,18 @@ test("rejects fixture paths that could escape their workspace", async () => {
       passThreshold: 1,
     }),
   ).rejects.toThrow(/invalid required evidence IDs/);
+  await expect(
+    runEvaluation({
+      ...paths,
+      case: { ...baseCase, fixture: { sourceRef: "" } },
+      host,
+      runnerBuildDigest: digest,
+      projectDigest: digest,
+      condition: "passive",
+      trialCount: 1,
+      passThreshold: 1,
+    }),
+  ).rejects.toThrow(/fixture must declare/);
 });
 
 test("shell checks grade fixture effects and retain exit observations", async () => {

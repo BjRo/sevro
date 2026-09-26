@@ -29,6 +29,11 @@ import {
   type InlineArtifact,
   type PreparationSources,
 } from "./preparation";
+import {
+  cloneRepositorySource,
+  resolveRepositorySource,
+  type RepositorySource,
+} from "./repository-fixture";
 import type { ExtensionCase } from "./extension-session";
 import { openExtensionSession } from "./extension-session";
 import {
@@ -83,7 +88,9 @@ export interface HostAdapter {
 export interface ResolvedCase {
   id: string;
   prompt: string;
-  fixture: { files: Record<string, string> };
+  fixture:
+    | { files: Record<string, string>; sourceRef?: never }
+    | { sourceRef: string; files?: never };
   checks: {
     id: string;
     grader: string;
@@ -133,16 +140,25 @@ export interface CliResult extends Assessment {
 }
 
 async function createFixture(
-  files: Record<string, string>,
+  fixture: ResolvedCase["fixture"],
   artifacts: InlineArtifact[],
+  sources: PreparationSources | undefined,
+  repository: RepositorySource | null,
 ): Promise<string> {
-  const paths = Object.entries(files).map(([path, content]) => ({
+  const paths = Object.entries(fixture.files ?? {}).map(([path, content]) => ({
     path,
     parts: fixtureParts(path),
     content,
   }));
   const workspace = await mkdtemp(join(tmpdir(), "sevro-case-"));
   try {
+    if (repository)
+      await cloneRepositorySource(
+        fixture.sourceRef!,
+        sources!,
+        repository,
+        workspace,
+      );
     for (const file of paths) {
       const target = join(workspace, ...file.parts);
       await mkdir(dirname(target), { recursive: true, mode: 0o700 });
@@ -240,6 +256,29 @@ export async function runEvaluation(
     throw new EvaluationConfigurationError(
       "case and host identities must be nonempty",
     );
+  if (
+    !options.case.fixture ||
+    typeof options.case.fixture !== "object" ||
+    Array.isArray(options.case.fixture)
+  )
+    throw new EvaluationConfigurationError("invalid fixture declaration");
+  const inlineFixture = Object.hasOwn(options.case.fixture, "files");
+  if (
+    inlineFixture === Object.hasOwn(options.case.fixture, "sourceRef") ||
+    (inlineFixture &&
+      (options.case.fixture.files === null ||
+        typeof options.case.fixture.files !== "object" ||
+        Array.isArray(options.case.fixture.files) ||
+        Object.values(options.case.fixture.files).some(
+          (content) => typeof content !== "string",
+        ))) ||
+    (!inlineFixture &&
+      (typeof options.case.fixture.sourceRef !== "string" ||
+        !options.case.fixture.sourceRef))
+  )
+    throw new EvaluationConfigurationError(
+      "fixture must declare inline files or a repository source",
+    );
   if (!Number.isSafeInteger(options.trialCount) || options.trialCount < 1)
     throw new EvaluationConfigurationError(
       "trial count must be a positive integer",
@@ -295,22 +334,25 @@ export async function runEvaluation(
     );
   if (options.extension) {
     const resolved = options.extension.resolvedCase;
+    const fixture =
+      resolved.fixture.kind === "inline"
+        ? { files: resolved.fixture.files }
+        : { sourceRef: resolved.fixture.sourceRef };
     if (
-      resolved.fixture.kind !== "inline" ||
       hashJson({
         id: resolved.id,
         prompt: resolved.prompt,
-        files: resolved.fixture.files,
+        fixture,
         checks: resolved.checks,
         requiredEvidence: resolved.requiredEvidence,
       }) !==
-        hashJson({
-          id: options.case.id,
-          prompt: options.case.prompt,
-          files: options.case.fixture.files,
-          checks: options.case.checks,
-          requiredEvidence: options.case.requiredEvidence,
-        })
+      hashJson({
+        id: options.case.id,
+        prompt: options.case.prompt,
+        fixture: options.case.fixture,
+        checks: options.case.checks,
+        requiredEvidence: options.case.requiredEvidence,
+      })
     )
       throw new EvaluationConfigurationError(
         "resolved extension case does not match the selected case",
@@ -321,7 +363,7 @@ export async function runEvaluation(
   try {
     prepared = prepareOutputChecks(builtinDeclarations);
     preparedShell = prepareShellChecks(shellDeclarations);
-    for (const path of Object.keys(options.case.fixture.files))
+    for (const path of Object.keys(options.case.fixture.files ?? {}))
       fixtureParts(path);
   } catch (error) {
     throw new EvaluationConfigurationError(
@@ -332,6 +374,16 @@ export async function runEvaluation(
   const projectRoot = await realpath(options.projectRoot).catch(() => {
     throw new EvaluationConfigurationError("project root is unreadable");
   });
+  const repository = options.case.fixture.sourceRef
+    ? await resolveRepositorySource(
+        options.case.fixture.sourceRef,
+        options.preparationSources,
+      ).catch((error) => {
+        throw new EvaluationConfigurationError(
+          error instanceof Error ? error.message : "invalid repository source",
+        );
+      })
+    : null;
   const [runner, project] = await Promise.all([
     runnerProvenance(options.runnerBuildDigest),
     projectProvenance(projectRoot),
@@ -351,7 +403,7 @@ export async function runEvaluation(
   try {
     inlineArtifacts = await prepareArtifacts(
       extensionPreparation?.artifacts ?? [],
-      Object.keys(options.case.fixture.files),
+      Object.keys(options.case.fixture.files ?? {}),
       options.preparationSources,
     );
   } catch (error) {
@@ -359,6 +411,15 @@ export async function runEvaluation(
       error instanceof Error ? error.message : "invalid preparation artifacts",
     );
   }
+  if (
+    repository &&
+    inlineArtifacts.some(
+      (artifact) => fixtureParts(artifact.relativePath)[0] === ".git",
+    )
+  )
+    throw new EvaluationConfigurationError(
+      "preparation artifacts cannot modify repository metadata",
+    );
   const extensionData = options.extension
     ? {
         ...options.extension.resolvedCase.extensionData,
@@ -417,7 +478,12 @@ export async function runEvaluation(
         extensionData,
       }),
       fixtureDigest: hashJson({
-        files: options.case.fixture.files,
+        ...(repository
+          ? {
+              sourceRef: options.case.fixture.sourceRef,
+              revision: repository.revision,
+            }
+          : { files: options.case.fixture.files }),
         artifacts: inlineArtifacts.map(({ id, relativePath, sha256 }) => ({
           id,
           relativePath,
@@ -504,8 +570,10 @@ export async function runEvaluation(
     let diagnostic: { code: string; message: string } | undefined;
     for (let trial = 1; trial <= options.trialCount; trial++) {
       const workspace = await createFixture(
-        options.case.fixture.files,
+        options.case.fixture,
         inlineArtifacts,
+        options.preparationSources,
+        repository,
       );
       let persisted = false;
       try {
@@ -612,6 +680,9 @@ export async function runEvaluation(
               resultsRoot: options.resultsRoot,
               additionalRoots: [
                 ...options.shellIsolation!.protectedRoots,
+                ...(options.preparationSources
+                  ? [options.preparationSources.root]
+                  : []),
                 runStateRoot,
               ],
             });

@@ -1,5 +1,12 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -76,6 +83,18 @@ async function invoke(args: string[], scenario = "pass") {
     proc.exited,
   ]);
   return { stdout, stderr, code, result: JSON.parse(stdout) };
+}
+
+async function git(root: string, ...args: string[]) {
+  const proc = Bun.spawn(["git", "-C", root, ...args], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [error, code] = await Promise.all([
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  if (code !== 0) throw new Error(error);
 }
 
 test("CLI emits one JSON result and uses the task exit category", async () => {
@@ -256,6 +275,88 @@ test("CLI mounts only declared preparation source files", async () => {
   expect(escaped.result.diagnostic.message).toMatch(
     /escapes its declared root/,
   );
+});
+
+test("CLI executes a declared repository fixture", async () => {
+  const { args, caseFile } = await fixture();
+  const projectRoot = join(caseFile, "..");
+  const sourceRoot = join(projectRoot, "sources");
+  const repository = join(sourceRoot, "example");
+  const mapFile = join(projectRoot, "source-map.json");
+  await mkdir(repository, { recursive: true });
+  await git(repository, "init", "-b", "main");
+  await writeFile(join(repository, "README.md"), "repository fixture\n");
+  await git(repository, "add", "README.md");
+  await git(
+    repository,
+    "-c",
+    "user.name=Fixture",
+    "-c",
+    "user.email=fixture@example.invalid",
+    "commit",
+    "-m",
+    "Create fixture",
+  );
+  await writeFile(
+    caseFile,
+    JSON.stringify({
+      id: "repository-case",
+      prompt: "Return ready.",
+      fixture: { sourceRef: "fixture-repo" },
+      checks: [
+        {
+          id: "ready",
+          grader: "sevro.regex",
+          configuration: { pattern: "^ready$" },
+        },
+      ],
+      requiredEvidence: [],
+    }),
+  );
+  await writeFile(
+    mapFile,
+    JSON.stringify({ "fixture-repo": pathToFileURL(repository).href }),
+  );
+  const run = await invoke([
+    ...args,
+    "--case-source-root",
+    sourceRoot,
+    "--case-source-map-file",
+    mapFile,
+  ]);
+  expect(run.code).toBe(0);
+  expect(run.result.task.verdict).toBe("passed");
+  const missingMap = await invoke(args);
+  expect(missingMap.code).toBe(64);
+
+  const commandFile = join(projectRoot, "extension-command.json");
+  await writeFile(
+    commandFile,
+    JSON.stringify([process.execPath, extensionSource, "lifecycle-repository"]),
+  );
+  const extensionCommand = args.filter(
+    (part, index) =>
+      part !== "--case-file" && args[index - 1] !== "--case-file",
+  );
+  const extended = await invoke([
+    ...extensionCommand,
+    "--extension-command-file",
+    commandFile,
+    "--extension-source-file",
+    extensionSource,
+    "--case-id",
+    "extension-case",
+    "--case-source-root",
+    sourceRoot,
+    "--case-source-map-file",
+    mapFile,
+  ]);
+  expect(extended.code).toBe(0);
+  expect(
+    extended.result.cases[0].trials[0].checks.map(
+      (check: { id: string }) => check.id,
+    ),
+  ).toEqual(["ready", "example.extension.ready"]);
 });
 
 test("CLI reports invalid invocation as versioned JSON without a run", async () => {
