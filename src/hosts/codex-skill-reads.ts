@@ -19,10 +19,15 @@ interface CodexEvent {
 }
 
 function shellPayload(command: string): string {
-  const wrapper = command.match(
-    /^\/bin\/(?:ba|z)?sh\s+-l?c\s+(["'])([\s\S]*)\1$/,
-  );
-  return wrapper?.[2] ?? command;
+  let payload = command;
+  for (let depth = 0; depth < 2; depth++) {
+    const wrapper = payload.match(
+      /^(?:\/bin\/(?:ba|z)?sh\s+-l?c|lean-ctx\s+-c)\s+(["'])([\s\S]*)\1$/,
+    );
+    if (!wrapper) break;
+    payload = wrapper[2]!;
+  }
+  return payload;
 }
 
 interface DirectRead {

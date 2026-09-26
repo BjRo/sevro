@@ -70,6 +70,16 @@ test("completed direct Codex reads produce bounded ordered skill evidence", asyn
   );
   expect(wrapped.completeness).toBe("complete");
   expect(wrapped.data.primarySkill).toBe("example");
+  const compressedShell = await codexSkillReadObservation(
+    stream([read("lean-ctx -c 'cat .agents/skills/example/SKILL.md'")]),
+    workspace,
+  );
+  expect(compressedShell.data.primarySkill).toBe("example");
+  const missingBody = await codexSkillReadObservation(
+    stream([read("lean-ctx -c 'cat .agents/skills/example/SKILL.md'", "summarized")]),
+    workspace,
+  );
+  expect(missingBody.completeness).toBe("partial");
 });
 
 test("exact sed pages establish a mounted body only after complete coverage", async () => {
