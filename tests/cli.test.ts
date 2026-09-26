@@ -6,6 +6,7 @@ import { join } from "node:path";
 const roots: string[] = [];
 const cli = join(import.meta.dir, "..", "src", "cli.ts");
 const adapter = join(import.meta.dir, "fixtures", "host-adapter.ts");
+const extensionSource = join(import.meta.dir, "fixtures", "extension.ts");
 const digest = "a".repeat(64);
 
 afterEach(async () => {
@@ -95,6 +96,48 @@ test("CLI emits one JSON result and uses the task exit category", async () => {
     task: { verdict: "failed" },
     exitCode: 1,
   });
+});
+
+test("CLI resolves an explicit extension case and retains extension evidence", async () => {
+  const { args, caseFile } = await fixture();
+  const commandFile = join(caseFile, "..", "extension-command.json");
+  await writeFile(
+    commandFile,
+    JSON.stringify([process.execPath, extensionSource, "lifecycle"]),
+  );
+  const command = args.filter(
+    (part, index) =>
+      part !== "--case-file" && args[index - 1] !== "--case-file",
+  );
+  command.push(
+    "--extension-command-file",
+    commandFile,
+    "--extension-source-file",
+    extensionSource,
+    "--case-id",
+    "extension-case",
+  );
+  const run = await invoke(command);
+  expect(run.code).toBe(0);
+  expect(
+    run.result.cases[0].trials[0].checks.map(
+      (check: { id: string }) => check.id,
+    ),
+  ).toEqual(["ready", "example.extension.ready"]);
+  const evidence = JSON.parse(await readFile(run.result.evidencePath, "utf8"));
+  expect(evidence.extension).toMatchObject({
+    id: "example.extension",
+    protocol: "sevro.extension.v1",
+  });
+  expect(evidence.trials[0].metrics).toEqual([
+    { id: "example.extension.score", value: 1, unit: "ratio" },
+  ]);
+
+  const missing = await invoke([...command.slice(0, -1), "missing-case"]);
+  expect(missing.code).toBe(64);
+  expect(missing.result.evidencePath).toBeNull();
+  const ambiguous = await invoke([...command, "--case-file", caseFile]);
+  expect(ambiguous.code).toBe(64);
 });
 
 test("CLI reports invalid invocation as versioned JSON without a run", async () => {

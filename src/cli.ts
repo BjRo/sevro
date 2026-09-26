@@ -10,6 +10,7 @@ import {
   type ResolvedCase,
 } from "./engine";
 import { createCodexHost } from "./hosts/codex";
+import { openExtensionSession, type ExtensionCase } from "./extension-session";
 import { assertCliResult } from "./schema";
 
 class InvocationError extends Error {}
@@ -66,6 +67,11 @@ function parseInvocation(argv: string[]) {
         options: {
           json: { type: "boolean" },
           "case-file": { type: "string" },
+          "case-id": { type: "string" },
+          "extension-command-file": { type: "string" },
+          "extension-source-file": { type: "string", multiple: true },
+          "extension-configuration-file": { type: "string" },
+          "extension-redacted-configuration-file": { type: "string" },
           "adapter-module": { type: "string" },
           host: { type: "string" },
           "codex-bin": { type: "string" },
@@ -128,9 +134,62 @@ function parseInvocation(argv: string[]) {
   const runStateRoot = values["run-state-root"]
     ? absoluteOption(values["run-state-root"], "--run-state-root")
     : resultsRoot;
+  const extensionCommandFile = values["extension-command-file"];
+  if (Boolean(values["case-file"]) === Boolean(extensionCommandFile))
+    throw new InvocationError(
+      "select exactly one of --case-file or --extension-command-file",
+    );
+  if (extensionCommandFile) {
+    if (!values["case-id"]) throw new InvocationError("missing --case-id");
+    if (!values["extension-source-file"]?.length)
+      throw new InvocationError("missing --extension-source-file");
+    if (values["extension-source-file"].some((path) => !isAbsolute(path)))
+      throw new InvocationError("--extension-source-file must be absolute");
+  } else if (
+    values["case-id"] ||
+    values["extension-source-file"] ||
+    values["extension-configuration-file"] ||
+    values["extension-redacted-configuration-file"]
+  )
+    throw new InvocationError(
+      "extension options require --extension-command-file",
+    );
+  if (
+    Boolean(values["extension-configuration-file"]) !==
+    Boolean(values["extension-redacted-configuration-file"])
+  )
+    throw new InvocationError(
+      "extension configuration requires a redacted file",
+    );
   return {
     json: values.json ?? false,
-    caseFile: absoluteOption(values["case-file"], "--case-file"),
+    caseFile: values["case-file"]
+      ? absoluteOption(values["case-file"], "--case-file")
+      : undefined,
+    extension: extensionCommandFile
+      ? {
+          commandFile: absoluteOption(
+            extensionCommandFile,
+            "--extension-command-file",
+          ),
+          sourceFiles: values["extension-source-file"]!,
+          caseId: values["case-id"]!,
+          configurationFile: values["extension-configuration-file"]
+            ? absoluteOption(
+                values["extension-configuration-file"],
+                "--extension-configuration-file",
+              )
+            : undefined,
+          redactedConfigurationFile: values[
+            "extension-redacted-configuration-file"
+          ]
+            ? absoluteOption(
+                values["extension-redacted-configuration-file"],
+                "--extension-redacted-configuration-file",
+              )
+            : undefined,
+        }
+      : undefined,
     adapterModule: codex
       ? undefined
       : absoluteOption(values["adapter-module"], "--adapter-module"),
@@ -169,6 +228,62 @@ async function loadCase(path: string): Promise<ResolvedCase> {
   } catch {
     throw new InvocationError("resolved case file is unreadable or invalid");
   }
+}
+
+async function loadJson(path: string, label: string): Promise<unknown> {
+  try {
+    return JSON.parse(await readFile(path, "utf8"));
+  } catch {
+    throw new InvocationError(`${label} is unreadable or invalid`);
+  }
+}
+
+async function loadExtensionOptions(
+  selected: NonNullable<ReturnType<typeof parseInvocation>["extension"]>,
+) {
+  const command = await loadJson(
+    selected.commandFile,
+    "extension command file",
+  );
+  if (
+    !Array.isArray(command) ||
+    !command.length ||
+    !command.every((part) => typeof part === "string" && part.length) ||
+    !isAbsolute(command[0])
+  )
+    throw new InvocationError(
+      "extension command must be an absolute argv array",
+    );
+  const configuration = selected.configurationFile
+    ? await loadJson(selected.configurationFile, "extension configuration file")
+    : {};
+  const redactedConfiguration = selected.redactedConfigurationFile
+    ? await loadJson(
+        selected.redactedConfigurationFile,
+        "redacted extension configuration file",
+      )
+    : {};
+  if (!record(configuration) || !record(redactedConfiguration))
+    throw new InvocationError("extension configuration must be JSON objects");
+  return { command: command as string[], configuration, redactedConfiguration };
+}
+
+function selectExtensionCase(
+  cases: ExtensionCase[],
+  caseId: string,
+): { caseData: ResolvedCase; resolvedCase: ExtensionCase } {
+  const resolvedCase = cases.find((item) => item.id === caseId);
+  if (!resolvedCase)
+    throw new InvocationError("extension did not resolve the selected case");
+  if (resolvedCase.fixture.kind !== "inline")
+    throw new InvocationError(
+      "repository fixtures are not supported by this CLI",
+    );
+  const caseData = parseCase({
+    ...resolvedCase,
+    fixture: { files: resolvedCase.fixture.files },
+  });
+  return { caseData, resolvedCase };
 }
 
 async function loadHost(path: string): Promise<HostAdapter> {
@@ -232,11 +347,11 @@ function display(value: unknown, json: boolean): void {
 async function main(argv: string[]): Promise<void> {
   const json = argv.includes("--json");
   let invocation: ReturnType<typeof parseInvocation>;
-  let caseData: ResolvedCase;
+  let caseData: ResolvedCase | undefined;
   let host: HostAdapter;
   try {
     invocation = parseInvocation(argv);
-    caseData = await loadCase(invocation.caseFile);
+    if (invocation.caseFile) caseData = await loadCase(invocation.caseFile);
     host = invocation.codex
       ? createCodexHost(invocation.codex)
       : await loadHost(invocation.adapterModule!);
@@ -255,11 +370,37 @@ async function main(argv: string[]): Promise<void> {
   process.on("SIGINT", interrupt);
   process.on("SIGTERM", terminate);
   try {
+    let extension:
+      | {
+          session: Awaited<ReturnType<typeof openExtensionSession>>;
+          resolvedCase: ExtensionCase;
+        }
+      | undefined;
+    if (invocation.extension) {
+      const selected = invocation.extension;
+      const options = await loadExtensionOptions(selected);
+      const session = await openExtensionSession({
+        ...options,
+        sourceFiles: selected.sourceFiles,
+        engineCapabilities: ["sevro.host.exec"],
+        hostCapabilities: [],
+        signal: cancellation.signal,
+      });
+      const chosen = selectExtensionCase(
+        await session.resolve(pathToFileURL(invocation.projectRoot).href, {
+          caseIds: [selected.caseId],
+        }),
+        selected.caseId,
+      );
+      caseData = chosen.caseData;
+      extension = { session, resolvedCase: chosen.resolvedCase };
+    }
     const { result } = await runEvaluation({
       projectRoot: invocation.projectRoot,
       resultsRoot: invocation.resultsRoot,
       runStateRoot: invocation.runStateRoot,
-      case: caseData,
+      case: caseData!,
+      extension,
       host,
       shellIsolation: invocation.shellIsolation,
       runnerBuildDigest: invocation.runnerBuildDigest,
@@ -272,7 +413,11 @@ async function main(argv: string[]): Promise<void> {
     display(result, invocation.json);
     process.exitCode = result.exitCode;
   } catch (error) {
-    const code = error instanceof EvaluationConfigurationError ? 64 : 70;
+    const code =
+      error instanceof EvaluationConfigurationError ||
+      error instanceof InvocationError
+        ? 64
+        : 70;
     const message = error instanceof Error ? error.message : "runner failure";
     const result = failure(code, message);
     display(result, invocation.json);

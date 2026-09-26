@@ -1,6 +1,7 @@
 # Development CLI
 
-The local `sevro run` command connects a resolved JSON case to a host route.
+The local `sevro run` command connects a resolved JSON case or an explicit
+extension to a host route.
 It uses the engine's normal grading and evidence path. This remains a
 development entrypoint while the Claude adapter, full extension lifecycle,
 and production provenance collection are being built.
@@ -39,6 +40,31 @@ verifies the command sandbox before execution. This route currently supports
 only passive conditions. `--host` and `--adapter-module` are exclusive. Use
 `--protected-root` to add private roots for Codex, including when no shell
 checks are selected.
+
+To resolve one case through a versioned extension, replace `--case-file` in
+either command with:
+
+```sh
+--extension-command-file /absolute/path/extension-command.json \
+--extension-source-file /absolute/path/extension-source.ts \
+--case-id example-case
+```
+
+The command file is a JSON argv array such as
+`["/absolute/path/bun", "/absolute/path/extension-source.ts"]`. Repeat
+`--extension-source-file` for the extension's source closure. The runner hashes
+those files and the executable, negotiates `sevro.extension.v1`, resolves the
+selected case, then calls `prepare` and `evaluate` around host execution.
+`--case-file` and `--extension-command-file` are exclusive. This CLI currently
+accepts inline fixtures and additive extension checks; repository fixtures,
+requested instrumentation, and task verdict policy replacement are not yet
+supported.
+
+If the extension needs configuration, supply both
+`--extension-configuration-file` and
+`--extension-redacted-configuration-file` as absolute paths to JSON objects.
+The latter replaces secret values for the retained configuration digest. Keep
+secrets out of the command argv and the redacted file.
 
 The case file follows the `ResolvedCase`
 interface in `src/engine.ts`; this slice accepts inline fixture files,
