@@ -21,7 +21,15 @@ is explicit and independent of the project root; the engine does not invoke
 Git.
 
 This slice accepts output checks with no additional required host evidence.
-It rejects other evidence requirements rather than treating them as passing.
+An optional negotiated extension can add declared checks. The engine calls its
+`prepare` method before host execution and its `evaluate` method for each
+trial. It retains extension identity, configuration digest, protocol,
+capabilities, grader selection, check evidence references, and metrics.
+Missing declared extension checks remain unavailable; extension errors cannot
+become a passing assessment. Preparation
+artifacts, instrumentation, task-policy replacement, and other host evidence
+remain unsupported and are rejected before execution.
+
 The future host adapters must provide fixture isolation, credential
 protection, and verified condition observations before the CLI can expose
 model-backed runs.

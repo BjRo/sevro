@@ -112,10 +112,11 @@ implements discovery, `resolve`, `prepare`, and `evaluate` as separate process
 calls. Its caller declares the extension source-file closure; the client also
 includes the executable and hashes that closure before discovery and before
 and after later calls. The redacted configuration and command argv affect the
-configuration digest. Command argv
-must not contain credentials. A passing extension check must cite available,
-complete evidence. The engine still needs to integrate the session with
-fixture preparation, instrumentation, grading, and persistence.
+configuration digest. Command argv must not contain credentials. A passing
+extension check must cite available, complete evidence. The engine now accepts
+inline cases with additive extension checks, runs `prepare` before the host,
+and persists check outcomes, evidence references, and metrics before fixture cleanup. Artifact
+preparation, instrumentation, and policy replacement still need engine support.
 
 ## Grading and replacement
 

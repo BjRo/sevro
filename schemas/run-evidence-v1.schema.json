@@ -253,6 +253,7 @@
         "condition",
         "observationCompleteness",
         "observations",
+        "metrics",
         "routes",
         "usage",
         "rawResult",
@@ -290,6 +291,10 @@
             },
             "additionalProperties": false
           }
+        },
+        "metrics": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/metric" }
         },
         "routes": { "type": "array", "items": { "$ref": "#/$defs/route" } },
         "usage": {
@@ -339,6 +344,16 @@
       "properties": {
         "code": { "type": "string", "minLength": 1 },
         "message": { "type": "string", "minLength": 1, "maxLength": 4096 }
+      },
+      "additionalProperties": false
+    },
+    "metric": {
+      "type": "object",
+      "required": ["id", "value", "unit"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "value": { "type": ["number", "null"] },
+        "unit": { "type": "string", "minLength": 1 }
       },
       "additionalProperties": false
     }

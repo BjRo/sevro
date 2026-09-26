@@ -19,7 +19,8 @@ process-group cancellation. The engine and public CLI are still being built.
 
 [`extension-session.ts`](src/extension-session.ts) runs the negotiated
 `resolve`, `prepare`, and `evaluate` methods and checks source stability and
-evidence references.
+evidence references. The engine accepts additive extension checks for inline
+cases.
 
 [`results.ts`](src/results.ts) reduces checks to separate execution, grading,
 and task states, applies case thresholds, and maps the aggregate to a CLI exit

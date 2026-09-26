@@ -6,10 +6,13 @@ import { pathToFileURL } from "node:url";
 import packageJson from "../package.json";
 import {
   gradeOutput,
+  isOutputGrader,
   prepareOutputChecks,
   type OutputCheckDeclaration,
 } from "./graders/output";
 import { createEvaluationIdentity, hashJson } from "./identity";
+import type { ExtensionCase } from "./extension-session";
+import { openExtensionSession } from "./extension-session";
 import {
   assessTrial,
   exitCodeFor,
@@ -56,7 +59,11 @@ export interface ResolvedCase {
   id: string;
   prompt: string;
   fixture: { files: Record<string, string> };
-  checks: OutputCheckDeclaration[];
+  checks: {
+    id: string;
+    grader: string;
+    configuration: Record<string, unknown>;
+  }[];
   requiredEvidence: string[];
 }
 
@@ -71,6 +78,10 @@ export interface EvaluationOptions {
   trialCount: number;
   passThreshold: number;
   signal?: AbortSignal;
+  extension?: {
+    session: Awaited<ReturnType<typeof openExtensionSession>>;
+    resolvedCase: ExtensionCase;
+  };
 }
 
 interface TrialSummary extends Assessment {
@@ -173,9 +184,58 @@ export async function runEvaluation(
     throw new EvaluationConfigurationError(
       "required host evidence is not supported by this engine path",
     );
+  if (options.extension?.session.identity.selectedTaskVerdictPolicy)
+    throw new EvaluationConfigurationError(
+      "extension task policy replacement is not supported by this engine path",
+    );
+  const builtinDeclarations = options.case.checks.filter((check) =>
+    isOutputGrader(check.grader),
+  ) as OutputCheckDeclaration[];
+  const extensionDeclarations = options.case.checks.filter(
+    (check) => !isOutputGrader(check.grader),
+  );
+  if (
+    new Set(options.case.checks.map((check) => check.id)).size !==
+    options.case.checks.length
+  )
+    throw new EvaluationConfigurationError("case check IDs must be unique");
+  if (
+    extensionDeclarations.length &&
+    (!options.extension ||
+      extensionDeclarations.some(
+        (check) =>
+          !options.extension!.session.identity.graders.includes(check.grader),
+      ))
+  )
+    throw new EvaluationConfigurationError(
+      "case declares an unavailable extension grader",
+    );
+  if (options.extension) {
+    const resolved = options.extension.resolvedCase;
+    if (
+      resolved.fixture.kind !== "inline" ||
+      hashJson({
+        id: resolved.id,
+        prompt: resolved.prompt,
+        files: resolved.fixture.files,
+        checks: resolved.checks,
+        requiredEvidence: resolved.requiredEvidence,
+      }) !==
+        hashJson({
+          id: options.case.id,
+          prompt: options.case.prompt,
+          files: options.case.fixture.files,
+          checks: options.case.checks,
+          requiredEvidence: options.case.requiredEvidence,
+        })
+    )
+      throw new EvaluationConfigurationError(
+        "resolved extension case does not match the selected case",
+      );
+  }
   let prepared: ReturnType<typeof prepareOutputChecks>;
   try {
-    prepared = prepareOutputChecks(options.case.checks);
+    prepared = prepareOutputChecks(builtinDeclarations);
     for (const path of Object.keys(options.case.fixture.files))
       fixtureParts(path);
   } catch (error) {
@@ -187,6 +247,26 @@ export async function runEvaluation(
   const projectRoot = await realpath(options.projectRoot).catch(() => {
     throw new EvaluationConfigurationError("project root is unreadable");
   });
+  const extensionPreparation = options.extension
+    ? await options.extension.session.prepare(
+        options.extension.resolvedCase,
+        { id: options.host.id, capabilities: [] },
+        options.condition,
+      )
+    : null;
+  if (
+    extensionPreparation?.artifacts.length ||
+    extensionPreparation?.requestedInstrumentation.length
+  )
+    throw new EvaluationConfigurationError(
+      "extension preparation requested unsupported artifacts or instrumentation",
+    );
+  const extensionData = options.extension
+    ? {
+        ...options.extension.resolvedCase.extensionData,
+        ...extensionPreparation?.extensionData,
+      }
+    : {};
   const runId = randomUUID();
   const route = {
     role: "candidate",
@@ -198,28 +278,47 @@ export async function runEvaluation(
     condition: options.condition,
     trialCount: options.trialCount,
     passThreshold: options.passThreshold,
+    extensionConfigurationDigest:
+      options.extension?.session.identity.configurationDigest ?? null,
   };
-  const activeGraders = [
-    ...new Set(options.case.checks.map((check) => check.grader)),
-  ]
+  const activeGraders: {
+    id: string;
+    source: "builtin" | "extension";
+    version: string;
+  }[] = [...new Set(builtinDeclarations.map((check) => check.grader))]
     .sort()
     .map((id) => ({ id, source: "builtin", version: "1.0.0" }));
+  if (options.extension) {
+    for (const id of [
+      ...new Set(extensionDeclarations.map((check) => check.grader)),
+    ].sort())
+      activeGraders.push({
+        id,
+        source: "extension",
+        version: options.extension.session.identity.version,
+      });
+  }
   let evaluationIdentity: ReturnType<typeof createEvaluationIdentity>;
   try {
     evaluationIdentity = createEvaluationIdentity({
       runnerBuildDigest: options.runnerBuildDigest,
       projectDigest: options.projectDigest,
       configurationDigest: hashJson(redactedConfig),
-      extensionDigest: null,
-      extensionProtocol: null,
+      extensionDigest: options.extension?.session.identity.sourceDigest ?? null,
+      extensionProtocol: options.extension?.session.identity.protocol ?? null,
       caseDigest: hashJson({
         id: options.case.id,
         prompt: options.case.prompt,
+        extensionData,
       }),
       fixtureDigest: hashJson(options.case.fixture.files),
       checksDigest: hashJson(options.case.checks),
       requiredEvidenceDigest: hashJson(options.case.requiredEvidence),
-      evaluatorDigest: hashJson({ policy: "sevro.builtin-output.v1" }),
+      evaluatorDigest: hashJson({
+        policy: "sevro.builtin-output.v1",
+        extension: options.extension?.session.identity ?? null,
+        extensionData,
+      }),
       graderDigest: hashJson(activeGraders),
       instrumentationDigest: hashJson({ requested: [], applied: [] }),
       routeDigest: hashJson(route),
@@ -268,7 +367,33 @@ export async function runEvaluation(
           message: "host execution did not complete",
         };
       }
+      const rawDigest =
+        hostResult?.finalMessage == null
+          ? null
+          : sha256(hostResult.finalMessage);
+      const completeness =
+        hostResult?.finalMessage == null
+          ? "unavailable"
+          : hostResult.complete
+            ? "complete"
+            : "partial";
+      const observation = {
+        id: "sevro.observation.final-message",
+        source: options.host.id,
+        completeness,
+        data: rawDigest
+          ? {
+              sha256: rawDigest,
+              byteLength: Buffer.byteLength(hostResult!.finalMessage!, "utf8"),
+            }
+          : {},
+      };
       let checks: CheckOutcome[] = [];
+      let extensionMetrics: {
+        id: string;
+        value: number | null;
+        unit: string;
+      }[] = [];
       let graderError = false;
       if (execution === "completed") {
         try {
@@ -276,12 +401,64 @@ export async function runEvaluation(
             hostResult!.finalMessage,
             hostResult!.complete,
             prepared,
-          );
+          ).map((check) => ({
+            ...check,
+            evidenceRefs: rawDigest ? [observation.id] : [],
+          }));
         } catch {
           graderError = true;
           diagnostic = {
             code: "sevro.grader.error",
             message: "output grading did not complete",
+          };
+        }
+      }
+      if (options.extension && !graderError) {
+        try {
+          const extensionResult = await options.extension.session.evaluate({
+            caseId: options.case.id,
+            execution: { status: execution },
+            observations: [
+              {
+                ...observation,
+                completeness,
+                data: {
+                  ...observation.data,
+                  ...(hostResult?.finalMessage == null
+                    ? {}
+                    : { text: hostResult.finalMessage }),
+                },
+              },
+            ],
+            builtinChecks: checks.map((check) => ({
+              id: check.id,
+              status: check.status,
+              ...(check.detail ? { detail: check.detail } : {}),
+              evidenceRefs: check.evidenceRefs ?? [],
+            })),
+            artifacts: [],
+            extensionData,
+          });
+          const declared = new Map(
+            extensionDeclarations.map((check) => [check.id, check.grader]),
+          );
+          if (extensionResult.checks.some((check) => !declared.has(check.id)))
+            throw new Error("extension returned an undeclared check");
+          checks.push(
+            ...extensionResult.checks.map((check) => ({
+              id: check.id,
+              grader: declared.get(check.id)!,
+              status: check.status,
+              ...(check.detail ? { detail: check.detail } : {}),
+              evidenceRefs: check.evidenceRefs,
+            })),
+          );
+          extensionMetrics = extensionResult.metrics;
+        } catch {
+          graderError = true;
+          diagnostic = {
+            code: "sevro.grader.error",
+            message: "extension grading did not complete",
           };
         }
       }
@@ -308,27 +485,6 @@ export async function runEvaluation(
           );
         }
       }
-      const rawDigest =
-        hostResult?.finalMessage == null
-          ? null
-          : sha256(hostResult.finalMessage);
-      const completeness =
-        hostResult?.finalMessage == null
-          ? "unavailable"
-          : hostResult.complete
-            ? "complete"
-            : "partial";
-      const observation = {
-        id: "sevro.observation.final-message",
-        source: options.host.id,
-        completeness,
-        data: rawDigest
-          ? {
-              sha256: rawDigest,
-              byteLength: Buffer.byteLength(hostResult!.finalMessage!, "utf8"),
-            }
-          : {},
-      };
       const evidence = {
         caseId: options.case.id,
         trial,
@@ -340,6 +496,7 @@ export async function runEvaluation(
         },
         observationCompleteness: completeness,
         observations: [observation],
+        metrics: extensionMetrics,
         routes: [route],
         usage: usage(hostResult),
         rawResult: {
@@ -429,7 +586,18 @@ export async function runEvaluation(
       revision: null,
       dirtyPatchDigest: null,
     },
-    extension: null,
+    extension: options.extension
+      ? {
+          id: options.extension.session.identity.id,
+          version: options.extension.session.identity.version,
+          sourceDigest: options.extension.session.identity.sourceDigest,
+          configurationDigest:
+            options.extension.session.identity.configurationDigest,
+          protocol: options.extension.session.identity.protocol,
+          capabilities: options.extension.session.identity.capabilities,
+          replacements: { graders: [], taskVerdictPolicy: null },
+        }
+      : null,
     condition: {
       requested: options.condition,
       actual: actualConditions.length === 1 ? actualConditions[0] : "unknown",

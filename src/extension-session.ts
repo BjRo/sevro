@@ -88,6 +88,7 @@ export interface ExtensionSessionOptions extends ExchangeOptions {
 export interface ExtensionIdentity extends NegotiatedExtension {
   sourceDigest: string;
   configurationDigest: string;
+  selectedTaskVerdictPolicy: string | null;
 }
 
 async function digestSources(paths: string[]): Promise<string> {
@@ -159,7 +160,9 @@ export async function openExtensionSession(options: ExtensionSessionOptions) {
     configurationDigest: hashJson({
       command,
       configuration: redactedConfiguration,
+      taskVerdictPolicy: taskVerdictPolicy ?? null,
     }),
+    selectedTaskVerdictPolicy: taskVerdictPolicy ?? null,
   };
   Object.freeze(identity.capabilities);
   Object.freeze(identity.graders);

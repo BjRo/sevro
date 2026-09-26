@@ -262,6 +262,7 @@ test("requires separate runner, project, and extension provenance", () => {
         },
         observationCompleteness: "complete",
         observations: [],
+        metrics: [],
         routes: [],
         usage: {
           inputTokens: null,

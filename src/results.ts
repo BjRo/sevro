@@ -8,6 +8,7 @@ export interface CheckOutcome {
   grader: string;
   status: "passed" | "failed" | "unavailable";
   detail?: string;
+  evidenceRefs?: string[];
 }
 
 export interface Assessment {

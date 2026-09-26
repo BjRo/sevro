@@ -104,7 +104,12 @@
         "id": { "type": "string", "minLength": 1 },
         "grader": { "type": "string", "minLength": 1 },
         "status": { "enum": ["passed", "failed", "unavailable"] },
-        "detail": { "type": "string", "maxLength": 4096 }
+        "detail": { "type": "string", "maxLength": 4096 },
+        "evidenceRefs": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        }
       },
       "additionalProperties": false
     },

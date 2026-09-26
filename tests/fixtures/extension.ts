@@ -22,7 +22,7 @@ const discovery = {
   protocols: ["sevro.extension.v1"],
   requiredCapabilities: ["sevro.host.exec"],
   optionalCapabilities: ["sevro.host.extra"],
-  graders: [],
+  graders: ["example.extension"],
   taskVerdictPolicies: [],
 };
 const result = scenario.startsWith("lifecycle")
@@ -39,6 +39,11 @@ const result = scenario.startsWith("lifecycle")
                 grader: "sevro.regex",
                 configuration: { pattern: "ready" },
               },
+              {
+                id: "example.extension.ready",
+                grader: "example.extension",
+                configuration: {},
+              },
             ],
             requiredEvidence: [],
             extensionData: { "example.extension": { marker: "resolved" } },
@@ -48,22 +53,30 @@ const result = scenario.startsWith("lifecycle")
     : request.method === "prepare"
       ? {
           artifacts: [],
-          requestedInstrumentation: [],
+          requestedInstrumentation:
+            scenario === "lifecycle-instrumentation"
+              ? [{ id: "example.extension.guard", configuration: {} }]
+              : [],
           extensionData: { "example.extension": { marker: "prepared" } },
         }
       : request.method === "evaluate"
         ? {
-            checks: [
-              {
-                id: "example.extension.ready",
-                status: "passed",
-                evidenceRefs:
-                  scenario === "lifecycle-empty-evidence"
-                    ? []
-                    : ["sevro.observation.final-message"],
-              },
+            checks:
+              scenario === "lifecycle-missing-check"
+                ? []
+                : [
+                    {
+                      id: "example.extension.ready",
+                      status: "passed",
+                      evidenceRefs:
+                        scenario === "lifecycle-empty-evidence"
+                          ? []
+                          : ["sevro.observation.final-message"],
+                    },
+                  ],
+            metrics: [
+              { id: "example.extension.score", value: 1, unit: "ratio" },
             ],
-            metrics: [],
           }
         : discovery
   : discovery;

@@ -5,6 +5,10 @@ import type { CheckOutcome } from "../results";
 
 type GraderId = "sevro.regex" | "sevro.json" | "sevro.schema";
 
+export function isOutputGrader(id: string): id is GraderId {
+  return id === "sevro.regex" || id === "sevro.json" || id === "sevro.schema";
+}
+
 export interface OutputCheckDeclaration {
   id: string;
   grader: GraderId;
