@@ -12,3 +12,11 @@ from the candidate while allowing the explicit fixture workspace. It also
 needs a private Codex home and an independently retained final message. Until
 those pieces are built, the development CLI only accepts operator-provided
 trusted adapters.
+
+`prepareMacSandboxCommand` provides the macOS boundary primitive. Callers
+provide absolute protected roots and a private state root; the primitive
+canonicalizes them, refuses overlap with the fixture workspace, and creates a
+temporary `sandbox-exec` profile that denies reads and writes. It fails if
+macOS isolation is unavailable. The caller releases the profile after the
+process exits. A host adapter must assemble the complete protected-root set;
+using the primitive alone does not establish complete trial isolation.
