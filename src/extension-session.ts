@@ -36,6 +36,7 @@ export interface PreparationResult {
     sha256: string;
     contentBase64?: string;
     sourceRef?: string;
+    gitExclude?: boolean;
   }[];
   requestedInstrumentation: {
     id: string;
@@ -62,7 +63,12 @@ export interface EvaluationRequest {
     detail?: string;
     evidenceRefs: string[];
   }[];
-  artifacts: { id: string; path: string; sha256: string }[];
+  artifacts: {
+    id: string;
+    path: string;
+    sha256: string;
+    gitExclude?: boolean;
+  }[];
   extensionData: Record<string, unknown>;
 }
 

@@ -42,6 +42,19 @@ test("preparation validates bytes, digest, and portable path containment", () =>
   expect(() =>
     prepareInlineArtifacts([{ ...artifact, sha256: "a".repeat(64) }], []),
   ).toThrow(/digest/);
+  expect(
+    prepareInlineArtifacts([{ ...artifact, gitExclude: true }], [])[0]
+      ?.gitExclude,
+  ).toBeTrue();
+  expect(() =>
+    prepareInlineArtifacts([{ ...artifact, gitExclude: "yes" as never }], []),
+  ).toThrow(/gitExclude/);
+  expect(() =>
+    prepareInlineArtifacts(
+      [{ ...artifact, relativePath: "generated/bad\npath", gitExclude: true }],
+      [],
+    ),
+  ).toThrow(/control characters/);
 });
 
 test("source references resolve only from the declared case source map", async () => {
@@ -60,12 +73,32 @@ test("source references resolve only from the declared case source map", async (
     };
     const sources = {
       root: sourceRoot,
-      refs: { "input-data": pathToFileURL(join(sourceRoot, "inside.txt")).href },
+      refs: {
+        "input-data": pathToFileURL(join(sourceRoot, "inside.txt")).href,
+      },
     };
-    expect((await prepareArtifacts([declaration], [], sources))[0]?.bytes).toEqual(
-      content,
+    expect(
+      (await prepareArtifacts([declaration], [], sources))[0]?.bytes,
+    ).toEqual(content);
+    expect(
+      (
+        await prepareArtifacts(
+          [{ ...declaration, gitExclude: true }],
+          [],
+          sources,
+        )
+      )[0]?.gitExclude,
+    ).toBeTrue();
+    await expect(
+      prepareArtifacts(
+        [{ ...declaration, gitExclude: "yes" as never }],
+        [],
+        sources,
+      ),
+    ).rejects.toThrow(/gitExclude/);
+    await expect(prepareArtifacts([declaration], [])).rejects.toThrow(
+      /source root/,
     );
-    await expect(prepareArtifacts([declaration], [])).rejects.toThrow(/source root/);
     await expect(
       prepareArtifacts([declaration], [], { root: sourceRoot, refs: {} }),
     ).rejects.toThrow(/not declared/);
@@ -84,7 +117,11 @@ test("source references resolve only from the declared case source map", async (
       }),
     ).rejects.toThrow(/escapes/);
     await expect(
-      prepareArtifacts([{ ...declaration, sha256: "a".repeat(64) }], [], sources),
+      prepareArtifacts(
+        [{ ...declaration, sha256: "a".repeat(64) }],
+        [],
+        sources,
+      ),
     ).rejects.toThrow(/digest/);
   } finally {
     await rm(root, { recursive: true, force: true });

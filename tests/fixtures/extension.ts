@@ -82,7 +82,8 @@ const result = scenario.startsWith("lifecycle")
             fixture:
               scenario === "lifecycle-repository"
                 ? { kind: "repository", sourceRef: "fixture-repo" }
-                : scenario === "lifecycle-generated"
+                : scenario === "lifecycle-generated" ||
+                    scenario === "lifecycle-git-excluded-artifact"
                   ? {
                       kind: "generated",
                       commits: [
@@ -91,8 +92,12 @@ const result = scenario.startsWith("lifecycle")
                           files: { "README.md": "fixture\n" },
                         },
                       ],
-                      files: { "README.md": "staged\n" },
-                      staged: ["README.md"],
+                      ...(scenario === "lifecycle-generated"
+                        ? {
+                            files: { "README.md": "staged\n" },
+                            staged: ["README.md"],
+                          }
+                        : {}),
                     }
                   : { kind: "inline", files: { "README.md": "fixture\n" } },
             checks: [
@@ -125,7 +130,10 @@ const result = scenario.startsWith("lifecycle")
             ? [
                 {
                   id: "generated-file",
-                  relativePath: "generated/data.txt",
+                  relativePath:
+                    scenario === "lifecycle-git-excluded-artifact"
+                      ? ".agents/skills/example/SKILL.md"
+                      : "generated/data.txt",
                   sha256:
                     scenario === "lifecycle-bad-artifact"
                       ? "a".repeat(64)
@@ -138,6 +146,9 @@ const result = scenario.startsWith("lifecycle")
                         contentBase64:
                           Buffer.from("prepared data\n").toString("base64"),
                       }),
+                  ...(scenario.startsWith("lifecycle-git-excluded")
+                    ? { gitExclude: true }
+                    : {}),
                 },
               ]
             : [],

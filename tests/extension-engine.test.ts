@@ -46,7 +46,11 @@ async function runWithExtension(
     new URL(`file://${projectRoot}/`).href,
     {},
   );
-  if (!resolvedCase || resolvedCase.fixture.kind !== "inline")
+  if (
+    !resolvedCase ||
+    (resolvedCase.fixture.kind !== "inline" &&
+      resolvedCase.fixture.kind !== "generated")
+  )
     throw new Error("fixture mismatch");
   const syntheticHost: HostAdapter = {
     id: "sevro.host.synthetic",
@@ -58,10 +62,19 @@ async function runWithExtension(
       );
       if (
         scenario === "lifecycle-artifact" ||
-        scenario === "lifecycle-source-artifact"
+        scenario === "lifecycle-source-artifact" ||
+        scenario === "lifecycle-git-excluded-artifact"
       )
         expect(
-          await readFile(join(workspace, "generated/data.txt"), "utf8"),
+          await readFile(
+            join(
+              workspace,
+              scenario === "lifecycle-git-excluded-artifact"
+                ? ".agents/skills/example/SKILL.md"
+                : "generated/data.txt",
+            ),
+            "utf8",
+          ),
         ).toBe("prepared data\n");
       await hostAction?.(workspace, join(projectRoot, "results"));
       return {
@@ -99,7 +112,10 @@ async function runWithExtension(
     case: {
       id: resolvedCase.id,
       prompt: resolvedCase.prompt,
-      fixture: { files: resolvedCase.fixture.files },
+      fixture:
+        resolvedCase.fixture.kind === "generated"
+          ? resolvedCase.fixture
+          : { files: resolvedCase.fixture.files },
       checks: resolvedCase.checks,
       requiredEvidence: resolvedCase.requiredEvidence,
     },
@@ -462,6 +478,47 @@ test("prepared inline artifacts survive fixture cleanup with their digest", asyn
   expect(await readFile(new URL(artifact.path), "utf8")).toBe(
     "prepared data\n",
   );
+});
+
+test("prepared skill files stay outside Git status without hiding candidate edits", async () => {
+  const statuses: string[] = [];
+  const { outcome, evidence } = await runWithExtension(
+    "lifecycle-git-excluded-artifact",
+    async (workspace) => {
+      const status = () =>
+        new TextDecoder().decode(
+          Bun.spawnSync(
+            [
+              "git",
+              "-C",
+              workspace,
+              "status",
+              "--porcelain",
+              "--untracked-files=all",
+            ],
+            { stdout: "pipe" },
+          ).stdout,
+        );
+      statuses.push(status());
+      await writeFile(join(workspace, "README.md"), "candidate edit\n");
+      statuses.push(status());
+    },
+  );
+  expect(statuses).toEqual(["", " M README.md\n"]);
+  expect(outcome.result.exitCode).toBe(0);
+  expect(evidence.trials[0].artifactRefs[0]).toMatchObject({
+    id: "generated-file",
+    gitExclude: true,
+  });
+  expect(evidence.evaluationIdentity.dimensions.fixtureDigest).toMatch(
+    /^[a-f0-9]{64}$/,
+  );
+});
+
+test("Git-excluded preparation artifacts require a Git fixture", async () => {
+  await expect(
+    runWithExtension("lifecycle-git-excluded-inline-artifact"),
+  ).rejects.toThrow(/require a Git fixture/);
 });
 
 test("declared source artifacts are retained and mounted with verified bytes", async () => {

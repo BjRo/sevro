@@ -12,6 +12,7 @@ export interface PreparationArtifact {
   sha256: string;
   contentBase64?: string;
   sourceRef?: string;
+  gitExclude?: boolean;
 }
 
 export interface InlineArtifact {
@@ -19,6 +20,7 @@ export interface InlineArtifact {
   relativePath: string;
   sha256: string;
   bytes: Uint8Array;
+  gitExclude?: boolean;
 }
 
 export interface PreparationSources {
@@ -71,6 +73,10 @@ export function prepareInlineArtifacts(
     if (!item.id || ids.has(item.id))
       throw new Error("preparation artifact IDs must be unique and nonempty");
     ids.add(item.id);
+    if (item.gitExclude !== undefined && typeof item.gitExclude !== "boolean")
+      throw new Error("preparation artifact gitExclude must be boolean");
+    if (item.gitExclude && /[\u0000-\u001f\u007f]/.test(item.relativePath))
+      throw new Error("Git-excluded artifact path contains control characters");
     if (item.sourceRef !== undefined || typeof item.contentBase64 !== "string")
       throw new Error("preparation source references are not supported");
     const encoded = item.contentBase64;
@@ -94,6 +100,7 @@ export function prepareInlineArtifacts(
       relativePath: item.relativePath,
       sha256: item.sha256,
       bytes,
+      ...(item.gitExclude === undefined ? {} : { gitExclude: item.gitExclude }),
     };
   });
 }
@@ -132,7 +139,12 @@ export async function prepareArtifacts(
       throw new Error("preparation source is unreadable");
     }
     const child = relative(root, path);
-    if (!child || child === ".." || child.startsWith(`..${sep}`) || isAbsolute(child))
+    if (
+      !child ||
+      child === ".." ||
+      child.startsWith(`..${sep}`) ||
+      isAbsolute(child)
+    )
       throw new Error("preparation source escapes its declared root");
     let size: number;
     try {
@@ -156,6 +168,7 @@ export async function prepareArtifacts(
       relativePath: item.relativePath,
       sha256: item.sha256,
       contentBase64: bytes.toString("base64"),
+      ...(item.gitExclude === undefined ? {} : { gitExclude: item.gitExclude }),
     });
   }
   return prepareInlineArtifacts(resolved, fixturePaths);

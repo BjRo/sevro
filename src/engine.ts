@@ -9,6 +9,7 @@ import {
   buildBlindAdvisoryFixture,
 } from "./advisory-fixture";
 import {
+  appendFile,
   mkdir,
   mkdtemp,
   readFile,
@@ -210,6 +211,21 @@ async function createFixture(
       const target = join(workspace, ...fixtureParts(artifact.relativePath));
       await mkdir(dirname(target), { recursive: true, mode: 0o700 });
       await writeFile(target, artifact.bytes, { flag: "wx", mode: 0o600 });
+    }
+    const gitExcluded = artifacts.filter((artifact) => artifact.gitExclude);
+    if (gitExcluded.length) {
+      const special = new Set(["\\", "*", "?", "[", "]", "#", "!", " "]);
+      const patterns = gitExcluded.map((artifact) =>
+        [...artifact.relativePath]
+          .map((character) =>
+            special.has(character) ? `\\${character}` : character,
+          )
+          .join(""),
+      );
+      await appendFile(
+        join(workspace, ".git", "info", "exclude"),
+        `\n${patterns.map((path) => `/${path}`).join("\n")}\n`,
+      );
     }
     return workspace;
   } catch (error) {
@@ -621,6 +637,14 @@ export async function runEvaluation(
       "preparation artifacts cannot modify repository metadata",
     );
   if (
+    !repository &&
+    !generated &&
+    inlineArtifacts.some((artifact) => artifact.gitExclude)
+  )
+    throw new EvaluationConfigurationError(
+      "Git-excluded preparation artifacts require a Git fixture",
+    );
+  if (
     semanticDeclarations.length &&
     inlineArtifacts.some((item) => item.id === "sevro.semantic.verdicts")
   )
@@ -725,11 +749,14 @@ export async function runEvaluation(
                 revision: repository.revision,
               }
             : { files: options.case.fixture.files }),
-        artifacts: inlineArtifacts.map(({ id, relativePath, sha256 }) => ({
-          id,
-          relativePath,
-          sha256,
-        })),
+        artifacts: inlineArtifacts.map(
+          ({ id, relativePath, sha256, gitExclude }) => ({
+            id,
+            relativePath,
+            sha256,
+            ...(gitExclude ? { gitExclude: true } : {}),
+          }),
+        ),
       }),
       checksDigest: hashJson(options.case.checks),
       requiredEvidenceDigest: hashJson(options.case.requiredEvidence),
@@ -784,7 +811,12 @@ export async function runEvaluation(
     throw error;
   }
   try {
-    const artifactRefs: { id: string; path: string; sha256: string }[] = [];
+    const artifactRefs: {
+      id: string;
+      path: string;
+      sha256: string;
+      gitExclude?: boolean;
+    }[] = [];
     for (const artifact of inlineArtifacts) {
       const retainedPath = join(
         runDir,
@@ -800,6 +832,7 @@ export async function runEvaluation(
         id: artifact.id,
         path: pathToFileURL(retainedPath).href,
         sha256: artifact.sha256,
+        ...(artifact.gitExclude ? { gitExclude: true } : {}),
       });
     }
 

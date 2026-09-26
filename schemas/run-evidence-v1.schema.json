@@ -457,7 +457,8 @@
             "properties": {
               "id": { "type": "string", "minLength": 1 },
               "path": { "$ref": "#/$defs/fileUrl" },
-              "sha256": { "$ref": "#/$defs/digest" }
+              "sha256": { "$ref": "#/$defs/digest" },
+              "gitExclude": { "type": "boolean" }
             },
             "additionalProperties": false
           }

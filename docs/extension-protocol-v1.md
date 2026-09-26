@@ -102,6 +102,13 @@ execution-changing request also requires the host to confirm an enforced
 condition. Instrumentation parameters enter retained evidence and must not
 contain secrets.
 
+An artifact for a generated or cloned Git fixture may set `gitExclude: true`.
+Sevro mounts its verified bytes, adds only that exact artifact path to the
+fixture's `.git/info/exclude`, and retains the flag in artifact evidence and
+fixture identity. The flag is invalid for a non-Git fixture. It lets evaluator
+assets such as project skills remain visible to the host without appearing as
+candidate changes in Git status checks.
+
 `evaluate` receives one completed or failed trial's bounded host observations,
 their source and completeness, built-in check results, artifact references,
 and the extension's namespaced case data. It returns namespaced checks and
