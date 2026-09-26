@@ -1,6 +1,5 @@
-import { mkdir, readdir, realpath } from "node:fs/promises";
-import { homedir, tmpdir } from "node:os";
-import { isAbsolute, join, resolve } from "node:path";
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
 import { prepareMacSandboxCommand } from "../hosts/mac-sandbox";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -17,57 +16,6 @@ export interface PreparedShellCheck {
   run: string;
   expectedExitCode: number;
   timeoutMs: number;
-}
-
-/** Include source, results, credentials, and every active peer fixture. */
-export async function shellProtectedRoots(options: {
-  workspace: string;
-  projectRoot: string;
-  resultsRoot: string;
-  additionalRoots: string[];
-}): Promise<string[]> {
-  if (options.additionalRoots.some((root) => !isAbsolute(root)))
-    throw new Error("shell protected roots must be absolute");
-  const workspace = await realpath(options.workspace);
-  const source = resolve(import.meta.dir, "../..");
-  const candidates = [
-    source,
-    options.projectRoot,
-    options.resultsRoot,
-    homedir(),
-    ...options.additionalRoots,
-    ...[process.env.CODEX_HOME, process.env.CLAUDE_CONFIG_DIR].filter(
-      (value): value is string => Boolean(value),
-    ),
-  ];
-  if (candidates.some((root) => !isAbsolute(root)))
-    throw new Error("shell protected roots must be absolute");
-  const optionalConfigRoots = [
-    process.env.CODEX_HOME,
-    process.env.CLAUDE_CONFIG_DIR,
-  ].filter((value): value is string => Boolean(value));
-  const peers = (await readdir(tmpdir(), { withFileTypes: true }))
-    .filter(
-      (entry) => entry.isDirectory() && entry.name.startsWith("sevro-case-"),
-    )
-    .map((entry) => join(tmpdir(), entry.name));
-  const roots: string[] = [];
-  for (const candidate of [...candidates, ...peers]) {
-    let canonical: string;
-    try {
-      canonical = await realpath(candidate);
-    } catch (error) {
-      if (
-        (peers.includes(candidate) ||
-          optionalConfigRoots.includes(candidate)) &&
-        (error as NodeJS.ErrnoException).code === "ENOENT"
-      )
-        continue;
-      throw new Error("shell protected root is unreadable");
-    }
-    if (canonical !== workspace) roots.push(canonical);
-  }
-  return [...new Set(roots)];
 }
 
 export function prepareShellChecks(

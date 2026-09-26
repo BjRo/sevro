@@ -20,9 +20,9 @@ import {
 import {
   prepareShellChecks,
   runShellCheck,
-  shellProtectedRoots,
   type ShellCheckDeclaration,
 } from "./graders/shell";
+import { evaluationProtectedRoots } from "./hosts/isolation-roots";
 import { createEvaluationIdentity, hashJson } from "./identity";
 import {
   fixtureParts,
@@ -501,7 +501,7 @@ export async function runEvaluation(
       }
       if (execution === "completed" && !graderError && preparedShell.length) {
         try {
-          const protectedRoots = await shellProtectedRoots({
+          const protectedRoots = await evaluationProtectedRoots({
             workspace,
             projectRoot,
             resultsRoot: options.resultsRoot,
