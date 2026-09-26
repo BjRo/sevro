@@ -98,6 +98,7 @@ export interface EvaluationOptions {
   condition: "passive" | "enforced";
   trialCount: number;
   passThreshold: number;
+  dry?: boolean;
   signal?: AbortSignal;
   extension?: {
     session: Awaited<ReturnType<typeof openExtensionSession>>;
@@ -334,6 +335,7 @@ export async function runEvaluation(
   };
   const redactedConfig = {
     condition: options.condition,
+    executionMode: options.dry ? "dry" : "executed",
     trialCount: options.trialCount,
     passThreshold: options.passThreshold,
     extensionConfigurationDigest:
@@ -469,35 +471,38 @@ export async function runEvaluation(
       let persisted = false;
       try {
         let hostResult: HostResult | null = null;
-        let execution: "completed" | "failed" | "cancelled" = "completed";
-        try {
-          if (options.signal?.aborted) throw new Error("cancelled");
-          hostResult = await options.host.run({
-            prompt: options.case.prompt,
-            workspace,
-            condition: options.condition,
-            signal: options.signal,
-          });
-          if (options.signal?.aborted) throw new Error("cancelled");
-          if (
-            hostResult.finalMessage !== null &&
-            Buffer.byteLength(hostResult.finalMessage, "utf8") >
-              MAX_FINAL_MESSAGE_BYTES
-          )
-            throw new Error("oversized host result");
-        } catch {
-          execution = options.signal?.aborted ? "cancelled" : "failed";
-          hostResult = null;
-          diagnostic = {
-            code:
-              execution === "cancelled"
-                ? "sevro.run.cancelled"
-                : "sevro.host.failed",
-            message:
-              execution === "cancelled"
-                ? "run cancelled"
-                : "host execution did not complete",
-          };
+        let execution: "completed" | "failed" | "cancelled" | "not_run" =
+          options.dry ? "not_run" : "completed";
+        if (!options.dry) {
+          try {
+            if (options.signal?.aborted) throw new Error("cancelled");
+            hostResult = await options.host.run({
+              prompt: options.case.prompt,
+              workspace,
+              condition: options.condition,
+              signal: options.signal,
+            });
+            if (options.signal?.aborted) throw new Error("cancelled");
+            if (
+              hostResult.finalMessage !== null &&
+              Buffer.byteLength(hostResult.finalMessage, "utf8") >
+                MAX_FINAL_MESSAGE_BYTES
+            )
+              throw new Error("oversized host result");
+          } catch {
+            execution = options.signal?.aborted ? "cancelled" : "failed";
+            hostResult = null;
+            diagnostic = {
+              code:
+                execution === "cancelled"
+                  ? "sevro.run.cancelled"
+                  : "sevro.host.failed",
+              message:
+                execution === "cancelled"
+                  ? "run cancelled"
+                  : "host execution did not complete",
+            };
+          }
         }
         await verifyRetainedArtifacts(artifactRefs);
         const rawDigest =
@@ -606,7 +611,7 @@ export async function runEvaluation(
             }
           }
         }
-        if (options.extension && !graderError && execution !== "cancelled") {
+        if (options.extension && !graderError && execution === "completed") {
           try {
             const extensionResult = await options.extension.session.evaluate({
               caseId: options.case.id,
@@ -691,7 +696,7 @@ export async function runEvaluation(
         const evidence = {
           caseId: options.case.id,
           trial,
-          executionMode: "executed",
+          executionMode: options.dry ? "dry" : "executed",
           condition: {
             requested: options.condition,
             actual: hostResult?.actualCondition ?? "unknown",
@@ -733,7 +738,11 @@ export async function runEvaluation(
         trialSummaries.push(trialSummary);
         trialEvidence.push(evidence);
         saveState("active");
-        if (execution !== "completed" || graderError) break;
+        if (
+          (execution !== "completed" && execution !== "not_run") ||
+          graderError
+        )
+          break;
       } finally {
         if (persisted) {
           try {
@@ -761,6 +770,7 @@ export async function runEvaluation(
       runId,
       ...runAssessment,
       exitCode: exitCodeFor(runAssessment, {
+        dryRun: options.dry,
         signal:
           signalReason === "SIGINT" || signalReason === "SIGTERM"
             ? signalReason

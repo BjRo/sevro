@@ -12,6 +12,10 @@ trial artifact, and only then removes the workspace. An adapter exception
 becomes an execution failure; a later failure leaves earlier trial artifacts
 intact. A failed trial checkpoint retains its fixture and cannot produce a
 successful result.
+Dry preparation still validates the case, runs extension preparation, creates
+the fixture, and retains a trial record. It skips the host and all grading,
+records `not_run` / `not_requested` / `not_assessed`, and has a separate
+evaluation identity from an executed run.
 
 The final `run.json` follows the v1 evidence schema and contains separate
 execution, grading, and task states. It records the exact runner build and

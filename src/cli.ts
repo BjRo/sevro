@@ -66,6 +66,7 @@ function parseInvocation(argv: string[]) {
         strict: true,
         options: {
           json: { type: "boolean" },
+          dry: { type: "boolean" },
           "case-file": { type: "string" },
           "case-id": { type: "string" },
           "extension-command-file": { type: "string" },
@@ -186,6 +187,7 @@ function parseInvocation(argv: string[]) {
   ];
   return {
     json: values.json ?? false,
+    dry: values.dry ?? false,
     caseFile: values["case-file"]
       ? absoluteOption(values["case-file"], "--case-file")
       : undefined,
@@ -466,6 +468,7 @@ async function main(argv: string[]): Promise<void> {
       condition: invocation.condition,
       trialCount: invocation.trialCount,
       passThreshold: invocation.passThreshold,
+      dry: invocation.dry,
       signal: cancellation.signal,
     });
     display(result, invocation.json);

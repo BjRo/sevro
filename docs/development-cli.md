@@ -85,6 +85,10 @@ development slice.
 
 `--json` writes exactly one versioned result to stdout, including pre-run
 configuration failures. The process exit code follows `docs/results-v1.md`.
+Add `--dry` to resolve and prepare a case without running the host or graders.
+Its retained trials record `not_run` / `not_requested` / `not_assessed` and exit
+successfully when preparation succeeds. Dry and executed runs have different
+evaluation identities.
 Run evidence and trial files live under `--results-root`. A packaged runner
 needs no Git checkout. This private development checkout records its Git
 revision and dirty content; `--runner-build-digest` and `--project-digest`

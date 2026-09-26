@@ -105,6 +105,57 @@ test("runs trials, applies threshold, and retains evidence before fixture cleanu
   expect(evidence.result).toEqual(outcome.result);
 });
 
+test("dry preparation records every trial without executing the host", async () => {
+  const paths = await rootsForRun();
+  let hostCalls = 0;
+  const host: HostAdapter = {
+    id: "sevro.host.synthetic",
+    model: "synthetic-v1",
+    effort: "none",
+    async run() {
+      hostCalls++;
+      return { finalMessage: "ready", complete: true };
+    },
+  };
+  const options = {
+    ...paths,
+    case: baseCase,
+    host,
+    runnerBuildDigest: digest,
+    projectDigest: digest,
+    condition: "passive" as const,
+    trialCount: 2,
+    passThreshold: 1,
+  };
+  const dry = await runEvaluation({ ...options, dry: true });
+  expect(hostCalls).toBe(0);
+  expect(dry.result).toMatchObject({
+    execution: { status: "not_run" },
+    grading: { status: "not_requested" },
+    task: { verdict: "not_assessed" },
+    exitCode: 0,
+  });
+  expect(dry.result.cases[0]?.trials).toHaveLength(2);
+  const dryEvidence = JSON.parse(
+    await readFile(dry.result.evidencePath, "utf8"),
+  );
+  expect(
+    dryEvidence.trials.map(
+      (trial: { executionMode: string }) => trial.executionMode,
+    ),
+  ).toEqual(["dry", "dry"]);
+  expect(dryEvidence.trials[0].rawResult.path).toBeNull();
+
+  const executed = await runEvaluation(options);
+  expect(hostCalls).toBe(2);
+  const executedEvidence = JSON.parse(
+    await readFile(executed.result.evidencePath, "utf8"),
+  );
+  expect(dryEvidence.evaluationIdentity.digest).not.toBe(
+    executedEvidence.evaluationIdentity.digest,
+  );
+});
+
 test("host failure retains completed trials and reports execution failure", async () => {
   const paths = await rootsForRun();
   let call = 0;

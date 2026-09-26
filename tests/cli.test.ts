@@ -99,6 +99,43 @@ test("CLI emits one JSON result and uses the task exit category", async () => {
   });
 });
 
+test("CLI dry run retains preparation without calling the host", async () => {
+  const { args, caseFile } = await fixture();
+  const commandFile = join(caseFile, "..", "extension-command.json");
+  await writeFile(
+    commandFile,
+    JSON.stringify([process.execPath, extensionSource, "lifecycle-artifact"]),
+  );
+  const command = args.filter(
+    (part, index) =>
+      part !== "--case-file" && args[index - 1] !== "--case-file",
+  );
+  command.push(
+    "--extension-command-file",
+    commandFile,
+    "--extension-source-file",
+    extensionSource,
+    "--case-id",
+    "extension-case",
+    "--dry",
+  );
+  const run = await invoke(command, "fail");
+  expect(run.code).toBe(0);
+  expect(run.result).toMatchObject({
+    execution: { status: "not_run" },
+    grading: { status: "not_requested" },
+    task: { verdict: "not_assessed" },
+  });
+  expect(run.result.cases[0].trials[0].checks).toEqual([]);
+  const evidence = JSON.parse(await readFile(run.result.evidencePath, "utf8"));
+  expect(evidence.trials[0].executionMode).toBe("dry");
+  expect(evidence.trials[0].metrics).toEqual([]);
+  const [artifact] = evidence.trials[0].artifactRefs;
+  expect(await readFile(new URL(artifact.path), "utf8")).toBe(
+    "prepared data\n",
+  );
+});
+
 test("CLI resolves an explicit extension case and retains extension evidence", async () => {
   const { args, caseFile } = await fixture();
   const commandFile = join(caseFile, "..", "extension-command.json");
