@@ -136,13 +136,22 @@ export async function projectProvenance(root: string) {
   };
 }
 
-export async function runnerProvenance(buildDigest: string) {
-  if (!packageJson.private)
-    return {
-      source: "package" as const,
-      packageName: packageJson.name,
-      version: packageJson.version,
-      buildDigest,
-    };
-  return checkoutProvenance(join(import.meta.dir, ".."), buildDigest);
+export async function runnerProvenance(
+  buildDigest: string,
+  checkoutRoot?: string,
+) {
+  if (checkoutRoot) {
+    const actualRoot = await realpath(join(import.meta.dir, ".."));
+    if ((await realpath(checkoutRoot)) !== actualRoot)
+      throw new Error(
+        "local Sevro checkout root does not match the running package",
+      );
+    return checkoutProvenance(actualRoot, buildDigest);
+  }
+  return {
+    source: "package" as const,
+    packageName: packageJson.name,
+    version: packageJson.version,
+    buildDigest,
+  };
 }

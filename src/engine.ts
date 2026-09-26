@@ -143,6 +143,7 @@ export interface EvaluationOptions {
   advisoryHost?: HostAdapter;
   advisoryExcludedPaths?: string[];
   runnerBuildDigest: string;
+  runnerCheckoutRoot?: string;
   projectDigest: string;
   condition: "passive" | "enforced";
   trialCount: number;
@@ -553,7 +554,14 @@ export async function runEvaluation(
       })
     : null;
   const [runner, project] = await Promise.all([
-    runnerProvenance(options.runnerBuildDigest),
+    runnerProvenance(
+      options.runnerBuildDigest,
+      options.runnerCheckoutRoot,
+    ).catch((error) => {
+      throw new EvaluationConfigurationError(
+        error instanceof Error ? error.message : "invalid runner provenance",
+      );
+    }),
     projectProvenance(projectRoot),
   ]);
   const extensionPreparation = options.extension

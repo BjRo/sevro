@@ -9,7 +9,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { runEvaluation, type HostAdapter } from "../src/engine";
 
 const roots: string[] = [];
@@ -62,6 +62,7 @@ test("runs trials, applies threshold, and retains evidence before fixture cleanu
     case: baseCase,
     host,
     runnerBuildDigest: digest,
+    runnerCheckoutRoot: resolve(import.meta.dir, ".."),
     projectDigest: digest,
     condition: "passive",
     trialCount: 2,

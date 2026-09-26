@@ -6,6 +6,14 @@ It uses the engine's normal grading and evidence path. This remains a
 development entrypoint while the Claude adapter, full extension lifecycle,
 and production provenance collection are being built.
 
+An installed package records its name, version, and caller-supplied build
+digest without reading runner Git metadata. When running this source checkout
+for coordinated development, pass `--runner-checkout-root` with the absolute
+path to this checkout. Sevro verifies that it is the code actually running and
+records its revision and dirty-patch digest instead of package provenance.
+`bun run test:package-install` verifies the packed package from a separate
+temporary project without runner Git metadata.
+
 ```sh
 bun src/cli.ts run --json \
   --case-file /absolute/path/case.json \

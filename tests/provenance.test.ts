@@ -1,8 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { projectProvenance } from "../src/provenance";
+import { join, resolve } from "node:path";
+import { projectProvenance, runnerProvenance } from "../src/provenance";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -27,6 +27,26 @@ test("project provenance stays unknown without a Git revision", async () => {
     revision: null,
     dirtyPatchDigest: null,
   });
+});
+
+test("runner provenance uses package identity unless the running checkout is explicit", async () => {
+  const digest = "a".repeat(64);
+  expect(await runnerProvenance(digest)).toMatchObject({
+    source: "package",
+    packageName: "sevro",
+    version: "0.1.0-dev.0",
+    buildDigest: digest,
+  });
+  const checkout = await runnerProvenance(
+    digest,
+    resolve(import.meta.dir, ".."),
+  );
+  expect(checkout).toMatchObject({ source: "checkout", buildDigest: digest });
+  const unrelated = await mkdtemp(join(tmpdir(), "sevro-other-checkout-"));
+  roots.push(unrelated);
+  expect(runnerProvenance(digest, unrelated)).rejects.toThrow(
+    "does not match the running package",
+  );
 });
 
 test("project provenance distinguishes revision, tracked edits, and untracked files", async () => {

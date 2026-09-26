@@ -8,7 +8,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const roots: string[] = [];
@@ -131,6 +131,33 @@ test("CLI emits one JSON result and uses the task exit category", async () => {
     task: { verdict: "failed" },
     exitCode: 1,
   });
+});
+
+test("CLI records an explicitly selected local runner checkout", async () => {
+  const { args } = await fixture();
+  const checkout = resolve(import.meta.dir, "..");
+  const run = await invoke([...args, "--runner-checkout-root", checkout]);
+  expect(run.code, run.stderr).toBe(0);
+  const evidence = JSON.parse(await readFile(run.result.evidencePath, "utf8"));
+  expect(evidence.runner).toMatchObject({
+    source: "checkout",
+    buildDigest: digest,
+  });
+  expect(evidence.runner.revision).toMatch(/^[a-f0-9]{40,64}$/);
+  expect(
+    evidence.runner.dirtyPatchDigest === null ||
+      /^[a-f0-9]{64}$/.test(evidence.runner.dirtyPatchDigest),
+  ).toBeTrue();
+
+  const invalid = await invoke([
+    ...args,
+    "--runner-checkout-root",
+    join(checkout, "src"),
+  ]);
+  expect(invalid.code).toBe(64);
+  expect(invalid.result.diagnostic.message).toMatch(
+    /does not match the running package/,
+  );
 });
 
 test("CLI dry run retains preparation without calling the host", async () => {

@@ -116,6 +116,7 @@ function parseInvocation(argv: string[]) {
           "results-root": { type: "string" },
           "run-state-root": { type: "string" },
           "runner-build-digest": { type: "string" },
+          "runner-checkout-root": { type: "string" },
           "project-digest": { type: "string" },
           condition: { type: "string" },
           trials: { type: "string" },
@@ -373,6 +374,9 @@ function parseInvocation(argv: string[]) {
       values["runner-build-digest"],
       "--runner-build-digest",
     ),
+    runnerCheckoutRoot: values["runner-checkout-root"]
+      ? absoluteOption(values["runner-checkout-root"], "--runner-checkout-root")
+      : undefined,
     projectDigest: requiredOption(values["project-digest"], "--project-digest"),
     condition: condition as "passive" | "enforced",
     trialCount,
@@ -611,6 +615,7 @@ async function main(argv: string[]): Promise<void> {
       advisoryExcludedPaths: invocation.advisoryExcludedPaths,
       shellIsolation: invocation.shellIsolation,
       runnerBuildDigest: invocation.runnerBuildDigest,
+      runnerCheckoutRoot: invocation.runnerCheckoutRoot,
       projectDigest: invocation.projectDigest,
       condition: invocation.condition,
       trialCount: invocation.trialCount,

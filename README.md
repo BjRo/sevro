@@ -9,8 +9,10 @@ and [run results](docs/results-v1.md). Sevro owns these generic interfaces;
 projects own their cases and evaluator policy.
 
 Machine-readable contracts live in [`schemas/`](schemas/). Run `bun install`,
-`bun test`, `bun run typecheck`, and `bun run format:check` to validate them
-locally.
+`bun test`, `bun run typecheck`, `bun run format:check`, and
+`bun run test:package-install` to validate the package locally. The package
+test packs and installs Sevro in a temporary project, then runs the installed
+CLI without a Sevro Git checkout.
 
 [`extension-client.ts`](src/extension-client.ts) validates one request and
 response per extension process and negotiates the v1 protocol. It enforces
