@@ -10,6 +10,7 @@ import {
   type ResolvedCase,
 } from "./engine";
 import { createCodexHost } from "./hosts/codex";
+import { prepareGeneratedFixture } from "./generated-fixture";
 import { prepareInstrumentation } from "./instrumentation";
 import { openExtensionSession, type ExtensionCase } from "./extension-session";
 import { assertCliResult } from "./schema";
@@ -33,6 +34,15 @@ function absoluteOption(value: string | undefined, name: string): string {
 
 function validFixture(value: unknown): boolean {
   if (!record(value)) return false;
+  if (value.kind === "generated") {
+    try {
+      prepareGeneratedFixture(value);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  if (value.kind !== undefined) return false;
   if (Object.hasOwn(value, "files"))
     return (
       !Object.hasOwn(value, "sourceRef") &&
@@ -402,7 +412,9 @@ function selectExtensionCase(
     fixture:
       resolvedCase.fixture.kind === "inline"
         ? { files: resolvedCase.fixture.files }
-        : { sourceRef: resolvedCase.fixture.sourceRef },
+        : resolvedCase.fixture.kind === "repository"
+          ? { sourceRef: resolvedCase.fixture.sourceRef }
+          : resolvedCase.fixture,
   });
   return { caseData, resolvedCase };
 }

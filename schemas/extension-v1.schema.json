@@ -247,6 +247,41 @@
             "sourceRef": { "$ref": "#/$defs/id" }
           },
           "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind", "commits"],
+          "properties": {
+            "kind": { "const": "generated" },
+            "commits": {
+              "type": "array",
+              "maxItems": 128,
+              "items": {
+                "type": "object",
+                "required": ["message", "files"],
+                "properties": {
+                  "message": { "type": "string", "minLength": 1 },
+                  "files": {
+                    "type": "object",
+                    "minProperties": 1,
+                    "additionalProperties": { "type": "string" }
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "files": {
+              "type": "object",
+              "additionalProperties": { "type": "string" }
+            },
+            "staged": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 },
+              "uniqueItems": true
+            },
+            "commitFiles": { "type": "boolean" }
+          },
+          "additionalProperties": false
         }
       ]
     },

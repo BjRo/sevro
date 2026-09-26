@@ -1,6 +1,6 @@
 # First engine slice
 
-`runEvaluation` accepts a resolved inline or repository fixture case and an injected host
+`runEvaluation` accepts a resolved inline, generated Git, or repository fixture case and an injected host
 adapter. It is an internal API while the host isolation adapters, extension
 lifecycle, and public CLI are being built. The synthetic adapter in the tests
 exercises the actual engine path without a model call.
@@ -11,6 +11,11 @@ committed. Each trial clones the fixed commit without hardlinks or remotes.
 The source revision contributes to fixture identity; a changed or dirty source
 is refused before it can silently alter a trial. Submodules and preparation
 artifacts targeting `.git/` are refused.
+Generated Git fixtures validate a bounded commit list, optional working-tree
+files, and staged overlay paths before execution. Each trial builds the same
+history with a fixed local identity and date, then applies its own working-tree
+state. The declarative history enters fixture identity; no trial can inherit a
+previous trial's edits.
 For each trial it creates a separate workspace, asks the adapter to run the
 prompt, grades its bounded final message, writes the raw-message reference and
 trial artifact, and only then removes the workspace. An adapter exception

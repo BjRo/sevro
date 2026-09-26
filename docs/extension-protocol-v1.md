@@ -80,6 +80,10 @@ fixture and built-in check declarations, required evidence declarations, and
 namespaced extension data. Paths in case descriptions are resolved and
 validated by the engine against the declared project and case-source roots.
 The extension cannot add a hidden source root by returning an arbitrary path.
+Fixtures may contain inline files, a declared clean repository source, or a
+bounded generated Git history with optional working-tree and staged files.
+Generated history is generic fixture data; repository-specific policy and
+custom setup remain in the extension.
 Absolute path references in this protocol use `file:///` URLs so Windows and
 Unix hosts share one serialized form. Fixture-relative paths use `/` separators
 and cannot escape their declared root.

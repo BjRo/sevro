@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { isAbsolute } from "node:path";
 import { canonicalJson, hashJson } from "./identity";
+import type { GeneratedFixture } from "./generated-fixture";
 import {
   ExtensionProtocolError,
   exchangeExtension,
@@ -17,7 +18,8 @@ export interface ExtensionCase {
   prompt: string;
   fixture:
     | { kind: "inline"; files: Record<string, string> }
-    | { kind: "repository"; sourceRef: string };
+    | { kind: "repository"; sourceRef: string }
+    | GeneratedFixture;
   checks: {
     id: string;
     grader: string;

@@ -37,6 +37,11 @@ import {
   type InstrumentationRequest,
 } from "./instrumentation";
 import {
+  materializeGeneratedFixture,
+  prepareGeneratedFixture,
+  type GeneratedFixture,
+} from "./generated-fixture";
+import {
   fixtureParts,
   prepareArtifacts,
   type InlineArtifact,
@@ -108,7 +113,8 @@ export interface ResolvedCase {
   prompt: string;
   fixture:
     | { files: Record<string, string>; sourceRef?: never }
-    | { sourceRef: string; files?: never };
+    | { sourceRef: string; files?: never }
+    | (GeneratedFixture & { sourceRef?: never });
   checks: {
     id: string;
     grader: string;
@@ -163,12 +169,15 @@ async function createFixture(
   artifacts: InlineArtifact[],
   sources: PreparationSources | undefined,
   repository: RepositorySource | null,
+  generated: GeneratedFixture | null,
 ): Promise<string> {
-  const paths = Object.entries(fixture.files ?? {}).map(([path, content]) => ({
-    path,
-    parts: fixtureParts(path),
-    content,
-  }));
+  const paths = Object.entries(generated ? {} : (fixture.files ?? {})).map(
+    ([path, content]) => ({
+      path,
+      parts: fixtureParts(path),
+      content,
+    }),
+  );
   const workspace = await mkdtemp(join(tmpdir(), "sevro-case-"));
   try {
     if (repository)
@@ -178,6 +187,7 @@ async function createFixture(
         repository,
         workspace,
       );
+    if (generated) await materializeGeneratedFixture(generated, workspace);
     for (const file of paths) {
       const target = join(workspace, ...file.parts);
       await mkdir(dirname(target), { recursive: true, mode: 0o700 });
@@ -310,23 +320,34 @@ export async function runEvaluation(
     Array.isArray(options.case.fixture)
   )
     throw new EvaluationConfigurationError("invalid fixture declaration");
-  const inlineFixture = Object.hasOwn(options.case.fixture, "files");
-  if (
-    inlineFixture === Object.hasOwn(options.case.fixture, "sourceRef") ||
-    (inlineFixture &&
-      (options.case.fixture.files === null ||
-        typeof options.case.fixture.files !== "object" ||
-        Array.isArray(options.case.fixture.files) ||
-        Object.values(options.case.fixture.files).some(
-          (content) => typeof content !== "string",
-        ))) ||
-    (!inlineFixture &&
-      (typeof options.case.fixture.sourceRef !== "string" ||
-        !options.case.fixture.sourceRef))
-  )
-    throw new EvaluationConfigurationError(
-      "fixture must declare inline files or a repository source",
-    );
+  let generated: GeneratedFixture | null = null;
+  if ("kind" in options.case.fixture) {
+    try {
+      generated = prepareGeneratedFixture(options.case.fixture);
+    } catch (error) {
+      throw new EvaluationConfigurationError(
+        error instanceof Error ? error.message : "invalid generated fixture",
+      );
+    }
+  } else {
+    const inlineFixture = Object.hasOwn(options.case.fixture, "files");
+    if (
+      inlineFixture === Object.hasOwn(options.case.fixture, "sourceRef") ||
+      (inlineFixture &&
+        (options.case.fixture.files === null ||
+          typeof options.case.fixture.files !== "object" ||
+          Array.isArray(options.case.fixture.files) ||
+          Object.values(options.case.fixture.files).some(
+            (content) => typeof content !== "string",
+          ))) ||
+      (!inlineFixture &&
+        (typeof options.case.fixture.sourceRef !== "string" ||
+          !options.case.fixture.sourceRef))
+    )
+      throw new EvaluationConfigurationError(
+        "fixture must declare inline files or a repository source",
+      );
+  }
   if (!Number.isSafeInteger(options.trialCount) || options.trialCount < 1)
     throw new EvaluationConfigurationError(
       "trial count must be a positive integer",
@@ -430,7 +451,9 @@ export async function runEvaluation(
     const fixture =
       resolved.fixture.kind === "inline"
         ? { files: resolved.fixture.files }
-        : { sourceRef: resolved.fixture.sourceRef };
+        : resolved.fixture.kind === "repository"
+          ? { sourceRef: resolved.fixture.sourceRef }
+          : resolved.fixture;
     if (
       hashJson({
         id: resolved.id,
@@ -516,9 +539,17 @@ export async function runEvaluation(
   }
   let inlineArtifacts: InlineArtifact[];
   try {
+    const fixturePaths = generated
+      ? [
+          ...new Set([
+            ...generated.commits.flatMap((commit) => Object.keys(commit.files)),
+            ...Object.keys(generated.files ?? {}),
+          ]),
+        ]
+      : Object.keys(options.case.fixture.files ?? {});
     inlineArtifacts = await prepareArtifacts(
       extensionPreparation?.artifacts ?? [],
-      Object.keys(options.case.fixture.files ?? {}),
+      fixturePaths,
       options.preparationSources,
     );
   } catch (error) {
@@ -527,9 +558,12 @@ export async function runEvaluation(
     );
   }
   if (
-    repository &&
+    (repository || generated) &&
     inlineArtifacts.some(
-      (artifact) => fixtureParts(artifact.relativePath)[0] === ".git",
+      (artifact) =>
+        fixtureParts(artifact.relativePath).some(
+          (part) => part.toLowerCase() === ".git",
+        ),
     )
   )
     throw new EvaluationConfigurationError(
@@ -615,12 +649,14 @@ export async function runEvaluation(
         extensionData,
       }),
       fixtureDigest: hashJson({
-        ...(repository
-          ? {
-              sourceRef: options.case.fixture.sourceRef,
-              revision: repository.revision,
-            }
-          : { files: options.case.fixture.files }),
+        ...(generated
+          ? generated
+          : repository
+            ? {
+                sourceRef: options.case.fixture.sourceRef,
+                revision: repository.revision,
+              }
+            : { files: options.case.fixture.files }),
         artifacts: inlineArtifacts.map(({ id, relativePath, sha256 }) => ({
           id,
           relativePath,
@@ -714,6 +750,7 @@ export async function runEvaluation(
         inlineArtifacts,
         options.preparationSources,
         repository,
+        generated,
       );
       let persisted = false;
       try {
@@ -939,6 +976,7 @@ export async function runEvaluation(
               { files: {} },
               [],
               undefined,
+              null,
               null,
             );
             let semanticResult: HostResult | null = null;

@@ -82,7 +82,19 @@ const result = scenario.startsWith("lifecycle")
             fixture:
               scenario === "lifecycle-repository"
                 ? { kind: "repository", sourceRef: "fixture-repo" }
-                : { kind: "inline", files: { "README.md": "fixture\n" } },
+                : scenario === "lifecycle-generated"
+                  ? {
+                      kind: "generated",
+                      commits: [
+                        {
+                          message: "chore: initialize",
+                          files: { "README.md": "fixture\n" },
+                        },
+                      ],
+                      files: { "README.md": "staged\n" },
+                      staged: ["README.md"],
+                    }
+                  : { kind: "inline", files: { "README.md": "fixture\n" } },
             checks: [
               builtinCheck,
               ...(scenario === "lifecycle-replace-no-extension"

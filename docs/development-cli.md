@@ -67,7 +67,7 @@ The command file is a JSON argv array such as
 those files and the executable, negotiates `sevro.extension.v1`, resolves the
 selected case, then calls `prepare` and `evaluate` around host execution.
 `--case-file` and `--extension-command-file` are exclusive. This CLI currently
-accepts inline or repository fixtures and additive extension checks. An
+accepts inline, generated Git, or repository fixtures and additive extension checks. An
 extension may request a host-declared instrumentation capability during
 `prepare`. The host adapter receives the request and must report exactly what
 it applied. An execution-changing request is refused for `--condition passive`;
@@ -104,12 +104,33 @@ case file uses `"fixture": {"sourceRef": "fixture-repo"}`; an extension uses
 clean and committed. Sevro clones that commit for each trial without hardlinks
 or remotes, and includes the commit in fixture identity. Uncommitted source
 files, hooks, and working-tree state are not copied. Fixture setup operations
-beyond a clean repository snapshot are not yet supported. Repository submodules
-and preparation artifacts targeting `.git/` are refused.
+beyond a clean repository snapshot are not yet supported for this fixture kind.
+Repository submodules and preparation artifacts targeting `.git/` are refused.
+
+A direct case or extension can declare a generated Git fixture:
+
+```json
+{
+  "kind": "generated",
+  "commits": [
+    { "message": "chore: initialize", "files": { "README.md": "base\n" } }
+  ],
+  "files": { "README.md": "edited\n" },
+  "staged": ["README.md"]
+}
+```
+
+Sevro creates the declared commits with a fixed local identity and date for
+every trial, then writes the optional working-tree `files`. `staged` may name
+only those overlay files. `commitFiles: true` commits the overlay as scaffolding
+before staging. Paths under `.git/`, collisions, invalid staging, and oversized
+histories fail preflight. Custom setup scripts, fixture hooks, and stub tools
+are not part of this generated-fixture contract yet.
 
 The case file follows the `ResolvedCase`
-interface in `src/engine.ts`; this slice accepts inline files or a declared
-repository, built-in output and semantic checks, and isolated shell checks. For shell checks, add
+interface in `src/engine.ts`; this slice accepts inline files, generated Git
+history, or a declared repository, built-in output and semantic checks, and
+isolated shell checks. For shell checks, add
 `--shell-isolation` and repeat `--protected-root /absolute/path` for every
 additional source worktree or private root. The engine always protects the
 selected project, results, runner source, user home, configured host homes,

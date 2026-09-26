@@ -94,6 +94,24 @@ test("accepts discovery and each extension operation", () => {
       configuration: {},
     }),
     envelope(extension, "resolve", "result", { cases: [evalCase] }),
+    envelope(extension, "resolve", "result", {
+      cases: [
+        {
+          ...evalCase,
+          fixture: {
+            kind: "generated",
+            commits: [
+              {
+                message: "chore: initialize",
+                files: { "README.md": "ready\n" },
+              },
+            ],
+            files: { "README.md": "staged\n" },
+            staged: ["README.md"],
+          },
+        },
+      ],
+    }),
     envelope(extension, "prepare", "params", {
       case: evalCase,
       host: { id: "sevro.host.codex", capabilities: [] },

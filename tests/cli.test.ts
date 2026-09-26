@@ -554,6 +554,46 @@ test("CLI executes a declared repository fixture", async () => {
   ).toEqual(["ready", "example.extension.ready"]);
 });
 
+test("CLI accepts generated Git history from a case or extension", async () => {
+  const { args, caseFile } = await fixture();
+  const definition = JSON.parse(await readFile(caseFile, "utf8"));
+  definition.fixture = {
+    kind: "generated",
+    commits: [
+      { message: "chore: initialize", files: { "README.md": "fixture\n" } },
+    ],
+    files: { "README.md": "staged\n" },
+    staged: ["README.md"],
+  };
+  await writeFile(caseFile, JSON.stringify(definition));
+  expect((await invoke(args)).code).toBe(0);
+
+  const commandFile = join(caseFile, "..", "extension-command.json");
+  await writeFile(
+    commandFile,
+    JSON.stringify([process.execPath, extensionSource, "lifecycle-generated"]),
+  );
+  const extensionCommand = args.filter(
+    (part, index) =>
+      part !== "--case-file" && args[index - 1] !== "--case-file",
+  );
+  extensionCommand.push(
+    "--extension-command-file",
+    commandFile,
+    "--extension-source-file",
+    extensionSource,
+    "--case-id",
+    "extension-case",
+  );
+  expect((await invoke(extensionCommand)).code).toBe(0);
+
+  definition.fixture.commits[0].files = { ".git/config": "escape" };
+  await writeFile(caseFile, JSON.stringify(definition));
+  const invalid = await invoke(args);
+  expect(invalid.code).toBe(64);
+  expect(invalid.result.evidencePath).toBeNull();
+});
+
 test("CLI reports invalid invocation as versioned JSON without a run", async () => {
   const { args, caseFile } = await fixture();
   const invalid = await invoke(
