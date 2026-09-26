@@ -26,6 +26,7 @@ import {
   type OutputCheckDeclaration,
 } from "./graders/output";
 import {
+  assessShellCheck,
   prepareShellChecks,
   runShellCheck,
   type ShellCheckDeclaration,
@@ -980,26 +981,38 @@ export async function runEvaluation(
               ],
             });
             for (const check of preparedShell) {
-              const exitCode = await runShellCheck(check, {
+              const shellResult = await runShellCheck(check, {
                 workspace,
                 protectedRoots,
                 protectedRootsCanonical: true,
                 privateStateRoot: join(stateDir, "shell-sandbox"),
                 signal: options.signal,
               });
+              const graded = assessShellCheck(check, shellResult);
               const observationId = `sevro.observation.shell.${check.id}`;
               shellObservations.push({
                 id: observationId,
                 source: "sevro.shell",
                 completeness: "complete",
-                data: { exitCode, expectedExitCode: check.expectedExitCode },
+                data: {
+                  exitCode: shellResult.exitCode,
+                  expectedExitCode: check.expectedExitCode,
+                  ...(shellResult.stdout === null
+                    ? {}
+                    : {
+                        stdoutSha256: sha256(shellResult.stdout),
+                        stdoutByteLength: Buffer.byteLength(
+                          shellResult.stdout,
+                          "utf8",
+                        ),
+                      }),
+                },
               });
               checks.push({
                 id: check.id,
                 grader: "sevro.shell",
-                status:
-                  exitCode === check.expectedExitCode ? "passed" : "failed",
-                detail: `exit code ${exitCode}`,
+                status: graded.passed ? "passed" : "failed",
+                detail: graded.detail,
                 evidenceRefs: [observationId],
               });
             }

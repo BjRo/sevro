@@ -23,12 +23,18 @@ fail preflight. Schema references are resolved only from the inline schema; the
 grader does not read paths supplied by a candidate.
 
 The shell-check process runner accepts a bounded evaluator-owned `run` string,
-optional expected exit code, and timeout. On macOS it executes through the
-outer sandbox with network access denied, a credential-free environment, and
-caller-declared protected roots. Only the exit code is returned; stdout and
-stderr are discarded. The engine grades `sevro.shell` checks after a completed
-host turn and retains one exit-code observation per check. A mismatched exit
-code fails the task; an isolation, timeout, or process error makes grading
+optional `expectedExitCode` and `timeoutMs`, plus `expectExact`, `expectRegex`,
+`notRegex`, and regex `flags` for stdout. Exact matching removes one final
+newline; regex matching always uses multiline mode. The runner executes with
+`sh -e`. On macOS it runs through the outer sandbox with network access denied,
+a credential-free environment, and caller-declared protected roots. Without a
+stdout assertion, process output is discarded. With one, the runner captures
+at most 1 MiB in memory and retains only its digest and byte length. Oversized
+or invalid UTF-8 output is a grading error.
+
+The engine grades `sevro.shell` checks after a completed host turn and retains
+one bounded observation per check. A mismatched exit code or stdout assertion
+fails the task; an isolation, timeout, or process error makes grading
 an error. Callers must supply `shellIsolation.protectedRoots` for any shell
 check. The engine also protects its package source, project, results, user
 home, configured host homes, and active peer fixtures. The caller's list must

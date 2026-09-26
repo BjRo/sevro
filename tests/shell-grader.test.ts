@@ -2,7 +2,11 @@ import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { prepareShellChecks, runShellCheck } from "../src/graders/shell";
+import {
+  assessShellCheck,
+  prepareShellChecks,
+  runShellCheck,
+} from "../src/graders/shell";
 
 test("shell declarations reject invalid commands and bounds", () => {
   const check = (configuration: Record<string, unknown>) =>
@@ -17,6 +21,48 @@ test("shell declarations reject invalid commands and bounds", () => {
     /exit code/,
   );
   expect(() => check({ run: "true", extra: true })).toThrow(/unsupported/);
+  expect(() => check({ run: "true", expectRegex: "(" })).toThrow(/regex/);
+  expect(() => check({ run: "true", flags: "ii", expectRegex: "ok" })).toThrow(
+    /flags/,
+  );
+  expect(() => check({ run: "true", flags: "i" })).toThrow(/flags/);
+});
+
+test("shell stdout assertions preserve exact and multiline matching semantics", () => {
+  const [check] = prepareShellChecks([
+    {
+      id: "check",
+      grader: "sevro.shell",
+      configuration: {
+        run: "printf 'first\\nsecond\\n'",
+        expectExact: "first\nsecond",
+        expectRegex: "^second$",
+        notRegex: "forbidden",
+      },
+    },
+  ]);
+  expect(
+    assessShellCheck(check!, { exitCode: 0, stdout: "first\nsecond\n" }).passed,
+  ).toBeTrue();
+  expect(
+    assessShellCheck(check!, { exitCode: 0, stdout: "first\nother\n" }).passed,
+  ).toBeFalse();
+  expect(
+    assessShellCheck(check!, { exitCode: 1, stdout: "first\nsecond\n" }).detail,
+  ).toContain("exit code");
+  const [negative] = prepareShellChecks([
+    {
+      id: "negative",
+      grader: "sevro.shell",
+      configuration: {
+        run: "true",
+        notRegex: "forbidden",
+      },
+    },
+  ]);
+  expect(
+    assessShellCheck(negative!, { exitCode: 0, stdout: "forbidden\n" }).passed,
+  ).toBeFalse();
 });
 
 test("timed out shell checks stop without returning a result", async () => {
@@ -62,14 +108,67 @@ test("shell check sees the fixture but cannot read or write protected sources", 
         privateStateRoot: join(root, "private"),
       });
     };
-    expect(await run("test -f README.md")).toBe(0);
+    expect((await run("test -f README.md")).exitCode).toBe(0);
     expect(
-      await run(`cat '${join(protectedRoot, "secret.txt")}' >/dev/null`),
+      (await run(`cat '${join(protectedRoot, "secret.txt")}' >/dev/null`))
+        .exitCode,
     ).not.toBe(0);
-    expect(await run(`mkdir '${join(protectedRoot, "new")}'`)).not.toBe(0);
     expect(
-      await run('test -z "$OPENAI_API_KEY$ANTHROPIC_API_KEY$GH_TOKEN"'),
+      (await run(`mkdir '${join(protectedRoot, "new")}'`)).exitCode,
+    ).not.toBe(0);
+    expect(
+      (await run('test -z "$OPENAI_API_KEY$ANTHROPIC_API_KEY$GH_TOKEN"'))
+        .exitCode,
     ).toBe(0);
+    const [outputCheck] = prepareShellChecks([
+      {
+        id: "output",
+        grader: "sevro.shell",
+        configuration: {
+          run: "printf 'alpha\\nbeta\\n'",
+          expectRegex: "^beta$",
+        },
+      },
+    ]);
+    const output = await runShellCheck(outputCheck!, {
+      workspace,
+      protectedRoots: [protectedRoot],
+      privateStateRoot: join(root, "private"),
+    });
+    expect(output).toEqual({ exitCode: 0, stdout: "alpha\nbeta\n" });
+    const [failFast] = prepareShellChecks([
+      {
+        id: "fail-fast",
+        grader: "sevro.shell",
+        configuration: {
+          run: "false; printf 'wrong\\n'",
+          expectExact: "wrong",
+        },
+      },
+    ]);
+    const stopped = await runShellCheck(failFast!, {
+      workspace,
+      protectedRoots: [protectedRoot],
+      privateStateRoot: join(root, "private"),
+    });
+    expect(stopped).toEqual({ exitCode: 1, stdout: "" });
+    const [oversized] = prepareShellChecks([
+      {
+        id: "oversized",
+        grader: "sevro.shell",
+        configuration: {
+          run: "awk 'BEGIN { for (i = 0; i < 1048577; i++) printf \"x\" }'",
+          expectRegex: "x",
+        },
+      },
+    ]);
+    await expect(
+      runShellCheck(oversized!, {
+        workspace,
+        protectedRoots: [protectedRoot],
+        privateStateRoot: join(root, "private"),
+      }),
+    ).rejects.toThrow(/1 MiB/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

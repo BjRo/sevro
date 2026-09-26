@@ -933,7 +933,12 @@ test("shell checks grade fixture effects and retain exit observations", async ()
         {
           id: "file-created",
           grader: "sevro.shell",
-          configuration: { run: "test -f created.txt" },
+          configuration: {
+            run: "cat created.txt",
+            expectExact: "done",
+            expectRegex: "^done$",
+            notRegex: "missing",
+          },
         },
       ],
     },
@@ -959,6 +964,10 @@ test("shell checks grade fixture effects and retain exit observations", async ()
     completeness: "complete",
     data: { exitCode: 0, expectedExitCode: 0 },
   });
+  expect(evidence.trials[0].observations[1].data.stdoutSha256).toMatch(
+    /^[a-f0-9]{64}$/,
+  );
+  expect(evidence.trials[0].observations[1].data.stdoutByteLength).toBe(5);
   expect(
     evidence.graders.active.map((grader: { id: string }) => grader.id),
   ).toContain("sevro.shell");
@@ -1004,6 +1013,21 @@ test("shell failures and timeouts remain distinct from host completion", async (
     task: { verdict: "failed" },
     exitCode: 1,
   });
+  const outputFailed = await runEvaluation({
+    ...options,
+    case: {
+      ...baseCase,
+      checks: [
+        {
+          id: "wrong-output",
+          grader: "sevro.shell",
+          configuration: { run: "printf 'actual\\n'", expectExact: "expected" },
+        },
+      ],
+    },
+  });
+  expect(outputFailed.result.task.verdict).toBe("failed");
+  expect(outputFailed.result.exitCode).toBe(1);
   const timedOut = await runEvaluation({
     ...options,
     case: {
