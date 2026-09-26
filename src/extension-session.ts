@@ -83,12 +83,14 @@ export interface ExtensionSessionOptions extends ExchangeOptions {
   engineCapabilities: string[];
   hostCapabilities: string[];
   taskVerdictPolicy?: string;
+  replaceBuiltinGraders?: string[];
 }
 
 export interface ExtensionIdentity extends NegotiatedExtension {
   sourceDigest: string;
   configurationDigest: string;
   selectedTaskVerdictPolicy: string | null;
+  replacedBuiltinGraders: string[];
 }
 
 async function digestSources(paths: string[]): Promise<string> {
@@ -117,6 +119,9 @@ export async function openExtensionSession(options: ExtensionSessionOptions) {
   const sourceFiles = [...options.sourceFiles];
   const sourceClosure = [...new Set([command[0], ...sourceFiles])];
   const taskVerdictPolicy = options.taskVerdictPolicy;
+  const replacedBuiltinGraders = [
+    ...(options.replaceBuiltinGraders ?? []),
+  ].sort();
   const exchangeOptions: ExchangeOptions = {
     cwd: options.cwd,
     timeoutMs: options.timeoutMs,
@@ -132,6 +137,8 @@ export async function openExtensionSession(options: ExtensionSessionOptions) {
     throw new ExtensionProtocolError(
       "extension source files must be unique absolute paths",
     );
+  if (new Set(replacedBuiltinGraders).size !== replacedBuiltinGraders.length)
+    throw new ExtensionProtocolError("duplicate built-in grader replacement");
   const configuration = jsonCopy(options.configuration);
   const redactedConfiguration = jsonCopy(options.redactedConfiguration);
   const sourceDigest = await digestSources(sourceClosure);
@@ -161,12 +168,15 @@ export async function openExtensionSession(options: ExtensionSessionOptions) {
       command,
       configuration: redactedConfiguration,
       taskVerdictPolicy: taskVerdictPolicy ?? null,
+      replacedBuiltinGraders,
     }),
     selectedTaskVerdictPolicy: taskVerdictPolicy ?? null,
+    replacedBuiltinGraders,
   };
   Object.freeze(identity.capabilities);
   Object.freeze(identity.graders);
   Object.freeze(identity.taskVerdictPolicies);
+  Object.freeze(identity.replacedBuiltinGraders);
   Object.freeze(identity);
 
   async function call(

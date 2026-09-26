@@ -44,6 +44,26 @@ if (scenario === "lifecycle-host-artifact" && request.method === "evaluate") {
       .catch(() => "")) === "host trace\n",
   );
 }
+const builtinCheck =
+  scenario === "lifecycle-replace-shell"
+    ? { id: "ready", grader: "sevro.shell", configuration: { run: "exit 0" } }
+    : scenario === "lifecycle-replace-semantic"
+      ? {
+          id: "ready",
+          grader: "sevro.semantic",
+          configuration: { proposition: "The response promises readiness." },
+        }
+      : {
+          id: "ready",
+          grader: "sevro.regex",
+          configuration: {
+            pattern:
+              scenario.startsWith("lifecycle-policy") ||
+              scenario.startsWith("lifecycle-replace")
+                ? "never"
+                : "ready",
+          },
+        };
 const result = scenario.startsWith("lifecycle")
   ? request.method === "resolve"
     ? {
@@ -56,20 +76,16 @@ const result = scenario.startsWith("lifecycle")
                 ? { kind: "repository", sourceRef: "fixture-repo" }
                 : { kind: "inline", files: { "README.md": "fixture\n" } },
             checks: [
-              {
-                id: "ready",
-                grader: "sevro.regex",
-                configuration: {
-                  pattern: scenario.startsWith("lifecycle-policy")
-                    ? "never"
-                    : "ready",
-                },
-              },
-              {
-                id: "example.extension.ready",
-                grader: "example.extension",
-                configuration: {},
-              },
+              builtinCheck,
+              ...(scenario === "lifecycle-replace-no-extension"
+                ? []
+                : [
+                    {
+                      id: "example.extension.ready",
+                      grader: "example.extension",
+                      configuration: {},
+                    },
+                  ]),
             ],
             requiredEvidence:
               scenario === "lifecycle-host-observation"

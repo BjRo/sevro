@@ -77,7 +77,10 @@ An explicitly selected extension task-verdict policy receives its policy ID
 during `evaluate` and must return a recommendation. The engine uses that
 recommendation only when execution and grading completed with all required
 evidence available. It retains the selected policy and trial recommendation;
-missing recommendations are grading errors. Built-in grader replacement and
-instrumentation remain unsupported.
+missing recommendations are grading errors. An explicitly replaced built-in
+grader still has its declaration validated, but its checks do not run or count
+toward the task verdict. At least one declared extension check must take its
+place. The selection enters comparison identity and retained evidence.
+Instrumentation remains unsupported.
 
 Additional host adapters and condition instrumentation remain in progress.

@@ -337,13 +337,13 @@ export async function runEvaluation(
     )
   )
     throw new EvaluationConfigurationError("invalid required evidence IDs");
-  const builtinDeclarations = options.case.checks.filter((check) =>
+  const allBuiltinDeclarations = options.case.checks.filter((check) =>
     isOutputGrader(check.grader),
   ) as OutputCheckDeclaration[];
-  const shellDeclarations = options.case.checks.filter(
+  const allShellDeclarations = options.case.checks.filter(
     (check) => check.grader === "sevro.shell",
   ) as ShellCheckDeclaration[];
-  const semanticDeclarations = options.case.checks.filter(
+  const allSemanticDeclarations = options.case.checks.filter(
     (check) => check.grader === "sevro.semantic",
   ) as SemanticCheckDeclaration[];
   const extensionDeclarations = options.case.checks.filter(
@@ -351,6 +351,36 @@ export async function runEvaluation(
       !isOutputGrader(check.grader) &&
       check.grader !== "sevro.shell" &&
       check.grader !== "sevro.semantic",
+  );
+  const replacedBuiltinGraders =
+    options.extension?.session.identity.replacedBuiltinGraders ?? [];
+  const replaced = new Set(replacedBuiltinGraders);
+  if (
+    replaced.size !== replacedBuiltinGraders.length ||
+    replacedBuiltinGraders.some(
+      (id) =>
+        ![
+          ...allBuiltinDeclarations,
+          ...allShellDeclarations,
+          ...allSemanticDeclarations,
+        ].some((check) => check.grader === id),
+    )
+  )
+    throw new EvaluationConfigurationError(
+      "unknown or duplicate built-in grader replacement",
+    );
+  if (replaced.size && !extensionDeclarations.length)
+    throw new EvaluationConfigurationError(
+      "built-in grader replacement requires an extension check",
+    );
+  const builtinDeclarations = allBuiltinDeclarations.filter(
+    (check) => !replaced.has(check.grader),
+  );
+  const shellDeclarations = allShellDeclarations.filter(
+    (check) => !replaced.has(check.grader),
+  );
+  const semanticDeclarations = allSemanticDeclarations.filter(
+    (check) => !replaced.has(check.grader),
   );
   if (semanticDeclarations.length && !options.semanticHost)
     throw new EvaluationConfigurationError(
@@ -415,9 +445,15 @@ export async function runEvaluation(
   let preparedShell: ReturnType<typeof prepareShellChecks>;
   let preparedSemantic: ReturnType<typeof prepareSemanticChecks>;
   try {
-    prepared = prepareOutputChecks(builtinDeclarations);
-    preparedShell = prepareShellChecks(shellDeclarations);
-    preparedSemantic = prepareSemanticChecks(semanticDeclarations);
+    prepared = prepareOutputChecks(allBuiltinDeclarations).filter(
+      (check) => !replaced.has(check.grader),
+    );
+    const allPreparedShell = prepareShellChecks(allShellDeclarations);
+    preparedShell = replaced.has("sevro.shell") ? [] : allPreparedShell;
+    const allPreparedSemantic = prepareSemanticChecks(allSemanticDeclarations);
+    preparedSemantic = replaced.has("sevro.semantic")
+      ? []
+      : allPreparedSemantic;
     for (const path of Object.keys(options.case.fixture.files ?? {}))
       fixtureParts(path);
   } catch (error) {
@@ -1057,7 +1093,9 @@ export async function runEvaluation(
         }
         const defaultAssessment = assessTrial({
           execution,
-          declaredChecks: options.case.checks.map((check) => check.id),
+          declaredChecks: options.case.checks
+            .filter((check) => !replaced.has(check.grader))
+            .map((check) => check.id),
           checks,
           graderError,
           requiredEvidenceUnavailable: options.case.requiredEvidence.some(
@@ -1224,7 +1262,7 @@ export async function runEvaluation(
             protocol: options.extension.session.identity.protocol,
             capabilities: options.extension.session.identity.capabilities,
             replacements: {
-              graders: [],
+              graders: replacedBuiltinGraders,
               taskVerdictPolicy:
                 options.extension.session.identity.selectedTaskVerdictPolicy,
             },
@@ -1236,7 +1274,10 @@ export async function runEvaluation(
         requestedInstrumentation: [],
         appliedInstrumentation: [],
       },
-      graders: { active: activeGraders, replacedDefaults: [] },
+      graders: {
+        active: activeGraders,
+        replacedDefaults: replacedBuiltinGraders,
+      },
       routes,
       result,
       trials: trialEvidence,

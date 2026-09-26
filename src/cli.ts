@@ -81,6 +81,7 @@ function parseInvocation(argv: string[]) {
           "extension-configuration-file": { type: "string" },
           "extension-redacted-configuration-file": { type: "string" },
           "task-verdict-policy": { type: "string" },
+          "replace-builtin-grader": { type: "string", multiple: true },
           "case-source-root": { type: "string" },
           "case-source-map-file": { type: "string" },
           "adapter-module": { type: "string" },
@@ -167,11 +168,19 @@ function parseInvocation(argv: string[]) {
     : resultsRoot;
   const extensionCommandFile = values["extension-command-file"];
   const taskVerdictPolicy = values["task-verdict-policy"];
+  const replaceBuiltinGraders = values["replace-builtin-grader"] ?? [];
   if (
     taskVerdictPolicy !== undefined &&
     !/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$/.test(taskVerdictPolicy)
   )
     throw new InvocationError("invalid --task-verdict-policy");
+  if (
+    new Set(replaceBuiltinGraders).size !== replaceBuiltinGraders.length ||
+    replaceBuiltinGraders.some(
+      (id) => !/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$/.test(id),
+    )
+  )
+    throw new InvocationError("invalid --replace-builtin-grader");
   if (Boolean(values["case-file"]) === Boolean(extensionCommandFile))
     throw new InvocationError(
       "select exactly one of --case-file or --extension-command-file",
@@ -187,7 +196,8 @@ function parseInvocation(argv: string[]) {
     values["extension-source-file"] ||
     values["extension-configuration-file"] ||
     values["extension-redacted-configuration-file"] ||
-    taskVerdictPolicy !== undefined
+    taskVerdictPolicy !== undefined ||
+    replaceBuiltinGraders.length > 0
   )
     throw new InvocationError(
       "extension options require --extension-command-file",
@@ -260,6 +270,7 @@ function parseInvocation(argv: string[]) {
               )
             : undefined,
           taskVerdictPolicy,
+          replaceBuiltinGraders,
         }
       : undefined,
     caseSourceRoot: values["case-source-root"]
@@ -500,6 +511,7 @@ async function main(argv: string[]): Promise<void> {
         engineCapabilities: ["sevro.host.exec"],
         hostCapabilities: [],
         taskVerdictPolicy: selected.taskVerdictPolicy,
+        replaceBuiltinGraders: selected.replaceBuiltinGraders,
         signal: cancellation.signal,
       });
       const chosen = selectExtensionCase(

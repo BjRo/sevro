@@ -130,7 +130,7 @@ and persists check outcomes, evidence references, and metrics before fixture
 cleanup. It applies and retains bounded inline preparation artifacts after
 checking their path and digest. Source references require a caller-declared
 ID-to-file-URL map under a case source root and receive the same checks.
-Instrumentation and built-in grader replacement still need engine support.
+Instrumentation still needs engine support.
 
 ## Grading and replacement
 
@@ -141,6 +141,14 @@ must explicitly name each built-in grader it replaces, or explicitly select
 one advertised task-verdict policy. Unknown or duplicate replacement IDs are
 errors. Retained evidence lists every active grader, its identity and route,
 and any replaced default.
+When a built-in grader is selected for replacement, the engine validates its
+declared check configuration but does not run its checks. It requires at least
+one declared, advertised extension check, and grades those checks instead.
+Unselected built-in checks stay active. The replacement list enters extension
+configuration and evaluation identity; evidence retains the selected defaults
+and omits them from active graders and trial check results. A replaced shell or
+semantic grader does not require its usual isolation or host route because it
+does not execute.
 
 An extension cannot replace execution status, grading status, or the evidence
 availability rules. It cannot turn an error or missing required evidence into

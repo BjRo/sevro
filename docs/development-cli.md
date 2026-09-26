@@ -68,7 +68,12 @@ those files and the executable, negotiates `sevro.extension.v1`, resolves the
 selected case, then calls `prepare` and `evaluate` around host execution.
 `--case-file` and `--extension-command-file` are exclusive. This CLI currently
 accepts inline or repository fixtures and additive extension checks. Requested
-instrumentation and built-in grader replacement are not yet supported.
+instrumentation is not yet supported. Repeat
+`--replace-builtin-grader <sevro.grader-id>` to explicitly replace built-in
+graders declared by the selected case. The case must also declare an advertised
+extension check. The runner validates the replaced declarations but does not
+run them; unselected built-ins stay active. Duplicate or absent grader IDs are
+configuration errors.
 To select an advertised extension task-verdict policy, pass
 `--task-verdict-policy <namespaced-policy-id>` with the extension command. A
 completed, fully graded trial uses the policy's recommendation for its task

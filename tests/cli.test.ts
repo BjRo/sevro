@@ -307,6 +307,63 @@ test("CLI selects an advertised extension task policy explicitly", async () => {
   expect(rejected.code).toBe(64);
 });
 
+test("CLI replaces a selected built-in grader through the extension", async () => {
+  const { args, caseFile } = await fixture();
+  const commandFile = join(caseFile, "..", "extension-command.json");
+  await writeFile(
+    commandFile,
+    JSON.stringify([
+      process.execPath,
+      extensionSource,
+      "lifecycle-replace-regex",
+    ]),
+  );
+  const command = args.filter(
+    (part, index) =>
+      part !== "--case-file" && args[index - 1] !== "--case-file",
+  );
+  command.push(
+    "--extension-command-file",
+    commandFile,
+    "--extension-source-file",
+    extensionSource,
+    "--case-id",
+    "extension-case",
+  );
+  expect((await invoke(command)).code).toBe(1);
+  const selected = await invoke([
+    ...command,
+    "--replace-builtin-grader",
+    "sevro.regex",
+  ]);
+  expect(selected.code).toBe(0);
+  expect(selected.result.cases[0].trials[0].checks).toEqual([
+    expect.objectContaining({
+      id: "example.extension.ready",
+      status: "passed",
+    }),
+  ]);
+  const evidence = JSON.parse(
+    await readFile(selected.result.evidencePath, "utf8"),
+  );
+  expect(evidence.graders.replacedDefaults).toEqual(["sevro.regex"]);
+  expect(
+    (await invoke([...command, "--replace-builtin-grader", "sevro.schema"]))
+      .code,
+  ).toBe(64);
+  expect(
+    (
+      await invoke([
+        ...command,
+        "--replace-builtin-grader",
+        "sevro.regex",
+        "--replace-builtin-grader",
+        "sevro.regex",
+      ])
+    ).code,
+  ).toBe(64);
+});
+
 test("CLI mounts only declared preparation source files", async () => {
   const { args, caseFile } = await fixture();
   const projectRoot = join(caseFile, "..");

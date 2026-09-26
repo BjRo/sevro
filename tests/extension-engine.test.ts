@@ -18,6 +18,7 @@ afterEach(async () => {
 async function runWithExtension(
   scenario: string,
   hostAction?: (workspace: string, resultsRoot: string) => Promise<void>,
+  replaceBuiltinGraders: string[] = [],
 ) {
   const projectRoot = await mkdtemp(join(tmpdir(), "sevro-extension-engine-"));
   roots.push(projectRoot);
@@ -31,6 +32,7 @@ async function runWithExtension(
     redactedConfiguration: {},
     engineCapabilities: ["sevro.host.exec"],
     hostCapabilities: [],
+    replaceBuiltinGraders,
     ...(scenario.startsWith("lifecycle-policy")
       ? { taskVerdictPolicy: "example.policy" }
       : {}),
@@ -140,6 +142,64 @@ test("extension checks add to built-ins and retain negotiated provenance", async
   expect(
     evidence.graders.active.map((grader: { id: string }) => grader.id),
   ).toEqual(["sevro.regex", "example.extension"]);
+});
+
+test("explicit grader replacement removes only the selected built-in checks", async () => {
+  const defaultRun = await runWithExtension("lifecycle-replace-regex");
+  expect(defaultRun.outcome.result.task.verdict).toBe("failed");
+  expect(
+    defaultRun.outcome.result.cases[0]?.trials[0]?.checks.map(
+      (check) => check.id,
+    ),
+  ).toEqual(["ready", "example.extension.ready"]);
+
+  const selected = await runWithExtension(
+    "lifecycle-replace-regex",
+    undefined,
+    ["sevro.regex"],
+  );
+  expect(selected.outcome.result.task.verdict).toBe("passed");
+  expect(
+    selected.outcome.result.cases[0]?.trials[0]?.checks.map(
+      (check) => check.id,
+    ),
+  ).toEqual(["example.extension.ready"]);
+  expect(selected.evidence.graders).toMatchObject({
+    active: [{ id: "example.extension", source: "extension" }],
+    replacedDefaults: ["sevro.regex"],
+  });
+  expect(selected.evidence.extension.replacements.graders).toEqual([
+    "sevro.regex",
+  ]);
+  expect(selected.evidence.evaluationIdentity.digest).not.toBe(
+    defaultRun.evidence.evaluationIdentity.digest,
+  );
+  await expect(
+    runWithExtension("lifecycle-replace-regex", undefined, ["sevro.json"]),
+  ).rejects.toThrow(/unknown or duplicate built-in grader replacement/);
+  await expect(
+    runWithExtension("lifecycle-replace-no-extension", undefined, [
+      "sevro.regex",
+    ]),
+  ).rejects.toThrow(/requires an extension check/);
+  const shell = await runWithExtension("lifecycle-replace-shell", undefined, [
+    "sevro.shell",
+  ]);
+  expect(shell.outcome.result.task.verdict).toBe("passed");
+  expect(shell.evidence.trials[0].observations).not.toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ source: "sevro.shell" }),
+    ]),
+  );
+  const semantic = await runWithExtension(
+    "lifecycle-replace-semantic",
+    undefined,
+    ["sevro.semantic"],
+  );
+  expect(semantic.outcome.result.task.verdict).toBe("passed");
+  expect(
+    semantic.evidence.routes.map((route: { role: string }) => route.role),
+  ).toEqual(["candidate"]);
 });
 
 test("selected task policy may replace a failed check verdict and retains its decision", async () => {
