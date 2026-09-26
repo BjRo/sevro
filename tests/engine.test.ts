@@ -1,6 +1,13 @@
 import { afterEach, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runEvaluation, type HostAdapter } from "../src/engine";
@@ -192,4 +199,177 @@ test("rejects fixture paths that could escape their workspace", async () => {
       passThreshold: 1,
     }),
   ).rejects.toThrow(/required host evidence/);
+});
+
+test("shell checks grade fixture effects and retain exit observations", async () => {
+  if (process.platform !== "darwin") return;
+  const paths = await rootsForRun();
+  const host: HostAdapter = {
+    id: "sevro.host.synthetic",
+    model: "synthetic-v1",
+    effort: "none",
+    async run({ workspace }) {
+      await writeFile(join(workspace, "created.txt"), "done\n");
+      return { finalMessage: "ready", complete: true };
+    },
+  };
+  const outcome = await runEvaluation({
+    ...paths,
+    case: {
+      ...baseCase,
+      checks: [
+        ...baseCase.checks,
+        {
+          id: "file-created",
+          grader: "sevro.shell",
+          configuration: { run: "test -f created.txt" },
+        },
+      ],
+    },
+    host,
+    shellIsolation: { protectedRoots: [] },
+    runnerBuildDigest: digest,
+    projectDigest: digest,
+    condition: "passive",
+    trialCount: 1,
+    passThreshold: 1,
+  });
+  expect(outcome.result.exitCode).toBe(0);
+  expect(outcome.result.cases[0]?.trials[0]?.checks[1]).toMatchObject({
+    id: "file-created",
+    status: "passed",
+    evidenceRefs: ["sevro.observation.shell.file-created"],
+  });
+  const evidence = JSON.parse(
+    await readFile(outcome.result.evidencePath, "utf8"),
+  );
+  expect(evidence.trials[0].observations[1]).toMatchObject({
+    id: "sevro.observation.shell.file-created",
+    completeness: "complete",
+    data: { exitCode: 0, expectedExitCode: 0 },
+  });
+  expect(
+    evidence.graders.active.map((grader: { id: string }) => grader.id),
+  ).toContain("sevro.shell");
+});
+
+test("shell failures and timeouts remain distinct from host completion", async () => {
+  if (process.platform !== "darwin") return;
+  const paths = await rootsForRun();
+  const host: HostAdapter = {
+    id: "sevro.host.synthetic",
+    model: "synthetic-v1",
+    effort: "none",
+    async run() {
+      return { finalMessage: "ready", complete: true };
+    },
+  };
+  const options = {
+    ...paths,
+    host,
+    shellIsolation: { protectedRoots: [] },
+    runnerBuildDigest: digest,
+    projectDigest: digest,
+    condition: "passive" as const,
+    trialCount: 1,
+    passThreshold: 1,
+  };
+  const failed = await runEvaluation({
+    ...options,
+    case: {
+      ...baseCase,
+      checks: [
+        {
+          id: "missing-file",
+          grader: "sevro.shell",
+          configuration: { run: "test -f absent.txt" },
+        },
+      ],
+    },
+  });
+  expect(failed.result).toMatchObject({
+    execution: { status: "completed" },
+    grading: { status: "completed" },
+    task: { verdict: "failed" },
+    exitCode: 1,
+  });
+  const timedOut = await runEvaluation({
+    ...options,
+    case: {
+      ...baseCase,
+      checks: [
+        {
+          id: "slow",
+          grader: "sevro.shell",
+          configuration: { run: "sleep 10", timeoutMs: 50 },
+        },
+      ],
+    },
+  });
+  expect(timedOut.result).toMatchObject({
+    execution: { status: "completed" },
+    grading: { status: "error" },
+    task: { verdict: "not_assessed" },
+    exitCode: 3,
+  });
+  await expect(
+    runEvaluation({
+      ...options,
+      shellIsolation: undefined,
+      case: {
+        ...baseCase,
+        checks: [
+          {
+            id: "shell",
+            grader: "sevro.shell",
+            configuration: { run: "true" },
+          },
+        ],
+      },
+    }),
+  ).rejects.toThrow(/explicit protected source roots/);
+});
+
+test("engine shell isolation hides project sources and peer fixtures", async () => {
+  if (process.platform !== "darwin") return;
+  const paths = await rootsForRun();
+  const peer = await mkdtemp(join(tmpdir(), "sevro-case-peer-"));
+  roots.push(peer);
+  const projectSecret = join(paths.projectRoot, "source-secret.txt");
+  const peerSecret = join(peer, "peer-secret.txt");
+  await writeFile(projectSecret, "source\n");
+  await writeFile(peerSecret, "peer\n");
+  const host: HostAdapter = {
+    id: "sevro.host.synthetic",
+    model: "synthetic-v1",
+    effort: "none",
+    async run() {
+      return { finalMessage: "ready", complete: true };
+    },
+  };
+  const outcome = await runEvaluation({
+    ...paths,
+    case: {
+      ...baseCase,
+      checks: [projectSecret, peerSecret].map((path, index) => ({
+        id: `hidden-${index}`,
+        grader: "sevro.shell",
+        configuration: {
+          run: `/bin/cat '${path}' >/dev/null`,
+          expectedExitCode: 1,
+        },
+      })),
+    },
+    host,
+    shellIsolation: { protectedRoots: [] },
+    runnerBuildDigest: digest,
+    projectDigest: digest,
+    condition: "passive",
+    trialCount: 1,
+    passThreshold: 1,
+  });
+  expect(outcome.result.exitCode).toBe(0);
+  expect(
+    outcome.result.cases[0]?.trials[0]?.checks.map((check) => check.status),
+  ).toEqual(["passed", "passed"]);
 });

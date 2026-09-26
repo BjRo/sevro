@@ -17,6 +17,12 @@ import {
   prepareOutputChecks,
   type OutputCheckDeclaration,
 } from "./graders/output";
+import {
+  prepareShellChecks,
+  runShellCheck,
+  shellProtectedRoots,
+  type ShellCheckDeclaration,
+} from "./graders/shell";
 import { createEvaluationIdentity, hashJson } from "./identity";
 import {
   fixtureParts,
@@ -96,6 +102,7 @@ export interface EvaluationOptions {
     resolvedCase: ExtensionCase;
   };
   preparationSources?: PreparationSources;
+  shellIsolation?: { protectedRoots: string[] };
 }
 
 interface TrialSummary extends Assessment {
@@ -214,9 +221,16 @@ export async function runEvaluation(
   const builtinDeclarations = options.case.checks.filter((check) =>
     isOutputGrader(check.grader),
   ) as OutputCheckDeclaration[];
+  const shellDeclarations = options.case.checks.filter(
+    (check) => check.grader === "sevro.shell",
+  ) as ShellCheckDeclaration[];
   const extensionDeclarations = options.case.checks.filter(
-    (check) => !isOutputGrader(check.grader),
+    (check) => !isOutputGrader(check.grader) && check.grader !== "sevro.shell",
   );
+  if (shellDeclarations.length && !options.shellIsolation)
+    throw new EvaluationConfigurationError(
+      "shell checks require explicit protected source roots",
+    );
   if (
     new Set(options.case.checks.map((check) => check.id)).size !==
     options.case.checks.length
@@ -257,8 +271,10 @@ export async function runEvaluation(
       );
   }
   let prepared: ReturnType<typeof prepareOutputChecks>;
+  let preparedShell: ReturnType<typeof prepareShellChecks>;
   try {
     prepared = prepareOutputChecks(builtinDeclarations);
+    preparedShell = prepareShellChecks(shellDeclarations);
     for (const path of Object.keys(options.case.fixture.files))
       fixtureParts(path);
   } catch (error) {
@@ -317,7 +333,13 @@ export async function runEvaluation(
     id: string;
     source: "builtin" | "extension";
     version: string;
-  }[] = [...new Set(builtinDeclarations.map((check) => check.grader))]
+  }[] = [
+    ...new Set(
+      [...builtinDeclarations, ...shellDeclarations].map(
+        (check) => check.grader,
+      ),
+    ),
+  ]
     .sort()
     .map((id) => ({ id, source: "builtin", version: "1.0.0" }));
   if (options.extension) {
@@ -446,6 +468,12 @@ export async function runEvaluation(
             }
           : {},
       };
+      const shellObservations: {
+        id: string;
+        source: string;
+        completeness: "complete";
+        data: Record<string, unknown>;
+      }[] = [];
       let checks: CheckOutcome[] = [];
       let extensionMetrics: {
         id: string;
@@ -471,6 +499,44 @@ export async function runEvaluation(
           };
         }
       }
+      if (execution === "completed" && !graderError && preparedShell.length) {
+        try {
+          const protectedRoots = await shellProtectedRoots({
+            workspace,
+            projectRoot,
+            resultsRoot: options.resultsRoot,
+            additionalRoots: options.shellIsolation!.protectedRoots,
+          });
+          for (const check of preparedShell) {
+            const exitCode = await runShellCheck(check, {
+              workspace,
+              protectedRoots,
+              privateStateRoot: join(runDir, "shell-sandbox"),
+              signal: options.signal,
+            });
+            const observationId = `sevro.observation.shell.${check.id}`;
+            shellObservations.push({
+              id: observationId,
+              source: "sevro.shell",
+              completeness: "complete",
+              data: { exitCode, expectedExitCode: check.expectedExitCode },
+            });
+            checks.push({
+              id: check.id,
+              grader: "sevro.shell",
+              status: exitCode === check.expectedExitCode ? "passed" : "failed",
+              detail: `exit code ${exitCode}`,
+              evidenceRefs: [observationId],
+            });
+          }
+        } catch {
+          graderError = true;
+          diagnostic = {
+            code: "sevro.grader.error",
+            message: "shell grading did not complete",
+          };
+        }
+      }
       if (options.extension && !graderError) {
         try {
           const extensionResult = await options.extension.session.evaluate({
@@ -487,6 +553,7 @@ export async function runEvaluation(
                     : { text: hostResult.finalMessage }),
                 },
               },
+              ...shellObservations,
             ],
             builtinChecks: checks.map((check) => ({
               id: check.id,
@@ -554,7 +621,7 @@ export async function runEvaluation(
           appliedInstrumentation: [],
         },
         observationCompleteness: completeness,
-        observations: [observation],
+        observations: [observation, ...shellObservations],
         metrics: extensionMetrics,
         routes: [route],
         usage: usage(hostResult),

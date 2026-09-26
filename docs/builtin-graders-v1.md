@@ -26,6 +26,11 @@ The shell-check process runner accepts a bounded evaluator-owned `run` string,
 optional expected exit code, and timeout. On macOS it executes through the
 outer sandbox with network access denied, a credential-free environment, and
 caller-declared protected roots. Only the exit code is returned; stdout and
-stderr are discarded. It is not connected to the engine's check assessment
-yet. Semantic-output checks and advisory quality judgments still need host
-routing implementations.
+stderr are discarded. The engine grades `sevro.shell` checks after a completed
+host turn and retains one exit-code observation per check. A mismatched exit
+code fails the task; an isolation, timeout, or process error makes grading
+an error. Callers must supply `shellIsolation.protectedRoots` for any shell
+check. The engine also protects its package source, project, results, user
+home, configured host homes, and active peer fixtures. The caller's list must
+include any other source worktrees or private roots. Semantic-output checks
+and advisory quality judgments still need host routing implementations.

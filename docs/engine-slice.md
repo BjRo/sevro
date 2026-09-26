@@ -21,6 +21,10 @@ is explicit and independent of the project root; the engine does not invoke
 Git.
 
 This slice accepts output checks with no additional required host evidence.
+It also accepts shell checks when the caller explicitly supplies protected
+source roots. They run through the macOS outer sandbox after host execution,
+and their exit observations are retained with the trial. An unavailable
+boundary produces a grading error rather than a passing check.
 An optional negotiated extension can add declared checks. The engine calls its
 `prepare` method before host execution and its `evaluate` method for each
 trial. It retains extension identity, configuration digest, protocol,
