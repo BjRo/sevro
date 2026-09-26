@@ -1243,6 +1243,13 @@ export async function runEvaluation(
             }
           }
         }
+        const declaredOrder = new Map(
+          options.case.checks.map((check, index) => [check.id, index]),
+        );
+        checks.sort(
+          (left, right) =>
+            declaredOrder.get(left.id)! - declaredOrder.get(right.id)!,
+        );
         const defaultAssessment = assessTrial({
           execution,
           declaredChecks: options.case.checks

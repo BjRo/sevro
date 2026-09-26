@@ -929,7 +929,6 @@ test("shell checks grade fixture effects and retain exit observations", async ()
     case: {
       ...baseCase,
       checks: [
-        ...baseCase.checks,
         {
           id: "file-created",
           grader: "sevro.shell",
@@ -940,6 +939,7 @@ test("shell checks grade fixture effects and retain exit observations", async ()
             notRegex: "missing",
           },
         },
+        ...baseCase.checks,
       ],
     },
     host,
@@ -951,11 +951,14 @@ test("shell checks grade fixture effects and retain exit observations", async ()
     passThreshold: 1,
   });
   expect(outcome.result.exitCode).toBe(0);
-  expect(outcome.result.cases[0]?.trials[0]?.checks[1]).toMatchObject({
+  expect(outcome.result.cases[0]?.trials[0]?.checks[0]).toMatchObject({
     id: "file-created",
     status: "passed",
     evidenceRefs: ["sevro.observation.shell.file-created"],
   });
+  expect(
+    outcome.result.cases[0]?.trials[0]?.checks.map((check) => check.id),
+  ).toEqual(["file-created", "response"]);
   const evidence = JSON.parse(
     await readFile(outcome.result.evidencePath, "utf8"),
   );
