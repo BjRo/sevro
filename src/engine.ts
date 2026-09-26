@@ -61,6 +61,7 @@ export class EvaluationConfigurationError extends Error {
 export interface HostResult {
   finalMessage: string | null;
   complete: boolean;
+  artifacts?: { id: string; bytes: Uint8Array }[];
   observations?: {
     id: string;
     completeness: "complete" | "partial" | "unavailable";
@@ -180,10 +181,14 @@ function sha256(content: string | Uint8Array): string {
   return createHash("sha256").update(content).digest("hex");
 }
 
-function hostObservations(result: HostResult, hostId: string) {
+function hostObservations(
+  result: HostResult,
+  hostId: string,
+  existingIds: Set<string>,
+) {
   const items = result.observations ?? [];
   if (items.length > 128) throw new Error("too many host observations");
-  const ids = new Set(["sevro.observation.final-message"]);
+  const ids = new Set([...existingIds, "sevro.observation.final-message"]);
   let totalBytes = 0;
   return items.map((item) => {
     if (
@@ -207,6 +212,31 @@ function hostObservations(result: HostResult, hostId: string) {
       completeness: item.completeness,
       data: JSON.parse(data) as Record<string, unknown>,
     };
+  });
+}
+
+function hostArtifacts(result: HostResult, existingIds: Set<string>) {
+  const items = result.artifacts ?? [];
+  if (!Array.isArray(items) || items.length > 32)
+    throw new Error("too many host artifacts");
+  const ids = new Set(existingIds);
+  let totalBytes = 0;
+  return items.map((item) => {
+    if (
+      !item ||
+      !/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$/.test(item.id) ||
+      ids.has(item.id) ||
+      !(item.bytes instanceof Uint8Array)
+    )
+      throw new Error("invalid host artifact");
+    ids.add(item.id);
+    totalBytes += item.bytes.byteLength;
+    if (
+      item.bytes.byteLength > 8 * 1024 * 1024 ||
+      totalBytes > 32 * 1024 * 1024
+    )
+      throw new Error("host artifacts exceed the size limit");
+    return { id: item.id, bytes: Buffer.from(item.bytes) };
   });
 }
 
@@ -579,6 +609,7 @@ export async function runEvaluation(
       try {
         let hostResult: HostResult | null = null;
         let additionalObservations: ReturnType<typeof hostObservations> = [];
+        let producedArtifacts: ReturnType<typeof hostArtifacts> = [];
         let execution: "completed" | "failed" | "cancelled" | "not_run" =
           options.dry ? "not_run" : "completed";
         if (!options.dry) {
@@ -600,6 +631,22 @@ export async function runEvaluation(
             additionalObservations = hostObservations(
               hostResult,
               options.host.id,
+              new Set([
+                ...artifactRefs.map((item) => item.id),
+                ...options.case.checks.map((item) => item.id),
+              ]),
+            );
+            producedArtifacts = hostArtifacts(
+              hostResult,
+              new Set([
+                "sevro.observation.final-message",
+                ...artifactRefs.map((item) => item.id),
+                ...additionalObservations.map((item) => item.id),
+                ...options.case.checks.map((item) => item.id),
+                ...preparedShell.map(
+                  (item) => `sevro.observation.shell.${item.id}`,
+                ),
+              ]),
             );
           } catch {
             execution = options.signal?.aborted ? "cancelled" : "failed";
@@ -616,7 +663,23 @@ export async function runEvaluation(
             };
           }
         }
-        await verifyRetainedArtifacts(artifactRefs);
+        const trialArtifactRefs = [...artifactRefs];
+        for (const artifact of producedArtifacts) {
+          const path = join(runDir, `trial-${trial}-host-${artifact.id}.bin`);
+          try {
+            await writeFile(path, artifact.bytes, { flag: "wx", mode: 0o600 });
+          } catch {
+            throw new Error(
+              `trial persistence failed; fixture retained at ${workspace}`,
+            );
+          }
+          trialArtifactRefs.push({
+            id: artifact.id,
+            path: pathToFileURL(path).href,
+            sha256: sha256(artifact.bytes),
+          });
+        }
+        await verifyRetainedArtifacts(trialArtifactRefs);
         const rawDigest =
           hostResult?.finalMessage == null
             ? null
@@ -751,7 +814,7 @@ export async function runEvaluation(
                 ...(check.detail ? { detail: check.detail } : {}),
                 evidenceRefs: check.evidenceRefs ?? [],
               })),
-              artifacts: artifactRefs,
+              artifacts: trialArtifactRefs,
               extensionData,
             });
             const declared = new Map(
@@ -792,6 +855,7 @@ export async function runEvaluation(
           graderError,
           requiredEvidenceUnavailable: options.case.requiredEvidence.some(
             (id) =>
+              !producedArtifacts.some((item) => item.id === id) &&
               ![
                 observation,
                 ...shellObservations,
@@ -801,7 +865,7 @@ export async function runEvaluation(
               ),
           ),
         });
-        await verifyRetainedArtifacts(artifactRefs);
+        await verifyRetainedArtifacts(trialArtifactRefs);
         const rawPath =
           hostResult?.finalMessage !== null &&
           hostResult?.finalMessage !== undefined
@@ -842,7 +906,7 @@ export async function runEvaluation(
             path: rawPath ? pathToFileURL(rawPath).href : null,
             sha256: rawDigest,
           },
-          artifactRefs,
+          artifactRefs: trialArtifactRefs,
         };
         const artifactPath = join(runDir, `trial-${trial}.json`);
         const trialSummary: TrialSummary = {

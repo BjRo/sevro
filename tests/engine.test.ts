@@ -260,6 +260,79 @@ test("required host observations fail closed when missing or incomplete", async 
   expect(invalid.result.task.verdict).toBe("not_assessed");
 });
 
+test("host artifacts are retained per trial and can satisfy required evidence", async () => {
+  const paths = await rootsForRun();
+  let call = 0;
+  const host: HostAdapter = {
+    id: "sevro.host.synthetic",
+    model: "synthetic-v1",
+    effort: "none",
+    async run() {
+      call++;
+      return {
+        finalMessage: "ready",
+        complete: true,
+        artifacts: [
+          {
+            id: "example.host.trace",
+            bytes: Buffer.from(`trace ${call}\n`),
+          },
+        ],
+      };
+    },
+  };
+  const options = {
+    ...paths,
+    case: { ...baseCase, requiredEvidence: ["example.host.trace"] },
+    host,
+    runnerBuildDigest: digest,
+    projectDigest: digest,
+    condition: "passive" as const,
+    trialCount: 2,
+    passThreshold: 1,
+  };
+  const outcome = await runEvaluation(options);
+  expect(outcome.result.task.verdict).toBe("passed");
+  const evidence = JSON.parse(
+    await readFile(outcome.result.evidencePath, "utf8"),
+  );
+  const refs = evidence.trials.map(
+    (trial: { artifactRefs: { id: string; path: string }[] }) =>
+      trial.artifactRefs.find((item) => item.id === "example.host.trace"),
+  );
+  expect(refs[0]?.path).not.toBe(refs[1]?.path);
+  expect(await readFile(new URL(refs[0].path), "utf8")).toBe("trace 1\n");
+  expect(await readFile(new URL(refs[1].path), "utf8")).toBe("trace 2\n");
+
+  const missing = await runEvaluation({
+    ...options,
+    host: {
+      ...host,
+      async run() {
+        return { finalMessage: "ready", complete: true };
+      },
+    },
+  });
+  expect(missing.result.grading.status).toBe("unavailable");
+  expect(missing.result.exitCode).toBe(4);
+
+  const invalid = await runEvaluation({
+    ...options,
+    host: {
+      ...host,
+      async run() {
+        return {
+          finalMessage: "ready",
+          complete: true,
+          artifacts: [{ id: "../outside", bytes: Buffer.from("bad") }],
+        };
+      },
+    },
+  });
+  expect(invalid.result.execution.status).toBe("failed");
+  expect(invalid.result.task.verdict).toBe("not_assessed");
+});
+
 test("host failure retains completed trials and reports execution failure", async () => {
   const paths = await rootsForRun();
   let call = 0;

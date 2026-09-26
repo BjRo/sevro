@@ -48,13 +48,14 @@ or 143 after writing run evidence. An adapter that ignores cancellation cannot
 be force-stopped by the injected-host interface.
 
 The host can return bounded, namespaced observations alongside its final
-message. The engine retains them and sends them to extension grading. A required
-observation that is absent or incomplete makes grading unavailable; malformed
-host observations fail execution. The engine also accepts shell checks when the
-caller explicitly supplies protected source roots. They run through the macOS
-outer sandbox after host execution, and their exit observations are retained
-with the trial. An unavailable
-boundary produces a grading error rather than a passing check.
+message and bounded evidence artifacts. The engine retains them before
+extension grading. It passes observations and artifact file references to the
+extension without copying artifact bytes into run JSON. Missing or partial
+required host evidence makes grading unavailable; malformed host evidence
+fails execution. The engine also accepts shell checks when the caller supplies
+protected source roots. They run through the macOS outer sandbox after host
+execution, and their exit observations are retained with the trial. An
+unavailable boundary produces a grading error rather than a passing check.
 An optional negotiated extension can add declared checks. The engine calls its
 `prepare` method before host execution and its `evaluate` method for each
 trial. It retains extension identity, configuration digest, protocol,

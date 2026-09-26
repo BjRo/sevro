@@ -69,6 +69,16 @@ async function runWithExtension(
               ],
             }
           : {}),
+        ...(scenario === "lifecycle-host-artifact"
+          ? {
+              artifacts: [
+                {
+                  id: "example.host.trace",
+                  bytes: Buffer.from("host trace\n"),
+                },
+              ],
+            }
+          : {}),
       };
     },
   };
@@ -142,6 +152,21 @@ test("extension grading receives complete host observations", async () => {
     completeness: "complete",
     data: { selected: "darrow.tdd" },
   });
+});
+
+test("extension grading receives retained host artifacts", async () => {
+  const { outcome, evidence } = await runWithExtension(
+    "lifecycle-host-artifact",
+  );
+  expect(outcome.result.task.verdict).toBe("passed");
+  expect(outcome.result.cases[0]?.trials[0]?.checks[1]?.evidenceRefs).toEqual([
+    "example.host.trace",
+  ]);
+  const artifact = evidence.trials[0].artifactRefs.find(
+    (item: { id: string }) => item.id === "example.host.trace",
+  );
+  expect(artifact).toBeDefined();
+  expect(await readFile(new URL(artifact.path), "utf8")).toBe("host trace\n");
 });
 
 test("extension grading error cannot become a passing task", async () => {

@@ -299,6 +299,12 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
         return {
           finalMessage: summary.finalMessage,
           complete: summary.finalMessage !== null,
+          artifacts: [
+            {
+              id: "sevro.codex.events",
+              bytes: Buffer.from(execution.out, "utf8"),
+            },
+          ],
           actualCondition: "passive" as const,
           inputTokens: summary.inputTokens,
           outputTokens: summary.outputTokens,

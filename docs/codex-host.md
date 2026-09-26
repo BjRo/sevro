@@ -7,6 +7,10 @@ and oversized streams are errors. Missing or invalid final usage remains
 incomplete and is never estimated. The last completed `agent_message` before
 turn completion supplies the bounded final response; missing text stays
 unavailable.
+The bounded JSONL stream is retained per trial as the private
+`sevro.codex.events` host artifact. Its file URL and digest appear in trial
+evidence and are available to extension grading; the stream bytes stay out of
+the run JSON.
 
 `createCodexHost` copies file-based authentication into a private Codex home
 for one turn. It supplies only explicit environment variables to the parent

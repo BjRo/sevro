@@ -90,7 +90,7 @@ test("Codex host verifies its permission profile and feeds the engine", async ()
           configuration: { run: "test -f created.txt" },
         },
       ],
-      requiredEvidence: [],
+      requiredEvidence: ["sevro.codex.events"],
     },
     host,
     shellIsolation: { protectedRoots: [] },
@@ -121,6 +121,11 @@ test("Codex host verifies its permission profile and feeds the engine", async ()
     model: "synthetic-codex",
     effort: "low",
   });
+  const [events] = evidence.trials[0].artifactRefs;
+  expect(events.id).toBe("sevro.codex.events");
+  expect(await readFile(new URL(events.path), "utf8")).toContain(
+    '"type":"turn.completed"',
+  );
 });
 
 test("Codex host rejects malformed streams and unsupported enforcement", async () => {

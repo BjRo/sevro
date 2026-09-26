@@ -27,6 +27,21 @@ const discovery = {
   graders: ["example.extension"],
   taskVerdictPolicies: [],
 };
+let hostArtifactReady = true;
+if (scenario === "lifecycle-host-artifact" && request.method === "evaluate") {
+  const params = request.params as {
+    artifacts?: { id: string; path: string }[];
+  };
+  const trace = params.artifacts?.find(
+    (item) => item.id === "example.host.trace",
+  );
+  hostArtifactReady = Boolean(
+    trace &&
+    (await Bun.file(new URL(trace.path))
+      .text()
+      .catch(() => "")) === "host trace\n",
+  );
+}
 const result = scenario.startsWith("lifecycle")
   ? request.method === "resolve"
     ? {
@@ -53,7 +68,9 @@ const result = scenario.startsWith("lifecycle")
             requiredEvidence:
               scenario === "lifecycle-host-observation"
                 ? ["darrow.activation"]
-                : [],
+                : scenario === "lifecycle-host-artifact"
+                  ? ["example.host.trace"]
+                  : [],
             extensionData: { "example.extension": { marker: "resolved" } },
           },
         ],
@@ -94,13 +111,15 @@ const result = scenario.startsWith("lifecycle")
                 : [
                     {
                       id: "example.extension.ready",
-                      status: "passed",
+                      status: hostArtifactReady ? "passed" : "unavailable",
                       evidenceRefs:
                         scenario === "lifecycle-empty-evidence"
                           ? []
                           : scenario === "lifecycle-host-observation"
                             ? ["darrow.activation"]
-                            : ["sevro.observation.final-message"],
+                            : scenario === "lifecycle-host-artifact"
+                              ? ["example.host.trace"]
+                              : ["sevro.observation.final-message"],
                     },
                   ],
             metrics: [
