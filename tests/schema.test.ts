@@ -1,8 +1,11 @@
 import { expect, test } from "bun:test";
 import Ajv2020 from "ajv/dist/2020.js";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import cliSchema from "../schemas/cli-result-v1.schema.json";
 import extensionSchema from "../schemas/extension-v1.schema.json";
 import runSchema from "../schemas/run-evidence-v1.schema.json";
+import { createCodexHost } from "../src/hosts/codex";
 
 const ajv = new Ajv2020({
   allErrors: true,
@@ -74,6 +77,15 @@ test("accepts discovery and each extension operation", () => {
     requiredEvidence: [],
     extensionData: {},
   };
+  const codexHost = createCodexHost({
+    binary: join(tmpdir(), "codex"),
+    authFile: join(tmpdir(), "auth.json"),
+    projectRoot: join(tmpdir(), "project"),
+    resultsRoot: join(tmpdir(), "results"),
+    additionalProtectedRoots: [],
+    model: "synthetic-codex",
+    effort: "low",
+  });
   const exchanges = [
     envelope(discovery, "describe", "params", {
       protocols: [extension],
@@ -114,7 +126,7 @@ test("accepts discovery and each extension operation", () => {
     }),
     envelope(extension, "prepare", "params", {
       case: evalCase,
-      host: { id: "sevro.host.codex", capabilities: [] },
+      host: { id: codexHost.id, capabilities: [] },
       condition: "passive",
       configuration: {},
     }),

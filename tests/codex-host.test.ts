@@ -117,7 +117,7 @@ test("Codex host verifies its permission profile and feeds the engine", async ()
   });
   expect(evidence.trials[0].condition.actual).toBe("passive");
   expect(evidence.trials[0].routes[0]).toMatchObject({
-    host: "codex",
+    host: "sevro.host.codex",
     model: "synthetic-codex",
     effort: "low",
   });

@@ -910,7 +910,7 @@ printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_token
     await readFile(run.result.cases[0].trials[0].artifactPath, "utf8"),
   );
   expect(trial.evidence.routes[0]).toMatchObject({
-    host: "codex",
+    host: "sevro.host.codex",
     model: "synthetic-codex",
   });
   const invalid = await invoke([...args, ...codexArgs.slice(-10)]);
@@ -943,7 +943,7 @@ printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_token
   );
   expect(semanticEvidence.routes[1]).toMatchObject({
     role: "semantic",
-    host: "codex",
+    host: "sevro.host.codex",
     model: "synthetic-judge",
   });
   expect(semanticEvidence.trials[0].artifactRefs).toEqual(
@@ -985,7 +985,7 @@ printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_token
   );
   expect(advisoryEvidence.routes[1]).toMatchObject({
     role: "advisory",
-    host: "codex",
+    host: "sevro.host.codex",
     model: "synthetic-reviewer",
   });
   expect(advisoryEvidence.trials[0].advisoryReview).toMatchObject({

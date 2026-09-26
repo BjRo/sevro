@@ -158,7 +158,7 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
   )
     throw new Error("invalid Codex host configuration");
   return {
-    id: "codex",
+    id: "sevro.host.codex",
     model: options.model,
     effort: options.effort,
     async run(request) {
