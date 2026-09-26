@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -112,7 +112,9 @@ test("CLI reports invalid invocation as versioned JSON without a run", async () 
     evidencePath: null,
     cases: [],
   });
-  const badDigest = await invoke(args.map((arg) => arg === digest ? "invalid-digest" : arg));
+  const badDigest = await invoke(
+    args.map((arg) => (arg === digest ? "invalid-digest" : arg)),
+  );
   expect(badDigest.code).toBe(64);
   expect(badDigest.result.evidencePath).toBeNull();
 });
@@ -138,7 +140,9 @@ test("CLI runs shell checks only with explicit isolation roots", async () => {
   );
   const missingIsolation = await invoke(args);
   expect(missingIsolation.code).toBe(64);
-  expect(missingIsolation.result.diagnostic.message).toMatch(/protected source roots/);
+  expect(missingIsolation.result.diagnostic.message).toMatch(
+    /protected source roots/,
+  );
   const isolated = await invoke([
     ...args,
     "--shell-isolation",
@@ -157,4 +161,58 @@ test("CLI runs shell checks only with explicit isolation roots", async () => {
     "relative",
   ]);
   expect(relativeRoot.code).toBe(64);
+});
+
+test("CLI runs its bundled Codex route with explicit auth and model", async () => {
+  const installedCodex = Bun.which("codex");
+  if (process.platform !== "darwin" || !installedCodex) return;
+  const { args, caseFile } = await fixture();
+  const projectRoot = join(caseFile, "..");
+  const authFile = join(projectRoot, "auth.json");
+  const binary = join(projectRoot, "codex-wrapper");
+  await writeFile(authFile, "test-only-auth\n", { mode: 0o600 });
+  await writeFile(
+    binary,
+    `#!/bin/sh
+if [ "$1" = sandbox ]; then
+  shift
+  exec "${installedCodex}" sandbox "$@"
+fi
+if [ "$1" != exec ]; then exit 99; fi
+printf '%s\\n' '{"type":"thread.started","thread_id":"thread-cli"}'
+printf '%s\\n' '{"type":"item.completed","item":{"type":"agent_message","text":"ready"}}'
+printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'
+`,
+    { mode: 0o700 },
+  );
+  await chmod(binary, 0o700);
+  const withoutAdapter = args.filter(
+    (value, index) =>
+      value !== "--adapter-module" && args[index - 1] !== "--adapter-module",
+  );
+  const codexArgs = [
+    ...withoutAdapter,
+    "--host",
+    "codex",
+    "--codex-bin",
+    binary,
+    "--codex-auth-file",
+    authFile,
+    "--model",
+    "synthetic-codex",
+    "--effort",
+    "low",
+  ];
+  const run = await invoke(codexArgs);
+  expect(run.code).toBe(0);
+  expect(run.result.task.verdict).toBe("passed");
+  const trial = JSON.parse(
+    await readFile(run.result.cases[0].trials[0].artifactPath, "utf8"),
+  );
+  expect(trial.evidence.routes[0]).toMatchObject({
+    host: "codex",
+    model: "synthetic-codex",
+  });
+  const invalid = await invoke([...args, ...codexArgs.slice(-10)]);
+  expect(invalid.code).toBe(64);
 });

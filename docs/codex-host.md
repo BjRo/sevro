@@ -15,8 +15,8 @@ It refuses fixture-local `.codex` configuration, unsupported enforced
 conditions, unreadable or oversized auth files, malformed event streams, and
 incomplete turns. The host bounds output and runtime, kills its process group
 on timeout or cancellation, and removes private state after the turn. It is
-available through the engine's injected host interface; the development CLI
-does not yet expose a bundled Codex route.
+available through the engine's injected host interface and the development
+CLI's explicit `--host codex` route.
 
 `prepareMacSandboxCommand` provides the macOS shell-grading boundary. Callers
 provide absolute protected roots and a private state root; the primitive

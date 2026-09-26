@@ -12,10 +12,9 @@ Machine-readable contracts live in [`schemas/`](schemas/). Run `bun install`,
 `bun test`, `bun run typecheck`, and `bun run format:check` to validate them
 locally.
 
-The first runtime module, [`extension-client.ts`](src/extension-client.ts),
-validates one request and response per extension process and negotiates the v1
-protocol. It enforces message limits, timeouts, response identity, and
-process-group cancellation. The engine and public CLI are still being built.
+[`extension-client.ts`](src/extension-client.ts) validates one request and
+response per extension process and negotiates the v1 protocol. It enforces
+message limits, timeouts, response identity, and process-group cancellation.
 
 [`extension-session.ts`](src/extension-session.ts) runs the negotiated
 `resolve`, `prepare`, and `evaluate` methods and checks source stability and
@@ -34,5 +33,5 @@ and inline schema assertions on bounded final-message observations.
 
 The [first engine slice](docs/engine-slice.md) executes resolved cases through
 an injected host adapter and retains trial evidence before fixture cleanup.
-The [development CLI](docs/development-cli.md) runs that path as a subprocess
-with an explicit trusted adapter module and machine-readable result.
+The [development CLI](docs/development-cli.md) runs that path with a trusted
+adapter module or the bundled Codex route and emits a machine-readable result.

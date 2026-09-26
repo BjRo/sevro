@@ -9,6 +9,7 @@ import {
   type HostAdapter,
   type ResolvedCase,
 } from "./engine";
+import { createCodexHost } from "./hosts/codex";
 import { assertCliResult } from "./schema";
 
 class InvocationError extends Error {}
@@ -66,6 +67,11 @@ function parseInvocation(argv: string[]) {
           json: { type: "boolean" },
           "case-file": { type: "string" },
           "adapter-module": { type: "string" },
+          host: { type: "string" },
+          "codex-bin": { type: "string" },
+          "codex-auth-file": { type: "string" },
+          model: { type: "string" },
+          effort: { type: "string" },
           "shell-isolation": { type: "boolean" },
           "protected-root": { type: "string", multiple: true },
           "project-root": { type: "string" },
@@ -100,17 +106,47 @@ function parseInvocation(argv: string[]) {
   const protectedRoots = values["protected-root"] ?? [];
   if (protectedRoots.some((path) => !isAbsolute(path)))
     throw new InvocationError("--protected-root must be absolute");
-  if (protectedRoots.length && !values["shell-isolation"])
-    throw new InvocationError("--protected-root requires --shell-isolation");
+  const codex = values.host === "codex";
+  if (values.host && !codex) throw new InvocationError("unsupported --host");
+  if (codex && values["adapter-module"])
+    throw new InvocationError("--host and --adapter-module are exclusive");
+  if (!codex && !values["adapter-module"])
+    throw new InvocationError("missing --adapter-module or --host");
+  if (
+    !codex &&
+    (values["codex-bin"] ||
+      values["codex-auth-file"] ||
+      values.model ||
+      values.effort)
+  )
+    throw new InvocationError("Codex options require --host codex");
+  if (protectedRoots.length && !values["shell-isolation"] && !codex)
+    throw new InvocationError("--protected-root requires isolation");
+  const projectRoot = absoluteOption(values["project-root"], "--project-root");
+  const resultsRoot = absoluteOption(values["results-root"], "--results-root");
   return {
     json: values.json ?? false,
     caseFile: absoluteOption(values["case-file"], "--case-file"),
-    adapterModule: absoluteOption(values["adapter-module"], "--adapter-module"),
-    shellIsolation: values["shell-isolation"]
-      ? { protectedRoots }
+    adapterModule: codex
+      ? undefined
+      : absoluteOption(values["adapter-module"], "--adapter-module"),
+    codex: codex
+      ? {
+          binary: absoluteOption(values["codex-bin"], "--codex-bin"),
+          authFile: absoluteOption(
+            values["codex-auth-file"],
+            "--codex-auth-file",
+          ),
+          model: requiredOption(values.model, "--model"),
+          effort: requiredOption(values.effort, "--effort"),
+          projectRoot,
+          resultsRoot,
+          additionalProtectedRoots: protectedRoots,
+        }
       : undefined,
-    projectRoot: absoluteOption(values["project-root"], "--project-root"),
-    resultsRoot: absoluteOption(values["results-root"], "--results-root"),
+    shellIsolation: values["shell-isolation"] ? { protectedRoots } : undefined,
+    projectRoot,
+    resultsRoot,
     runnerBuildDigest: requiredOption(
       values["runner-build-digest"],
       "--runner-build-digest",
@@ -196,7 +232,9 @@ async function main(argv: string[]): Promise<void> {
   try {
     invocation = parseInvocation(argv);
     caseData = await loadCase(invocation.caseFile);
-    host = await loadHost(invocation.adapterModule);
+    host = invocation.codex
+      ? createCodexHost(invocation.codex)
+      : await loadHost(invocation.adapterModule!);
   } catch (error) {
     const result = failure(
       64,

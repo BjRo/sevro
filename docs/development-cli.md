@@ -1,9 +1,9 @@
 # Development CLI
 
-The local `sevro run` command connects a resolved JSON case to a trusted host
-adapter module. It uses the engine's normal grading and evidence path. This is
-a development entrypoint while Sevro's bundled Codex and Claude adapters,
-extension lifecycle, and production provenance collection are being built.
+The local `sevro run` command connects a resolved JSON case to a host route.
+It uses the engine's normal grading and evidence path. This remains a
+development entrypoint while the Claude adapter, full extension lifecycle,
+and production provenance collection are being built.
 
 ```sh
 bun src/cli.ts run --json \
@@ -18,7 +18,29 @@ bun src/cli.ts run --json \
 
 The adapter module exports a default `HostAdapter`. It is executable code
 chosen by the operator. The runner does not load it from a case file or infer
-it from an installed extension. The case file follows the `ResolvedCase`
+it from an installed extension. A bundled Codex route is also available:
+
+```sh
+bun src/cli.ts run --json \
+  --case-file /absolute/path/case.json \
+  --host codex --codex-bin /absolute/path/codex \
+  --codex-auth-file /absolute/path/auth.json \
+  --model <model> --effort medium \
+  --project-root /absolute/path/project \
+  --results-root /absolute/path/results \
+  --runner-build-digest <64-hex-digest> \
+  --project-digest <64-hex-digest> \
+  --condition passive --trials 1 --threshold 1
+```
+
+The Codex route requires file-based authentication and an installed Codex CLI
+with permission profiles. It copies auth into a private home for each turn and
+verifies the command sandbox before execution. This route currently supports
+only passive conditions. `--host` and `--adapter-module` are exclusive. Use
+`--protected-root` to add private roots for Codex, including when no shell
+checks are selected.
+
+The case file follows the `ResolvedCase`
 interface in `src/engine.ts`; this slice accepts inline fixture files,
 built-in output checks, and isolated shell checks. For shell checks, add
 `--shell-isolation` and repeat `--protected-root /absolute/path` for every
