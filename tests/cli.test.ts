@@ -341,6 +341,46 @@ test("CLI resolves an explicit extension case and retains extension evidence", a
   expect(ambiguous.code).toBe(64);
 });
 
+test("CLI text output names domain outcomes apart from the task verdict", async () => {
+  const { args, caseFile } = await fixture();
+  const commandFile = join(caseFile, "..", "extension-command.json");
+  await writeFile(
+    commandFile,
+    JSON.stringify([
+      process.execPath,
+      extensionSource,
+      "lifecycle-domain-outcome",
+    ]),
+  );
+  const command = args.filter(
+    (part, index) =>
+      part !== "--case-file" &&
+      args[index - 1] !== "--case-file" &&
+      part !== "--json",
+  );
+  command.push(
+    "--extension-command-file",
+    commandFile,
+    "--extension-source-file",
+    extensionSource,
+    "--case-id",
+    "extension-case",
+  );
+  const proc = Bun.spawn(command, { stdout: "pipe", stderr: "pipe" });
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  expect(code, stderr).toBe(0);
+  expect(stdout).toMatch(
+    /^execution=completed grading=completed task=passed\n/m,
+  );
+  expect(stdout).toContain(
+    "domain case=extension-case trial=1 outcome=example.extension.activation status=failed\n",
+  );
+});
+
 test("CLI selects an advertised extension task policy explicitly", async () => {
   const { args, caseFile } = await fixture();
   const commandFile = join(caseFile, "..", "extension-command.json");

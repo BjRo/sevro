@@ -5,6 +5,9 @@ document and no progress text; diagnostics go to stderr. Human output names
 the same execution, grading, and task states. Every result names its schema
 version. A run with retained evidence names its absolute evidence path;
 pre-run configuration failures can return `null`.
+Each domain outcome also gets one human-readable line with its case, trial,
+outcome ID, and status. Domain outcomes remain independent of the task verdict
+and exit code.
 
 ## Separate states
 

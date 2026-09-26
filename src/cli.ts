@@ -530,10 +530,23 @@ function display(value: unknown, json: boolean): void {
     grading: { status: string };
     task: { verdict: string };
     evidencePath: string | null;
+    cases: Array<{
+      caseId: string;
+      trials: Array<{
+        trial: number;
+        domainOutcomes: Array<{ id: string; status: string }>;
+      }>;
+    }>;
   };
   process.stdout.write(
     `execution=${result.execution.status} grading=${result.grading.status} task=${result.task.verdict}\n`,
   );
+  for (const selected of result.cases)
+    for (const trial of selected.trials)
+      for (const outcome of trial.domainOutcomes)
+        process.stdout.write(
+          `domain case=${selected.caseId} trial=${trial.trial} outcome=${outcome.id} status=${outcome.status}\n`,
+        );
   if (result.evidencePath)
     process.stdout.write(`evidence=${result.evidencePath}\n`);
 }
