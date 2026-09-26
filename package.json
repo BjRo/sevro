@@ -1,0 +1,20 @@
+{
+  "name": "sevro",
+  "version": "0.1.0-dev.0",
+  "description": "A standalone evaluation runner for agentic coding capabilities",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "format:check": "prettier --check README.md docs/*.md schemas/*.json tests/*.ts package.json tsconfig.json"
+  },
+  "dependencies": {
+    "ajv": "8.20.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.0",
+    "prettier": "^3.9.9",
+    "typescript": "^5.7.0"
+  }
+}

@@ -6,6 +6,11 @@ built-in grading or grant it control of fixture isolation, execution,
 persistence, or cleanup. The executable is trusted by the operator; a process
 boundary alone is not a sandbox.
 
+[`extension-v1.schema.json`](../schemas/extension-v1.schema.json) validates the
+versioned request and response shapes. The engine also validates request IDs,
+negotiated capabilities, path containment, decoded content, and the source and
+configuration digests at runtime.
+
 ## Transport
 
 The runner receives an extension command as an argv array and never interprets
@@ -75,6 +80,9 @@ fixture and built-in check declarations, required evidence declarations, and
 namespaced extension data. Paths in case descriptions are resolved and
 validated by the engine against the declared project and case-source roots.
 The extension cannot add a hidden source root by returning an arbitrary path.
+Absolute path references in this protocol use `file:///` URLs so Windows and
+Unix hosts share one serialized form. Fixture-relative paths use `/` separators
+and cannot escape their declared root.
 
 `prepare` receives one resolved case, the chosen host and capabilities, the
 configured passive or enforced condition, and extension data. It returns

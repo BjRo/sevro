@@ -1,0 +1,455 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:sevro:schema:extension:v1",
+  "title": "Sevro extension exchange v1",
+  "type": "object",
+  "required": ["protocol", "id", "method"],
+  "properties": {
+    "protocol": {
+      "enum": ["sevro.discovery.v1", "sevro.extension.v1"]
+    },
+    "id": { "$ref": "#/$defs/id" },
+    "method": { "enum": ["describe", "resolve", "prepare", "evaluate"] },
+    "params": { "type": "object" },
+    "result": { "type": "object" },
+    "error": { "$ref": "#/$defs/error" }
+  },
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "properties": {
+        "protocol": { "const": "sevro.discovery.v1" },
+        "method": { "const": "describe" },
+        "params": { "$ref": "#/$defs/describeParams" }
+      },
+      "required": ["params"],
+      "not": {
+        "anyOf": [{ "required": ["result"] }, { "required": ["error"] }]
+      }
+    },
+    {
+      "properties": {
+        "protocol": { "const": "sevro.discovery.v1" },
+        "method": { "const": "describe" },
+        "result": { "$ref": "#/$defs/describeResult" }
+      },
+      "required": ["result"],
+      "not": {
+        "anyOf": [{ "required": ["params"] }, { "required": ["error"] }]
+      }
+    },
+    {
+      "properties": {
+        "protocol": { "const": "sevro.extension.v1" },
+        "method": { "const": "resolve" },
+        "params": { "$ref": "#/$defs/resolveParams" }
+      },
+      "required": ["params"],
+      "not": {
+        "anyOf": [{ "required": ["result"] }, { "required": ["error"] }]
+      }
+    },
+    {
+      "properties": {
+        "protocol": { "const": "sevro.extension.v1" },
+        "method": { "const": "resolve" },
+        "result": { "$ref": "#/$defs/resolveResult" }
+      },
+      "required": ["result"],
+      "not": {
+        "anyOf": [{ "required": ["params"] }, { "required": ["error"] }]
+      }
+    },
+    {
+      "properties": {
+        "protocol": { "const": "sevro.extension.v1" },
+        "method": { "const": "prepare" },
+        "params": { "$ref": "#/$defs/prepareParams" }
+      },
+      "required": ["params"],
+      "not": {
+        "anyOf": [{ "required": ["result"] }, { "required": ["error"] }]
+      }
+    },
+    {
+      "properties": {
+        "protocol": { "const": "sevro.extension.v1" },
+        "method": { "const": "prepare" },
+        "result": { "$ref": "#/$defs/prepareResult" }
+      },
+      "required": ["result"],
+      "not": {
+        "anyOf": [{ "required": ["params"] }, { "required": ["error"] }]
+      }
+    },
+    {
+      "properties": {
+        "protocol": { "const": "sevro.extension.v1" },
+        "method": { "const": "evaluate" },
+        "params": { "$ref": "#/$defs/evaluateParams" }
+      },
+      "required": ["params"],
+      "not": {
+        "anyOf": [{ "required": ["result"] }, { "required": ["error"] }]
+      }
+    },
+    {
+      "properties": {
+        "protocol": { "const": "sevro.extension.v1" },
+        "method": { "const": "evaluate" },
+        "result": { "$ref": "#/$defs/evaluateResult" }
+      },
+      "required": ["result"],
+      "not": {
+        "anyOf": [{ "required": ["params"] }, { "required": ["error"] }]
+      }
+    },
+    {
+      "required": ["error"],
+      "not": {
+        "anyOf": [{ "required": ["params"] }, { "required": ["result"] }]
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "method": { "const": "describe" } } },
+          "then": {
+            "properties": { "protocol": { "const": "sevro.discovery.v1" } }
+          },
+          "else": {
+            "properties": { "protocol": { "const": "sevro.extension.v1" } }
+          }
+        }
+      ]
+    }
+  ],
+  "$defs": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "namespacedId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$",
+      "maxLength": 128
+    },
+    "digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "error": {
+      "type": "object",
+      "required": ["code", "message"],
+      "properties": {
+        "code": { "$ref": "#/$defs/namespacedId" },
+        "message": { "type": "string", "minLength": 1, "maxLength": 4096 }
+      },
+      "additionalProperties": false
+    },
+    "extensionData": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/namespacedId" }
+    },
+    "describeParams": {
+      "type": "object",
+      "required": ["protocols", "engineCapabilities", "hostCapabilities"],
+      "properties": {
+        "protocols": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^sevro\\.extension\\.v[1-9][0-9]*$"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "engineCapabilities": { "$ref": "#/$defs/capabilities" },
+        "hostCapabilities": { "$ref": "#/$defs/capabilities" }
+      },
+      "additionalProperties": false
+    },
+    "capabilities": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/namespacedId" },
+      "uniqueItems": true
+    },
+    "describeResult": {
+      "type": "object",
+      "required": [
+        "extension",
+        "protocols",
+        "requiredCapabilities",
+        "optionalCapabilities",
+        "graders",
+        "taskVerdictPolicies"
+      ],
+      "properties": {
+        "extension": {
+          "type": "object",
+          "required": ["id", "version"],
+          "properties": {
+            "id": { "$ref": "#/$defs/namespacedId" },
+            "version": { "type": "string", "minLength": 1, "maxLength": 128 }
+          },
+          "additionalProperties": false
+        },
+        "protocols": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^sevro\\.extension\\.v[1-9][0-9]*$"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "requiredCapabilities": { "$ref": "#/$defs/capabilities" },
+        "optionalCapabilities": { "$ref": "#/$defs/capabilities" },
+        "graders": { "$ref": "#/$defs/capabilities" },
+        "taskVerdictPolicies": { "$ref": "#/$defs/capabilities" }
+      },
+      "additionalProperties": false
+    },
+    "selector": {
+      "type": "object",
+      "properties": {
+        "caseIds": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/id" },
+          "uniqueItems": true
+        },
+        "skill": { "$ref": "#/$defs/id" },
+        "plugin": { "$ref": "#/$defs/id" }
+      },
+      "additionalProperties": false
+    },
+    "resolveParams": {
+      "type": "object",
+      "required": ["projectRoot", "selectors", "configuration"],
+      "properties": {
+        "projectRoot": { "type": "string", "pattern": "^file:///" },
+        "selectors": { "$ref": "#/$defs/selector" },
+        "configuration": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "fixture": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind", "files"],
+          "properties": {
+            "kind": { "const": "inline" },
+            "files": {
+              "type": "object",
+              "additionalProperties": { "type": "string" }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind", "sourceRef"],
+          "properties": {
+            "kind": { "const": "repository" },
+            "sourceRef": { "$ref": "#/$defs/id" }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "checkDeclaration": {
+      "type": "object",
+      "required": ["id", "grader", "configuration"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "grader": { "$ref": "#/$defs/namespacedId" },
+        "configuration": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "case": {
+      "type": "object",
+      "required": [
+        "id",
+        "prompt",
+        "fixture",
+        "checks",
+        "requiredEvidence",
+        "extensionData"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "prompt": { "type": "string", "minLength": 1 },
+        "fixture": { "$ref": "#/$defs/fixture" },
+        "checks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/checkDeclaration" }
+        },
+        "requiredEvidence": { "$ref": "#/$defs/capabilities" },
+        "extensionData": { "$ref": "#/$defs/extensionData" }
+      },
+      "additionalProperties": false
+    },
+    "resolveResult": {
+      "type": "object",
+      "required": ["cases"],
+      "properties": {
+        "cases": { "type": "array", "items": { "$ref": "#/$defs/case" } }
+      },
+      "additionalProperties": false
+    },
+    "host": {
+      "type": "object",
+      "required": ["id", "capabilities"],
+      "properties": {
+        "id": { "$ref": "#/$defs/namespacedId" },
+        "capabilities": { "$ref": "#/$defs/capabilities" }
+      },
+      "additionalProperties": false
+    },
+    "prepareParams": {
+      "type": "object",
+      "required": ["case", "host", "condition", "configuration"],
+      "properties": {
+        "case": { "$ref": "#/$defs/case" },
+        "host": { "$ref": "#/$defs/host" },
+        "condition": { "enum": ["passive", "enforced"] },
+        "configuration": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "preparationArtifact": {
+      "type": "object",
+      "required": ["id", "relativePath", "sha256"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "relativePath": { "type": "string", "minLength": 1 },
+        "sha256": { "$ref": "#/$defs/digest" },
+        "contentBase64": { "type": "string", "contentEncoding": "base64" },
+        "sourceRef": { "$ref": "#/$defs/id" }
+      },
+      "oneOf": [
+        { "required": ["contentBase64"], "not": { "required": ["sourceRef"] } },
+        { "required": ["sourceRef"], "not": { "required": ["contentBase64"] } }
+      ],
+      "additionalProperties": false
+    },
+    "instrumentation": {
+      "type": "object",
+      "required": ["id", "configuration"],
+      "properties": {
+        "id": { "$ref": "#/$defs/namespacedId" },
+        "configuration": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "prepareResult": {
+      "type": "object",
+      "required": ["artifacts", "requestedInstrumentation", "extensionData"],
+      "properties": {
+        "artifacts": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/preparationArtifact" }
+        },
+        "requestedInstrumentation": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/instrumentation" }
+        },
+        "extensionData": { "$ref": "#/$defs/extensionData" }
+      },
+      "additionalProperties": false
+    },
+    "execution": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": { "enum": ["completed", "failed", "cancelled", "not_run"] },
+        "errorCode": { "$ref": "#/$defs/namespacedId" }
+      },
+      "additionalProperties": false
+    },
+    "observation": {
+      "type": "object",
+      "required": ["id", "source", "completeness", "data"],
+      "properties": {
+        "id": { "$ref": "#/$defs/namespacedId" },
+        "source": { "$ref": "#/$defs/id" },
+        "completeness": { "enum": ["complete", "partial", "unavailable"] },
+        "data": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "checkResult": {
+      "type": "object",
+      "required": ["id", "status", "evidenceRefs"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "status": { "enum": ["passed", "failed", "unavailable"] },
+        "detail": { "type": "string", "maxLength": 4096 },
+        "evidenceRefs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/id" },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "artifactRef": {
+      "type": "object",
+      "required": ["id", "path", "sha256"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "path": { "type": "string", "pattern": "^file:///" },
+        "sha256": { "$ref": "#/$defs/digest" }
+      },
+      "additionalProperties": false
+    },
+    "evaluateParams": {
+      "type": "object",
+      "required": [
+        "caseId",
+        "execution",
+        "observations",
+        "builtinChecks",
+        "artifacts",
+        "extensionData"
+      ],
+      "properties": {
+        "caseId": { "$ref": "#/$defs/id" },
+        "execution": { "$ref": "#/$defs/execution" },
+        "observations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/observation" }
+        },
+        "builtinChecks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/checkResult" }
+        },
+        "artifacts": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/artifactRef" }
+        },
+        "extensionData": { "$ref": "#/$defs/extensionData" }
+      },
+      "additionalProperties": false
+    },
+    "metric": {
+      "type": "object",
+      "required": ["id", "value", "unit"],
+      "properties": {
+        "id": { "$ref": "#/$defs/namespacedId" },
+        "value": { "type": ["number", "null"] },
+        "unit": { "$ref": "#/$defs/id" }
+      },
+      "additionalProperties": false
+    },
+    "evaluateResult": {
+      "type": "object",
+      "required": ["checks", "metrics"],
+      "properties": {
+        "checks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/checkResult" }
+        },
+        "metrics": { "type": "array", "items": { "$ref": "#/$defs/metric" } },
+        "taskVerdictRecommendation": {
+          "enum": ["passed", "failed", "not_assessed"]
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

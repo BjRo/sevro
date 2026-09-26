@@ -3,7 +3,8 @@
 The public CLI accepts `--json`. In that mode stdout contains one JSON result
 document and no progress text; diagnostics go to stderr. Human output names
 the same execution, grading, and task states. Every result names its schema
-version and an absolute retained-evidence path.
+version. A run with retained evidence names its absolute evidence path;
+pre-run configuration failures can return `null`.
 
 ## Separate states
 
@@ -25,8 +26,10 @@ it is never converted to zero.
 
 For multiple trials, an aggregate status preserves every trial. The aggregate
 task verdict is `failed` if any assessed trial fails, otherwise `not_assessed`
-if any trial is unassessed, otherwise `passed`. Execution and grading aggregate
-states expose errors or unavailability instead of averaging them away.
+if any trial is unassessed, otherwise `passed`. A failed aggregate verdict can
+coexist with an execution or grading error from another trial. Execution and
+grading aggregate states expose errors or unavailability instead of averaging
+them away.
 
 ## Exit codes
 
@@ -72,6 +75,13 @@ temporary paths, run IDs, and output locations do not change evaluation
 identity. Historical Darrow artifacts keep their original schema version;
 fields absent from them remain unknown unless explicit historical provenance
 establishes the value.
+
+The versioned machine-readable contracts are
+[`cli-result-v1.schema.json`](../schemas/cli-result-v1.schema.json) and
+[`run-evidence-v1.schema.json`](../schemas/run-evidence-v1.schema.json). A
+schema-valid document still needs engine validation for cross-record equality,
+canonical identity computation, path containment, secret redaction, and
+referenced artifact availability.
 
 The engine persists each completed trial atomically before fixture cleanup.
 An interrupted or failed run keeps completed trials plus an explicit partial
