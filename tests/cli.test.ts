@@ -116,3 +116,45 @@ test("CLI reports invalid invocation as versioned JSON without a run", async () 
   expect(badDigest.code).toBe(64);
   expect(badDigest.result.evidencePath).toBeNull();
 });
+
+test("CLI runs shell checks only with explicit isolation roots", async () => {
+  if (process.platform !== "darwin") return;
+  const { args, caseFile } = await fixture();
+  await writeFile(
+    caseFile,
+    JSON.stringify({
+      id: "shell-case",
+      prompt: "Return ready.",
+      fixture: { files: { "README.md": "fixture\n" } },
+      checks: [
+        {
+          id: "fixture-file",
+          grader: "sevro.shell",
+          configuration: { run: "test -f README.md" },
+        },
+      ],
+      requiredEvidence: [],
+    }),
+  );
+  const missingIsolation = await invoke(args);
+  expect(missingIsolation.code).toBe(64);
+  expect(missingIsolation.result.diagnostic.message).toMatch(/protected source roots/);
+  const isolated = await invoke([
+    ...args,
+    "--shell-isolation",
+    "--protected-root",
+    join(caseFile, ".."),
+  ]);
+  expect(isolated.code).toBe(0);
+  expect(isolated.result.cases[0].trials[0].checks[0]).toMatchObject({
+    id: "fixture-file",
+    status: "passed",
+  });
+  const relativeRoot = await invoke([
+    ...args,
+    "--shell-isolation",
+    "--protected-root",
+    "relative",
+  ]);
+  expect(relativeRoot.code).toBe(64);
+});

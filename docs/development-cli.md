@@ -19,8 +19,13 @@ bun src/cli.ts run --json \
 The adapter module exports a default `HostAdapter`. It is executable code
 chosen by the operator. The runner does not load it from a case file or infer
 it from an installed extension. The case file follows the `ResolvedCase`
-interface in `src/engine.ts`; this slice accepts inline fixture files and
-built-in output checks only.
+interface in `src/engine.ts`; this slice accepts inline fixture files,
+built-in output checks, and isolated shell checks. For shell checks, add
+`--shell-isolation` and repeat `--protected-root /absolute/path` for every
+additional source worktree or private root. The engine always protects the
+selected project, results, runner source, user home, configured host homes,
+and active peer fixtures. Shell checks require macOS `sandbox-exec` in this
+development slice.
 
 `--json` writes exactly one versioned result to stdout, including pre-run
 configuration failures. The process exit code follows `docs/results-v1.md`.

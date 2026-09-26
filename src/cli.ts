@@ -66,6 +66,8 @@ function parseInvocation(argv: string[]) {
           json: { type: "boolean" },
           "case-file": { type: "string" },
           "adapter-module": { type: "string" },
+          "shell-isolation": { type: "boolean" },
+          "protected-root": { type: "string", multiple: true },
           "project-root": { type: "string" },
           "results-root": { type: "string" },
           "runner-build-digest": { type: "string" },
@@ -95,10 +97,18 @@ function parseInvocation(argv: string[]) {
     passThreshold > 1
   )
     throw new InvocationError("invalid --threshold");
+  const protectedRoots = values["protected-root"] ?? [];
+  if (protectedRoots.some((path) => !isAbsolute(path)))
+    throw new InvocationError("--protected-root must be absolute");
+  if (protectedRoots.length && !values["shell-isolation"])
+    throw new InvocationError("--protected-root requires --shell-isolation");
   return {
     json: values.json ?? false,
     caseFile: absoluteOption(values["case-file"], "--case-file"),
     adapterModule: absoluteOption(values["adapter-module"], "--adapter-module"),
+    shellIsolation: values["shell-isolation"]
+      ? { protectedRoots }
+      : undefined,
     projectRoot: absoluteOption(values["project-root"], "--project-root"),
     resultsRoot: absoluteOption(values["results-root"], "--results-root"),
     runnerBuildDigest: requiredOption(
@@ -202,6 +212,7 @@ async function main(argv: string[]): Promise<void> {
       resultsRoot: invocation.resultsRoot,
       case: caseData,
       host,
+      shellIsolation: invocation.shellIsolation,
       runnerBuildDigest: invocation.runnerBuildDigest,
       projectDigest: invocation.projectDigest,
       condition: invocation.condition,
