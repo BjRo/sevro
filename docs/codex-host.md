@@ -11,6 +11,13 @@ The bounded JSONL stream is retained per trial as the private
 `sevro.codex.events` host artifact. Its file URL and digest appear in trial
 evidence and are available to extension grading; the stream bytes stay out of
 the run JSON.
+The host also retains a bounded `sevro.codex.skill-reads` observation. It
+records the first verified mounted skill and ordered skill names, without
+commands or skill bodies. A completed direct `cat` of a mounted `SKILL.md`
+counts only when the command output contains that file's exact body. An
+attempted indirect, malformed, or incomplete read makes the observation
+partial. This is a host observation; an extension decides what selection means
+for its case.
 
 `createCodexHost` copies file-based authentication into a private Codex home
 for one turn. It supplies only explicit environment variables to the parent

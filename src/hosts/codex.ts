@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, sep } from "node:path";
 import type { HostAdapter } from "../engine";
 import { summarizeCodexEvents } from "./codex-events";
+import { codexSkillReadObservation } from "./codex-skill-reads";
 import { codexPermissionProfile } from "./codex-profile";
 import { evaluationProtectedRoots } from "./isolation-roots";
 
@@ -298,9 +299,14 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
         });
         const summary = summarizeCodexEvents(execution.out, execution.code);
         if (!summary.complete) throw new Error("Codex turn did not complete");
+        const skillReads = await codexSkillReadObservation(
+          execution.out,
+          request.workspace,
+        );
         return {
           finalMessage: summary.finalMessage,
           complete: summary.finalMessage !== null,
+          observations: [skillReads],
           artifacts: [
             {
               id: "sevro.codex.events",

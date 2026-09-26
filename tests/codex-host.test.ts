@@ -121,6 +121,16 @@ test("Codex host verifies its permission profile and feeds the engine", async ()
     model: "synthetic-codex",
     effort: "low",
   });
+  expect(evidence.trials[0].observations).toContainEqual({
+    id: "sevro.codex.skill-reads",
+    source: "sevro.host.codex",
+    completeness: "complete",
+    data: {
+      method: "skill_file_read_probe",
+      primarySkill: null,
+      observedSkills: [],
+    },
+  });
   const [events] = evidence.trials[0].artifactRefs;
   expect(events.id).toBe("sevro.codex.events");
   expect(await readFile(new URL(events.path), "utf8")).toContain(
