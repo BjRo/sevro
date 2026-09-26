@@ -112,6 +112,7 @@ test("accepts discovery and each extension operation", () => {
       builtinChecks: [],
       artifacts: [],
       extensionData: {},
+      configuration: {},
     }),
     envelope(extension, "evaluate", "result", { checks: [], metrics: [] }),
     envelope(extension, "evaluate", "error", {
@@ -146,6 +147,15 @@ test("rejects ambiguous or incomplete extension messages", () => {
     valid("urn:sevro:schema:extension:v1", {
       ...base,
       params: {},
+    }),
+  ).toBe(false);
+  expect(
+    valid("urn:sevro:schema:extension:v1", {
+      ...base,
+      result: {
+        checks: [{ id: "example.check", status: "passed", evidenceRefs: [] }],
+        metrics: [],
+      },
     }),
   ).toBe(false);
 });

@@ -387,6 +387,27 @@
       },
       "additionalProperties": false
     },
+    "extensionCheckResult": {
+      "type": "object",
+      "required": ["id", "status", "evidenceRefs"],
+      "properties": {
+        "id": { "$ref": "#/$defs/namespacedId" },
+        "status": { "enum": ["passed", "failed", "unavailable"] },
+        "detail": { "type": "string", "maxLength": 4096 },
+        "evidenceRefs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/id" },
+          "uniqueItems": true
+        }
+      },
+      "if": {
+        "properties": { "status": { "const": "passed" } }
+      },
+      "then": {
+        "properties": { "evidenceRefs": { "minItems": 1 } }
+      },
+      "additionalProperties": false
+    },
     "artifactRef": {
       "type": "object",
       "required": ["id", "path", "sha256"],
@@ -405,7 +426,8 @@
         "observations",
         "builtinChecks",
         "artifacts",
-        "extensionData"
+        "extensionData",
+        "configuration"
       ],
       "properties": {
         "caseId": { "$ref": "#/$defs/id" },
@@ -422,7 +444,8 @@
           "type": "array",
           "items": { "$ref": "#/$defs/artifactRef" }
         },
-        "extensionData": { "$ref": "#/$defs/extensionData" }
+        "extensionData": { "$ref": "#/$defs/extensionData" },
+        "configuration": { "type": "object" }
       },
       "additionalProperties": false
     },
@@ -442,7 +465,7 @@
       "properties": {
         "checks": {
           "type": "array",
-          "items": { "$ref": "#/$defs/checkResult" }
+          "items": { "$ref": "#/$defs/extensionCheckResult" }
         },
         "metrics": { "type": "array", "items": { "$ref": "#/$defs/metric" } },
         "taskVerdictRecommendation": {

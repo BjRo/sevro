@@ -17,7 +17,7 @@ if (scenario === "malformed") {
   process.exit(0);
 }
 
-const result = {
+const discovery = {
   extension: { id: "example.extension", version: "1.0.0" },
   protocols: ["sevro.extension.v1"],
   requiredCapabilities: ["sevro.host.exec"],
@@ -25,6 +25,48 @@ const result = {
   graders: [],
   taskVerdictPolicies: [],
 };
+const result = scenario.startsWith("lifecycle")
+  ? request.method === "resolve"
+    ? {
+        cases: [
+          {
+            id: "extension-case",
+            prompt: "Return ready.",
+            fixture: { kind: "inline", files: { "README.md": "fixture\n" } },
+            checks: [
+              {
+                id: "ready",
+                grader: "sevro.regex",
+                configuration: { pattern: "ready" },
+              },
+            ],
+            requiredEvidence: [],
+            extensionData: { "example.extension": { marker: "resolved" } },
+          },
+        ],
+      }
+    : request.method === "prepare"
+      ? {
+          artifacts: [],
+          requestedInstrumentation: [],
+          extensionData: { "example.extension": { marker: "prepared" } },
+        }
+      : request.method === "evaluate"
+        ? {
+            checks: [
+              {
+                id: "example.extension.ready",
+                status: "passed",
+                evidenceRefs:
+                  scenario === "lifecycle-empty-evidence"
+                    ? []
+                    : ["sevro.observation.final-message"],
+              },
+            ],
+            metrics: [],
+          }
+        : discovery
+  : discovery;
 const response = {
   protocol: request.protocol,
   id: scenario === "wrong-id" ? "different" : request.id,

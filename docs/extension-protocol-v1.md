@@ -107,6 +107,16 @@ extension data it needs. The runner verifies extension identity and source
 digest for the run; a changed executable or configuration cannot silently
 continue the same run.
 
+The session client in [`extension-session.ts`](../src/extension-session.ts)
+implements discovery, `resolve`, `prepare`, and `evaluate` as separate process
+calls. Its caller declares the extension source-file closure; the client also
+includes the executable and hashes that closure before discovery and before
+and after later calls. The redacted configuration and command argv affect the
+configuration digest. Command argv
+must not contain credentials. A passing extension check must cite available,
+complete evidence. The engine still needs to integrate the session with
+fixture preparation, instrumentation, grading, and persistence.
+
 ## Grading and replacement
 
 The runner provides built-in shell, regex, JSON/schema, semantic-output, and
