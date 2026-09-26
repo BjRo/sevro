@@ -547,6 +547,21 @@ test("CLI runs its bundled Codex route with explicit auth and model", async () =
   const binRoot = await mkdtemp(join(tmpdir(), "sevro-codex-bin-"));
   roots.push(binRoot);
   const binary = join(binRoot, "codex-wrapper");
+  const semanticEvent = JSON.stringify({
+    type: "item.completed",
+    item: {
+      type: "agent_message",
+      text: JSON.stringify({
+        checks: [
+          {
+            id: "semantic-ready",
+            verdict: "pass",
+            reason: "Ready is stated",
+          },
+        ],
+      }),
+    },
+  });
   await writeFile(authFile, "test-only-auth\n", { mode: 0o600 });
   await writeFile(
     binary,
@@ -558,6 +573,13 @@ if [ "$1" = sandbox ]; then
 fi
 if [ "$1" != exec ]; then exit 99; fi
 printf '%s\\n' '{"type":"thread.started","thread_id":"thread-cli"}'
+for arg in "$@"; do
+  if [ "$arg" = synthetic-judge ]; then
+    printf '%s\\n' '${semanticEvent}'
+    printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'
+    exit 0
+  fi
+done
 printf '%s\\n' '{"type":"item.completed","item":{"type":"agent_message","text":"ready"}}'
 printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'
 `,
@@ -593,4 +615,46 @@ printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_token
   });
   const invalid = await invoke([...args, ...codexArgs.slice(-10)]);
   expect(invalid.code).toBe(64);
+
+  const definition = JSON.parse(await readFile(caseFile, "utf8"));
+  definition.checks.push({
+    id: "semantic-ready",
+    grader: "sevro.semantic",
+    configuration: { proposition: "The response promises readiness." },
+  });
+  await writeFile(caseFile, JSON.stringify(definition));
+  const semanticArgs = [
+    ...args,
+    "--semantic-host",
+    "codex",
+    "--codex-bin",
+    binary,
+    "--codex-auth-file",
+    authFile,
+    "--semantic-model",
+    "synthetic-judge",
+    "--semantic-effort",
+    "low",
+  ];
+  const semanticRun = await invoke(semanticArgs);
+  expect(semanticRun.code).toBe(0);
+  const semanticEvidence = JSON.parse(
+    await readFile(semanticRun.result.evidencePath, "utf8"),
+  );
+  expect(semanticEvidence.routes[1]).toMatchObject({
+    role: "semantic",
+    host: "codex",
+    model: "synthetic-judge",
+  });
+  expect(semanticEvidence.trials[0].artifactRefs).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ id: "sevro.semantic.sevro.codex.events" }),
+    ]),
+  );
+  const conflicting = await invoke([
+    ...semanticArgs,
+    "--semantic-adapter-module",
+    semanticAdapter,
+  ]);
+  expect(conflicting.code).toBe(64);
 });

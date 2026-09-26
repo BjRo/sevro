@@ -42,13 +42,15 @@ only passive conditions. `--host` and `--adapter-module` are exclusive. Use
 checks are selected.
 
 For cases with `sevro.semantic` checks, also pass
-`--semantic-adapter-module /absolute/path/semantic-adapter.ts`. This loads an
-explicit second `HostAdapter` for grading. The candidate and semantic routes
-are recorded separately in evidence and evaluation identity. The semantic
-adapter runs after a complete candidate response in its own empty workspace;
-missing or malformed semantic verdicts produce a grading error. This
-development CLI does not yet expose the bundled Codex adapter as the semantic
-route.
+`--semantic-adapter-module /absolute/path/semantic-adapter.ts` to load an
+explicit second `HostAdapter` for grading. Alternatively, select the bundled
+Codex route with `--semantic-host codex --semantic-model <model>
+--semantic-effort <effort>`. That route also requires `--codex-bin` and
+`--codex-auth-file`, shared with a Codex candidate route when present. The two
+semantic route options are exclusive. The candidate and semantic routes are
+recorded separately in evidence and evaluation identity. The semantic adapter
+runs after a complete candidate response in its own empty workspace; missing
+or malformed semantic verdicts produce a grading error.
 
 To resolve one case through a versioned extension, replace `--case-file` in
 either command with:

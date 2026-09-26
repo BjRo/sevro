@@ -84,6 +84,9 @@ function parseInvocation(argv: string[]) {
           "case-source-map-file": { type: "string" },
           "adapter-module": { type: "string" },
           "semantic-adapter-module": { type: "string" },
+          "semantic-host": { type: "string" },
+          "semantic-model": { type: "string" },
+          "semantic-effort": { type: "string" },
           host: { type: "string" },
           "codex-bin": { type: "string" },
           "codex-auth-file": { type: "string" },
@@ -125,20 +128,36 @@ function parseInvocation(argv: string[]) {
   if (protectedRoots.some((path) => !isAbsolute(path)))
     throw new InvocationError("--protected-root must be absolute");
   const codex = values.host === "codex";
+  const semanticCodex = values["semantic-host"] === "codex";
   if (values.host && !codex) throw new InvocationError("unsupported --host");
+  if (values["semantic-host"] && !semanticCodex)
+    throw new InvocationError("unsupported --semantic-host");
+  if (semanticCodex && values["semantic-adapter-module"])
+    throw new InvocationError(
+      "--semantic-host and --semantic-adapter-module are exclusive",
+    );
   if (codex && values["adapter-module"])
     throw new InvocationError("--host and --adapter-module are exclusive");
   if (!codex && !values["adapter-module"])
     throw new InvocationError("missing --adapter-module or --host");
+  if (!codex && (values.model || values.effort))
+    throw new InvocationError("--model and --effort require --host codex");
+  if (!semanticCodex && (values["semantic-model"] || values["semantic-effort"]))
+    throw new InvocationError(
+      "semantic model options require --semantic-host codex",
+    );
   if (
     !codex &&
-    (values["codex-bin"] ||
-      values["codex-auth-file"] ||
-      values.model ||
-      values.effort)
+    !semanticCodex &&
+    (values["codex-bin"] || values["codex-auth-file"])
   )
-    throw new InvocationError("Codex options require --host codex");
-  if (protectedRoots.length && !values["shell-isolation"] && !codex)
+    throw new InvocationError("Codex options require a Codex host route");
+  if (
+    protectedRoots.length &&
+    !values["shell-isolation"] &&
+    !codex &&
+    !semanticCodex
+  )
     throw new InvocationError("--protected-root requires isolation");
   const projectRoot = absoluteOption(values["project-root"], "--project-root");
   const resultsRoot = absoluteOption(values["results-root"], "--results-root");
@@ -191,6 +210,19 @@ function parseInvocation(argv: string[]) {
     ...(values["case-source-root"] ? [values["case-source-root"]] : []),
     ...(values["case-source-map-file"] ? [values["case-source-map-file"]] : []),
   ];
+  const codexCommon =
+    codex || semanticCodex
+      ? {
+          binary: absoluteOption(values["codex-bin"], "--codex-bin"),
+          authFile: absoluteOption(
+            values["codex-auth-file"],
+            "--codex-auth-file",
+          ),
+          projectRoot,
+          resultsRoot,
+          additionalProtectedRoots: [...privateRoots, runStateRoot],
+        }
+      : undefined;
   return {
     json: values.json ?? false,
     dry: values.dry ?? false,
@@ -236,18 +268,21 @@ function parseInvocation(argv: string[]) {
           "--semantic-adapter-module",
         )
       : undefined,
+    semanticCodex: semanticCodex
+      ? {
+          ...codexCommon!,
+          model: requiredOption(values["semantic-model"], "--semantic-model"),
+          effort: requiredOption(
+            values["semantic-effort"],
+            "--semantic-effort",
+          ),
+        }
+      : undefined,
     codex: codex
       ? {
-          binary: absoluteOption(values["codex-bin"], "--codex-bin"),
-          authFile: absoluteOption(
-            values["codex-auth-file"],
-            "--codex-auth-file",
-          ),
+          ...codexCommon!,
           model: requiredOption(values.model, "--model"),
           effort: requiredOption(values.effort, "--effort"),
-          projectRoot,
-          resultsRoot,
-          additionalProtectedRoots: [...privateRoots, runStateRoot],
         }
       : undefined,
     shellIsolation: values["shell-isolation"]
@@ -423,6 +458,8 @@ async function main(argv: string[]): Promise<void> {
       : await loadHost(invocation.adapterModule!);
     if (invocation.semanticAdapterModule)
       semanticHost = await loadHost(invocation.semanticAdapterModule);
+    else if (invocation.semanticCodex)
+      semanticHost = createCodexHost(invocation.semanticCodex);
   } catch (error) {
     const result = failure(
       64,
