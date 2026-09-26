@@ -86,6 +86,16 @@ test("runs trials, applies threshold, and retains evidence before fixture cleanu
   expect(evidence.format).toBe("sevro.run-evidence.v1");
   expect(evidence.trials).toHaveLength(2);
   expect(evidence.evaluationIdentity.dimensions.condition).toBe("passive");
+  expect(evidence.runner).toMatchObject({
+    source: "checkout",
+    buildDigest: digest,
+  });
+  expect(evidence.runner.root).toMatch(/^file:\/\//);
+  expect(evidence.runner.revision).toMatch(/^[a-f0-9]{40,64}$/);
+  expect(
+    evidence.runner.dirtyPatchDigest === null ||
+      /^[a-f0-9]{64}$/.test(evidence.runner.dirtyPatchDigest),
+  ).toBeTrue();
   expect(evidence.trials[0].usage).toEqual({
     inputTokens: null,
     outputTokens: null,

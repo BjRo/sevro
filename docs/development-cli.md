@@ -51,9 +51,11 @@ development slice.
 
 `--json` writes exactly one versioned result to stdout, including pre-run
 configuration failures. The process exit code follows `docs/results-v1.md`.
-Run evidence and trial files live under `--results-root`; no runner Git
-checkout is required. The digest arguments are explicit until package and
-project provenance are collected automatically.
+Run evidence and trial files live under `--results-root`. A packaged runner
+needs no Git checkout. This private development checkout records its Git
+revision and dirty content; `--runner-build-digest` and `--project-digest`
+remain explicit until build and project content digests are collected
+automatically.
 Use `--run-state-root /absolute/path/state` to keep active records and trial
 checkpoints separate from results; it defaults to `--results-root`. Shell
 grading and the bundled Codex route protect this state root from candidate
