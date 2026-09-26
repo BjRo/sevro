@@ -23,6 +23,7 @@ test("a complete Codex turn reports its identity and final cumulative usage", ()
   expect(summarizeCodexEvents(events, 0)).toEqual({
     threadId: "thread-1",
     complete: true,
+    finalMessage: "done",
     inputTokens: 12,
     outputTokens: 4,
     usageComplete: true,
@@ -50,6 +51,22 @@ test("exit failure, turn failure, and missing usage cannot become complete evide
     outputTokens: null,
     usageComplete: false,
   });
+});
+
+test("the last completed agent message is the final response", () => {
+  const events = [
+    start,
+    JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: "first" } }),
+    JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: "last" } }),
+    completed,
+  ].join("\n");
+  expect(summarizeCodexEvents(events, 0).finalMessage).toBe("last");
+  expect(
+    summarizeCodexEvents(
+      `${start}\n${JSON.stringify({ type: "item.completed", item: { type: "agent_message" } })}\n${completed}`,
+      0,
+    ).finalMessage,
+  ).toBeNull();
 });
 
 test("malformed, ambiguous, and oversized event streams fail closed", () => {

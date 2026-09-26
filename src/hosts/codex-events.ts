@@ -32,6 +32,7 @@ function usage(
 export interface CodexEventSummary {
   threadId: string;
   complete: boolean;
+  finalMessage: string | null;
   inputTokens: number | null;
   outputTokens: number | null;
   usageComplete: boolean;
@@ -47,6 +48,7 @@ export function summarizeCodexEvents(
   let threadId: string | null = null;
   let completed = false;
   let failed = false;
+  let finalMessage: string | null = null;
   let tokenUsage: ReturnType<typeof usage> = null;
   let usageComplete = false;
   for (const line of stream.split("\n")) {
@@ -70,6 +72,12 @@ export function summarizeCodexEvents(
         );
       threadId = parsed.thread_id;
     }
+    if (parsed.type === "item.completed" && record(parsed.item)) {
+      if (parsed.item.type === "agent_message" && !completed) {
+        finalMessage =
+          typeof parsed.item.text === "string" ? parsed.item.text : null;
+      }
+    }
     if (parsed.type === "turn.completed") {
       if (!threadId || completed || failed)
         throw new CodexEventError(
@@ -86,6 +94,7 @@ export function summarizeCodexEvents(
   return {
     threadId,
     complete: exitCode === 0 && completed && !failed,
+    finalMessage,
     inputTokens: tokenUsage?.inputTokens ?? null,
     outputTokens: tokenUsage?.outputTokens ?? null,
     usageComplete: exitCode === 0 && completed && !failed && usageComplete,
