@@ -1,5 +1,14 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
+  advisoryPrompt,
+  parseAdvisoryAssessment,
+  type AdvisoryAssessment,
+} from "./advisory";
+import {
+  advisoryBaseRevision,
+  buildBlindAdvisoryFixture,
+} from "./advisory-fixture";
+import {
   mkdir,
   mkdtemp,
   readFile,
@@ -130,6 +139,8 @@ export interface EvaluationOptions {
   case: ResolvedCase;
   host: HostAdapter;
   semanticHost?: HostAdapter;
+  advisoryHost?: HostAdapter;
+  advisoryExcludedPaths?: string[];
   runnerBuildDigest: string;
   projectDigest: string;
   condition: "passive" | "enforced";
@@ -426,6 +437,38 @@ export async function runEvaluation(
     throw new EvaluationConfigurationError(
       "semantic host identity is incomplete",
     );
+  if (options.advisoryHost) {
+    if (!generated && !options.case.fixture.sourceRef)
+      throw new EvaluationConfigurationError(
+        "advisory review requires a Git fixture",
+      );
+    if (
+      !options.advisoryHost.id ||
+      !options.advisoryHost.model ||
+      !options.advisoryHost.effort
+    )
+      throw new EvaluationConfigurationError(
+        "advisory host identity is incomplete",
+      );
+    try {
+      for (const path of options.advisoryExcludedPaths ?? []) {
+        fixtureParts(path);
+        if (
+          path.toLowerCase() === ".git" ||
+          path.toLowerCase().startsWith(".git/")
+        )
+          throw new Error(
+            "repository metadata cannot be an advisory exclusion",
+          );
+      }
+    } catch {
+      throw new EvaluationConfigurationError("invalid advisory exclusion path");
+    }
+  } else if (options.advisoryExcludedPaths?.length) {
+    throw new EvaluationConfigurationError(
+      "advisory exclusions require an advisory host",
+    );
+  }
   if (shellDeclarations.length && !options.shellIsolation)
     throw new EvaluationConfigurationError(
       "shell checks require explicit protected source roots",
@@ -559,11 +602,10 @@ export async function runEvaluation(
   }
   if (
     (repository || generated) &&
-    inlineArtifacts.some(
-      (artifact) =>
-        fixtureParts(artifact.relativePath).some(
-          (part) => part.toLowerCase() === ".git",
-        ),
+    inlineArtifacts.some((artifact) =>
+      fixtureParts(artifact.relativePath).some(
+        (part) => part.toLowerCase() === ".git",
+      ),
     )
   )
     throw new EvaluationConfigurationError(
@@ -601,6 +643,16 @@ export async function runEvaluation(
           },
         ]
       : []),
+    ...(options.advisoryHost
+      ? [
+          {
+            role: "advisory" as const,
+            host: options.advisoryHost.id,
+            model: options.advisoryHost.model,
+            effort: options.advisoryHost.effort,
+          },
+        ]
+      : []),
   ];
   const redactedConfig = {
     condition: options.condition,
@@ -609,6 +661,13 @@ export async function runEvaluation(
     passThreshold: options.passThreshold,
     extensionConfigurationDigest:
       options.extension?.session.identity.configurationDigest ?? null,
+    ...(options.advisoryHost
+      ? {
+          advisoryExcludedPaths: [
+            ...(options.advisoryExcludedPaths ?? []),
+          ].sort(),
+        }
+      : {}),
   };
   const activeGraders: {
     id: string;
@@ -675,7 +734,7 @@ export async function runEvaluation(
         requested: requestedInstrumentation,
         applied: requestedInstrumentation,
       }),
-      routeDigest: hashJson(preparedSemantic.length ? routes : route),
+      routeDigest: hashJson(routes.length > 1 ? routes : route),
       condition: options.condition,
       trialCount: options.trialCount,
       passThreshold: options.passThreshold,
@@ -754,6 +813,9 @@ export async function runEvaluation(
       );
       let persisted = false;
       try {
+        const advisoryRevision = options.advisoryHost
+          ? await advisoryBaseRevision(workspace)
+          : null;
         let hostResult: HostResult | null = null;
         let appliedInstrumentation: InstrumentationRequest[] = [];
         let additionalObservations: ReturnType<typeof hostObservations> = [];
@@ -1195,6 +1257,125 @@ export async function runEvaluation(
             options.extension?.session.identity.selectedTaskVerdictPolicy,
           ),
         );
+        let advisoryReview: {
+          status: "completed" | "failed" | "not_run";
+          assessment: AdvisoryAssessment | null;
+          usage: ReturnType<typeof usage>;
+          rawResult: {
+            source: string;
+            path: string | null;
+            sha256: string | null;
+          };
+        } | null = null;
+        if (options.advisoryHost) {
+          advisoryReview = {
+            status: "not_run",
+            assessment: null,
+            usage: usage(null),
+            rawResult: {
+              source: options.advisoryHost.id,
+              path: null,
+              sha256: null,
+            },
+          };
+          if (execution === "completed" && !options.signal?.aborted) {
+            let reviewWorkspace: string | null = null;
+            try {
+              reviewWorkspace = await buildBlindAdvisoryFixture(workspace, {
+                baseRevision: advisoryRevision!,
+                excludedPaths: options.advisoryExcludedPaths,
+              });
+              const response = await options.advisoryHost.run({
+                prompt: advisoryPrompt(options.case.prompt, checks),
+                workspace: reviewWorkspace,
+                condition: "passive",
+                signal: options.signal,
+              });
+              advisoryReview.usage = usage(response);
+              const reviewArtifacts = hostArtifacts(
+                {
+                  ...response,
+                  artifacts: response.artifacts?.map((item) => ({
+                    ...item,
+                    id: `sevro.advisory.${item.id}`,
+                  })),
+                },
+                new Set([
+                  ...trialArtifactRefs.map((item) => item.id),
+                  ...options.case.checks.map((item) => item.id),
+                  "sevro.advisory.response",
+                ]),
+              );
+              for (const artifact of reviewArtifacts) {
+                const path = join(runDir, `trial-${trial}-${artifact.id}.bin`);
+                try {
+                  await writeFile(path, artifact.bytes, {
+                    flag: "wx",
+                    mode: 0o600,
+                  });
+                } catch {
+                  throw new Error(
+                    `trial persistence failed; fixture retained at ${workspace}`,
+                  );
+                }
+                trialArtifactRefs.push({
+                  id: artifact.id,
+                  path: pathToFileURL(path).href,
+                  sha256: sha256(artifact.bytes),
+                });
+              }
+              if (
+                response.finalMessage !== null &&
+                Buffer.byteLength(response.finalMessage, "utf8") <= 64 * 1024
+              ) {
+                const path = join(runDir, `trial-${trial}-advisory.json`);
+                try {
+                  await writeFile(path, response.finalMessage, {
+                    flag: "wx",
+                    mode: 0o600,
+                  });
+                } catch {
+                  throw new Error(
+                    `trial persistence failed; fixture retained at ${workspace}`,
+                  );
+                }
+                advisoryReview.rawResult = {
+                  source: options.advisoryHost.id,
+                  path: pathToFileURL(path).href,
+                  sha256: sha256(response.finalMessage),
+                };
+                trialArtifactRefs.push({
+                  id: "sevro.advisory.response",
+                  path: pathToFileURL(path).href,
+                  sha256: sha256(response.finalMessage),
+                });
+              }
+              if (!response.complete || response.finalMessage === null)
+                throw new Error("advisory response is incomplete");
+              advisoryReview.assessment = parseAdvisoryAssessment(
+                response.finalMessage,
+              );
+              advisoryReview.status = "completed";
+            } catch (error) {
+              if (
+                error instanceof Error &&
+                error.message.startsWith("trial persistence failed")
+              )
+                throw error;
+              advisoryReview.status = "failed";
+            } finally {
+              if (reviewWorkspace) {
+                try {
+                  await rm(reviewWorkspace, { recursive: true, force: true });
+                } catch {
+                  console.warn(
+                    `advisory fixture cleanup failed; retained at ${reviewWorkspace}`,
+                  );
+                }
+              }
+            }
+          }
+        }
         await verifyRetainedArtifacts(trialArtifactRefs);
         const rawPath =
           hostResult?.finalMessage !== null &&
@@ -1238,6 +1419,7 @@ export async function runEvaluation(
                 recommendation: taskPolicyRecommendation,
               }
             : null,
+          advisoryReview,
           routes,
           usage: usage(hostResult),
           rawResult: {

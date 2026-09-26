@@ -197,6 +197,16 @@ export interface BlindAdvisoryOptions {
   excludedPaths?: string[];
 }
 
+/** Capture the candidate fixture's baseline before the host edits it. */
+export async function advisoryBaseRevision(workspace: string): Promise<string> {
+  const revision = (await git(workspace, ["rev-parse", "--verify", "HEAD"]))
+    .toString("utf8")
+    .trim();
+  if (!/^[a-f0-9]{40,64}$/.test(revision))
+    throw new Error("advisory fixture has no valid Git baseline");
+  return revision;
+}
+
 /** Rebuild a condition-blind Git view of the complete candidate change. */
 export async function buildBlindAdvisoryFixture(
   candidateWorkspace: string,

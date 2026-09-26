@@ -459,6 +459,159 @@ test("semantic checks use an isolated grader route and retain verdict evidence",
   expect(failed.result.task.verdict).toBe("failed");
 });
 
+test("advisory review inspects a blind change and cannot alter task grading", async () => {
+  const paths = await rootsForRun();
+  const evalCase = {
+    ...baseCase,
+    fixture: {
+      kind: "generated" as const,
+      commits: [
+        {
+          message: "Add baseline",
+          files: {
+            "app.ts": "export const value = 1;\n",
+            ".agents/condition.txt": "hidden condition\n",
+          },
+        },
+      ],
+    },
+  };
+  const host: HostAdapter = {
+    id: "sevro.host.candidate",
+    model: "candidate-v1",
+    effort: "none",
+    async run({ workspace }) {
+      await writeFile(join(workspace, "app.ts"), "export const value = 2;\n");
+      await writeFile(
+        join(workspace, "new-test.ts"),
+        "test('value', () => {});\n",
+      );
+      return { finalMessage: "ready", complete: true };
+    },
+  };
+  let reviewCalls = 0;
+  const advisoryHost: HostAdapter = {
+    id: "sevro.host.advisory",
+    model: "reviewer-v1",
+    effort: "high",
+    async run({ prompt, workspace }) {
+      reviewCalls++;
+      expect(prompt).toContain("Deterministic checks");
+      expect(await readFile(join(workspace, "app.ts"), "utf8")).toBe(
+        "export const value = 2;\n",
+      );
+      expect(
+        await Bun.file(join(workspace, "new-test.ts")).exists(),
+      ).toBeTrue();
+      expect(
+        await Bun.file(join(workspace, ".agents", "condition.txt")).exists(),
+      ).toBeFalse();
+      return {
+        finalMessage: JSON.stringify({
+          verdict: "fail",
+          overallScore: 2,
+          dimensions: {
+            correctness: 2,
+            maintainability: 3,
+            testQuality: 2,
+            scopeDiscipline: 4,
+          },
+          strengths: ["Small change"],
+          weaknesses: ["Missing validation"],
+          summary: "The implementation has a correctness gap.",
+        }),
+        complete: true,
+        inputTokens: 40,
+        outputTokens: 20,
+        usageComplete: true,
+        artifacts: [
+          { id: "review.trace", bytes: Buffer.from("review trace\n") },
+        ],
+      };
+    },
+  };
+  const options = {
+    ...paths,
+    case: evalCase,
+    host,
+    advisoryHost,
+    runnerBuildDigest: digest,
+    projectDigest: digest,
+    condition: "passive" as const,
+    trialCount: 1,
+    passThreshold: 1,
+  };
+  const passed = await runEvaluation(options);
+  expect(reviewCalls).toBe(1);
+  expect(passed.result.task.verdict).toBe("passed");
+  expect(passed.result.exitCode).toBe(0);
+  const evidence = JSON.parse(
+    await readFile(passed.result.evidencePath, "utf8"),
+  );
+  expect(evidence.routes.map((route: { role: string }) => route.role)).toEqual([
+    "candidate",
+    "advisory",
+  ]);
+  expect(evidence.trials[0].advisoryReview).toMatchObject({
+    status: "completed",
+    assessment: { verdict: "fail", overallScore: 2 },
+    usage: { inputTokens: 40, outputTokens: 20, complete: true },
+  });
+  const raw = evidence.trials[0].advisoryReview.rawResult;
+  expect(await readFile(new URL(raw.path), "utf8")).toContain(
+    '"verdict":"fail"',
+  );
+  const trace = evidence.trials[0].artifactRefs.find(
+    (item: { id: string }) => item.id === "sevro.advisory.review.trace",
+  );
+  expect(await readFile(new URL(trace.path), "utf8")).toBe("review trace\n");
+
+  const malformed = await runEvaluation({
+    ...options,
+    advisoryHost: {
+      ...advisoryHost,
+      async run() {
+        return { finalMessage: "invalid", complete: true };
+      },
+    },
+  });
+  expect(malformed.result.task.verdict).toBe("passed");
+  const failedEvidence = JSON.parse(
+    await readFile(malformed.result.evidencePath, "utf8"),
+  );
+  expect(failedEvidence.trials[0].advisoryReview.status).toBe("failed");
+  expect(failedEvidence.trials[0].advisoryReview.assessment).toBeNull();
+
+  const rejected = await runEvaluation({
+    ...options,
+    advisoryHost: {
+      ...advisoryHost,
+      async run() {
+        throw new Error("private reviewer failure");
+      },
+    },
+  });
+  expect(rejected.result.task.verdict).toBe("passed");
+  const rejectedEvidence = JSON.parse(
+    await readFile(rejected.result.evidencePath, "utf8"),
+  );
+  expect(rejectedEvidence.trials[0].advisoryReview.status).toBe("failed");
+
+  const dry = await runEvaluation({ ...options, dry: true });
+  const dryEvidence = JSON.parse(
+    await readFile(dry.result.evidencePath, "utf8"),
+  );
+  expect(dryEvidence.trials[0].advisoryReview.status).toBe("not_run");
+  expect(reviewCalls).toBe(1);
+
+  await expect(runEvaluation({ ...options, case: baseCase })).rejects.toThrow(
+    /Git fixture/,
+  );
+  await expect(
+    runEvaluation({ ...options, advisoryExcludedPaths: [".git/config"] }),
+  ).rejects.toThrow(/advisory exclusion/);
+});
+
 test("host failure retains completed trials and reports execution failure", async () => {
   const paths = await rootsForRun();
   let call = 0;

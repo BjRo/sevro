@@ -244,6 +244,115 @@
       },
       "additionalProperties": false
     },
+    "advisoryReview": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["status", "assessment", "usage", "rawResult"],
+          "properties": {
+            "status": { "enum": ["completed", "failed", "not_run"] },
+            "assessment": {
+              "oneOf": [
+                { "type": "null" },
+                {
+                  "type": "object",
+                  "required": [
+                    "verdict",
+                    "overallScore",
+                    "dimensions",
+                    "strengths",
+                    "weaknesses",
+                    "summary"
+                  ],
+                  "properties": {
+                    "verdict": { "enum": ["pass", "fail"] },
+                    "overallScore": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 5
+                    },
+                    "dimensions": {
+                      "type": "object",
+                      "required": [
+                        "correctness",
+                        "maintainability",
+                        "testQuality",
+                        "scopeDiscipline"
+                      ],
+                      "properties": {
+                        "correctness": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 5
+                        },
+                        "maintainability": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 5
+                        },
+                        "testQuality": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 5
+                        },
+                        "scopeDiscipline": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 5
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "strengths": {
+                      "type": "array",
+                      "items": { "type": "string" }
+                    },
+                    "weaknesses": {
+                      "type": "array",
+                      "items": { "type": "string" }
+                    },
+                    "summary": { "type": "string", "minLength": 1 }
+                  },
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "usage": {
+              "type": "object",
+              "required": [
+                "inputTokens",
+                "outputTokens",
+                "costUsd",
+                "complete"
+              ],
+              "properties": {
+                "inputTokens": { "type": ["integer", "null"], "minimum": 0 },
+                "outputTokens": { "type": ["integer", "null"], "minimum": 0 },
+                "costUsd": { "type": ["number", "null"], "minimum": 0 },
+                "complete": { "type": "boolean" }
+              },
+              "additionalProperties": false
+            },
+            "rawResult": {
+              "type": "object",
+              "required": ["source", "path", "sha256"],
+              "properties": {
+                "source": { "type": "string", "minLength": 1 },
+                "path": {
+                  "oneOf": [{ "$ref": "#/$defs/fileUrl" }, { "type": "null" }]
+                },
+                "sha256": {
+                  "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }]
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
     "trialEvidence": {
       "type": "object",
       "required": [
@@ -313,6 +422,7 @@
             }
           ]
         },
+        "advisoryReview": { "$ref": "#/$defs/advisoryReview" },
         "routes": { "type": "array", "items": { "$ref": "#/$defs/route" } },
         "usage": {
           "type": "object",

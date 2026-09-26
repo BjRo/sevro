@@ -82,6 +82,11 @@ fails execution and cannot be treated as a matched successful condition.
 When a task-verdict policy is selected, each trial records its recommendation
 separately from the final task verdict. A missing recommendation cannot produce
 a passing assessment.
+An optional advisory review records `completed`, `failed`, or `not_run` with
+its structured assessment, independent usage, and raw-response provenance.
+Its recommendation and any reviewer failure do not change execution, grading,
+task verdict, or exit code. A failure to retain review evidence remains a
+persistence error.
 
 [`identity-v1.md`](identity-v1.md) defines the canonical digest and each
 comparison dimension.

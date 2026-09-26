@@ -17,5 +17,7 @@ bytes. A failed build removes its temporary directory.
 `advisoryPrompt` passes the task and deterministic check facts to a separate
 review host. `parseAdvisoryAssessment` accepts one bounded JSON response with a
 pass or fail recommendation, overall score, four dimension scores, strengths,
-weaknesses, and a summary. The engine does not yet invoke this route. Once it
-does, the assessment must stay separate from the task verdict.
+weaknesses, and a summary. The engine invokes this route when given an
+`advisoryHost` and a Git fixture. It records the route, response, assessment,
+and usage in trial evidence. A reviewer failure or recommendation never
+changes the task verdict. The development CLI does not yet expose this route.
