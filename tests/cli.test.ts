@@ -136,6 +136,30 @@ test("CLI dry run retains preparation without calling the host", async () => {
   );
 });
 
+test("CLI reports unavailable required host evidence", async () => {
+  const { args, caseFile } = await fixture();
+  const definition = JSON.parse(await readFile(caseFile, "utf8"));
+  definition.requiredEvidence = ["darrow.activation"];
+  await writeFile(caseFile, JSON.stringify(definition));
+  const missing = await invoke(args);
+  expect(missing.code).toBe(4);
+  expect(missing.result).toMatchObject({
+    execution: { status: "completed" },
+    grading: { status: "unavailable" },
+    task: { verdict: "not_assessed" },
+  });
+  const complete = await invoke(args, "observation");
+  expect(complete.code).toBe(0);
+  const evidence = JSON.parse(
+    await readFile(complete.result.evidencePath, "utf8"),
+  );
+  expect(evidence.trials[0].observations[1]).toMatchObject({
+    id: "darrow.activation",
+    source: "sevro.host.synthetic",
+    completeness: "complete",
+  });
+});
+
 test("CLI resolves an explicit extension case and retains extension evidence", async () => {
   const { args, caseFile } = await fixture();
   const commandFile = join(caseFile, "..", "extension-command.json");

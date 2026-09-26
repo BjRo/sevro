@@ -82,6 +82,10 @@ additional source worktree or private root. The engine always protects the
 selected project, results, runner source, user home, configured host homes,
 and active peer fixtures. Shell checks require macOS `sandbox-exec` in this
 development slice.
+Injected host adapters may return namespaced observations. A case can list
+their IDs in `requiredEvidence`; missing or partial observations produce
+unavailable grading rather than a passing task. The runner retains bounded
+observations and sends them to extension grading.
 
 `--json` writes exactly one versioned result to stdout, including pre-run
 configuration failures. The process exit code follows `docs/results-v1.md`.

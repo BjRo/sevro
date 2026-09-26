@@ -47,7 +47,10 @@ const result = scenario.startsWith("lifecycle")
                 configuration: {},
               },
             ],
-            requiredEvidence: [],
+            requiredEvidence:
+              scenario === "lifecycle-host-observation"
+                ? ["darrow.activation"]
+                : [],
             extensionData: { "example.extension": { marker: "resolved" } },
           },
         ],
@@ -92,7 +95,9 @@ const result = scenario.startsWith("lifecycle")
                       evidenceRefs:
                         scenario === "lifecycle-empty-evidence"
                           ? []
-                          : ["sevro.observation.final-message"],
+                          : scenario === "lifecycle-host-observation"
+                            ? ["darrow.activation"]
+                            : ["sevro.observation.final-message"],
                     },
                   ],
             metrics: [

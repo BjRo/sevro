@@ -58,6 +58,17 @@ async function runWithExtension(
         finalMessage: "ready",
         complete: true,
         actualCondition: "passive",
+        ...(scenario === "lifecycle-host-observation"
+          ? {
+              observations: [
+                {
+                  id: "darrow.activation",
+                  completeness: "complete" as const,
+                  data: { selected: "darrow.tdd" },
+                },
+              ],
+            }
+          : {}),
       };
     },
   };
@@ -116,6 +127,21 @@ test("extension checks add to built-ins and retain negotiated provenance", async
   expect(
     evidence.graders.active.map((grader: { id: string }) => grader.id),
   ).toEqual(["sevro.regex", "example.extension"]);
+});
+
+test("extension grading receives complete host observations", async () => {
+  const { outcome, evidence } = await runWithExtension(
+    "lifecycle-host-observation",
+  );
+  expect(outcome.result.task.verdict).toBe("passed");
+  expect(outcome.result.cases[0]?.trials[0]?.checks[1]?.evidenceRefs).toEqual([
+    "darrow.activation",
+  ]);
+  expect(evidence.trials[0].observations[1]).toMatchObject({
+    id: "darrow.activation",
+    completeness: "complete",
+    data: { selected: "darrow.tdd" },
+  });
 });
 
 test("extension grading error cannot become a passing task", async () => {

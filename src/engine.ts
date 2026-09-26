@@ -22,7 +22,7 @@ import {
   type ShellCheckDeclaration,
 } from "./graders/shell";
 import { evaluationProtectedRoots } from "./hosts/isolation-roots";
-import { createEvaluationIdentity, hashJson } from "./identity";
+import { canonicalJson, createEvaluationIdentity, hashJson } from "./identity";
 import {
   fixtureParts,
   prepareArtifacts,
@@ -56,6 +56,11 @@ export class EvaluationConfigurationError extends Error {
 export interface HostResult {
   finalMessage: string | null;
   complete: boolean;
+  observations?: {
+    id: string;
+    completeness: "complete" | "partial" | "unavailable";
+    data: Record<string, unknown>;
+  }[];
   actualCondition?: "passive" | "enforced" | "unknown";
   inputTokens?: number | null;
   outputTokens?: number | null;
@@ -159,6 +164,36 @@ function sha256(content: string | Uint8Array): string {
   return createHash("sha256").update(content).digest("hex");
 }
 
+function hostObservations(result: HostResult, hostId: string) {
+  const items = result.observations ?? [];
+  if (items.length > 128) throw new Error("too many host observations");
+  const ids = new Set(["sevro.observation.final-message"]);
+  let totalBytes = 0;
+  return items.map((item) => {
+    if (
+      !/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$/.test(item.id) ||
+      item.id.startsWith("sevro.observation.") ||
+      ids.has(item.id) ||
+      !["complete", "partial", "unavailable"].includes(item.completeness) ||
+      !item.data ||
+      typeof item.data !== "object" ||
+      Array.isArray(item.data)
+    )
+      throw new Error("invalid host observation");
+    ids.add(item.id);
+    const data = canonicalJson(item.data);
+    totalBytes += Buffer.byteLength(data, "utf8");
+    if (totalBytes > 8 * 1024 * 1024)
+      throw new Error("host observations exceed 8 MiB");
+    return {
+      id: item.id,
+      source: hostId,
+      completeness: item.completeness,
+      data: JSON.parse(data) as Record<string, unknown>,
+    };
+  });
+}
+
 async function verifyRetainedArtifacts(
   artifacts: { path: string; sha256: string }[],
 ): Promise<void> {
@@ -217,10 +252,14 @@ export async function runEvaluation(
     throw new EvaluationConfigurationError(
       "pass threshold must be greater than zero and at most one",
     );
-  if (options.case.requiredEvidence.length)
-    throw new EvaluationConfigurationError(
-      "required host evidence is not supported by this engine path",
-    );
+  if (
+    new Set(options.case.requiredEvidence).size !==
+      options.case.requiredEvidence.length ||
+    options.case.requiredEvidence.some(
+      (id) => !/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$/.test(id),
+    )
+  )
+    throw new EvaluationConfigurationError("invalid required evidence IDs");
   if (options.extension?.session.identity.selectedTaskVerdictPolicy)
     throw new EvaluationConfigurationError(
       "extension task policy replacement is not supported by this engine path",
@@ -471,6 +510,7 @@ export async function runEvaluation(
       let persisted = false;
       try {
         let hostResult: HostResult | null = null;
+        let additionalObservations: ReturnType<typeof hostObservations> = [];
         let execution: "completed" | "failed" | "cancelled" | "not_run" =
           options.dry ? "not_run" : "completed";
         if (!options.dry) {
@@ -489,6 +529,10 @@ export async function runEvaluation(
                 MAX_FINAL_MESSAGE_BYTES
             )
               throw new Error("oversized host result");
+            additionalObservations = hostObservations(
+              hostResult,
+              options.host.id,
+            );
           } catch {
             execution = options.signal?.aborted ? "cancelled" : "failed";
             hostResult = null;
@@ -628,6 +672,7 @@ export async function runEvaluation(
                   },
                 },
                 ...shellObservations,
+                ...additionalObservations,
               ],
               builtinChecks: checks.map((check) => ({
                 id: check.id,
@@ -674,6 +719,16 @@ export async function runEvaluation(
           declaredChecks: options.case.checks.map((check) => check.id),
           checks,
           graderError,
+          requiredEvidenceUnavailable: options.case.requiredEvidence.some(
+            (id) =>
+              ![
+                observation,
+                ...shellObservations,
+                ...additionalObservations,
+              ].some(
+                (item) => item.id === id && item.completeness === "complete",
+              ),
+          ),
         });
         await verifyRetainedArtifacts(artifactRefs);
         const rawPath =
@@ -703,7 +758,11 @@ export async function runEvaluation(
             appliedInstrumentation: [],
           },
           observationCompleteness: completeness,
-          observations: [observation, ...shellObservations],
+          observations: [
+            observation,
+            ...shellObservations,
+            ...additionalObservations,
+          ],
           metrics: extensionMetrics,
           routes: [route],
           usage: usage(hostResult),

@@ -16,6 +16,17 @@ const host: HostAdapter = {
       outputTokens: null,
       costUsd: null,
       usageComplete: false,
+      ...(process.env.SEVRO_TEST_SCENARIO === "observation"
+        ? {
+            observations: [
+              {
+                id: "darrow.activation",
+                completeness: "complete" as const,
+                data: { selected: "darrow.tdd" },
+              },
+            ],
+          }
+        : {}),
     };
   },
 };

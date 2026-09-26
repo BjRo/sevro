@@ -101,6 +101,9 @@ return a task-verdict recommendation only when an explicitly configured
 task-verdict policy names that extension policy. The engine computes the final
 verdict and cannot let that recommendation conceal execution failure, grader
 error, or unavailable required evidence.
+Host adapters can supply additional namespaced observations. The engine bounds
+and retains those records, then passes them to `evaluate`. Required observation
+IDs must be present with `complete` evidence before a task can pass.
 
 The methods are stateless. Every request carries the configuration and prior
 extension data it needs. The runner verifies extension identity and source

@@ -42,9 +42,12 @@ cancelled trial, finalizes the active attempt as `interrupted`, and exits 130
 or 143 after writing run evidence. An adapter that ignores cancellation cannot
 be force-stopped by the injected-host interface.
 
-This slice accepts output checks with no additional required host evidence.
-It also accepts shell checks when the caller explicitly supplies protected
-source roots. They run through the macOS outer sandbox after host execution,
+The host can return bounded, namespaced observations alongside its final
+message. The engine retains them and sends them to extension grading. A required
+observation that is absent or incomplete makes grading unavailable; malformed
+host observations fail execution. The engine also accepts shell checks when the
+caller explicitly supplies protected source roots. They run through the macOS
+outer sandbox after host execution,
 and their exit observations are retained with the trial. An unavailable
 boundary produces a grading error rather than a passing check.
 An optional negotiated extension can add declared checks. The engine calls its
@@ -57,8 +60,8 @@ against their SHA-256 digests, mounted into each fixture, and retained outside
 it for later inspection. Source-reference artifacts resolve only through a
 caller-declared ID-to-file-URL map under an explicit case source root. Their
 bytes receive the same size, path, and digest checks before mounting and
-retention. Instrumentation, task-policy replacement, and other host evidence
-remain unsupported and are rejected before execution.
+retention. Instrumentation and task-policy replacement remain unsupported and
+are rejected before execution.
 
 The future host adapters must provide fixture isolation, credential
 protection, and verified condition observations before the CLI can expose

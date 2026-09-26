@@ -156,6 +156,110 @@ test("dry preparation records every trial without executing the host", async () 
   );
 });
 
+test("required host observations fail closed when missing or incomplete", async () => {
+  const paths = await rootsForRun();
+  const evalCase = {
+    ...baseCase,
+    requiredEvidence: ["darrow.activation"],
+  };
+  const host: HostAdapter = {
+    id: "sevro.host.synthetic",
+    model: "synthetic-v1",
+    effort: "none",
+    async run() {
+      return {
+        finalMessage: "ready",
+        complete: true,
+        observations: [
+          {
+            id: "darrow.activation",
+            completeness: "complete" as const,
+            data: { selected: "darrow.tdd" },
+          },
+        ],
+      };
+    },
+  };
+  const options = {
+    ...paths,
+    case: evalCase,
+    host,
+    runnerBuildDigest: digest,
+    projectDigest: digest,
+    condition: "passive" as const,
+    trialCount: 1,
+    passThreshold: 1,
+  };
+  const passed = await runEvaluation(options);
+  expect(passed.result.task.verdict).toBe("passed");
+  const evidence = JSON.parse(
+    await readFile(passed.result.evidencePath, "utf8"),
+  );
+  expect(evidence.trials[0].observations[1]).toMatchObject({
+    id: "darrow.activation",
+    source: host.id,
+    completeness: "complete",
+  });
+
+  const missing = await runEvaluation({
+    ...options,
+    host: {
+      ...host,
+      async run() {
+        return { finalMessage: "ready", complete: true };
+      },
+    },
+  });
+  expect(missing.result).toMatchObject({
+    execution: { status: "completed" },
+    grading: { status: "unavailable" },
+    task: { verdict: "not_assessed" },
+    exitCode: 4,
+  });
+  const partial = await runEvaluation({
+    ...options,
+    host: {
+      ...host,
+      async run() {
+        return {
+          finalMessage: "ready",
+          complete: true,
+          observations: [
+            {
+              id: "darrow.activation",
+              completeness: "partial" as const,
+              data: {},
+            },
+          ],
+        };
+      },
+    },
+  });
+  expect(partial.result.exitCode).toBe(4);
+
+  const invalid = await runEvaluation({
+    ...options,
+    host: {
+      ...host,
+      async run() {
+        return {
+          finalMessage: "ready",
+          complete: true,
+          observations: [
+            {
+              id: "sevro.observation.final-message",
+              completeness: "complete" as const,
+              data: {},
+            },
+          ],
+        };
+      },
+    },
+  });
+  expect(invalid.result.execution.status).toBe("failed");
+  expect(invalid.result.task.verdict).toBe("not_assessed");
+});
+
 test("host failure retains completed trials and reports execution failure", async () => {
   const paths = await rootsForRun();
   let call = 0;
@@ -433,7 +537,7 @@ test("rejects fixture paths that could escape their workspace", async () => {
   await expect(
     runEvaluation({
       ...paths,
-      case: { ...baseCase, requiredEvidence: ["sevro.host.trace"] },
+      case: { ...baseCase, requiredEvidence: ["invalid"] },
       host,
       runnerBuildDigest: digest,
       projectDigest: digest,
@@ -441,7 +545,7 @@ test("rejects fixture paths that could escape their workspace", async () => {
       trialCount: 1,
       passThreshold: 1,
     }),
-  ).rejects.toThrow(/required host evidence/);
+  ).rejects.toThrow(/invalid required evidence IDs/);
 });
 
 test("shell checks grade fixture effects and retain exit observations", async () => {
