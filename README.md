@@ -23,3 +23,6 @@ category.
 [`identity.ts`](src/identity.ts) computes versioned comparison identities from
 canonical JSON. The [identity contract](docs/identity-v1.md) defines the input
 dimensions.
+
+The [built-in output graders](docs/builtin-graders-v1.md) evaluate regex, JSON,
+and inline schema assertions on bounded final-message observations.

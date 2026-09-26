@@ -7,6 +7,7 @@ export interface CheckOutcome {
   id: string;
   grader: string;
   status: "passed" | "failed" | "unavailable";
+  detail?: string;
 }
 
 export interface Assessment {
