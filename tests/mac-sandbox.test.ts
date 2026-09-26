@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -75,12 +75,52 @@ test("workspace cannot overlap a protected root", async () => {
   try {
     await expect(
       prepareMacSandboxCommand({
-        argv: ["/bin/true"],
+        argv: ["/usr/bin/true"],
         workspace: root,
         protectedRoots: [root],
         privateStateRoot: join(root, "state"),
       }),
     ).rejects.toThrow(/candidate workspace/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a verified peer path remains denied after its fixture is removed", async () => {
+  if (process.platform !== "darwin") return;
+  const root = await mkdtemp(join(tmpdir(), "sevro-sandbox-removed-peer-"));
+  const workspace = join(root, "workspace");
+  const peer = join(root, "peer");
+  try {
+    await Bun.write(join(workspace, "visible.txt"), "visible");
+    await Bun.write(join(peer, "temporary.txt"), "peer");
+    const canonicalPeer = await realpath(peer);
+    await rm(peer, { recursive: true });
+    await expect(
+      prepareMacSandboxCommand({
+        argv: ["/bin/true"],
+        workspace,
+        protectedRoots: [canonicalPeer],
+        privateStateRoot: join(root, "state"),
+      }),
+    ).rejects.toThrow();
+    const command = await prepareMacSandboxCommand({
+      argv: ["/usr/bin/true"],
+      workspace,
+      protectedRoots: [canonicalPeer],
+      protectedRootsCanonical: true,
+      privateStateRoot: join(root, "state"),
+    });
+    const proc = Bun.spawn(command.argv, {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [stderr, code] = await Promise.all([
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ]);
+    expect(code, stderr).toBe(0);
+    await command.release();
   } finally {
     await rm(root, { recursive: true, force: true });
   }

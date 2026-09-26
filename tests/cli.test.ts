@@ -181,6 +181,64 @@ test("CLI accepts an independent run-state root", async () => {
   expect(invalid.code).toBe(64);
 });
 
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  test(`CLI ${signal} cancels host work and retains interruption evidence`, async () => {
+    const { args, caseFile } = await fixture();
+    const projectRoot = join(caseFile, "..");
+    const ready = join(projectRoot, "host-ready");
+    const waitingAdapter = join(projectRoot, "waiting-adapter.ts");
+    await writeFile(
+      waitingAdapter,
+      `import { writeFile } from "node:fs/promises";
+export default {
+  id: "synthetic", model: "synthetic-v1", effort: "none",
+  async run({ signal }) {
+    await writeFile(${JSON.stringify(ready)}, "ready");
+    return new Promise((_resolve, reject) => {
+      signal.addEventListener("abort", () => reject(new Error("cancelled")), { once: true });
+    });
+  },
+};
+`,
+    );
+    const command = args.map((value, index) =>
+      args[index - 1] === "--adapter-module" ? waitingAdapter : value,
+    );
+    const proc = Bun.spawn(command, {
+      stdout: "pipe",
+      stderr: "pipe",
+      env: { ...process.env },
+    });
+    try {
+      const deadline = Date.now() + 5000;
+      while (!(await Bun.file(ready).exists())) {
+        if (Date.now() > deadline) throw new Error("host did not start");
+        await Bun.sleep(20);
+      }
+      proc.kill(signal);
+      const [stdout, code] = await Promise.all([
+        new Response(proc.stdout).text(),
+        proc.exited,
+      ]);
+      expect(code).toBe(signal === "SIGINT" ? 130 : 143);
+      const result = JSON.parse(stdout);
+      expect(result.execution.status).toBe("cancelled");
+      expect(result.exitCode).toBe(signal === "SIGINT" ? 130 : 143);
+      const active = JSON.parse(
+        await readFile(
+          join(projectRoot, "results", "active", `${result.runId}.json`),
+          "utf8",
+        ),
+      );
+      expect(active.status).toBe("interrupted");
+      expect(await Bun.file(result.evidencePath).exists()).toBeTrue();
+    } finally {
+      proc.kill("SIGKILL");
+      await proc.exited;
+    }
+  });
+}
+
 test("CLI runs its bundled Codex route with explicit auth and model", async () => {
   const installedCodex = Bun.which("codex");
   if (process.platform !== "darwin" || !installedCodex) return;

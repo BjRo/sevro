@@ -453,7 +453,7 @@ export async function runEvaluation(
     }
 
     const trialEvidence: Record<string, unknown>[] = [];
-    function saveState(status: "active" | "complete"): void {
+    function saveState(status: "active" | "complete" | "interrupted"): void {
       const completedTrials = trialSummaries.map((trial) => ({
         trial: trial.trial,
         artifactPath: trial.artifactPath,
@@ -478,6 +478,7 @@ export async function runEvaluation(
             condition: options.condition,
             signal: options.signal,
           });
+          if (options.signal?.aborted) throw new Error("cancelled");
           if (
             hostResult.finalMessage !== null &&
             Buffer.byteLength(hostResult.finalMessage, "utf8") >
@@ -488,8 +489,14 @@ export async function runEvaluation(
           execution = options.signal?.aborted ? "cancelled" : "failed";
           hostResult = null;
           diagnostic = {
-            code: "sevro.host.failed",
-            message: "host execution did not complete",
+            code:
+              execution === "cancelled"
+                ? "sevro.run.cancelled"
+                : "sevro.host.failed",
+            message:
+              execution === "cancelled"
+                ? "run cancelled"
+                : "host execution did not complete",
           };
         }
         await verifyRetainedArtifacts(artifactRefs);
@@ -563,6 +570,7 @@ export async function runEvaluation(
               const exitCode = await runShellCheck(check, {
                 workspace,
                 protectedRoots,
+                protectedRootsCanonical: true,
                 privateStateRoot: join(stateDir, "shell-sandbox"),
                 signal: options.signal,
               });
@@ -583,14 +591,22 @@ export async function runEvaluation(
               });
             }
           } catch {
-            graderError = true;
-            diagnostic = {
-              code: "sevro.grader.error",
-              message: "shell grading did not complete",
-            };
+            if (options.signal?.aborted) {
+              execution = "cancelled";
+              diagnostic = {
+                code: "sevro.run.cancelled",
+                message: "run cancelled",
+              };
+            } else {
+              graderError = true;
+              diagnostic = {
+                code: "sevro.grader.error",
+                message: "shell grading did not complete",
+              };
+            }
           }
         }
-        if (options.extension && !graderError) {
+        if (options.extension && !graderError && execution !== "cancelled") {
           try {
             const extensionResult = await options.extension.session.evaluate({
               caseId: options.case.id,
@@ -633,11 +649,19 @@ export async function runEvaluation(
             );
             extensionMetrics = extensionResult.metrics;
           } catch {
-            graderError = true;
-            diagnostic = {
-              code: "sevro.grader.error",
-              message: "extension grading did not complete",
-            };
+            if (options.signal?.aborted) {
+              execution = "cancelled";
+              diagnostic = {
+                code: "sevro.run.cancelled",
+                message: "run cancelled",
+              };
+            } else {
+              graderError = true;
+              diagnostic = {
+                code: "sevro.grader.error",
+                message: "extension grading did not complete",
+              };
+            }
           }
         }
         const assessment = assessTrial({
@@ -731,11 +755,17 @@ export async function runEvaluation(
       trials: trialSummaries,
     };
     const runAssessment = summarizeCases([caseResult]);
+    const signalReason = options.signal?.aborted ? options.signal.reason : null;
     const result: CliResult = {
       format: "sevro.cli-result.v1",
       runId,
       ...runAssessment,
-      exitCode: exitCodeFor(runAssessment),
+      exitCode: exitCodeFor(runAssessment, {
+        signal:
+          signalReason === "SIGINT" || signalReason === "SIGTERM"
+            ? signalReason
+            : undefined,
+      }),
       evidencePath,
       cases: [caseResult],
     };
@@ -783,7 +813,7 @@ export async function runEvaluation(
     assertCliResult(result);
     assertRunEvidence(runEvidence);
     await atomicWriteJson(evidencePath, runEvidence);
-    saveState("complete");
+    saveState(options.signal?.aborted ? "interrupted" : "complete");
     return { result };
   } catch (error) {
     try {

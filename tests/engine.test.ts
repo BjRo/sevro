@@ -191,6 +191,67 @@ test("engine refuses an equivalent live run before a second host starts", async 
   expect((await first).result.exitCode).toBe(0);
 });
 
+test("cancellation retains prior trial evidence and finalizes interruption", async () => {
+  const paths = await rootsForRun();
+  const controller = new AbortController();
+  let waiting: (() => void) | undefined;
+  const secondStarted = new Promise<void>((resolve) => {
+    waiting = resolve;
+  });
+  let calls = 0;
+  const host: HostAdapter = {
+    id: "sevro.host.synthetic",
+    model: "synthetic-v1",
+    effort: "none",
+    async run({ signal }) {
+      calls++;
+      if (calls === 1) return { finalMessage: "ready", complete: true };
+      waiting?.();
+      return new Promise((_resolve, reject) => {
+        signal?.addEventListener(
+          "abort",
+          () => reject(new Error("cancelled")),
+          { once: true },
+        );
+      });
+    },
+  };
+  const running = runEvaluation({
+    ...paths,
+    case: baseCase,
+    host,
+    runnerBuildDigest: digest,
+    projectDigest: digest,
+    condition: "passive",
+    trialCount: 2,
+    passThreshold: 1,
+    signal: controller.signal,
+  });
+  await Promise.race([
+    secondStarted,
+    Bun.sleep(5000).then(() => {
+      throw new Error("second trial did not start");
+    }),
+  ]);
+  controller.abort("SIGTERM");
+  const outcome = await running;
+  expect(outcome.result.exitCode).toBe(143);
+  expect(outcome.result.execution.status).toBe("cancelled");
+  expect(outcome.result.cases[0]?.trials).toHaveLength(2);
+  expect(outcome.result.cases[0]?.trials[0]?.task.verdict).toBe("passed");
+  const active = JSON.parse(
+    await readFile(
+      join(paths.resultsRoot, "active", `${outcome.result.runId}.json`),
+      "utf8",
+    ),
+  );
+  expect(active.status).toBe("interrupted");
+  expect(active.completedTrials).toHaveLength(2);
+  expect(
+    existsSync(outcome.result.cases[0]!.trials[0]!.artifactPath),
+  ).toBeTrue();
+});
+
 test("stores checkpoints apart from results and hides run state from shell checks", async () => {
   if (process.platform !== "darwin") return;
   const paths = await rootsForRun();

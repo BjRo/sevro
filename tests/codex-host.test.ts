@@ -45,7 +45,7 @@ printf '%s\\n' "$@" > "$workspace/argv.txt"
 if [ -n "\${OPENAI_API_KEY:-}" ]; then exit 97; fi
 /bin/cat > "$workspace/prompt.txt"
 if [ -f "$workspace/malformed.flag" ]; then printf '{broken\\n'; exit 0; fi
-if [ -f "$workspace/slow.flag" ]; then /bin/sleep 10; fi
+if [ -f "$workspace/slow.flag" ]; then printf '%s' "$$" > "$workspace/child.pid"; /bin/sleep 10; fi
 printf 'created\\n' > "$workspace/created.txt"
 printf '%s\\n' '{"type":"thread.started","thread_id":"thread-1"}'
 printf '%s\\n' '{"type":"item.completed","item":{"type":"agent_message","text":"ready"}}'
@@ -174,6 +174,44 @@ test("Codex host terminates a timed out turn", async () => {
   await expect(
     host.run({ prompt: "ready", workspace, condition: "passive" }),
   ).rejects.toThrow(/timed out/);
+});
+
+test("Codex host kills its process group when cancelled", async () => {
+  const installedCodex = Bun.which("codex");
+  if (process.platform !== "darwin" || !installedCodex) return;
+  const paths = await fixture();
+  const workspace = await mkdtemp(
+    join(tmpdir(), "sevro-case-codex-cancelled-"),
+  );
+  roots.push(workspace);
+  await writeFile(join(workspace, "slow.flag"), "");
+  const controller = new AbortController();
+  const host = createCodexHost({
+    binary: paths.fakeBinary,
+    sandboxBinary: installedCodex,
+    authFile: paths.authFile,
+    model: "synthetic-codex",
+    effort: "low",
+    projectRoot: paths.projectRoot,
+    resultsRoot: paths.resultsRoot,
+    additionalProtectedRoots: [],
+  });
+  const running = host.run({
+    prompt: "ready",
+    workspace,
+    condition: "passive",
+    signal: controller.signal,
+  });
+  const pidPath = join(workspace, "child.pid");
+  const deadline = Date.now() + 5000;
+  while (!(await Bun.file(pidPath).exists())) {
+    if (Date.now() > deadline) throw new Error("Codex child did not start");
+    await Bun.sleep(20);
+  }
+  const pid = Number(await readFile(pidPath, "utf8"));
+  controller.abort();
+  await expect(running).rejects.toThrow(/cancelled/);
+  expect(() => process.kill(pid, 0)).toThrow();
 });
 
 test("Codex host refuses an executable inside a protected project", async () => {

@@ -80,6 +80,7 @@ export async function runShellCheck(
   options: {
     workspace: string;
     protectedRoots: string[];
+    protectedRootsCanonical?: boolean;
     privateStateRoot: string;
     signal?: AbortSignal;
   },
@@ -95,6 +96,7 @@ export async function runShellCheck(
     argv: ["/bin/sh", "-c", check.run],
     workspace: options.workspace,
     protectedRoots: options.protectedRoots,
+    protectedRootsCanonical: options.protectedRootsCanonical,
     privateStateRoot: options.privateStateRoot,
     denyNetwork: true,
   });

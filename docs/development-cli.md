@@ -60,3 +60,5 @@ Use `--run-state-root /absolute/path/state` to keep active records and trial
 checkpoints separate from results; it defaults to `--results-root`. Shell
 grading and the bundled Codex route protect this state root from candidate
 commands.
+SIGINT and SIGTERM request cancellation, retain completed trial evidence, and
+return exit codes 130 and 143 respectively after interruption is recorded.

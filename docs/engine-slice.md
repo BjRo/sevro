@@ -32,6 +32,11 @@ The active record reaches `complete` only after final run evidence is written.
 Process identity includes the PID, host, and operating-system start time to
 protect against PID reuse. If start time cannot be verified, the run stops
 before host execution.
+The CLI passes SIGINT and SIGTERM through an abort signal. A cooperating host
+stops its work; the engine retains completed trial artifacts, records the
+cancelled trial, finalizes the active attempt as `interrupted`, and exits 130
+or 143 after writing run evidence. An adapter that ignores cancellation cannot
+be force-stopped by the injected-host interface.
 
 This slice accepts output checks with no additional required host evidence.
 It also accepts shell checks when the caller explicitly supplies protected

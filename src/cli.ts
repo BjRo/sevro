@@ -249,6 +249,11 @@ async function main(argv: string[]): Promise<void> {
     process.exitCode = 64;
     return;
   }
+  const cancellation = new AbortController();
+  const interrupt = () => cancellation.abort("SIGINT");
+  const terminate = () => cancellation.abort("SIGTERM");
+  process.on("SIGINT", interrupt);
+  process.on("SIGTERM", terminate);
   try {
     const { result } = await runEvaluation({
       projectRoot: invocation.projectRoot,
@@ -262,6 +267,7 @@ async function main(argv: string[]): Promise<void> {
       condition: invocation.condition,
       trialCount: invocation.trialCount,
       passThreshold: invocation.passThreshold,
+      signal: cancellation.signal,
     });
     display(result, invocation.json);
     process.exitCode = result.exitCode;
@@ -271,6 +277,9 @@ async function main(argv: string[]): Promise<void> {
     const result = failure(code, message);
     display(result, invocation.json);
     process.exitCode = code;
+  } finally {
+    process.off("SIGINT", interrupt);
+    process.off("SIGTERM", terminate);
   }
 }
 

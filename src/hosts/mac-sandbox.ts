@@ -57,6 +57,7 @@ export async function prepareMacSandboxCommand(options: {
   argv: string[];
   workspace: string;
   protectedRoots: string[];
+  protectedRootsCanonical?: boolean;
   privateStateRoot: string;
   denyNetwork?: boolean;
 }): Promise<IsolatedCommand> {
@@ -73,9 +74,9 @@ export async function prepareMacSandboxCommand(options: {
   )
     throw new HostIsolationError("isolation paths must be absolute");
   const workspace = await realpath(options.workspace);
-  const roots = await Promise.all(
-    options.protectedRoots.map((path) => realpath(path)),
-  );
+  const roots = options.protectedRootsCanonical
+    ? options.protectedRoots
+    : await Promise.all(options.protectedRoots.map((path) => realpath(path)));
   await mkdir(options.privateStateRoot, { recursive: true, mode: 0o700 });
   const stateRoot = await realpath(options.privateStateRoot);
   if (
