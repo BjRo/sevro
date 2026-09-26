@@ -30,6 +30,13 @@ import {
 import { evaluationProtectedRoots } from "./hosts/isolation-roots";
 import { canonicalJson, createEvaluationIdentity, hashJson } from "./identity";
 import {
+  InstrumentationEvidenceError,
+  prepareInstrumentation,
+  verifyAppliedInstrumentation,
+  type InstrumentationCapability,
+  type InstrumentationRequest,
+} from "./instrumentation";
+import {
   fixtureParts,
   prepareArtifacts,
   type InlineArtifact,
@@ -75,6 +82,7 @@ export interface HostResult {
     data: Record<string, unknown>;
   }[];
   actualCondition?: "passive" | "enforced" | "unknown";
+  appliedInstrumentation?: InstrumentationRequest[];
   inputTokens?: number | null;
   outputTokens?: number | null;
   costUsd?: number | null;
@@ -85,10 +93,12 @@ export interface HostAdapter {
   id: string;
   model: string;
   effort: string;
+  instrumentation?: InstrumentationCapability[];
   run(request: {
     prompt: string;
     workspace: string;
     condition: "passive" | "enforced";
+    instrumentation?: InstrumentationRequest[];
     signal?: AbortSignal;
   }): Promise<HostResult>;
 }
@@ -482,14 +492,28 @@ export async function runEvaluation(
   const extensionPreparation = options.extension
     ? await options.extension.session.prepare(
         options.extension.resolvedCase,
-        { id: options.host.id, capabilities: [] },
+        {
+          id: options.host.id,
+          capabilities: (options.host.instrumentation ?? []).map(
+            (item) => item.id,
+          ),
+        },
         options.condition,
       )
     : null;
-  if (extensionPreparation?.requestedInstrumentation.length)
-    throw new EvaluationConfigurationError(
-      "extension preparation requested unsupported instrumentation",
+  let requestedInstrumentation: InstrumentationRequest[];
+  try {
+    requestedInstrumentation = prepareInstrumentation(
+      extensionPreparation?.requestedInstrumentation ?? [],
+      options.host.instrumentation ?? [],
+      options.extension?.session.identity.capabilities ?? [],
+      options.condition,
     );
+  } catch (error) {
+    throw new EvaluationConfigurationError(
+      error instanceof Error ? error.message : "invalid instrumentation",
+    );
+  }
   let inlineArtifacts: InlineArtifact[];
   try {
     inlineArtifacts = await prepareArtifacts(
@@ -611,7 +635,10 @@ export async function runEvaluation(
         extensionData,
       }),
       graderDigest: hashJson(activeGraders),
-      instrumentationDigest: hashJson({ requested: [], applied: [] }),
+      instrumentationDigest: hashJson({
+        requested: requestedInstrumentation,
+        applied: requestedInstrumentation,
+      }),
       routeDigest: hashJson(preparedSemantic.length ? routes : route),
       condition: options.condition,
       trialCount: options.trialCount,
@@ -691,6 +718,7 @@ export async function runEvaluation(
       let persisted = false;
       try {
         let hostResult: HostResult | null = null;
+        let appliedInstrumentation: InstrumentationRequest[] = [];
         let additionalObservations: ReturnType<typeof hostObservations> = [];
         let producedArtifacts: ReturnType<typeof hostArtifacts> = [];
         let execution: "completed" | "failed" | "cancelled" | "not_run" =
@@ -702,9 +730,16 @@ export async function runEvaluation(
               prompt: options.case.prompt,
               workspace,
               condition: options.condition,
+              instrumentation: requestedInstrumentation,
               signal: options.signal,
             });
             if (options.signal?.aborted) throw new Error("cancelled");
+            appliedInstrumentation = verifyAppliedInstrumentation(
+              requestedInstrumentation,
+              hostResult.appliedInstrumentation,
+              options.condition,
+              hostResult.actualCondition,
+            );
             if (
               hostResult.finalMessage !== null &&
               Buffer.byteLength(hostResult.finalMessage, "utf8") >
@@ -732,18 +767,22 @@ export async function runEvaluation(
                 ...(preparedSemantic.length ? ["sevro.semantic.verdicts"] : []),
               ]),
             );
-          } catch {
+          } catch (error) {
             execution = options.signal?.aborted ? "cancelled" : "failed";
             hostResult = null;
             diagnostic = {
               code:
                 execution === "cancelled"
                   ? "sevro.run.cancelled"
-                  : "sevro.host.failed",
+                  : error instanceof InstrumentationEvidenceError
+                    ? "sevro.instrumentation.mismatch"
+                    : "sevro.host.failed",
               message:
                 execution === "cancelled"
                   ? "run cancelled"
-                  : "host execution did not complete",
+                  : error instanceof InstrumentationEvidenceError
+                    ? error.message
+                    : "host execution did not complete",
             };
           }
         }
@@ -1143,7 +1182,7 @@ export async function runEvaluation(
           condition: {
             requested: options.condition,
             actual: hostResult?.actualCondition ?? "unknown",
-            appliedInstrumentation: [],
+            appliedInstrumentation,
           },
           observationCompleteness: completeness,
           observations: [
@@ -1242,6 +1281,20 @@ export async function runEvaluation(
         ),
       ),
     ];
+    const commonAppliedInstrumentation =
+      trialEvidence.length === options.trialCount &&
+      trialEvidence.every(
+        (entry) =>
+          canonicalJson(
+            (
+              entry.condition as {
+                appliedInstrumentation: InstrumentationRequest[];
+              }
+            ).appliedInstrumentation,
+          ) === canonicalJson(requestedInstrumentation),
+      )
+        ? requestedInstrumentation
+        : [];
     const runEvidence = {
       format: "sevro.run-evidence.v1",
       runId,
@@ -1271,8 +1324,8 @@ export async function runEvaluation(
       condition: {
         requested: options.condition,
         actual: actualConditions.length === 1 ? actualConditions[0] : "unknown",
-        requestedInstrumentation: [],
-        appliedInstrumentation: [],
+        requestedInstrumentation,
+        appliedInstrumentation: commonAppliedInstrumentation,
       },
       graders: {
         active: activeGraders,

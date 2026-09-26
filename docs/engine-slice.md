@@ -81,6 +81,13 @@ missing recommendations are grading errors. An explicitly replaced built-in
 grader still has its declaration validated, but its checks do not run or count
 toward the task verdict. At least one declared extension check must take its
 place. The selection enters comparison identity and retained evidence.
-Instrumentation remains unsupported.
+An extension may request a negotiated host instrumentation capability during
+`prepare`. The engine checks the host-declared capability and whether it
+changes execution before starting a trial. Execution-changing requests are
+refused in a passive condition. The host receives the request and must report
+exactly what it applied; a mismatch or an unconfirmed enforced condition fails
+execution. Run and trial evidence retain requested and applied instrumentation
+separately. The bundled Codex adapter advertises no instrumentation capabilities.
 
-Additional host adapters and condition instrumentation remain in progress.
+Additional host adapters and host-specific instrumentation implementations
+remain in progress.

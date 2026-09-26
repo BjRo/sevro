@@ -14,6 +14,11 @@ import { pathToFileURL } from "node:url";
 const roots: string[] = [];
 const cli = join(import.meta.dir, "..", "src", "cli.ts");
 const adapter = join(import.meta.dir, "fixtures", "host-adapter.ts");
+const instrumentedAdapter = join(
+  import.meta.dir,
+  "fixtures",
+  "instrumented-adapter.ts",
+);
 const semanticAdapter = join(
   import.meta.dir,
   "fixtures",
@@ -362,6 +367,53 @@ test("CLI replaces a selected built-in grader through the extension", async () =
       ])
     ).code,
   ).toBe(64);
+});
+
+test("CLI negotiates and records enforced host instrumentation", async () => {
+  const { args, caseFile } = await fixture();
+  const commandFile = join(caseFile, "..", "extension-command.json");
+  await writeFile(
+    commandFile,
+    JSON.stringify([
+      process.execPath,
+      extensionSource,
+      "lifecycle-instrumentation-supported",
+    ]),
+  );
+  const command = args.filter(
+    (part, index) =>
+      part !== "--case-file" && args[index - 1] !== "--case-file",
+  );
+  command[command.indexOf("--adapter-module") + 1] = instrumentedAdapter;
+  command[command.indexOf("--condition") + 1] = "enforced";
+  command.push(
+    "--extension-command-file",
+    commandFile,
+    "--extension-source-file",
+    extensionSource,
+    "--case-id",
+    "extension-case",
+  );
+  const enforced = await invoke(command);
+  expect(enforced.code).toBe(0);
+  const evidence = JSON.parse(
+    await readFile(enforced.result.evidencePath, "utf8"),
+  );
+  expect(evidence.condition).toMatchObject({
+    requested: "enforced",
+    actual: "enforced",
+    requestedInstrumentation: [
+      { id: "example.extension.guard", configuration: {} },
+    ],
+    appliedInstrumentation: [
+      { id: "example.extension.guard", configuration: {} },
+    ],
+  });
+  const passive = [...command];
+  passive[passive.indexOf("--condition") + 1] = "passive";
+  const rejected = await invoke(passive);
+  expect(rejected.code).toBe(64);
+  expect(rejected.result.evidencePath).toBeNull();
 });
 
 test("CLI mounts only declared preparation source files", async () => {

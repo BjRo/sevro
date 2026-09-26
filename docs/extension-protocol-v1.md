@@ -87,10 +87,16 @@ and cannot escape their declared root.
 `prepare` receives one resolved case, the chosen host and capabilities, the
 configured passive or enforced condition, and extension data. It returns
 fixture preparation artifacts and requested instrumentation IDs with
-parameters. The engine validates and applies these requests before host
-execution. It rejects unknown or unsupported IDs and rejects any
+parameters. The engine validates these requests before host execution and
+passes them to the host. It rejects unknown or unsupported IDs and rejects any
 execution-changing instrumentation in a passive trial. Requested and applied
-instrumentation are recorded separately.
+instrumentation are recorded separately. Host adapters declare supported IDs
+and whether each changes execution. A requested ID must be among the
+negotiated capabilities. The host receives the validated request and must
+report the same applied IDs and parameters; a mismatch fails execution. An
+execution-changing request also requires the host to confirm an enforced
+condition. Instrumentation parameters enter retained evidence and must not
+contain secrets.
 
 `evaluate` receives one completed or failed trial's bounded host observations,
 their source and completeness, built-in check results, artifact references,
@@ -130,7 +136,7 @@ and persists check outcomes, evidence references, and metrics before fixture
 cleanup. It applies and retains bounded inline preparation artifacts after
 checking their path and digest. Source references require a caller-declared
 ID-to-file-URL map under a case source root and receive the same checks.
-Instrumentation still needs engine support.
+The bundled Codex host currently advertises no instrumentation capabilities.
 
 ## Grading and replacement
 

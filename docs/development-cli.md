@@ -67,8 +67,12 @@ The command file is a JSON argv array such as
 those files and the executable, negotiates `sevro.extension.v1`, resolves the
 selected case, then calls `prepare` and `evaluate` around host execution.
 `--case-file` and `--extension-command-file` are exclusive. This CLI currently
-accepts inline or repository fixtures and additive extension checks. Requested
-instrumentation is not yet supported. Repeat
+accepts inline or repository fixtures and additive extension checks. An
+extension may request a host-declared instrumentation capability during
+`prepare`. The host adapter receives the request and must report exactly what
+it applied. An execution-changing request is refused for `--condition passive`;
+an unsupported or unconfirmed request cannot pass. The bundled Codex route
+currently advertises no instrumentation capabilities. Repeat
 `--replace-builtin-grader <sevro.grader-id>` to explicitly replace built-in
 graders declared by the selected case. The case must also declare an advertised
 extension check. The runner validates the replaced declarations but does not

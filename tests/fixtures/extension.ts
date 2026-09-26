@@ -23,7 +23,15 @@ const discovery = {
   extension: { id: "example.extension", version: "1.0.0" },
   protocols: ["sevro.extension.v1"],
   requiredCapabilities: ["sevro.host.exec"],
-  optionalCapabilities: ["sevro.host.extra"],
+  optionalCapabilities: [
+    "sevro.host.extra",
+    ...(scenario === "lifecycle-instrumentation-supported"
+      ? ["example.extension.guard"]
+      : []),
+    ...(scenario === "lifecycle-instrumentation-observational"
+      ? ["example.extension.trace"]
+      : []),
+  ],
   graders: ["example.extension"],
   taskVerdictPolicies: scenario.startsWith("lifecycle-policy")
     ? ["example.policy"]
@@ -122,9 +130,12 @@ const result = scenario.startsWith("lifecycle")
               ]
             : [],
           requestedInstrumentation:
-            scenario === "lifecycle-instrumentation"
-              ? [{ id: "example.extension.guard", configuration: {} }]
-              : [],
+            scenario === "lifecycle-instrumentation-observational"
+              ? [{ id: "example.extension.trace", configuration: {} }]
+              : scenario === "lifecycle-instrumentation" ||
+                  scenario === "lifecycle-instrumentation-supported"
+                ? [{ id: "example.extension.guard", configuration: {} }]
+                : [],
           extensionData: { "example.extension": { marker: "prepared" } },
         }
       : request.method === "evaluate"

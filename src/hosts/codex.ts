@@ -162,6 +162,8 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
     model: options.model,
     effort: options.effort,
     async run(request) {
+      if (request.instrumentation?.length)
+        throw new Error("Codex instrumentation is unavailable");
       if (request.condition !== "passive")
         throw new Error("Codex enforcement instrumentation is unavailable");
       if (existsSync(join(request.workspace, ".codex")))

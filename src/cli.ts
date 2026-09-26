@@ -10,6 +10,7 @@ import {
   type ResolvedCase,
 } from "./engine";
 import { createCodexHost } from "./hosts/codex";
+import { prepareInstrumentation } from "./instrumentation";
 import { openExtensionSession, type ExtensionCase } from "./extension-session";
 import { assertCliResult } from "./schema";
 
@@ -424,6 +425,16 @@ async function loadHost(path: string): Promise<HostAdapter> {
     throw new InvocationError(
       "host adapter module has no valid default adapter",
     );
+  try {
+    prepareInstrumentation(
+      [],
+      (host as unknown as HostAdapter).instrumentation ?? [],
+      [],
+      "passive",
+    );
+  } catch {
+    throw new InvocationError("host adapter instrumentation is invalid");
+  }
   return host as unknown as HostAdapter;
 }
 
@@ -509,7 +520,7 @@ async function main(argv: string[]): Promise<void> {
         ...options,
         sourceFiles: selected.sourceFiles,
         engineCapabilities: ["sevro.host.exec"],
-        hostCapabilities: [],
+        hostCapabilities: (host.instrumentation ?? []).map((item) => item.id),
         taskVerdictPolicy: selected.taskVerdictPolicy,
         replaceBuiltinGraders: selected.replaceBuiltinGraders,
         signal: cancellation.signal,

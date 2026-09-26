@@ -6,18 +6,18 @@ assessment. Its `dimensions` object has exactly the fields required by
 runner computes each `*Digest` from the relevant normalized content. It must
 not use a temporary path, run ID, or timestamp as an input.
 
-| Dimension                                  | Content represented                                                              |
-| ------------------------------------------ | -------------------------------------------------------------------------------- |
-| `runnerBuildDigest`                        | Exact installed package build or local runner source build.                      |
-| `projectDigest`                            | Evaluated project revision and dirty content, or a content snapshot without Git. |
-| `configurationDigest`                      | Evaluation settings with credentials replaced by secret-presence markers.        |
-| `extensionDigest`, `extensionProtocol`     | Extension source closure and negotiated protocol, or both `null`.                |
-| `caseDigest`, `fixtureDigest`              | Resolved case declaration and fixture contents.                                  |
-| `checksDigest`, `requiredEvidenceDigest`   | Declared checks and evidence requirements.                                       |
-| `evaluatorDigest`, `graderDigest`          | Evaluator policy, grader versions, active selection, and replacements.           |
-| `instrumentationDigest`                    | Requested and applied instrumentation.                                           |
-| `routeDigest`                              | Candidate, semantic, and advisory host/model/effort routes.                      |
-| `condition`, `trialCount`, `passThreshold` | Declared condition and assessment sampling rule.                                 |
+| Dimension                                  | Content represented                                                                            |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| `runnerBuildDigest`                        | Exact installed package build or local runner source build.                                    |
+| `projectDigest`                            | Evaluated project revision and dirty content, or a content snapshot without Git.               |
+| `configurationDigest`                      | Evaluation settings with credentials replaced by secret-presence markers.                      |
+| `extensionDigest`, `extensionProtocol`     | Extension source closure and negotiated protocol, or both `null`.                              |
+| `caseDigest`, `fixtureDigest`              | Resolved case declaration and fixture contents.                                                |
+| `checksDigest`, `requiredEvidenceDigest`   | Declared checks and evidence requirements.                                                     |
+| `evaluatorDigest`, `graderDigest`          | Evaluator policy, grader versions, active selection, and replacements.                         |
+| `instrumentationDigest`                    | Requested instrumentation and expected application; trial evidence records actual application. |
+| `routeDigest`                              | Candidate, semantic, and advisory host/model/effort routes.                                    |
+| `condition`, `trialCount`, `passThreshold` | Declared condition and assessment sampling rule.                                               |
 
 Each structured component digest is SHA-256 of its [RFC 8785 JSON
 Canonicalization Scheme](https://www.rfc-editor.org/rfc/rfc8785.html) UTF-8

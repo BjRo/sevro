@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { runEvaluation, type HostAdapter } from "../src/engine";
 import { openExtensionSession } from "../src/extension-session";
+import instrumentedHost from "./fixtures/instrumented-adapter";
 
 const roots: string[] = [];
 const source = join(import.meta.dir, "fixtures", "extension.ts");
@@ -19,6 +20,8 @@ async function runWithExtension(
   scenario: string,
   hostAction?: (workspace: string, resultsRoot: string) => Promise<void>,
   replaceBuiltinGraders: string[] = [],
+  hostOverride?: HostAdapter,
+  condition: "passive" | "enforced" = "passive",
 ) {
   const projectRoot = await mkdtemp(join(tmpdir(), "sevro-extension-engine-"));
   roots.push(projectRoot);
@@ -31,7 +34,9 @@ async function runWithExtension(
     configuration: {},
     redactedConfiguration: {},
     engineCapabilities: ["sevro.host.exec"],
-    hostCapabilities: [],
+    hostCapabilities: (hostOverride?.instrumentation ?? []).map(
+      (item) => item.id,
+    ),
     replaceBuiltinGraders,
     ...(scenario.startsWith("lifecycle-policy")
       ? { taskVerdictPolicy: "example.policy" }
@@ -43,7 +48,7 @@ async function runWithExtension(
   );
   if (!resolvedCase || resolvedCase.fixture.kind !== "inline")
     throw new Error("fixture mismatch");
-  const host: HostAdapter = {
+  const syntheticHost: HostAdapter = {
     id: "sevro.host.synthetic",
     model: "synthetic-v1",
     effort: "none",
@@ -87,6 +92,7 @@ async function runWithExtension(
       };
     },
   };
+  const host = hostOverride ?? syntheticHost;
   const outcome = await runEvaluation({
     projectRoot,
     resultsRoot: join(projectRoot, "results"),
@@ -109,7 +115,7 @@ async function runWithExtension(
     host,
     runnerBuildDigest: digest,
     projectDigest: digest,
-    condition: "passive",
+    condition,
     trialCount: 1,
     passThreshold: 1,
   });
@@ -342,6 +348,109 @@ test("unsupported instrumentation stops before host execution", async () => {
     }),
   ).rejects.toThrow(/unsupported instrumentation/);
   expect(called).toBe(false);
+});
+
+test("negotiated instrumentation records host application and rejects condition drift", async () => {
+  const supported = await runWithExtension(
+    "lifecycle-instrumentation-supported",
+    undefined,
+    [],
+    instrumentedHost,
+    "enforced",
+  );
+  expect(supported.outcome.result.task.verdict).toBe("passed");
+  expect(supported.evidence.condition).toMatchObject({
+    requested: "enforced",
+    actual: "enforced",
+    requestedInstrumentation: [
+      { id: "example.extension.guard", configuration: {} },
+    ],
+    appliedInstrumentation: [
+      { id: "example.extension.guard", configuration: {} },
+    ],
+  });
+  expect(supported.evidence.trials[0].condition.appliedInstrumentation).toEqual(
+    supported.evidence.condition.requestedInstrumentation,
+  );
+  expect(supported.evidence.extension.capabilities).toContain(
+    "example.extension.guard",
+  );
+  await expect(
+    runWithExtension(
+      "lifecycle-instrumentation",
+      undefined,
+      [],
+      instrumentedHost,
+      "enforced",
+    ),
+  ).rejects.toThrow(/unsupported instrumentation/);
+  const observational = await runWithExtension(
+    "lifecycle-instrumentation-observational",
+    undefined,
+    [],
+    instrumentedHost,
+    "passive",
+  );
+  expect(observational.outcome.result.task.verdict).toBe("passed");
+  expect(observational.evidence.condition).toMatchObject({
+    requested: "passive",
+    actual: "passive",
+    appliedInstrumentation: [
+      { id: "example.extension.trace", configuration: {} },
+    ],
+  });
+  await expect(
+    runWithExtension(
+      "lifecycle-instrumentation-supported",
+      undefined,
+      [],
+      instrumentedHost,
+      "passive",
+    ),
+  ).rejects.toThrow(/passive condition cannot apply/);
+  const mismatch = await runWithExtension(
+    "lifecycle-instrumentation-supported",
+    undefined,
+    [],
+    {
+      ...instrumentedHost,
+      async run(request) {
+        return {
+          ...(await instrumentedHost.run(request)),
+          appliedInstrumentation: [],
+        };
+      },
+    },
+    "enforced",
+  );
+  expect(mismatch.outcome.result).toMatchObject({
+    execution: { status: "failed" },
+    task: { verdict: "not_assessed" },
+    exitCode: 2,
+  });
+  expect(mismatch.evidence.diagnostic.code).toBe(
+    "sevro.instrumentation.mismatch",
+  );
+  expect(mismatch.evidence.condition.appliedInstrumentation).toEqual([]);
+  const conditionDrift = await runWithExtension(
+    "lifecycle-instrumentation-supported",
+    undefined,
+    [],
+    {
+      ...instrumentedHost,
+      async run(request) {
+        return {
+          ...(await instrumentedHost.run(request)),
+          actualCondition: "passive",
+        };
+      },
+    },
+    "enforced",
+  );
+  expect(conditionDrift.outcome.result.exitCode).toBe(2);
+  expect(conditionDrift.evidence.diagnostic.code).toBe(
+    "sevro.instrumentation.mismatch",
+  );
 });
 
 test("prepared inline artifacts survive fixture cleanup with their digest", async () => {

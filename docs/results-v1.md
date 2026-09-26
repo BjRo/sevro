@@ -76,6 +76,9 @@ temporary paths, run IDs, and output locations do not change evaluation
 identity. Historical Darrow artifacts keep their original schema version;
 fields absent from them remain unknown unless explicit historical provenance
 establishes the value.
+The pre-run instrumentation digest binds the requested list and its expected
+application. Trial evidence records the host-reported application; a mismatch
+fails execution and cannot be treated as a matched successful condition.
 When a task-verdict policy is selected, each trial records its recommendation
 separately from the final task verdict. A missing recommendation cannot produce
 a passing assessment.
