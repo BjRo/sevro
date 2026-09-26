@@ -37,7 +37,14 @@ export async function packageBuildDigest(
       throw new Error("package build exceeds the size limit");
     files.push({ path: path.split(sep).join("/"), sha256: sha256(bytes) });
   }
-  for (const path of ["package.json", "README.md", "docs", "schemas", "src"])
+  for (const path of [
+    "package.json",
+    "README.md",
+    "docs",
+    "examples",
+    "schemas",
+    "src",
+  ])
     await collect(path);
   files.sort((left, right) =>
     left.path < right.path ? -1 : left.path > right.path ? 1 : 0,

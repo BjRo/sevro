@@ -39,3 +39,18 @@ The [advisory review fixture](docs/advisory-fixture.md) builds a separate Git
 view of the complete candidate change while withholding evaluator paths.
 The [development CLI](docs/development-cli.md) runs that path with a trusted
 adapter module or the bundled Codex route and emits a machine-readable result.
+
+The packaged [basic example](examples/basic/) runs without Darrow or a model
+account. From this checkout, run the graded case with:
+
+```sh
+bun src/cli.ts run --json \
+  --case-file "$PWD/examples/basic/graded.json" \
+  --adapter-module "$PWD/examples/basic/host.ts" \
+  --project-root "$PWD" --results-root /tmp/sevro-basic-results \
+  --condition passive --trials 1 --threshold 1
+```
+
+Use `prompt-only.json` in place of `graded.json` to see successful execution
+with `task.verdict: not_assessed`. The package installation check runs both
+cases through the installed CLI, with no Sevro source checkout present.

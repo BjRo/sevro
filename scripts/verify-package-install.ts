@@ -47,64 +47,47 @@ try {
     !existsSync(installedCommand) ||
     existsSync(join(installed, ".git")) ||
     existsSync(join(installed, "tests")) ||
-    !existsSync(join(installed, "schemas", "run-evidence-v1.schema.json"))
+    !existsSync(join(installed, "schemas", "run-evidence-v1.schema.json")) ||
+    !existsSync(join(installed, "examples", "basic", "graded.json")) ||
+    !existsSync(join(installed, "examples", "basic", "prompt-only.json"))
   )
     throw new Error("installed package has missing or unexpected files");
   const manifest = JSON.parse(
     await readFile(join(installed, "package.json"), "utf8"),
   ) as { version: string };
-  const caseFile = join(project, "case.json");
-  const adapter = join(project, "adapter.ts");
-  await writeFile(
-    caseFile,
-    JSON.stringify({
-      id: "package-install",
-      prompt: "Return ready.",
-      fixture: { files: { "README.md": "fixture\n" } },
-      checks: [
-        {
-          id: "ready",
-          grader: "sevro.regex",
-          configuration: { pattern: "^ready$" },
-        },
+  async function installedRun(caseName: string) {
+    const output = await run(
+      [
+        installedCommand,
+        "run",
+        "--json",
+        "--case-file",
+        join(installed, "examples", "basic", caseName),
+        "--adapter-module",
+        join(installed, "examples", "basic", "host.ts"),
+        "--project-root",
+        project,
+        "--results-root",
+        results,
+        "--condition",
+        "passive",
+        "--trials",
+        "1",
+        "--threshold",
+        "1",
       ],
-      requiredEvidence: [],
-    }),
-  );
-  await writeFile(
-    adapter,
-    `export default {
-  id: "sevro.host.package-test", model: "synthetic-v1", effort: "none",
-  async run() { return { finalMessage: "ready", complete: true }; },
-};
-`,
-  );
-  const output = await run(
-    [
-      installedCommand,
-      "run",
-      "--json",
-      "--case-file",
-      caseFile,
-      "--adapter-module",
-      adapter,
-      "--project-root",
-      project,
-      "--results-root",
-      results,
-      "--condition",
-      "passive",
-      "--trials",
-      "1",
-      "--threshold",
-      "1",
-    ],
-    consumer,
-  );
-  const result = JSON.parse(output) as {
-    exitCode: number;
-    evidencePath: string;
-  };
+      consumer,
+    );
+    return JSON.parse(output) as {
+      exitCode: number;
+      evidencePath: string;
+      execution: { status: string };
+      grading: { status: string };
+      task: { verdict: string };
+      cases: Array<{ trials: Array<{ checks: unknown[] }> }>;
+    };
+  }
+  const result = await installedRun("graded.json");
   const evidence = JSON.parse(await readFile(result.evidencePath, "utf8")) as {
     runner: {
       source: string;
@@ -118,6 +101,9 @@ try {
   };
   if (
     result.exitCode !== 0 ||
+    result.execution.status !== "completed" ||
+    result.grading.status !== "completed" ||
+    result.task.verdict !== "passed" ||
     evidence.runner.source !== "package" ||
     evidence.runner.packageName !== "sevro" ||
     evidence.runner.version !== manifest.version ||
@@ -127,6 +113,23 @@ try {
     !/^[a-f0-9]{64}$/.test(evidence.evaluationIdentity.dimensions.projectDigest)
   )
     throw new Error("installed package did not retain release provenance");
+  const promptOnly = await installedRun("prompt-only.json");
+  const promptEvidence = JSON.parse(
+    await readFile(promptOnly.evidencePath, "utf8"),
+  ) as {
+    result: { task: { verdict: string } };
+    trials: unknown[];
+  };
+  if (
+    promptOnly.exitCode !== 0 ||
+    promptOnly.execution.status !== "completed" ||
+    promptOnly.grading.status !== "not_requested" ||
+    promptOnly.task.verdict !== "not_assessed" ||
+    promptEvidence.result.task.verdict !== "not_assessed" ||
+    promptEvidence.trials.length !== 1 ||
+    promptOnly.cases[0]?.trials[0]?.checks.length !== 0
+  )
+    throw new Error("installed prompt-only case claimed task success");
   process.stdout.write(
     `Installed Sevro ${manifest.version} without source Git metadata\n`,
   );

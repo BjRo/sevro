@@ -29,14 +29,15 @@ evaluation identity from an executed run.
 
 The final `run.json` follows the v1 evidence schema and contains separate
 execution, grading, and task states. It records the exact runner build and
-project content digests supplied by the caller, plus a computed evaluation
-identity. Missing optional usage stays `null` and incomplete. Results storage
+project content digests derived by the CLI or explicitly supplied by the
+caller, plus a computed evaluation identity. Missing optional usage stays
+`null` and incomplete. Results storage
 is explicit and independent of the project root. A packaged runner records its
 package identity without Git; a private development checkout reads its own Git
 revision and hashes tracked and untracked changes for the local runner
 identity. A Git-backed project records its own revision and dirty content;
-a project without a commit retains unknown Git provenance alongside the
-explicit caller-supplied project content digest. An optional independent
+a project without a commit retains unknown Git provenance alongside a bounded
+project content snapshot digest. An optional independent
 run-state root holds an active record and a checkpoint pointing to each
 retained trial. An evaluation-identity claim uses a short SQLite transaction
 to admit one verified process owner. A live owner blocks an equivalent run;

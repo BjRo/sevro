@@ -37,12 +37,13 @@ test("project provenance stays unknown without a Git revision", async () => {
 test("package build digest tracks packed runtime files without Git metadata", async () => {
   const root = await mkdtemp(join(tmpdir(), "sevro-package-digest-"));
   roots.push(root);
-  for (const directory of ["docs", "schemas", "src"])
+  for (const directory of ["docs", "examples", "schemas", "src"])
     await mkdir(join(root, directory));
   for (const path of [
     "package.json",
     "README.md",
     "docs/spec.md",
+    "examples/basic.json",
     "schemas/evidence.json",
     "src/cli.ts",
   ])
@@ -51,7 +52,10 @@ test("package build digest tracks packed runtime files without Git metadata", as
   expect(first).toMatch(/^[a-f0-9]{64}$/);
   expect(await packageBuildDigest(root)).toBe(first);
   await writeFile(join(root, "src/cli.ts"), "changed\n");
-  expect(await packageBuildDigest(root)).not.toBe(first);
+  const sourceChanged = await packageBuildDigest(root);
+  expect(sourceChanged).not.toBe(first);
+  await writeFile(join(root, "examples/basic.json"), "changed\n");
+  expect(await packageBuildDigest(root)).not.toBe(sourceChanged);
 });
 
 test("project identity snapshots non-Git content but excludes result storage", async () => {

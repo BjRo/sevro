@@ -1,0 +1,7 @@
+{
+  "id": "basic-prompt-only",
+  "prompt": "Return ready.",
+  "fixture": { "files": { "README.md": "fixture\n" } },
+  "checks": [],
+  "requiredEvidence": []
+}
