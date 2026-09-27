@@ -100,6 +100,13 @@ test("native goal and agent calls retain names and order without private argumen
           evidence: "invocation_attempt",
         },
       ],
+      toolCalls: [
+        { ordinal: 0, namespace: "functions", name: "create_goal" },
+        { ordinal: 1, namespace: "other", name: "exec" },
+        { ordinal: 2, namespace: "collaboration", name: "spawn_agent" },
+        { ordinal: 4, namespace: "other", name: "get_goal" },
+        { ordinal: 5, namespace: "other", name: "update_goal" },
+      ],
       submittedExecCalls: 1,
       acceptedSpawns: [],
     },
@@ -189,6 +196,43 @@ test("native spawn route fields stay bounded even when host acceptance succeeds"
   expect(observed.data.acceptedSpawns).toHaveLength(1);
   expect(observed.data.acceptedSpawns[0]?.forkTurns).toBeUndefined();
   expect(JSON.stringify(observed)).not.toContain(oversized);
+});
+
+test("native tool calls retain order and feedback target without private input", async () => {
+  const root = await home();
+  await session(
+    root,
+    lines([
+      spawn,
+      started,
+      result,
+      {
+        type: "function_call",
+        namespace: "collaboration",
+        name: "send_message",
+        arguments: JSON.stringify({
+          target: "/root/reviewer",
+          message: "private feedback",
+        }),
+      },
+      { type: "custom_tool_call", name: "exec", input: "private code" },
+      { type: "function_call", namespace: "collaboration", name: "wait_agent" },
+    ]),
+  );
+  const observed = await codexNativeCallObservation(root, "thread-1");
+  expect(observed.data.toolCalls).toEqual([
+    { ordinal: 0, namespace: "collaboration", name: "spawn_agent" },
+    {
+      ordinal: 3,
+      namespace: "collaboration",
+      name: "send_message",
+      target: "/root/reviewer",
+    },
+    { ordinal: 4, namespace: "other", name: "exec" },
+    { ordinal: 5, namespace: "collaboration", name: "wait_agent" },
+  ]);
+  expect(JSON.stringify(observed)).not.toContain("private feedback");
+  expect(JSON.stringify(observed)).not.toContain("private code");
 });
 
 test("ambiguous, mismatched, and malformed spawn evidence cannot establish acceptance", async () => {

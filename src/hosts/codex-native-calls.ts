@@ -24,6 +24,13 @@ interface NativeCall {
   evidence: "invocation_attempt";
 }
 
+interface NativeToolCall {
+  ordinal: number;
+  namespace: "functions" | "collaboration" | "clock" | "other";
+  name: string;
+  target?: string;
+}
+
 interface AcceptedSpawn {
   callId: string;
   agentRef: string;
@@ -43,6 +50,7 @@ interface NativeCallObservation {
   data: {
     method: "native_session";
     calls: NativeCall[];
+    toolCalls: NativeToolCall[];
     submittedExecCalls: number;
     acceptedSpawns: AcceptedSpawn[];
   };
@@ -61,6 +69,7 @@ function unavailable(
     data: {
       method: "native_session",
       calls: [],
+      toolCalls: [],
       submittedExecCalls: 0,
       acceptedSpawns: [],
     },
@@ -147,6 +156,39 @@ function bounded(value: unknown, pattern: RegExp): string | undefined {
   return typeof value === "string" && value.length <= 128 && pattern.test(value)
     ? value
     : undefined;
+}
+
+function nativeToolCall(
+  ordinal: number,
+  payload: Record<string, unknown>,
+): NativeToolCall | null {
+  if (payload.type !== "function_call" && payload.type !== "custom_tool_call")
+    return null;
+  const namespace =
+    payload.namespace === "functions" ||
+    payload.namespace === "collaboration" ||
+    payload.namespace === "clock"
+      ? payload.namespace
+      : "other";
+  const name =
+    bounded(payload.name, /^[A-Za-z_][A-Za-z0-9_]{0,63}$/) ?? "other";
+  let target: string | undefined;
+  if (
+    namespace === "collaboration" &&
+    ["followup_task", "send_message", "interrupt_agent"].includes(name) &&
+    typeof payload.arguments === "string"
+  ) {
+    try {
+      const args: unknown = JSON.parse(payload.arguments);
+      if (record(args))
+        target =
+          bounded(args.target, AGENT_REF) ??
+          bounded(args.target, /^[a-z0-9][a-z0-9_]{0,63}$/);
+    } catch {
+      // An unreadable target stays unknown without exposing arguments.
+    }
+  }
+  return { ordinal, namespace, name, ...(target ? { target } : {}) };
 }
 
 function acceptedSpawns(
@@ -237,6 +279,7 @@ function acceptedSpawns(
 
 function parseSession(text: string): NativeCallObservation {
   const calls: NativeCall[] = [];
+  const toolCalls: NativeToolCall[] = [];
   const entries: Array<{ ordinal: number; payload: Record<string, unknown> }> =
     [];
   let submittedExecCalls = 0;
@@ -275,8 +318,14 @@ function parseSession(text: string): NativeCallObservation {
       submittedExecCalls++;
     const call = directCall(lastOrdinal, entry.payload);
     if (call) calls.push(call);
-    if (calls.length > MAX_RETAINED_CALLS) {
+    const toolCall = nativeToolCall(lastOrdinal, entry.payload);
+    if (toolCall) toolCalls.push(toolCall);
+    if (
+      calls.length > MAX_RETAINED_CALLS ||
+      toolCalls.length > MAX_RETAINED_CALLS
+    ) {
       calls.length = MAX_RETAINED_CALLS;
+      toolCalls.length = MAX_RETAINED_CALLS;
       malformed = true;
       break;
     }
@@ -287,6 +336,7 @@ function parseSession(text: string): NativeCallObservation {
     data: {
       method: "native_session",
       calls,
+      toolCalls,
       submittedExecCalls,
       acceptedSpawns:
         malformed || entries.length === 0 ? [] : acceptedSpawns(entries),

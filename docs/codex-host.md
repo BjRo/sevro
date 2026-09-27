@@ -33,6 +33,11 @@ receipt contains bounded agent identity, route fields, and source ordinals;
 private task messages, code, and outputs are discarded. An accepted spawn proves
 host acceptance, not the child's role, work, or completion. Duplicate,
 mismatched, or malformed evidence cannot establish acceptance.
+The observation also records the ordered names and namespaces of direct native
+tool calls. For collaboration feedback it includes a bounded target when the
+target is readable. That list lets an extension evaluate parent activity after
+handoff without exposing messages or command input. A partial list cannot
+prove that parent work was absent.
 The record proves an invocation attempt, not its success. A missing, ambiguous,
 unreadable, oversized, or malformed session is unavailable or partial, so its
 absence cannot prove that a control was unused. Calls made through submitted
