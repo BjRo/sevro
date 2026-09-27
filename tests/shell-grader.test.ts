@@ -108,7 +108,7 @@ test("isolated shell checks can use an explicit toolchain", async () => {
         id: "toolchain",
         grader: "sevro.shell",
         configuration: {
-          run: 'test -d "$UV_CACHE_DIR" && test "$UV_OFFLINE" = 1 && sevro-tool',
+          run: 'test -d "$UV_CACHE_DIR" && test "$UV_OFFLINE" = 1 && test "$PYTHONDONTWRITEBYTECODE" = 1 && test -n "$UV_PROJECT_ENVIRONMENT" && sevro-tool',
           expectExact: "ready",
         },
       },

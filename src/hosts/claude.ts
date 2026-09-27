@@ -15,6 +15,7 @@ import type { HostAdapter } from "../engine";
 import { fixtureParts } from "../preparation";
 import { stageClaudeCredential } from "./claude-credential";
 import { summarizeClaudeEvents } from "./claude-events";
+import { claudeNestedSkillsObservation } from "./claude-nested-skills";
 import { claudeHostSettings } from "./claude-settings";
 import { claudeToolCallsObservation } from "./claude-tool-calls";
 import { evaluationProtectedRoots } from "./isolation-roots";
@@ -248,6 +249,7 @@ export function createClaudeHost(options: ClaudeHostOptions): HostAdapter {
       "sevro.claude.plugin-dirs",
       "sevro.claude.explicit-invocation",
       "sevro.claude.tool-calls",
+      "sevro.claude.nested-skills",
     ],
     async run(request) {
       if (request.followUpPrompt !== undefined)
@@ -346,7 +348,12 @@ export function createClaudeHost(options: ClaudeHostOptions): HostAdapter {
             ? {
                 UV_CACHE_DIR: join(runtimeRoot, "uv-cache"),
                 DARROW_CACHE_DIR: join(runtimeRoot, "darrow-cache"),
+                UV_PROJECT_ENVIRONMENT: join(
+                  runtimeRoot,
+                  "project-environment",
+                ),
                 UV_OFFLINE: "1",
+                PYTHONDONTWRITEBYTECODE: "1",
               }
             : {}),
         };
@@ -374,7 +381,6 @@ export function createClaudeHost(options: ClaudeHostOptions): HostAdapter {
             "--mcp-config",
             '{"mcpServers":{}}',
             "--no-chrome",
-            "--no-session-persistence",
             ...pluginDirs.flatMap((path) => ["--plugin-dir", path]),
           ],
           cwd: request.workspace,
@@ -384,11 +390,17 @@ export function createClaudeHost(options: ClaudeHostOptions): HostAdapter {
         });
         const summary = summarizeClaudeEvents(execution.out, execution.code);
         if (!summary.complete) throw new Error("Claude turn did not complete");
+        const nestedSkills = await claudeNestedSkillsObservation(
+          execution.out,
+          dirname(credential),
+          request.workspace,
+        );
         return {
           finalMessage: summary.finalMessage,
           complete: summary.complete,
           observations: [
             claudeToolCallsObservation(execution.out, execution.code),
+            nestedSkills,
           ],
           artifacts: [
             {

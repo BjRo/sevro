@@ -77,6 +77,8 @@ filesystem access. For plugins that run locked UV backends, use
 cache into the trial's Git-private runtime directory before the turn. Use
 `--toolchain-bin-dir /absolute/path/to/bin` for a compatible Python and other
 case tools. The host and isolated shell checks place that directory on `PATH`.
+They keep UV's project environment and Python bytecode outside the assessed
+worktree contents so a check cannot change the candidate fingerprint.
 The cache and toolchain directories must be outside protected roots. Their
 contents are available to the candidate, so prepare them from public tools and
 dependencies only.
@@ -84,6 +86,9 @@ Use `--claude-project-settings` when an isolated fixture intentionally defines
 project-local `.claude/skills/`. The host still disables hooks in its explicit
 settings and keeps its native sandbox rules. Leave this option off for plugin-only
 cases.
+The host reads only bounded Skill metadata from completed child Agent sessions
+in its temporary private configuration, then removes those session files. A
+missing or inconsistent graph leaves `sevro.claude.nested-skills` partial.
 
 For cases with `sevro.semantic` checks, also pass
 `--semantic-adapter-module /absolute/path/semantic-adapter.ts` to load an
