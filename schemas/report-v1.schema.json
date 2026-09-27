@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:sevro:schema:report:v1",
+  "title": "Sevro report v1",
+  "type": "object",
+  "required": ["format", "inputs", "rows", "summary"],
+  "properties": {
+    "format": { "const": "sevro.report.v1" },
+    "inputs": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/input" }
+    },
+    "rows": { "type": "array", "items": { "$ref": "#/$defs/row" } },
+    "summary": {
+      "type": "object",
+      "required": ["cases", "passed", "failed", "notAssessed"],
+      "properties": {
+        "cases": { "type": "integer", "minimum": 0 },
+        "passed": { "type": "integer", "minimum": 0 },
+        "failed": { "type": "integer", "minimum": 0 },
+        "notAssessed": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "path": { "type": "string", "minLength": 1 },
+    "digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "state": {
+      "enum": [
+        "completed",
+        "failed",
+        "cancelled",
+        "not_run",
+        "error",
+        "unavailable",
+        "not_requested"
+      ]
+    },
+    "verdict": { "enum": ["passed", "failed", "not_assessed"] },
+    "input": {
+      "type": "object",
+      "required": [
+        "resultFile",
+        "execution",
+        "grading",
+        "task",
+        "exitCode",
+        "caseCount"
+      ],
+      "properties": {
+        "resultFile": { "$ref": "#/$defs/path" },
+        "execution": {
+          "enum": ["completed", "failed", "cancelled", "not_run"]
+        },
+        "grading": {
+          "enum": ["completed", "error", "unavailable", "not_requested"]
+        },
+        "task": { "$ref": "#/$defs/verdict" },
+        "exitCode": { "enum": [0, 1, 2, 3, 4, 64, 70, 130, 143] },
+        "caseCount": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "route": {
+      "type": "object",
+      "required": ["host", "model", "effort"],
+      "properties": {
+        "host": { "type": "string", "minLength": 1 },
+        "model": { "type": "string", "minLength": 1 },
+        "effort": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "outcome": {
+      "type": "object",
+      "required": ["trial", "id", "status"],
+      "properties": {
+        "trial": { "type": "integer", "minimum": 1 },
+        "id": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["passed", "failed", "unavailable"] }
+      },
+      "additionalProperties": false
+    },
+    "row": {
+      "type": "object",
+      "required": [
+        "resultFile",
+        "evidencePath",
+        "runId",
+        "caseId",
+        "execution",
+        "grading",
+        "task",
+        "exitCode",
+        "trialCount",
+        "taskPassRate",
+        "candidateDurationMs",
+        "inputTokens",
+        "outputTokens",
+        "costUsd",
+        "runnerBuildDigest",
+        "evaluationDigest",
+        "requestedCondition",
+        "actualCondition",
+        "candidateRoute",
+        "routes",
+        "domainOutcomes"
+      ],
+      "properties": {
+        "resultFile": { "$ref": "#/$defs/path" },
+        "evidencePath": { "type": ["string", "null"] },
+        "runId": { "type": ["string", "null"] },
+        "caseId": { "type": "string", "minLength": 1 },
+        "execution": { "$ref": "#/$defs/state" },
+        "grading": { "$ref": "#/$defs/state" },
+        "task": { "$ref": "#/$defs/verdict" },
+        "exitCode": { "enum": [0, 1, 2, 3, 4, 64, 70, 130, 143] },
+        "trialCount": { "type": "integer", "minimum": 0 },
+        "taskPassRate": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "candidateDurationMs": { "type": ["number", "null"], "minimum": 0 },
+        "inputTokens": { "type": ["integer", "null"], "minimum": 0 },
+        "outputTokens": { "type": ["integer", "null"], "minimum": 0 },
+        "costUsd": { "type": ["number", "null"], "minimum": 0 },
+        "runnerBuildDigest": {
+          "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }]
+        },
+        "evaluationDigest": {
+          "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }]
+        },
+        "requestedCondition": { "enum": ["passive", "enforced", null] },
+        "actualCondition": { "enum": ["passive", "enforced", "unknown", null] },
+        "candidateRoute": {
+          "oneOf": [{ "$ref": "#/$defs/route" }, { "type": "null" }]
+        },
+        "routes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["role", "host", "model", "effort"],
+            "properties": {
+              "role": { "enum": ["candidate", "semantic", "advisory"] },
+              "host": { "type": "string", "minLength": 1 },
+              "model": { "type": "string", "minLength": 1 },
+              "effort": { "type": "string", "minLength": 1 }
+            },
+            "additionalProperties": false
+          }
+        },
+        "domainOutcomes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/outcome" }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

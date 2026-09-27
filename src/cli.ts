@@ -15,6 +15,7 @@ import { prepareRepositoryFixture } from "./repository-fixture";
 import { prepareInstrumentation } from "./instrumentation";
 import { openExtensionSession, type ExtensionCase } from "./extension-session";
 import { assertCliResult } from "./schema";
+import { reportCommand } from "./report";
 import {
   packageBuildDigest,
   projectIdentityDigest,
@@ -713,4 +714,6 @@ async function main(argv: string[]): Promise<void> {
   }
 }
 
-await main(process.argv.slice(2));
+if (process.argv[2] === "report")
+  process.exitCode = await reportCommand(process.argv.slice(2));
+else await main(process.argv.slice(2));

@@ -48,6 +48,7 @@ try {
     existsSync(join(installed, ".git")) ||
     existsSync(join(installed, "tests")) ||
     !existsSync(join(installed, "schemas", "run-evidence-v1.schema.json")) ||
+    !existsSync(join(installed, "schemas", "report-v1.schema.json")) ||
     !existsSync(join(installed, "examples", "basic", "graded.json")) ||
     !existsSync(join(installed, "examples", "basic", "prompt-only.json"))
   )
@@ -130,6 +131,38 @@ try {
     promptOnly.cases[0]?.trials[0]?.checks.length !== 0
   )
     throw new Error("installed prompt-only case claimed task success");
+  const gradedResultFile = join(root, "graded-result.json");
+  const promptResultFile = join(root, "prompt-result.json");
+  await Promise.all([
+    writeFile(gradedResultFile, JSON.stringify(result)),
+    writeFile(promptResultFile, JSON.stringify(promptOnly)),
+  ]);
+  const report = JSON.parse(
+    await run(
+      [
+        installedCommand,
+        "report",
+        "--json",
+        "--result-file",
+        gradedResultFile,
+        "--result-file",
+        promptResultFile,
+      ],
+      consumer,
+    ),
+  ) as {
+    format: string;
+    summary: { passed: number; notAssessed: number };
+    rows: Array<{ candidateDurationMs: number | null; costUsd: number | null }>;
+  };
+  if (
+    report.format !== "sevro.report.v1" ||
+    report.summary.passed !== 1 ||
+    report.summary.notAssessed !== 1 ||
+    report.rows[0]?.candidateDurationMs === null ||
+    report.rows.some((row) => row.costUsd !== null)
+  )
+    throw new Error("installed report lost task or measurement provenance");
   process.stdout.write(
     `Installed Sevro ${manifest.version} without source Git metadata\n`,
   );

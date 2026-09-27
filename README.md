@@ -7,6 +7,8 @@ is no runnable release yet.
 The public v1 contracts are [the extension protocol](docs/extension-protocol-v1.md)
 and [run results](docs/results-v1.md). Sevro owns these generic interfaces;
 projects own their cases and evaluator policy.
+The [generic report](docs/report-v1.md) summarizes retained public results
+without treating unknown measurements as zero or inferring matched comparisons.
 
 Machine-readable contracts live in [`schemas/`](schemas/). Run `bun install`,
 `bun test`, `bun run typecheck`, `bun run format:check`, and

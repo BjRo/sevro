@@ -6,6 +6,10 @@ It uses the engine's normal grading and evidence path. This remains a
 development entrypoint while the Claude adapter, full extension lifecycle,
 and production provenance collection are being built.
 
+`sevro report` reads one or more retained JSON results through the
+[versioned report contract](report-v1.md). It emits Markdown by default or
+`sevro.report.v1` with `--json`.
+
 An installed package records its name, version, and a digest of its packaged
 runtime and public contract files without reading runner Git metadata. The CLI
 derives the project digest from its revision and dirty patch, or from a bounded
