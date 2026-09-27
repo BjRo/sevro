@@ -49,6 +49,13 @@ interface AcceptedSpawn {
   forkTurns?: string;
 }
 
+interface NativeFeedbackCall {
+  ordinal: number;
+  tool: "followup_task" | "send_message" | "interrupt_agent";
+  target: string | null;
+  responseObserved: boolean;
+}
+
 interface ChildSession {
   threadId: string;
   status: "available" | "unavailable" | "ambiguous" | "partial";
@@ -70,6 +77,7 @@ interface NativeCallObservation {
     toolCalls: NativeToolCall[];
     submittedExecCalls: number;
     acceptedSpawns: AcceptedSpawn[];
+    feedbackCalls: NativeFeedbackCall[];
     parentReadDiagnostics?: NativeReadDiagnostic;
     childSessions: ChildSession[];
     childrenTruncated: boolean;
@@ -92,6 +100,7 @@ function unavailable(
       toolCalls: [],
       submittedExecCalls: 0,
       acceptedSpawns: [],
+      feedbackCalls: [],
       childSessions: [],
       childrenTruncated: false,
     },
@@ -299,6 +308,40 @@ function acceptedSpawns(
   return accepted;
 }
 
+function nativeFeedbackCalls(
+  entries: Array<{ ordinal: number; payload: Record<string, unknown> }>,
+): NativeFeedbackCall[] {
+  return entries.flatMap(({ ordinal, payload }) => {
+    if (
+      payload.type !== "function_call" ||
+      payload.namespace !== "collaboration" ||
+      !["followup_task", "send_message", "interrupt_agent"].includes(
+        String(payload.name),
+      )
+    )
+      return [];
+    const callId = bounded(payload.call_id, IDENTIFIER);
+    const outputs = callId
+      ? entries.filter(
+          (entry) =>
+            entry.ordinal > ordinal &&
+            entry.payload.type === "function_call_output" &&
+            entry.payload.call_id === callId,
+        )
+      : [];
+    return [
+      {
+        ordinal,
+        tool: payload.name as NativeFeedbackCall["tool"],
+        target: nativeToolCall(ordinal, payload)?.target ?? null,
+        responseObserved:
+          outputs.length === 1 &&
+          typeof outputs[0]?.payload.output === "string",
+      },
+    ];
+  });
+}
+
 function parseSession(text: string): {
   observation: NativeCallObservation;
   entries: Array<{ ordinal: number; payload: Record<string, unknown> }>;
@@ -367,6 +410,8 @@ function parseSession(text: string): {
         submittedExecCalls,
         acceptedSpawns:
           malformed || entries.length === 0 ? [] : acceptedSpawns(entries),
+        feedbackCalls:
+          malformed || entries.length === 0 ? [] : nativeFeedbackCalls(entries),
         childSessions: [],
         childrenTruncated: false,
       },

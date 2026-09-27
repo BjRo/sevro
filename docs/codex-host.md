@@ -38,6 +38,9 @@ tool calls. For collaboration feedback it includes a bounded target when the
 target is readable. That list lets an extension evaluate parent activity after
 handoff without exposing messages or command input. A partial list cannot
 prove that parent work was absent.
+The observation also retains bounded feedback call targets and whether one
+native tool response was observed for each call. It discards message text and
+response content. A response receipt does not establish that the child acted.
 
 For a second prompt, `sevro.codex.continuation` retains the last validated
 native-session ordinal before resume. Extensions can compare later call

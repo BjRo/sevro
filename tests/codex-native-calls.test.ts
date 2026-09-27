@@ -126,6 +126,7 @@ test("native goal and agent calls retain names and order without private argumen
       ],
       submittedExecCalls: 1,
       acceptedSpawns: [],
+      feedbackCalls: [],
       childSessions: [],
       childrenTruncated: false,
     },
@@ -532,6 +533,46 @@ test("native tool calls retain order and feedback target without private input",
   ]);
   expect(JSON.stringify(observed)).not.toContain("private feedback");
   expect(JSON.stringify(observed)).not.toContain("private code");
+});
+
+test("native feedback retains target and unique response without message text", async () => {
+  const root = await home();
+  const feedback = {
+    type: "function_call",
+    namespace: "collaboration",
+    name: "followup_task",
+    call_id: "feedback-1",
+    arguments: JSON.stringify({ target: "owner", message: "private feedback" }),
+  };
+  const response = {
+    type: "function_call_output",
+    call_id: "feedback-1",
+    output: "private tool result",
+  };
+  await session(root, lines([feedback, response]));
+  const observed = await codexNativeCallObservation(root, "thread-1");
+  expect(observed.data.feedbackCalls).toEqual([
+    {
+      ordinal: 0,
+      tool: "followup_task",
+      target: "owner",
+      responseObserved: true,
+    },
+  ]);
+  expect(JSON.stringify(observed)).not.toContain("private feedback");
+  expect(JSON.stringify(observed)).not.toContain("private tool result");
+  await session(root, lines([feedback]));
+  expect(
+    (await codexNativeCallObservation(root, "thread-1")).data.feedbackCalls,
+  ).toMatchObject([{ responseObserved: false }]);
+  await session(root, lines([feedback, response, response]));
+  expect(
+    (await codexNativeCallObservation(root, "thread-1")).data.feedbackCalls,
+  ).toMatchObject([{ responseObserved: false }]);
+  await session(root, lines([{ ...feedback, arguments: "{broken" }, response]));
+  expect(
+    (await codexNativeCallObservation(root, "thread-1")).data.feedbackCalls,
+  ).toMatchObject([{ target: null }]);
 });
 
 test("ambiguous, mismatched, and malformed spawn evidence cannot establish acceptance", async () => {

@@ -130,6 +130,7 @@ test("Codex host binds bounded native calls to its completed thread", async () =
       toolCalls: [{ ordinal: 0, namespace: "functions", name: "create_goal" }],
       submittedExecCalls: 0,
       acceptedSpawns: [],
+      feedbackCalls: [],
       parentReadDiagnostics: {
         completeness: "complete",
         observedSkills: [],
