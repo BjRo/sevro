@@ -29,9 +29,14 @@ async function fixture() {
   const fakeBinary = join(fixtureRoot, "fake-codex");
   await mkdir(resultsRoot);
   await writeFile(authFile, "test-only-auth\n", { mode: 0o600 });
+  const installedCodex = Bun.which("codex");
+  const quotedCodex = installedCodex
+    ? `'${installedCodex.replaceAll("'", `'"'"'`)}'`
+    : "/bin/false";
   await writeFile(
     fakeBinary,
     `#!/bin/sh
+if [ "$1" = plugin ]; then exec ${quotedCodex} "$@"; fi
 if [ "$1" != exec ]; then exit 99; fi
 shift
 workspace=""
@@ -41,6 +46,9 @@ for argument in "$@"; do
   previous="$argument"
 done
 if [ -z "$workspace" ]; then exit 98; fi
+if [ -f "$workspace/require-plugin.flag" ]; then
+  test -f "$CODEX_HOME/plugins/cache/sevro-probe/probe/0.1.0/skills/probe/SKILL.md" || exit 95
+fi
 printf '%s\\n' "$@" > "$workspace/argv.txt"
 if [ -n "\${OPENAI_API_KEY:-}" ]; then exit 97; fi
 /bin/cat > "$workspace/prompt.txt"
@@ -59,6 +67,92 @@ printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":12,"output_toke
   await chmod(fakeBinary, 0o700);
   return { projectRoot, resultsRoot, authFile, fakeBinary };
 }
+
+test("Codex host installs a declared local plugin in its isolated home", async () => {
+  const installedCodex = Bun.which("codex");
+  if (process.platform !== "darwin" || !installedCodex) return;
+  const paths = await fixture();
+  const workspace = await mkdtemp(join(tmpdir(), "sevro-codex-plugin-"));
+  roots.push(workspace);
+  const packageRoot = join(workspace, "marketplace");
+  await mkdir(join(packageRoot, ".claude-plugin"), { recursive: true });
+  await mkdir(join(packageRoot, "plugin", ".claude-plugin"), {
+    recursive: true,
+  });
+  await mkdir(join(packageRoot, "plugin", ".codex-plugin"), {
+    recursive: true,
+  });
+  await mkdir(join(packageRoot, "plugin", "skills", "probe"), {
+    recursive: true,
+  });
+  await writeFile(
+    join(packageRoot, ".claude-plugin", "marketplace.json"),
+    JSON.stringify({
+      name: "sevro-probe",
+      owner: { name: "Sevro" },
+      plugins: [{ name: "probe", source: "./plugin", description: "Probe" }],
+    }),
+  );
+  await writeFile(
+    join(packageRoot, "plugin", ".claude-plugin", "plugin.json"),
+    JSON.stringify({ name: "probe", version: "0.1.0" }),
+  );
+  await writeFile(
+    join(packageRoot, "plugin", ".codex-plugin", "plugin.json"),
+    JSON.stringify({ name: "probe", version: "0.1.0", skills: "./skills/" }),
+  );
+  await writeFile(
+    join(packageRoot, "plugin", "skills", "probe", "SKILL.md"),
+    "---\nname: probe\ndescription: Test probe\n---\nRead this skill.\n",
+  );
+  await writeFile(join(workspace, "require-plugin.flag"), "\n");
+  const host = createCodexHost({
+    binary: paths.fakeBinary,
+    sandboxBinary: installedCodex,
+    authFile: paths.authFile,
+    model: "synthetic-codex",
+    effort: "low",
+    projectRoot: paths.projectRoot,
+    resultsRoot: paths.resultsRoot,
+    additionalProtectedRoots: [],
+  });
+  const request = {
+    prompt: "Return ready.",
+    workspace,
+    condition: "passive" as const,
+    codexMarketplace: {
+      artifactRoot: "marketplace",
+      marketplaceName: "sevro-probe",
+      pluginNames: ["probe"],
+      artifactPaths: [
+        "marketplace/.claude-plugin/marketplace.json",
+        "marketplace/plugin/.claude-plugin/plugin.json",
+        "marketplace/plugin/.codex-plugin/plugin.json",
+        "marketplace/plugin/skills/probe/SKILL.md",
+      ],
+    },
+  };
+  const result = await host.run(request);
+  expect(result.finalMessage).toBe("ready");
+  expect(result.complete).toBe(true);
+  expect(await readFile(join(workspace, "created.txt"), "utf8")).toBe(
+    "created\n",
+  );
+  await writeFile(join(packageRoot, "unlisted.txt"), "extra\n");
+  await expect(host.run(request)).rejects.toThrow(/undeclared files/);
+  await rm(join(packageRoot, "unlisted.txt"));
+  await writeFile(
+    join(packageRoot, ".claude-plugin", "marketplace.json"),
+    JSON.stringify({
+      name: "sevro-probe",
+      owner: { name: "Sevro" },
+      plugins: [
+        { name: "probe", source: "https://example.com/plugin", description: "Probe" },
+      ],
+    }),
+  );
+  await expect(host.run(request)).rejects.toThrow(/declared local source/);
+});
 
 test("Codex host verifies its permission profile and feeds the engine", async () => {
   const installedCodex = Bun.which("codex");

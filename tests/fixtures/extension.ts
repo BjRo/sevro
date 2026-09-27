@@ -35,6 +35,10 @@ const discovery = {
     scenario !== "lifecycle-setup-unnegotiated"
       ? ["sevro.fixture.setup"]
       : []),
+    ...(scenario.startsWith("lifecycle-codex-marketplace") &&
+    scenario !== "lifecycle-codex-marketplace-unnegotiated"
+      ? ["sevro.codex.plugin-marketplace"]
+      : []),
   ],
   graders: ["example.extension"],
   taskVerdictPolicies: scenario.startsWith("lifecycle-policy")
@@ -76,6 +80,24 @@ const builtinCheck =
                 : "ready",
           },
         };
+const marketplaceFiles = {
+  "marketplace/.claude-plugin/marketplace.json": JSON.stringify({
+    name: "sevro-probe",
+    owner: { name: "Sevro" },
+    plugins: [{ name: "probe", source: "./plugin", description: "Probe" }],
+  }),
+  "marketplace/plugin/.claude-plugin/plugin.json": JSON.stringify({
+    name: "probe",
+    version: "0.1.0",
+  }),
+  "marketplace/plugin/.codex-plugin/plugin.json": JSON.stringify({
+    name: "probe",
+    version: "0.1.0",
+    skills: "./skills/",
+  }),
+  "marketplace/plugin/skills/probe/SKILL.md":
+    "---\nname: probe\ndescription: Test probe\n---\nRead this skill.\n",
+};
 const result = scenario.startsWith("lifecycle")
   ? request.method === "resolve"
     ? {
@@ -93,7 +115,8 @@ const result = scenario.startsWith("lifecycle")
                   }
                 : scenario === "lifecycle-generated" ||
                     scenario.startsWith("lifecycle-setup") ||
-                    scenario === "lifecycle-git-excluded-artifact"
+                    scenario === "lifecycle-git-excluded-artifact" ||
+                    scenario.startsWith("lifecycle-codex-marketplace")
                   ? {
                       kind: "generated",
                       commits: [
@@ -147,9 +170,18 @@ const result = scenario.startsWith("lifecycle")
       }
     : request.method === "prepare"
       ? {
-          artifacts:
-            scenario.includes("artifact") ||
-            scenario.startsWith("lifecycle-setup")
+          artifacts: scenario.startsWith("lifecycle-codex-marketplace")
+            ? Object.entries(marketplaceFiles).map(
+                ([relativePath, content]) => ({
+                  id: `marketplace-${relativePath}`,
+                  relativePath,
+                  sha256: createHash("sha256").update(content).digest("hex"),
+                  contentBase64: Buffer.from(content).toString("base64"),
+                  gitExclude: true,
+                }),
+              )
+            : scenario.includes("artifact") ||
+                scenario.startsWith("lifecycle-setup")
               ? [
                   {
                     id: "generated-file",
@@ -193,6 +225,18 @@ const result = scenario.startsWith("lifecycle")
                   scenario === "lifecycle-instrumentation-supported"
                 ? [{ id: "example.extension.guard", configuration: {} }]
                 : [],
+          ...(scenario.startsWith("lifecycle-codex-marketplace")
+            ? {
+                codexMarketplace: {
+                  artifactRoot:
+                    scenario === "lifecycle-codex-marketplace-bad-root"
+                      ? "../marketplace"
+                      : "marketplace",
+                  marketplaceName: "sevro-probe",
+                  pluginNames: ["probe"],
+                },
+              }
+            : {}),
           ...(scenario.startsWith("lifecycle-setup")
             ? {
                 fixtureSetup: {

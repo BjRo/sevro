@@ -46,15 +46,18 @@ test("actual Codex sandbox keeps fixture access and denies source and auth", asy
   const codexHome = join(state, "codex-home");
   const commandHome = join(state, "command-home");
   const commandTemp = join(state, "command-tmp");
+  const pluginCache = join(codexHome, "plugins", "cache");
   try {
     await Promise.all([mkdir(fixture), mkdir(source), mkdir(state)]);
     await mkdir(codexHome);
+    await mkdir(pluginCache, { recursive: true });
     await Promise.all([mkdir(commandHome), mkdir(commandTemp)]);
     await writeFile(join(fixture, "visible.txt"), "visible\n");
     await writeFile(join(source, "hidden.txt"), "hidden\n");
     await writeFile(join(codexHome, "auth.json"), "dummy-auth\n", {
       mode: 0o600,
     });
+    await writeFile(join(pluginCache, "skill.txt"), "plugin skill\n");
     await writeFile(
       join(codexHome, "config.toml"),
       codexPermissionProfile({
@@ -67,6 +70,7 @@ test("actual Codex sandbox keeps fixture access and denies source and auth", asy
           dirname(await realpath(installedCodex)),
         ],
         protectedRoots: [source, state],
+        pluginReadRoot: pluginCache,
       }),
       { mode: 0o600 },
     );
@@ -99,6 +103,7 @@ test("actual Codex sandbox keeps fixture access and denies source and auth", asy
     expect(
       (await run(["/bin/cat", join(codexHome, "auth.json")])).code,
     ).not.toBe(0);
+    expect((await run(["/bin/cat", join(pluginCache, "skill.txt")])).code).toBe(0);
     expect(
       (await run(["/bin/sh", "-c", "printf created > created.txt"])).code,
     ).toBe(0);

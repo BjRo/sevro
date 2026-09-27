@@ -4,14 +4,16 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   realpath,
   rm,
   stat,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { delimiter, dirname, isAbsolute, join, sep } from "node:path";
+import { delimiter, dirname, isAbsolute, join, relative, sep } from "node:path";
 import type { HostAdapter } from "../engine";
+import { fixtureParts } from "../preparation";
 import { summarizeCodexEvents } from "./codex-events";
 import { codexSkillReadObservation } from "./codex-skill-reads";
 import { codexPermissionProfile } from "./codex-profile";
@@ -144,6 +146,109 @@ async function copyAuth(source: string, target: string): Promise<void> {
   await writeFile(target, bytes, { flag: "wx", mode: 0o600 });
 }
 
+function inside(root: string, path: string): boolean {
+  const child = relative(root, path);
+  return (
+    child === "" ||
+    (child !== ".." && !child.startsWith(`..${sep}`) && !isAbsolute(child))
+  );
+}
+
+async function marketplaceRoot(
+  workspace: string,
+  declaration: NonNullable<
+    Parameters<HostAdapter["run"]>[0]["codexMarketplace"]
+  >,
+): Promise<string> {
+  const { artifactRoot, marketplaceName, pluginNames } = declaration;
+  const expectedPaths = new Set(declaration.artifactPaths);
+  if (
+    !/^[a-z][a-z0-9-]*$/.test(marketplaceName) ||
+    !pluginNames.length ||
+    pluginNames.some((name) => !/^[a-z][a-z0-9-]*$/.test(name)) ||
+    new Set(pluginNames).size !== pluginNames.length ||
+    !declaration.artifactPaths.length ||
+    expectedPaths.size !== declaration.artifactPaths.length ||
+    declaration.artifactPaths.some(
+      (path) =>
+        !path.startsWith(`${artifactRoot}/`) ||
+        fixtureParts(path).join("/") !== path,
+    )
+  )
+    throw new Error("invalid Codex marketplace declaration");
+  const root = join(workspace, ...fixtureParts(artifactRoot));
+  const actualWorkspace = await realpath(workspace);
+  const actualRoot = await realpath(root);
+  if (!inside(actualWorkspace, actualRoot) || actualRoot === actualWorkspace)
+    throw new Error("Codex marketplace escapes the workspace");
+  let manifest: unknown;
+  try {
+    manifest = JSON.parse(
+      await readFile(
+        join(actualRoot, ".claude-plugin", "marketplace.json"),
+        "utf8",
+      ),
+    );
+  } catch {
+    throw new Error("Codex marketplace manifest is unreadable");
+  }
+  if (!manifest || typeof manifest !== "object")
+    throw new Error("invalid Codex marketplace manifest");
+  const document = manifest as Record<string, unknown>;
+  const plugins = document.plugins;
+  if (
+    document.name !== marketplaceName ||
+    !Array.isArray(plugins) ||
+    plugins.length !== pluginNames.length
+  )
+    throw new Error("Codex marketplace manifest does not match declaration");
+  const found = new Set<string>();
+  for (const entry of plugins) {
+    if (!entry || typeof entry !== "object")
+      throw new Error("invalid Codex marketplace plugin");
+    const plugin = entry as Record<string, unknown>;
+    if (
+      typeof plugin.name !== "string" ||
+      !pluginNames.includes(plugin.name) ||
+      found.has(plugin.name) ||
+      typeof plugin.source !== "string" ||
+      !plugin.source.startsWith("./")
+    )
+      throw new Error(
+        "Codex marketplace plugin is not a declared local source",
+      );
+    found.add(plugin.name);
+    const source = join(actualRoot, ...fixtureParts(plugin.source.slice(2)));
+    if (!inside(actualRoot, await realpath(source)))
+      throw new Error("Codex marketplace plugin escapes its artifact root");
+  }
+  // The package is materialized from declared artifacts; links can otherwise
+  // pull files from outside that snapshot during the local CLI installation.
+  const pending = [actualRoot];
+  const seen = new Set<string>();
+  while (pending.length) {
+    const directory = pending.pop()!;
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      if (entry.isSymbolicLink())
+        throw new Error("Codex marketplace package contains a symlink");
+      if (entry.isDirectory()) pending.push(join(directory, entry.name));
+      else if (!entry.isFile())
+        throw new Error("Codex marketplace package contains a special file");
+      else {
+        const path = `${artifactRoot}/${relative(actualRoot, join(directory, entry.name)).split(sep).join("/")}`;
+        if (!expectedPaths.has(path))
+          throw new Error(
+            "Codex marketplace package contains undeclared files",
+          );
+        seen.add(path);
+      }
+    }
+  }
+  if (seen.size !== expectedPaths.size)
+    throw new Error("Codex marketplace package is missing declared files");
+  return actualRoot;
+}
+
 /** Construct one Codex route without inheriting user settings or credentials. */
 export function createCodexHost(options: CodexHostOptions): HostAdapter {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -164,6 +269,7 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
     throw new Error("invalid Codex host configuration");
   return {
     id: "sevro.host.codex",
+    hostCapabilities: ["sevro.codex.plugin-marketplace"],
     model: options.model,
     effort: options.effort,
     async run(request) {
@@ -185,6 +291,7 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
         const parentTemp = join(stateRoot, "tmp");
         const commandHome = join(stateRoot, "command-home");
         const commandTemp = join(stateRoot, "command-tmp");
+        const pluginCacheRoot = join(codexHome, "plugins", "cache");
         await Promise.all(
           [codexHome, parentHome, parentTemp, commandHome, commandTemp].map(
             (path) => mkdir(path, { mode: 0o700 }),
@@ -223,6 +330,9 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
             commandHome,
             commandTemp,
             executableReadRoots,
+            ...(request.codexMarketplace
+              ? { pluginReadRoot: pluginCacheRoot }
+              : {}),
             protectedRoots,
           }),
           { flag: "wx", mode: 0o600 },
@@ -247,6 +357,64 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
           NO_COLOR: "1",
           ...(request.fixtureBinDir ? { ZDOTDIR: shellRoot } : {}),
         };
+        if (request.codexMarketplace) {
+          const root = await marketplaceRoot(
+            request.workspace,
+            request.codexMarketplace,
+          );
+          const added = await runProcess({
+            argv: [
+              options.binary,
+              "plugin",
+              "marketplace",
+              "add",
+              root,
+              "--json",
+            ],
+            cwd: request.workspace,
+            env,
+            timeoutMs: 30_000,
+            signal: request.signal,
+          });
+          if (added.code !== 0)
+            throw new Error("Codex local marketplace installation failed");
+          for (const pluginName of request.codexMarketplace.pluginNames) {
+            const installed = await runProcess({
+              argv: [
+                options.binary,
+                "plugin",
+                "add",
+                `${pluginName}@${request.codexMarketplace.marketplaceName}`,
+                "--json",
+              ],
+              cwd: request.workspace,
+              env,
+              timeoutMs: 30_000,
+              signal: request.signal,
+            });
+            if (installed.code !== 0)
+              throw new Error("Codex local plugin installation failed");
+            let receipt: unknown;
+            try {
+              receipt = JSON.parse(installed.out);
+            } catch {
+              throw new Error("Codex plugin installation receipt is invalid");
+            }
+            const entry = receipt as Record<string, unknown>;
+            if (
+              !entry ||
+              entry.name !== pluginName ||
+              entry.marketplaceName !==
+                request.codexMarketplace.marketplaceName ||
+              typeof entry.installedPath !== "string" ||
+              !inside(
+                await realpath(pluginCacheRoot),
+                await realpath(entry.installedPath),
+              )
+            )
+              throw new Error("Codex plugin installation receipt is invalid");
+          }
+        }
         const probe = join(commandTemp, "isolation-probe");
         await writeFile(probe, "probe\n", { flag: "wx", mode: 0o600 });
         const checked = await runProcess({

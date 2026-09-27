@@ -46,6 +46,11 @@ export interface PreparationResult {
     configuration: Record<string, unknown>;
   }[];
   fixtureSetup?: FixtureSetupDeclaration;
+  codexMarketplace?: {
+    artifactRoot: string;
+    marketplaceName: string;
+    pluginNames: string[];
+  };
   extensionData: Record<string, unknown>;
 }
 

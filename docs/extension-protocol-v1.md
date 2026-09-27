@@ -118,6 +118,18 @@ execution-changing request also requires the host to confirm an enforced
 condition. Instrumentation parameters enter retained evidence and must not
 contain secrets.
 
+A Codex extension may also negotiate `sevro.codex.plugin-marketplace` and
+return `codexMarketplace` from `prepare` with `artifactRoot`,
+`marketplaceName`, and nonempty `pluginNames`. Every package file must be a
+Git-excluded preparation artifact below that fixture-relative root, including
+`.claude-plugin/marketplace.json`. Sevro checks the declared names, package
+paths, and local manifest sources before invoking the Codex plugin CLI. The
+declaration and artifact digests enter evaluation identity. The Codex host
+installs the marketplace and named plugins in its private home for each trial;
+no package is installed from an undeclared artifact. This fixture setup is
+available in passive trials because it does not add enforcement
+instrumentation.
+
 An artifact for a generated or cloned Git fixture may set `gitExclude: true`.
 Sevro mounts its verified bytes, adds only that exact artifact path to the
 fixture's `.git/info/exclude`, and retains the flag in artifact evidence and

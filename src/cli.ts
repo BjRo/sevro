@@ -535,6 +535,18 @@ async function loadHost(path: string): Promise<HostAdapter> {
   } catch {
     throw new InvocationError("host adapter instrumentation is invalid");
   }
+  if (
+    (host as unknown as HostAdapter).hostCapabilities !== undefined &&
+    (!Array.isArray((host as unknown as HostAdapter).hostCapabilities) ||
+      (host as unknown as HostAdapter).hostCapabilities!.some(
+        (id) =>
+          typeof id !== "string" ||
+          !/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$/.test(id),
+      ) ||
+      new Set((host as unknown as HostAdapter).hostCapabilities).size !==
+        (host as unknown as HostAdapter).hostCapabilities!.length)
+  )
+    throw new InvocationError("host adapter capabilities are invalid");
   return host as unknown as HostAdapter;
 }
 
@@ -638,7 +650,10 @@ async function main(argv: string[]): Promise<void> {
         ...options,
         sourceFiles: selected.sourceFiles,
         engineCapabilities: ["sevro.host.exec", "sevro.fixture.setup"],
-        hostCapabilities: (host.instrumentation ?? []).map((item) => item.id),
+        hostCapabilities: [
+          ...(host.instrumentation ?? []).map((item) => item.id),
+          ...(host.hostCapabilities ?? []),
+        ],
         taskVerdictPolicy: selected.taskVerdictPolicy,
         replaceBuiltinGraders: selected.replaceBuiltinGraders,
         signal: cancellation.signal,

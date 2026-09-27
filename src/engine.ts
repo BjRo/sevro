@@ -121,12 +121,19 @@ export interface HostAdapter {
   model: string;
   effort: string;
   instrumentation?: InstrumentationCapability[];
+  hostCapabilities?: string[];
   run(request: {
     prompt: string;
     workspace: string;
     condition: "passive" | "enforced";
     fixtureBinDir?: string;
     instrumentation?: InstrumentationRequest[];
+    codexMarketplace?: {
+      artifactRoot: string;
+      marketplaceName: string;
+      pluginNames: string[];
+      artifactPaths: string[];
+    };
     signal?: AbortSignal;
   }): Promise<HostResult>;
 }
@@ -641,9 +648,10 @@ export async function runEvaluation(
         options.extension.resolvedCase,
         {
           id: options.host.id,
-          capabilities: (options.host.instrumentation ?? []).map(
-            (item) => item.id,
-          ),
+          capabilities: [
+            ...(options.host.instrumentation ?? []).map((item) => item.id),
+            ...(options.host.hostCapabilities ?? []),
+          ],
         },
         options.condition,
       )
@@ -728,6 +736,46 @@ export async function runEvaluation(
     throw new EvaluationConfigurationError(
       "preparation artifact uses a reserved semantic evidence ID",
     );
+  const codexMarketplace = extensionPreparation?.codexMarketplace;
+  if (codexMarketplace) {
+    const { artifactRoot, marketplaceName, pluginNames } = codexMarketplace;
+    try {
+      fixtureParts(artifactRoot);
+      if (
+        !/^[a-z][a-z0-9-]*$/.test(marketplaceName) ||
+        !pluginNames.length ||
+        pluginNames.some((name) => !/^[a-z][a-z0-9-]*$/.test(name)) ||
+        new Set(pluginNames).size !== pluginNames.length
+      )
+        throw new Error("invalid marketplace or plugin name");
+    } catch {
+      throw new EvaluationConfigurationError("invalid Codex marketplace declaration");
+    }
+    if (
+      !options.extension?.session.identity.capabilities.includes(
+        "sevro.codex.plugin-marketplace",
+      ) ||
+      !options.host.hostCapabilities?.includes("sevro.codex.plugin-marketplace")
+    )
+      throw new EvaluationConfigurationError(
+        "Codex marketplace capability was not negotiated",
+      );
+    const packageArtifacts = inlineArtifacts.filter((artifact) =>
+      artifact.relativePath.startsWith(`${artifactRoot}/`),
+    );
+    if (
+      !packageArtifacts.length ||
+      !packageArtifacts.every((artifact) => artifact.gitExclude) ||
+      !packageArtifacts.some(
+        (artifact) =>
+          artifact.relativePath ===
+          `${artifactRoot}/.claude-plugin/marketplace.json`,
+      )
+    )
+      throw new EvaluationConfigurationError(
+        "Codex marketplace requires Git-excluded package artifacts and a manifest",
+      );
+  }
   const extensionData = options.extension
     ? {
         ...options.extension.resolvedCase.extensionData,
@@ -772,6 +820,7 @@ export async function runEvaluation(
     extensionConfigurationDigest:
       options.extension?.session.identity.configurationDigest ?? null,
     ...(fixtureSetup ? { fixtureSetupDigest: hashJson(fixtureSetup) } : {}),
+    ...(codexMarketplace ? { codexMarketplace } : {}),
     ...(options.advisoryHost
       ? {
           advisoryExcludedPaths: [
@@ -837,6 +886,7 @@ export async function runEvaluation(
           }),
         ),
         ...(fixtureSetup ? { fixtureSetup } : {}),
+        ...(codexMarketplace ? { codexMarketplace } : {}),
       }),
       checksDigest: hashJson(options.case.checks),
       requiredEvidenceDigest: hashJson(options.case.requiredEvidence),
@@ -964,6 +1014,20 @@ export async function runEvaluation(
               condition: options.condition,
               fixtureBinDir,
               instrumentation: requestedInstrumentation,
+              ...(codexMarketplace
+                ? {
+                    codexMarketplace: {
+                      ...codexMarketplace,
+                      artifactPaths: inlineArtifacts
+                        .filter((artifact) =>
+                          artifact.relativePath.startsWith(
+                            `${codexMarketplace.artifactRoot}/`,
+                          ),
+                        )
+                        .map((artifact) => artifact.relativePath),
+                    },
+                  }
+                : {}),
               signal: options.signal,
             });
             if (options.signal?.aborted) throw new Error("cancelled");

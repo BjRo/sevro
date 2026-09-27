@@ -41,9 +41,10 @@ async function runWithExtension(
     configuration: {},
     redactedConfiguration: {},
     engineCapabilities: ["sevro.host.exec", "sevro.fixture.setup"],
-    hostCapabilities: (hostOverride?.instrumentation ?? []).map(
-      (item) => item.id,
-    ),
+    hostCapabilities: [
+      ...(hostOverride?.instrumentation ?? []).map((item) => item.id),
+      ...(hostOverride?.hostCapabilities ?? []),
+    ],
     replaceBuiltinGraders,
     ...(scenario.startsWith("lifecycle-policy")
       ? { taskVerdictPolicy: "example.policy" }
@@ -592,6 +593,69 @@ test("prepared skill files stay outside Git status without hiding candidate edit
   expect(evidence.evaluationIdentity.dimensions.fixtureDigest).toMatch(
     /^[a-f0-9]{64}$/,
   );
+});
+
+test("negotiated Codex marketplace reaches the host and binds fixture identity", async () => {
+  let sawMarketplace = false;
+  const host: HostAdapter = {
+    id: "sevro.host.synthetic",
+    model: "synthetic-v1",
+    effort: "none",
+    hostCapabilities: ["sevro.codex.plugin-marketplace"],
+    async run(request) {
+      expect(request.codexMarketplace).toMatchObject({
+        artifactRoot: "marketplace",
+        marketplaceName: "sevro-probe",
+        pluginNames: ["probe"],
+      });
+      expect(request.codexMarketplace?.artifactPaths).toHaveLength(4);
+      expect(
+        await readFile(
+          join(request.workspace, "marketplace/plugin/skills/probe/SKILL.md"),
+          "utf8",
+        ),
+      ).toContain("Read this skill.");
+      sawMarketplace = true;
+      return { finalMessage: "ready", complete: true, actualCondition: "passive" };
+    },
+  };
+  const { outcome, evidence } = await runWithExtension(
+    "lifecycle-codex-marketplace",
+    undefined,
+    [],
+    host,
+  );
+  expect(outcome.result.exitCode).toBe(0);
+  expect(sawMarketplace).toBe(true);
+  expect(evidence.configuration.redacted.codexMarketplace).toEqual({
+    artifactRoot: "marketplace",
+    marketplaceName: "sevro-probe",
+    pluginNames: ["probe"],
+  });
+  expect(evidence.trials[0].artifactRefs).toHaveLength(4);
+});
+
+test("Codex marketplace requires negotiation and a valid artifact root", async () => {
+  const host: HostAdapter = {
+    id: "sevro.host.synthetic",
+    model: "synthetic-v1",
+    effort: "none",
+    hostCapabilities: ["sevro.codex.plugin-marketplace"],
+    async run() {
+      throw new Error("host should not run");
+    },
+  };
+  await expect(
+    runWithExtension(
+      "lifecycle-codex-marketplace-unnegotiated",
+      undefined,
+      [],
+      host,
+    ),
+  ).rejects.toThrow(/capability was not negotiated/);
+  await expect(
+    runWithExtension("lifecycle-codex-marketplace-bad-root", undefined, [], host),
+  ).rejects.toThrow(/invalid Codex marketplace declaration/);
 });
 
 test("prepared executable artifact runs from the fixture and retains its mode", async () => {

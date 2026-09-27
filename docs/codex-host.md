@@ -25,6 +25,12 @@ for its case.
 `createCodexHost` copies file-based authentication into a private Codex home
 for one turn. It supplies only explicit environment variables to the parent
 process and uses a runner-generated permission profile for candidate commands.
+When the extension declares a local Codex marketplace, the host verifies its
+manifest contains only the named plugins with local sources, rejects package
+symlinks, and installs it with `codex plugin marketplace add` followed by
+`codex plugin add`. It checks each installation receipt against the private
+plugin cache. Candidate commands can read that cache, while the rest of the
+private Codex home, including authentication and configuration, remains denied.
 It refuses fixture-local `.codex` configuration, unsupported enforced
 conditions, unreadable or oversized auth files, malformed event streams, and
 incomplete turns. The host bounds output and runtime, kills its process group
