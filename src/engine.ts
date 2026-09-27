@@ -892,12 +892,28 @@ export async function runEvaluation(
       );
   }
   const codexSkillInvocation = extensionPreparation?.codexSkillInvocation;
-  const invocationPlaceholder = "{{sevro.codex.skill_invocation}}";
+  const claudeSkillInvocation = extensionPreparation?.claudeSkillInvocation;
+  const invocationPlaceholder = "{{sevro.skill_invocation}}";
+  const legacyCodexPlaceholder = "{{sevro.codex.skill_invocation}}";
+  const invocation = codexSkillInvocation ?? claudeSkillInvocation;
+  const invocationToken = codexSkillInvocation
+    ? `$${codexSkillInvocation.pluginName}:${codexSkillInvocation.skillName}`
+    : claudeSkillInvocation
+      ? `/${claudeSkillInvocation.pluginName}:${claudeSkillInvocation.skillName}`
+      : null;
   const placeholderCount =
     options.case.prompt.split(invocationPlaceholder).length -
     1 +
     (options.case.followUpPrompt?.split(invocationPlaceholder).length ?? 1) -
+    1 +
+    options.case.prompt.split(legacyCodexPlaceholder).length -
+    1 +
+    (options.case.followUpPrompt?.split(legacyCodexPlaceholder).length ?? 1) -
     1;
+  if (codexSkillInvocation && claudeSkillInvocation)
+    throw new EvaluationConfigurationError(
+      "only one explicit skill invocation may be declared",
+    );
   if (codexSkillInvocation) {
     const { pluginName, skillName } = codexSkillInvocation;
     if (
@@ -926,9 +942,39 @@ export async function runEvaluation(
       throw new EvaluationConfigurationError(
         "Codex explicit invocation capability was not negotiated",
       );
+  } else if (claudeSkillInvocation) {
+    const { pluginName, skillName } = claudeSkillInvocation;
+    if (
+      !claudePluginDirs ||
+      !/^[a-z][a-z0-9-]*$/.test(pluginName) ||
+      !/^[A-Za-z0-9._-]+$/.test(skillName) ||
+      placeholderCount !== 1 ||
+      options.case.prompt.includes(legacyCodexPlaceholder) ||
+      options.case.followUpPrompt?.includes(legacyCodexPlaceholder) ||
+      !claudePluginDirs.artifactRoots.some((root) =>
+        inlineArtifacts.some(
+          (artifact) =>
+            artifact.relativePath === `${root}/skills/${skillName}/SKILL.md`,
+        ),
+      )
+    )
+      throw new EvaluationConfigurationError(
+        "invalid Claude skill invocation declaration",
+      );
+    if (
+      !options.extension?.session.identity.capabilities.includes(
+        "sevro.claude.explicit-invocation",
+      ) ||
+      !options.host.hostCapabilities?.includes(
+        "sevro.claude.explicit-invocation",
+      )
+    )
+      throw new EvaluationConfigurationError(
+        "Claude explicit invocation capability was not negotiated",
+      );
   } else if (placeholderCount)
     throw new EvaluationConfigurationError(
-      "Codex skill invocation placeholder requires a declaration",
+      "skill invocation placeholder requires a declaration",
     );
   const extensionData = options.extension
     ? {
@@ -977,6 +1023,7 @@ export async function runEvaluation(
     ...(codexMarketplace ? { codexMarketplace } : {}),
     ...(claudePluginDirs ? { claudePluginDirs } : {}),
     ...(codexSkillInvocation ? { codexSkillInvocation } : {}),
+    ...(claudeSkillInvocation ? { claudeSkillInvocation } : {}),
     ...(options.advisoryHost
       ? {
           advisoryExcludedPaths: [
@@ -1049,6 +1096,7 @@ export async function runEvaluation(
         ...(codexMarketplace ? { codexMarketplace } : {}),
         ...(claudePluginDirs ? { claudePluginDirs } : {}),
         ...(codexSkillInvocation ? { codexSkillInvocation } : {}),
+        ...(claudeSkillInvocation ? { claudeSkillInvocation } : {}),
       }),
       checksDigest: hashJson(options.case.checks),
       requiredEvidenceDigest: hashJson(options.case.requiredEvidence),
@@ -1156,17 +1204,21 @@ export async function runEvaluation(
         .replaceAll("{{sevro.workspace}}", workspace)
         .replaceAll(
           invocationPlaceholder,
-          codexSkillInvocation
-            ? `$${codexSkillInvocation.pluginName}:${codexSkillInvocation.skillName}`
-            : invocationPlaceholder,
+          invocationToken ?? invocationPlaceholder,
+        )
+        .replaceAll(
+          legacyCodexPlaceholder,
+          invocationToken ?? legacyCodexPlaceholder,
         );
       const trialFollowUpPrompt = options.case.followUpPrompt
         ?.replaceAll("{{sevro.workspace}}", workspace)
         .replaceAll(
           invocationPlaceholder,
-          codexSkillInvocation
-            ? `$${codexSkillInvocation.pluginName}:${codexSkillInvocation.skillName}`
-            : invocationPlaceholder,
+          invocationToken ?? invocationPlaceholder,
+        )
+        .replaceAll(
+          legacyCodexPlaceholder,
+          invocationToken ?? legacyCodexPlaceholder,
         );
       let persisted = false;
       try {
@@ -1224,11 +1276,11 @@ export async function runEvaluation(
                     },
                   }
                 : {}),
-              ...(codexSkillInvocation
+              ...(invocation
                 ? {
                     explicitSkillInvocation: {
-                      ...codexSkillInvocation,
-                      token: `$${codexSkillInvocation.pluginName}:${codexSkillInvocation.skillName}`,
+                      ...invocation,
+                      token: invocationToken!,
                     },
                   }
                 : {}),

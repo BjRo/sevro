@@ -57,6 +57,10 @@ export interface PreparationResult {
     pluginName: string;
     skillName: string;
   };
+  claudeSkillInvocation?: {
+    pluginName: string;
+    skillName: string;
+  };
   extensionData: Record<string, unknown>;
 }
 

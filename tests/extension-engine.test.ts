@@ -820,6 +820,58 @@ test("explicit Codex invocation can occur in the continuation turn", async () =>
   expect(outcome.result.exitCode).toBe(0);
 });
 
+test("explicit Claude invocation renders a packaged slash token", async () => {
+  const host: HostAdapter = {
+    id: "sevro.host.claude",
+    model: "synthetic-v1",
+    effort: "none",
+    hostCapabilities: [
+      "sevro.claude.plugin-dirs",
+      "sevro.claude.explicit-invocation",
+    ],
+    async run(request) {
+      expect(request.prompt).toBe("Use /probe:probe and return ready.");
+      expect(request.explicitSkillInvocation).toEqual({
+        pluginName: "probe",
+        skillName: "probe",
+        token: "/probe:probe",
+      });
+      return {
+        finalMessage: "ready",
+        complete: true,
+        actualCondition: "passive",
+      };
+    },
+  };
+  const { outcome, evidence } = await runWithExtension(
+    "lifecycle-claude-plugin-explicit-invocation",
+    undefined,
+    [],
+    host,
+  );
+  expect(outcome.result.exitCode).toBe(0);
+  expect(evidence.configuration.redacted.claudeSkillInvocation).toEqual({
+    pluginName: "probe",
+    skillName: "probe",
+  });
+  await expect(
+    runWithExtension(
+      "lifecycle-claude-plugin-explicit-invocation-repeated",
+      undefined,
+      [],
+      host,
+    ),
+  ).rejects.toThrow(/invalid Claude skill invocation declaration/);
+  await expect(
+    runWithExtension(
+      "lifecycle-claude-plugin-explicit-invocation-unnegotiated",
+      undefined,
+      [],
+      host,
+    ),
+  ).rejects.toThrow(/capability was not negotiated/);
+});
+
 test("prepared executable artifact runs from the fixture and retains its mode", async () => {
   const { outcome, evidence } = await runWithExtension(
     "lifecycle-executable-artifact",

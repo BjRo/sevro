@@ -149,6 +149,13 @@ Git-excluded preparation artifact, and each root must contain
 verified artifact paths to a capable host. The declaration and artifact
 digests enter evaluation identity. The host remains responsible for loading
 the plugin directories and isolating its credentials from candidate tools.
+An extension that also negotiates `sevro.claude.explicit-invocation` may
+declare `claudeSkillInvocation` for a skill present in one of those packages.
+The resolved prompts must contain `{{sevro.skill_invocation}}` exactly once
+across both turns. Sevro renders the `/plugin:skill` token for each trial and
+passes the same token to the Claude host. The neutral placeholder also works
+with `codexSkillInvocation`; the older
+`{{sevro.codex.skill_invocation}}` placeholder remains supported for Codex.
 
 An artifact for a generated or cloned Git fixture may set `gitExclude: true`.
 Sevro mounts its verified bytes, adds only that exact artifact path to the

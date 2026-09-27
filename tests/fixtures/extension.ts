@@ -44,9 +44,15 @@ const discovery = {
     scenario !== "lifecycle-claude-plugin-unnegotiated"
       ? ["sevro.claude.plugin-dirs"]
       : []),
-    ...(scenario.includes("explicit-invocation") &&
+    ...(scenario.startsWith("lifecycle-codex-marketplace") &&
+    scenario.includes("explicit-invocation") &&
     !scenario.endsWith("unnegotiated")
       ? ["sevro.codex.explicit-invocation"]
+      : []),
+    ...(scenario.startsWith("lifecycle-claude-plugin") &&
+    scenario.includes("explicit-invocation") &&
+    !scenario.endsWith("unnegotiated")
+      ? ["sevro.claude.explicit-invocation"]
       : []),
   ],
   graders: ["example.extension"],
@@ -115,10 +121,14 @@ const result = scenario.startsWith("lifecycle")
             id: "extension-case",
             prompt: scenario.includes("explicit-invocation")
               ? scenario.endsWith("repeated")
-                ? "Use {{sevro.codex.skill_invocation}} and {{sevro.codex.skill_invocation}}."
+                ? scenario.startsWith("lifecycle-claude-plugin")
+                  ? "Use {{sevro.skill_invocation}} and {{sevro.skill_invocation}}."
+                  : "Use {{sevro.codex.skill_invocation}} and {{sevro.codex.skill_invocation}}."
                 : scenario.endsWith("later")
                   ? "Wait for the next request."
-                  : "Use {{sevro.codex.skill_invocation}} and return ready."
+                  : scenario.startsWith("lifecycle-claude-plugin")
+                    ? "Use {{sevro.skill_invocation}} and return ready."
+                    : "Use {{sevro.codex.skill_invocation}} and return ready."
               : "Return ready.",
             ...(scenario.endsWith("later")
               ? {
@@ -279,9 +289,19 @@ const result = scenario.startsWith("lifecycle")
                 },
               }
             : {}),
-          ...(scenario.includes("explicit-invocation")
+          ...(scenario.startsWith("lifecycle-codex-marketplace") &&
+          scenario.includes("explicit-invocation")
             ? {
                 codexSkillInvocation: {
+                  pluginName: "probe",
+                  skillName: "probe",
+                },
+              }
+            : {}),
+          ...(scenario.startsWith("lifecycle-claude-plugin") &&
+          scenario.includes("explicit-invocation")
+            ? {
+                claudeSkillInvocation: {
                   pluginName: "probe",
                   skillName: "probe",
                 },
