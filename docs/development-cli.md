@@ -127,8 +127,10 @@ files, hooks, and working-tree state are not copied. Repository fixtures
 may declare bounded `files`, `staged`, and `commitFiles` fields. Sevro applies
 files after cloning, optionally commits them as scaffolding, then stages named
 overlay files. Existing source files may be replaced, but symlinks and `.git/`
-paths cannot be overlay targets. A negotiated fixture setup command may then
-prepare the clone before the host runs. Repository submodules and preparation
+paths cannot be overlay targets. Both Git fixture kinds may declare bounded
+executable `hooks` by hook name. Sevro installs them after its own fixture
+commits and before setup or host execution. A negotiated fixture setup
+command may then prepare the clone before the host runs. Repository submodules and preparation
 artifacts targeting `.git/` are refused.
 
 A direct case or extension can declare a generated Git fixture:
@@ -148,8 +150,7 @@ Sevro creates the declared commits with a fixed local identity and date for
 every trial, then writes the optional working-tree `files`. `staged` may name
 only those overlay files. `commitFiles: true` commits the overlay as scaffolding
 before staging. Paths under `.git/`, collisions, invalid staging, and oversized
-histories fail preflight. Custom setup scripts, fixture hooks, and stub tools
-are not part of this generated-fixture contract yet.
+histories fail preflight. Custom stub tools remain extension-owned.
 
 The case file follows the `ResolvedCase`
 interface in `src/engine.ts`; this slice accepts inline files, generated Git

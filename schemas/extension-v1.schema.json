@@ -254,7 +254,12 @@
               "items": { "type": "string", "minLength": 1 },
               "uniqueItems": true
             },
-            "commitFiles": { "type": "boolean" }
+            "commitFiles": { "type": "boolean" },
+            "hooks": {
+              "type": "object",
+              "maxProperties": 32,
+              "additionalProperties": { "type": "string" }
+            }
           },
           "additionalProperties": false
         },
@@ -289,7 +294,12 @@
               "items": { "type": "string", "minLength": 1 },
               "uniqueItems": true
             },
-            "commitFiles": { "type": "boolean" }
+            "commitFiles": { "type": "boolean" },
+            "hooks": {
+              "type": "object",
+              "maxProperties": 32,
+              "additionalProperties": { "type": "string" }
+            }
           },
           "additionalProperties": false
         }

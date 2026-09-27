@@ -225,6 +225,7 @@ test("repository overlays preserve source, index state, and metadata boundaries"
         sourceRef: "fixture-repo",
         files: { "notes.txt": "committed\n" },
         commitFiles: true,
+        hooks: { "pre-commit": "#!/bin/sh\nexit 1\n" },
       },
     },
     host: {
@@ -234,6 +235,9 @@ test("repository overlays preserve source, index state, and metadata boundaries"
           "Add evaluation scaffolding",
         );
         expect(await git(workspace, "status", "--porcelain=v1")).toBe("");
+        expect(
+          await readFile(join(workspace, ".git/hooks/pre-commit"), "utf8"),
+        ).toBe("#!/bin/sh\nexit 1\n");
         return { finalMessage: "ready", complete: true };
       },
     },

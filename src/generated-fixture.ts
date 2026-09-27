@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { canonicalJson } from "./identity";
+import { prepareGitHooks } from "./git-hooks";
 import { fixtureParts } from "./preparation";
 
 const MAX_COMMITS = 128;
@@ -14,6 +15,7 @@ export interface GeneratedFixture {
   files?: Record<string, string>;
   staged?: string[];
   commitFiles?: boolean;
+  hooks?: Record<string, string>;
 }
 
 function validFiles(value: unknown): value is Record<string, string> {
@@ -38,7 +40,14 @@ export function prepareGeneratedFixture(value: unknown): GeneratedFixture {
     fixture.kind !== "generated" ||
     Object.keys(fixture).some(
       (key) =>
-        !["kind", "commits", "files", "staged", "commitFiles"].includes(key),
+        ![
+          "kind",
+          "commits",
+          "files",
+          "staged",
+          "commitFiles",
+          "hooks",
+        ].includes(key),
     ) ||
     !Array.isArray(fixture.commits) ||
     fixture.commits.length > MAX_COMMITS ||
@@ -50,6 +59,7 @@ export function prepareGeneratedFixture(value: unknown): GeneratedFixture {
       typeof fixture.commitFiles !== "boolean")
   )
     throw new Error("invalid generated fixture");
+  prepareGitHooks(fixture.hooks);
   let bytes = 0;
   let files = 0;
   const paths: string[] = [];

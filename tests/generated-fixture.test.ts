@@ -94,6 +94,82 @@ test("generated fixture builds stable history and a declared index state", async
   expect(await git(scaffold, "status", "--porcelain=v1")).toBe("");
 });
 
+test("generated Git hooks run for host commits after fixture preparation", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "sevro-hook-test-"));
+  roots.push(projectRoot);
+  const host: HostAdapter = {
+    id: "sevro.host.synthetic",
+    model: "synthetic-v1",
+    effort: "none",
+    async run({ workspace }) {
+      await git(workspace, "add", "READY.txt");
+      const proc = Bun.spawn(
+        [
+          "git",
+          "-c",
+          "user.name=Candidate",
+          "-c",
+          "user.email=candidate@example.invalid",
+          "commit",
+          "-m",
+          "Try to commit",
+        ],
+        { cwd: workspace, stdout: "pipe", stderr: "pipe" },
+      );
+      const [stderr, code] = await Promise.all([
+        new Response(proc.stderr).text(),
+        proc.exited,
+      ]);
+      expect(code).not.toBe(0);
+      expect(stderr).toContain("hook blocked commit");
+      expect(await git(workspace, "log", "-1", "--format=%s")).toBe(
+        "Initialize",
+      );
+      return { finalMessage: "ready", complete: true };
+    },
+  };
+  const result = await runEvaluation({
+    projectRoot,
+    resultsRoot: join(projectRoot, "results"),
+    case: {
+      id: "hook-case",
+      prompt: "Return ready.",
+      fixture: {
+        kind: "generated",
+        commits: [
+          { message: "Initialize", files: { "README.md": "source\n" } },
+        ],
+        files: { "READY.txt": "new\n" },
+        hooks: {
+          "pre-commit": "#!/bin/sh\necho 'hook blocked commit' >&2\nexit 1\n",
+        },
+      },
+      checks: [
+        {
+          id: "ready",
+          grader: "sevro.regex",
+          configuration: { pattern: "^ready$" },
+        },
+      ],
+      requiredEvidence: [],
+    },
+    host,
+    runnerBuildDigest: digest,
+    projectDigest: digest,
+    condition: "passive",
+    trialCount: 1,
+    passThreshold: 1,
+  });
+  expect(result.result.task.verdict).toBe("passed");
+  expect(() =>
+    prepareGeneratedFixture({
+      kind: "generated",
+      commits: [{ message: "Initialize", files: { "README.md": "source\n" } }],
+      hooks: { "../pre-commit": "exit 1" },
+    }),
+  ).toThrow(/invalid fixture hooks/);
+});
+
 test("engine gives each generated trial the same history and a fresh working tree", async () => {
   const projectRoot = await mkdtemp(join(tmpdir(), "sevro-generated-engine-"));
   roots.push(projectRoot);

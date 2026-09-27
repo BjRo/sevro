@@ -40,6 +40,7 @@ import {
 } from "./graders/semantic";
 import { evaluationProtectedRoots } from "./hosts/isolation-roots";
 import { canonicalJson, createEvaluationIdentity, hashJson } from "./identity";
+import { installGitHooks } from "./git-hooks";
 import {
   InstrumentationEvidenceError,
   prepareInstrumentation,
@@ -217,6 +218,10 @@ async function createFixture(
     if (generated) await materializeGeneratedFixture(generated, workspace);
     if (repositoryFixture)
       await applyRepositoryOverlay(repositoryFixture, workspace);
+    await installGitHooks(
+      generated?.hooks ?? repositoryFixture?.hooks,
+      workspace,
+    );
     for (const file of paths) {
       const target = join(workspace, ...file.parts);
       await mkdir(dirname(target), { recursive: true, mode: 0o700 });
@@ -547,6 +552,9 @@ export async function runEvaluation(
                 ? { staged: resolved.fixture.staged }
                 : {}),
               ...(resolved.fixture.commitFiles ? { commitFiles: true } : {}),
+              ...(resolved.fixture.hooks
+                ? { hooks: resolved.fixture.hooks }
+                : {}),
             }
           : resolved.fixture;
     if (

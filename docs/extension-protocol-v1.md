@@ -82,9 +82,10 @@ validated by the engine against the declared project and case-source roots.
 The extension cannot add a hidden source root by returning an arbitrary path.
 Fixtures may contain inline files, a declared clean repository source, or a
 bounded generated Git history. Both Git fixture kinds support optional
-working-tree files, staged paths, and committed scaffolding. Sevro validates
-overlay paths, refuses symlinks and repository metadata in repository clones,
-and includes the overlay in fixture identity. Repository-specific policy and
+working-tree files, staged paths, committed scaffolding, and bounded Git
+hooks. Sevro validates overlay paths, refuses symlinks and repository metadata
+in repository clones, installs hooks after its own commits, and includes these
+declarations in fixture identity. Repository-specific policy and
 custom setup remain in the extension.
 
 An extension that negotiates `sevro.fixture.setup` may return an optional

@@ -495,6 +495,9 @@ function selectExtensionCase(
               ...(resolvedCase.fixture.commitFiles
                 ? { commitFiles: true }
                 : {}),
+              ...(resolvedCase.fixture.hooks
+                ? { hooks: resolvedCase.fixture.hooks }
+                : {}),
             }
           : resolvedCase.fixture,
   });
