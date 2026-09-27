@@ -45,6 +45,10 @@ response content. A response receipt does not establish that the child acted.
 For a second prompt, `sevro.codex.continuation` retains the last validated
 native-session ordinal before resume. Extensions can compare later call
 ordinals with that boundary without reading private arguments.
+The host also retains separate `sevro.codex.initial-skill-reads` and
+`sevro.codex.follow-up-skill-reads` observations. Each applies the same exact
+mounted-skill read check to one completed turn, so an extension can grade read
+order or a missing repeat read without inferring it from the combined list.
 
 It also checks native parent command records for exact mounted skill bodies,
 including sessions with no spawn request. The bounded diagnostic distinguishes

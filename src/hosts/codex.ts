@@ -279,6 +279,8 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
       "sevro.codex.plugin-marketplace",
       "sevro.codex.explicit-invocation",
       "sevro.codex.native-calls",
+      "sevro.codex.initial-skill-reads",
+      "sevro.codex.follow-up-skill-reads",
     ],
     model: options.model,
     effort: options.effort,
@@ -617,6 +619,26 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
           request.workspace,
           installedPluginRoots,
         );
+        const initialSkillReads = followUp
+          ? {
+              ...(await codexSkillReadObservation(
+                execution.out,
+                request.workspace,
+                installedPluginRoots,
+              )),
+              id: "sevro.codex.initial-skill-reads",
+            }
+          : null;
+        const followUpSkillReads = followUp
+          ? {
+              ...(await codexSkillReadObservation(
+                followUp.out,
+                request.workspace,
+                installedPluginRoots,
+              )),
+              id: "sevro.codex.follow-up-skill-reads",
+            }
+          : null;
         const nativeCalls = await codexNativeCallObservation(
           codexHome,
           summary.threadId,
@@ -644,6 +666,8 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
           complete: (followUpSummary ?? summary).finalMessage !== null,
           observations: [
             skillReads,
+            ...(initialSkillReads ? [initialSkillReads] : []),
+            ...(followUpSkillReads ? [followUpSkillReads] : []),
             nativeCalls,
             ...(continuationObservation ? [continuationObservation] : []),
             ...(explicitReceipt ? [explicitReceipt] : []),

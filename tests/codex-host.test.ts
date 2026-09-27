@@ -47,6 +47,10 @@ if [ "$1" = resume ]; then
   else
     printf '%s\\n' '{"type":"thread.started","thread_id":"thread-1"}'
   fi
+  if [ -f "$PWD/follow-up-skill-read.flag" ]; then
+    skill_file="$CODEX_HOME/plugins/cache/sevro-probe/probe/0.1.0/skills/probe/SKILL.md"
+    printf '%s\\n' '{"type":"item.completed","item":{"id":"follow-up-skill","type":"command_execution","command":"cat '"$skill_file"'","aggregated_output":"---\\nname: probe\\ndescription: Test probe\\n---\\nRead this skill.\\n","exit_code":0,"status":"completed"}}'
+  fi
   printf '%s\\n' '{"type":"item.completed","item":{"type":"agent_message","text":"follow-up ready"}}'
   printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":5,"output_tokens":2}}'
   exit 0
@@ -200,6 +204,24 @@ test("Codex host resumes a second prompt in the initial thread", async () => {
       preFollowUpWorktreeUnchanged: false,
     },
   });
+  expect(result.observations).toContainEqual({
+    id: "sevro.codex.initial-skill-reads",
+    completeness: "complete",
+    data: {
+      method: "skill_file_read_probe",
+      primarySkill: null,
+      observedSkills: [],
+    },
+  });
+  expect(result.observations).toContainEqual({
+    id: "sevro.codex.follow-up-skill-reads",
+    completeness: "complete",
+    data: {
+      method: "skill_file_read_probe",
+      primarySkill: null,
+      observedSkills: [],
+    },
+  });
 });
 
 test("Codex continuation ignores Git-private fixture state at the boundary", async () => {
@@ -336,6 +358,26 @@ test("Codex host installs a declared local plugin in its isolated home", async (
     id: "sevro.codex.skill-reads",
     completeness: "complete",
     data: { primarySkill: "probe", observedSkills: ["probe"] },
+  });
+  await writeFile(join(workspace, "follow-up-skill-read.flag"), "\n");
+  const resumed = await host.run({ ...request, followUpPrompt: "Continue." });
+  expect(resumed.observations).toContainEqual({
+    id: "sevro.codex.initial-skill-reads",
+    completeness: "complete",
+    data: {
+      method: "skill_file_read_probe",
+      primarySkill: "probe",
+      observedSkills: ["probe"],
+    },
+  });
+  expect(resumed.observations).toContainEqual({
+    id: "sevro.codex.follow-up-skill-reads",
+    completeness: "complete",
+    data: {
+      method: "skill_file_read_probe",
+      primarySkill: "probe",
+      observedSkills: ["probe"],
+    },
   });
   expect(await readFile(join(workspace, "created.txt"), "utf8")).toBe(
     "created\n",
