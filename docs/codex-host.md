@@ -27,7 +27,12 @@ files in the private plugin cache.
 The `sevro.codex.native-calls` capability retains allowlisted direct goal and
 agent control calls from the native session bound to the completed thread. Its
 observation contains only call names, namespaces, and source ordinals, plus the
-count of submitted `exec` calls. Arguments, code, and outputs are discarded.
+count of submitted `exec` calls. It also records accepted native subagent
+spawns when one request, host start, and matching result occur in order. That
+receipt contains bounded agent identity, route fields, and source ordinals;
+private task messages, code, and outputs are discarded. An accepted spawn proves
+host acceptance, not the child's role, work, or completion. Duplicate,
+mismatched, or malformed evidence cannot establish acceptance.
 The record proves an invocation attempt, not its success. A missing, ambiguous,
 unreadable, oversized, or malformed session is unavailable or partial, so its
 absence cannot prove that a control was unused. Calls made through submitted

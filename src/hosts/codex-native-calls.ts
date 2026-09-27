@@ -24,6 +24,19 @@ interface NativeCall {
   evidence: "invocation_attempt";
 }
 
+interface AcceptedSpawn {
+  callId: string;
+  agentRef: string;
+  threadId: string;
+  requestedOrdinal: number;
+  startedOrdinal: number;
+  acceptedOrdinal: number;
+  taskName?: string;
+  model?: string;
+  reasoningEffort?: string;
+  forkTurns?: string;
+}
+
 interface NativeCallObservation {
   id: "sevro.codex.native-calls";
   completeness: "complete" | "partial" | "unavailable";
@@ -31,6 +44,7 @@ interface NativeCallObservation {
     method: "native_session";
     calls: NativeCall[];
     submittedExecCalls: number;
+    acceptedSpawns: AcceptedSpawn[];
   };
 }
 
@@ -44,7 +58,12 @@ function unavailable(
   return {
     id: "sevro.codex.native-calls",
     completeness,
-    data: { method: "native_session", calls: [], submittedExecCalls: 0 },
+    data: {
+      method: "native_session",
+      calls: [],
+      submittedExecCalls: 0,
+      acceptedSpawns: [],
+    },
   };
 }
 
@@ -120,16 +139,114 @@ function directCall(
   return null;
 }
 
+const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/;
+const AGENT_REF =
+  /^(?:\/root(?:\/[a-z0-9_]+)+|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
+
+function bounded(value: unknown, pattern: RegExp): string | undefined {
+  return typeof value === "string" && value.length <= 128 && pattern.test(value)
+    ? value
+    : undefined;
+}
+
+function acceptedSpawns(
+  entries: Array<{ ordinal: number; payload: Record<string, unknown> }>,
+): AcceptedSpawn[] {
+  const requests = entries.filter(
+    ({ payload }) =>
+      payload.type === "function_call" &&
+      payload.namespace === "collaboration" &&
+      payload.name === "spawn_agent",
+  );
+  const accepted: AcceptedSpawn[] = [];
+  for (const request of requests) {
+    const callId = bounded(request.payload.call_id, IDENTIFIER);
+    if (
+      !callId ||
+      requests.filter(({ payload }) => payload.call_id === callId).length !==
+        1 ||
+      typeof request.payload.arguments !== "string"
+    )
+      continue;
+    let args: unknown;
+    try {
+      args = JSON.parse(request.payload.arguments);
+    } catch {
+      continue;
+    }
+    if (!record(args)) continue;
+    const starts = entries.filter(({ payload }) => {
+      const item = record(payload.item) ? payload.item : undefined;
+      return (
+        payload.type === "item_completed" &&
+        item?.type === "SubAgentActivity" &&
+        item.id === callId &&
+        item.kind === "started"
+      );
+    });
+    const outputs = entries.filter(
+      ({ payload }) =>
+        payload.type === "function_call_output" && payload.call_id === callId,
+    );
+    if (starts.length !== 1 || outputs.length !== 1) continue;
+    const start = starts[0]!;
+    const result = outputs[0]!;
+    const item = start.payload.item as Record<string, unknown>;
+    const agentRef = bounded(item.agent_path, AGENT_REF);
+    const threadId = bounded(item.agent_thread_id, IDENTIFIER);
+    if (
+      !agentRef ||
+      !threadId ||
+      !(request.ordinal < start.ordinal && start.ordinal < result.ordinal) ||
+      typeof result.payload.output !== "string"
+    )
+      continue;
+    let output: unknown;
+    try {
+      output = JSON.parse(result.payload.output);
+    } catch {
+      continue;
+    }
+    if (!record(output) || output.task_name !== agentRef) continue;
+    accepted.push({
+      callId,
+      agentRef,
+      threadId,
+      requestedOrdinal: request.ordinal,
+      startedOrdinal: start.ordinal,
+      acceptedOrdinal: result.ordinal,
+      ...(bounded(args.task_name, /^[a-z0-9][a-z0-9_]{0,63}$/)
+        ? { taskName: args.task_name as string }
+        : {}),
+      ...(bounded(args.model, IDENTIFIER)
+        ? { model: args.model as string }
+        : {}),
+      ...(bounded(
+        args.reasoning_effort,
+        /^(?:low|medium|high|xhigh|max|ultra)$/,
+      )
+        ? { reasoningEffort: args.reasoning_effort as string }
+        : {}),
+      ...(bounded(args.fork_turns, /^(?:none|all|[1-9][0-9]*)$/)
+        ? { forkTurns: args.fork_turns as string }
+        : {}),
+    });
+  }
+  return accepted;
+}
+
 function parseSession(text: string): NativeCallObservation {
   const calls: NativeCall[] = [];
+  const entries: Array<{ ordinal: number; payload: Record<string, unknown> }> =
+    [];
   let submittedExecCalls = 0;
   let lastOrdinal = -1;
   let malformed = false;
-  let entries = 0;
+  let entryCount = 0;
   for (const line of text.split("\n")) {
     if (!line.trim()) continue;
-    entries++;
-    if (entries > MAX_SESSION_ENTRIES) {
+    entryCount++;
+    if (entryCount > MAX_SESSION_ENTRIES) {
       malformed = true;
       break;
     }
@@ -150,6 +267,7 @@ function parseSession(text: string): NativeCallObservation {
       continue;
     }
     lastOrdinal = entry.ordinal as number;
+    entries.push({ ordinal: lastOrdinal, payload: entry.payload });
     if (
       entry.payload.type === "custom_tool_call" &&
       entry.payload.name === "exec"
@@ -165,8 +283,14 @@ function parseSession(text: string): NativeCallObservation {
   }
   return {
     id: "sevro.codex.native-calls",
-    completeness: malformed || entries === 0 ? "partial" : "complete",
-    data: { method: "native_session", calls, submittedExecCalls },
+    completeness: malformed || entryCount === 0 ? "partial" : "complete",
+    data: {
+      method: "native_session",
+      calls,
+      submittedExecCalls,
+      acceptedSpawns:
+        malformed || entries.length === 0 ? [] : acceptedSpawns(entries),
+    },
   };
 }
 

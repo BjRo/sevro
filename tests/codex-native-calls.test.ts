@@ -101,9 +101,114 @@ test("native goal and agent calls retain names and order without private argumen
         },
       ],
       submittedExecCalls: 1,
+      acceptedSpawns: [],
     },
   });
   expect(JSON.stringify(observed)).not.toContain("private");
+});
+
+function lines(payloads: Array<Record<string, unknown>>) {
+  return (
+    payloads
+      .map((payload, ordinal) => JSON.stringify({ ordinal, payload }))
+      .join("\n") + "\n"
+  );
+}
+
+const spawn = {
+  type: "function_call",
+  namespace: "collaboration",
+  name: "spawn_agent",
+  call_id: "call_1",
+  arguments: JSON.stringify({
+    task_name: "reviewer",
+    model: "gpt-6-sol",
+    reasoning_effort: "high",
+    fork_turns: "none",
+    message: "private review task",
+  }),
+};
+const started = {
+  type: "item_completed",
+  item: {
+    type: "SubAgentActivity",
+    id: "call_1",
+    kind: "started",
+    agent_path: "/root/reviewer",
+    agent_thread_id: "thread-child",
+  },
+};
+const result = {
+  type: "function_call_output",
+  call_id: "call_1",
+  output: JSON.stringify({ task_name: "/root/reviewer" }),
+};
+
+test("native spawn acceptance binds one request, start, and result", async () => {
+  const root = await home();
+  await session(root, lines([spawn, started, result]));
+  const observed = await codexNativeCallObservation(root, "thread-1");
+  expect(observed.completeness).toBe("complete");
+  expect(observed.data.acceptedSpawns).toEqual([
+    {
+      callId: "call_1",
+      agentRef: "/root/reviewer",
+      threadId: "thread-child",
+      requestedOrdinal: 0,
+      startedOrdinal: 1,
+      acceptedOrdinal: 2,
+      taskName: "reviewer",
+      model: "gpt-6-sol",
+      reasoningEffort: "high",
+      forkTurns: "none",
+    },
+  ]);
+  expect(JSON.stringify(observed)).not.toContain("private review task");
+});
+
+test("native spawn route fields stay bounded even when host acceptance succeeds", async () => {
+  const root = await home();
+  const oversized = "9".repeat(500);
+  await session(
+    root,
+    lines([
+      {
+        ...spawn,
+        arguments: JSON.stringify({
+          task_name: "reviewer",
+          model: "gpt-6-sol",
+          fork_turns: oversized,
+          message: "private task",
+        }),
+      },
+      started,
+      result,
+    ]),
+  );
+  const observed = await codexNativeCallObservation(root, "thread-1");
+  expect(observed.data.acceptedSpawns).toHaveLength(1);
+  expect(observed.data.acceptedSpawns[0]?.forkTurns).toBeUndefined();
+  expect(JSON.stringify(observed)).not.toContain(oversized);
+});
+
+test("ambiguous, mismatched, and malformed spawn evidence cannot establish acceptance", async () => {
+  const root = await home();
+  for (const payloads of [
+    [spawn, started, started, result],
+    [spawn, started, result, result],
+    [spawn, spawn, started, result],
+    [spawn, result, started],
+    [spawn, started, { ...result, output: '{"task_name":"/root/other"}' }],
+  ]) {
+    await session(root, lines(payloads));
+    expect(
+      (await codexNativeCallObservation(root, "thread-1")).data.acceptedSpawns,
+    ).toEqual([]);
+  }
+  await session(root, lines([spawn, started, result]) + "{bad\n");
+  const partial = await codexNativeCallObservation(root, "thread-1");
+  expect(partial.completeness).toBe("partial");
+  expect(partial.data.acceptedSpawns).toEqual([]);
 });
 
 test("missing, ambiguous, and malformed native sessions cannot prove absence", async () => {

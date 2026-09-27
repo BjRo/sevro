@@ -112,6 +112,7 @@ test("Codex host binds bounded native calls to its completed thread", async () =
         },
       ],
       submittedExecCalls: 0,
+      acceptedSpawns: [],
     },
   });
   expect(JSON.stringify(result.observations)).not.toContain(
