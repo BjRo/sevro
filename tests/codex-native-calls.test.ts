@@ -208,6 +208,113 @@ test("accepted child sessions distinguish available, malformed, and ambiguous ro
   ).toEqual([{ threadId: "thread-child", status: "ambiguous" }]);
 });
 
+test("accepted child skill reads require the exact mounted body", async () => {
+  const root = await home();
+  const workspace = await mkdtemp(
+    join(tmpdir(), "sevro-native-child-workspace-"),
+  );
+  roots.push(workspace);
+  const skillDir = join(workspace, ".agents", "skills", "example");
+  await mkdir(skillDir, { recursive: true });
+  const skillPath = join(skillDir, "SKILL.md");
+  const body =
+    "---\nname: example\ndescription: Example\n---\n\nPrivate skill body.\n";
+  await writeFile(skillPath, body);
+  await session(root, lines([spawn, started, result]));
+  const command = {
+    type: "item_completed",
+    item: {
+      type: "CommandExecution",
+      command: ["/bin/zsh", "-lc", `cat ${skillPath}`],
+      aggregated_output: body,
+      exit_code: 0,
+      status: "completed",
+    },
+  };
+  await session(root, lines([command]), "thread-child");
+  const context = { workspace, installedPluginRoots: [] };
+  const observed = await codexNativeCallObservation(root, "thread-1", context);
+  expect(observed.data.childSessions).toEqual([
+    {
+      threadId: "thread-child",
+      status: "available",
+      readDiagnostics: {
+        completeness: "complete",
+        observedSkills: ["example"],
+        commandExecutions: 1,
+        readAttempts: 1,
+        truncated: false,
+      },
+    },
+  ]);
+  expect(JSON.stringify(observed)).not.toContain("Private skill body.");
+  expect(JSON.stringify(observed)).not.toContain(skillPath);
+
+  await session(
+    root,
+    lines([
+      { ...command, item: { ...command.item, aggregated_output: "summary" } },
+    ]),
+    "thread-child",
+  );
+  expect(
+    (await codexNativeCallObservation(root, "thread-1", context)).data
+      .childSessions[0],
+  ).toMatchObject({
+    status: "available",
+    readDiagnostics: { completeness: "partial", observedSkills: [] },
+  });
+});
+
+test("child read diagnostics distinguish no read from an indirect attempt", async () => {
+  const root = await home();
+  const workspace = await mkdtemp(
+    join(tmpdir(), "sevro-native-child-workspace-"),
+  );
+  roots.push(workspace);
+  await session(root, lines([spawn, started, result]));
+  await session(
+    root,
+    lines([{ type: "item_completed", item: { type: "AgentMessage" } }]),
+    "thread-child",
+  );
+  const context = { workspace, installedPluginRoots: [] };
+  expect(
+    (await codexNativeCallObservation(root, "thread-1", context)).data
+      .childSessions[0]?.readDiagnostics,
+  ).toEqual({
+    completeness: "complete",
+    observedSkills: [],
+    commandExecutions: 0,
+    readAttempts: 0,
+    truncated: false,
+  });
+  await session(
+    root,
+    lines([
+      {
+        type: "item_completed",
+        item: {
+          type: "CommandExecution",
+          command: ["/bin/zsh", "-lc", "printf SKILL.md"],
+          aggregated_output: "SKILL.md",
+          exit_code: 0,
+          status: "completed",
+        },
+      },
+    ]),
+    "thread-child",
+  );
+  expect(
+    (await codexNativeCallObservation(root, "thread-1", context)).data
+      .childSessions[0]?.readDiagnostics,
+  ).toMatchObject({
+    completeness: "partial",
+    observedSkills: [],
+    readAttempts: 1,
+  });
+});
+
 test("child session lookup is capped with an explicit truncation flag", async () => {
   const root = await home();
   const payloads = Array.from({ length: 9 }, (_, index) => {

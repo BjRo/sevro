@@ -532,6 +532,7 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
         const nativeCalls = await codexNativeCallObservation(
           codexHome,
           summary.threadId,
+          { workspace: request.workspace, installedPluginRoots },
         );
         const explicit = request.explicitSkillInvocation;
         const explicitReceipt = explicit

@@ -2,6 +2,7 @@ import { readFile, realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 
 const MAX_SKILL_BYTES = 1024 * 1024;
+const MAX_NATIVE_READ_ATTEMPTS = 64;
 const SKILL_PATH = /^\.agents\/skills\/([A-Za-z0-9._-]+)\/SKILL\.md$/;
 const PLUGIN_SKILL_PATH = /^skills\/([A-Za-z0-9._-]+)\/SKILL\.md$/;
 
@@ -78,6 +79,7 @@ async function verifiedSkillRead(
   item: CodexItem,
   workspace: string,
   pluginRoots: string[],
+  commandCwd = workspace,
 ): Promise<{
   skill: string;
   path: string;
@@ -87,7 +89,7 @@ async function verifiedSkillRead(
   if (typeof item.command !== "string") return null;
   const read = directRead(item.command);
   if (!read || typeof item.aggregated_output !== "string") return null;
-  const resolved = resolve(workspace, read.path);
+  const resolved = resolve(commandCwd, read.path);
   const actual = await realpath(resolved).catch(() => null);
   if (!actual) return null;
   const mountedMatch = relative(workspace, actual)
@@ -124,6 +126,125 @@ function fullCoverage(
     covered = Math.max(covered, end);
   }
   return covered === length;
+}
+
+interface NativeEntry {
+  payload: Record<string, unknown>;
+}
+
+export interface NativeChildReadDiagnostic {
+  completeness: "complete" | "partial";
+  observedSkills: string[];
+  commandExecutions: number;
+  readAttempts: number;
+  truncated: boolean;
+}
+
+function nativeCommandText(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  if (!Array.isArray(value) || !value.every((part) => typeof part === "string"))
+    return null;
+  if (value.length >= 3 && (value[1] === "-lc" || value[1] === "-c"))
+    return value.slice(2).join(" ");
+  return value.join(" ");
+}
+
+/** Verify child skill-file reads without retaining native commands or output. */
+export async function codexNativeChildReadDiagnostic(
+  entries: NativeEntry[],
+  workspace: string,
+  installedPluginRoots: string[] = [],
+): Promise<NativeChildReadDiagnostic> {
+  const canonicalWorkspace = await realpath(workspace);
+  const pluginRoots = await Promise.all(
+    installedPluginRoots.map((root) => realpath(root)),
+  );
+  const attempted = new Map<
+    string,
+    { ranges: Array<[number, number]>; bodyLength: number }
+  >();
+  const observedSkills: string[] = [];
+  let commandExecutions = 0;
+  let readAttempts = 0;
+  let partial = false;
+  let truncated = false;
+  for (const { payload } of entries) {
+    const item = payload.item;
+    if (
+      payload.type !== "item_completed" ||
+      !item ||
+      typeof item !== "object" ||
+      Array.isArray(item) ||
+      (item as CodexItem).type !== "CommandExecution"
+    )
+      continue;
+    const commandItem = item as CodexItem & { cwd?: unknown };
+    commandExecutions++;
+    const command = nativeCommandText(commandItem.command);
+    if (!command) {
+      partial = true;
+      continue;
+    }
+    if (!command.includes("SKILL.md")) continue;
+    readAttempts++;
+    if (readAttempts > MAX_NATIVE_READ_ATTEMPTS) {
+      readAttempts = MAX_NATIVE_READ_ATTEMPTS;
+      truncated = true;
+      partial = true;
+      break;
+    }
+    if (
+      typeof commandItem.exit_code !== "number" ||
+      commandItem.status !== "completed"
+    ) {
+      partial = true;
+      continue;
+    }
+    const cwd =
+      commandItem.cwd === undefined
+        ? canonicalWorkspace
+        : typeof commandItem.cwd === "string" && isAbsolute(commandItem.cwd)
+          ? await realpath(commandItem.cwd).catch(() => null)
+          : null;
+    if (!cwd) {
+      partial = true;
+      continue;
+    }
+    const read = await verifiedSkillRead(
+      { ...commandItem, command },
+      canonicalWorkspace,
+      pluginRoots,
+      cwd,
+    );
+    if (!read) {
+      partial = true;
+      continue;
+    }
+    const coverage = attempted.get(read.path) ?? {
+      ranges: [],
+      bodyLength: read.bodyLength,
+    };
+    coverage.ranges.push(read.range);
+    attempted.set(read.path, coverage);
+    if (
+      fullCoverage(coverage.ranges, coverage.bodyLength) &&
+      !observedSkills.includes(read.skill)
+    )
+      observedSkills.push(read.skill);
+  }
+  return {
+    completeness:
+      !partial &&
+      [...attempted.values()].every(({ ranges, bodyLength }) =>
+        fullCoverage(ranges, bodyLength),
+      )
+        ? "complete"
+        : "partial",
+    observedSkills,
+    commandExecutions,
+    readAttempts,
+    truncated,
+  };
 }
 
 /** Retain only ordered mounted-skill names, never commands or skill bodies. */

@@ -40,8 +40,12 @@ handoff without exposing messages or command input. A partial list cannot
 prove that parent work was absent.
 For accepted spawns, it also checks up to eight child thread rollouts and
 reports whether each is available, unavailable, ambiguous, or partial, with an
-explicit truncation flag. This receipt does not establish child skill use or
-task completion and retains no child prompt or output.
+explicit truncation flag. An available rollout includes bounded diagnostics for
+native child commands: the number of commands and skill read attempts, whether
+the exact mounted `SKILL.md` body was read, and whether the check was complete
+or truncated. A rollout with no read differs from a missing or malformed
+rollout. These diagnostics do not establish skill activation or task completion
+by themselves and retain no child prompt, command, or output.
 The record proves an invocation attempt, not its success. A missing, ambiguous,
 unreadable, oversized, or malformed session is unavailable or partial, so its
 absence cannot prove that a control was unused. Calls made through submitted

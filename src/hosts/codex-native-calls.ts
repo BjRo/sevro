@@ -1,6 +1,10 @@
 import type { Dirent } from "node:fs";
 import { lstat, readFile, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
+import {
+  codexNativeChildReadDiagnostic,
+  type NativeChildReadDiagnostic,
+} from "./codex-skill-reads";
 
 const MAX_SESSION_BYTES = 8 * 1024 * 1024;
 const MAX_SESSION_ENTRIES = 10_000;
@@ -48,6 +52,12 @@ interface AcceptedSpawn {
 interface ChildSession {
   threadId: string;
   status: "available" | "unavailable" | "ambiguous" | "partial";
+  readDiagnostics?: NativeChildReadDiagnostic;
+}
+
+interface NativeSkillContext {
+  workspace: string;
+  installedPluginRoots: string[];
 }
 
 interface NativeCallObservation {
@@ -287,7 +297,10 @@ function acceptedSpawns(
   return accepted;
 }
 
-function parseSession(text: string): NativeCallObservation {
+function parseSession(text: string): {
+  observation: NativeCallObservation;
+  entries: Array<{ ordinal: number; payload: Record<string, unknown> }>;
+} {
   const calls: NativeCall[] = [];
   const toolCalls: NativeToolCall[] = [];
   const entries: Array<{ ordinal: number; payload: Record<string, unknown> }> =
@@ -341,17 +354,20 @@ function parseSession(text: string): NativeCallObservation {
     }
   }
   return {
-    id: "sevro.codex.native-calls",
-    completeness: malformed || entryCount === 0 ? "partial" : "complete",
-    data: {
-      method: "native_session",
-      calls,
-      toolCalls,
-      submittedExecCalls,
-      acceptedSpawns:
-        malformed || entries.length === 0 ? [] : acceptedSpawns(entries),
-      childSessions: [],
-      childrenTruncated: false,
+    entries,
+    observation: {
+      id: "sevro.codex.native-calls",
+      completeness: malformed || entryCount === 0 ? "partial" : "complete",
+      data: {
+        method: "native_session",
+        calls,
+        toolCalls,
+        submittedExecCalls,
+        acceptedSpawns:
+          malformed || entries.length === 0 ? [] : acceptedSpawns(entries),
+        childSessions: [],
+        childrenTruncated: false,
+      },
     },
   };
 }
@@ -360,6 +376,7 @@ async function childSessionStatus(
   home: string,
   parentThread: string,
   threadId: string,
+  skillContext?: NativeSkillContext,
 ): Promise<ChildSession> {
   if (threadId === parentThread) return { threadId, status: "partial" };
   const located = await sessionPath(home, threadId);
@@ -373,9 +390,19 @@ async function childSessionStatus(
     const parsed = parseSession(
       new TextDecoder("utf-8", { fatal: true }).decode(bytes),
     );
+    if (parsed.observation.completeness !== "complete")
+      return { threadId, status: "partial" };
+    const readDiagnostics = skillContext
+      ? await codexNativeChildReadDiagnostic(
+          parsed.entries,
+          skillContext.workspace,
+          skillContext.installedPluginRoots,
+        )
+      : undefined;
     return {
       threadId,
-      status: parsed.completeness === "complete" ? "available" : "partial",
+      status: "available",
+      ...(readDiagnostics ? { readDiagnostics } : {}),
     };
   } catch {
     return { threadId, status: "partial" };
@@ -386,6 +413,7 @@ async function childSessionStatus(
 export async function codexNativeCallObservation(
   home: string,
   threadId: string,
+  skillContext?: NativeSkillContext,
 ): Promise<NativeCallObservation> {
   const located = await sessionPath(home, threadId);
   if (located.status !== "found")
@@ -397,7 +425,7 @@ export async function codexNativeCallObservation(
     if (size > MAX_SESSION_BYTES) return unavailable("partial");
     const bytes = await readFile(located.path);
     if (bytes.byteLength > MAX_SESSION_BYTES) return unavailable("partial");
-    const observation = parseSession(
+    const { observation } = parseSession(
       new TextDecoder("utf-8", { fatal: true }).decode(bytes),
     );
     if (observation.completeness !== "complete") return observation;
@@ -409,7 +437,9 @@ export async function codexNativeCallObservation(
     const childSessions = await Promise.all(
       children
         .slice(0, MAX_CHILD_SESSIONS)
-        .map((child) => childSessionStatus(home, threadId, child)),
+        .map((child) =>
+          childSessionStatus(home, threadId, child, skillContext),
+        ),
     );
     return {
       ...observation,
