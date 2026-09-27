@@ -59,7 +59,7 @@ if [ -f "$workspace/malformed.flag" ]; then printf '{broken\\n'; exit 0; fi
 if [ -f "$workspace/slow.flag" ]; then printf '%s' "$$" > "$workspace/child.pid"; /bin/sleep 10; fi
 printf 'created\\n' > "$workspace/created.txt"
 printf '%s\\n' '{"type":"thread.started","thread_id":"thread-1"}'
-if [ -f "$workspace/require-plugin.flag" ]; then
+if [ -f "$workspace/require-plugin.flag" ] && [ ! -f "$workspace/skip-skill-read.flag" ]; then
   skill_file="$CODEX_HOME/plugins/cache/sevro-probe/probe/0.1.0/skills/probe/SKILL.md"
   printf '%s\\n' '{"type":"item.completed","item":{"id":"skill","type":"command_execution","command":"cat '"$skill_file"'","aggregated_output":"---\\nname: probe\\ndescription: Test probe\\n---\\nRead this skill.\\n","exit_code":0,"status":"completed"}}'
 fi
@@ -147,6 +147,33 @@ test("Codex host installs a declared local plugin in its isolated home", async (
   expect(await readFile(join(workspace, "created.txt"), "utf8")).toBe(
     "created\n",
   );
+  await writeFile(join(workspace, "skip-skill-read.flag"), "\n");
+  const explicit = {
+    ...request,
+    prompt: "Use $probe:probe and return ready.",
+    explicitSkillInvocation: {
+      pluginName: "probe",
+      skillName: "probe",
+      token: "$probe:probe",
+    },
+  };
+  const dispatched = await host.run(explicit);
+  expect(dispatched.observations).toContainEqual({
+    id: "sevro.codex.explicit-invocation",
+    completeness: "complete",
+    data: {
+      method: "explicit_invocation",
+      primarySkill: "probe",
+      observedSkills: ["probe"],
+    },
+  });
+  expect(dispatched.observations?.[0]).toMatchObject({
+    id: "sevro.codex.skill-reads",
+    data: { primarySkill: null, observedSkills: [] },
+  });
+  await expect(
+    host.run({ ...explicit, prompt: "Use $probe:probe twice: $probe:probe." }),
+  ).rejects.toThrow(/invalid Codex explicit skill invocation/);
   await writeFile(join(packageRoot, "unlisted.txt"), "extra\n");
   await expect(host.run(request)).rejects.toThrow(/undeclared files/);
   await rm(join(packageRoot, "unlisted.txt"));

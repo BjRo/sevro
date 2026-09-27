@@ -39,6 +39,10 @@ const discovery = {
     scenario !== "lifecycle-codex-marketplace-unnegotiated"
       ? ["sevro.codex.plugin-marketplace"]
       : []),
+    ...(scenario.includes("explicit-invocation") &&
+    !scenario.endsWith("unnegotiated")
+      ? ["sevro.codex.explicit-invocation"]
+      : []),
   ],
   graders: ["example.extension"],
   taskVerdictPolicies: scenario.startsWith("lifecycle-policy")
@@ -104,7 +108,11 @@ const result = scenario.startsWith("lifecycle")
         cases: [
           {
             id: "extension-case",
-            prompt: "Return ready.",
+            prompt: scenario.includes("explicit-invocation")
+              ? scenario.endsWith("repeated")
+                ? "Use {{sevro.codex.skill_invocation}} and {{sevro.codex.skill_invocation}}."
+                : "Use {{sevro.codex.skill_invocation}} and return ready."
+              : "Return ready.",
             fixture:
               scenario === "lifecycle-repository"
                 ? {
@@ -234,6 +242,14 @@ const result = scenario.startsWith("lifecycle")
                       : "marketplace",
                   marketplaceName: "sevro-probe",
                   pluginNames: ["probe"],
+                },
+              }
+            : {}),
+          ...(scenario.includes("explicit-invocation")
+            ? {
+                codexSkillInvocation: {
+                  pluginName: "probe",
+                  skillName: "probe",
                 },
               }
             : {}),

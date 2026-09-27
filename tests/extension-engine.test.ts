@@ -616,7 +616,11 @@ test("negotiated Codex marketplace reaches the host and binds fixture identity",
         ),
       ).toContain("Read this skill.");
       sawMarketplace = true;
-      return { finalMessage: "ready", complete: true, actualCondition: "passive" };
+      return {
+        finalMessage: "ready",
+        complete: true,
+        actualCondition: "passive",
+      };
     },
   };
   const { outcome, evidence } = await runWithExtension(
@@ -654,8 +658,68 @@ test("Codex marketplace requires negotiation and a valid artifact root", async (
     ),
   ).rejects.toThrow(/capability was not negotiated/);
   await expect(
-    runWithExtension("lifecycle-codex-marketplace-bad-root", undefined, [], host),
+    runWithExtension(
+      "lifecycle-codex-marketplace-bad-root",
+      undefined,
+      [],
+      host,
+    ),
   ).rejects.toThrow(/invalid Codex marketplace declaration/);
+});
+
+test("explicit Codex invocation renders once and reaches the selected host", async () => {
+  let delivered = false;
+  const host: HostAdapter = {
+    id: "sevro.host.codex",
+    model: "synthetic-v1",
+    effort: "none",
+    hostCapabilities: [
+      "sevro.codex.plugin-marketplace",
+      "sevro.codex.explicit-invocation",
+    ],
+    async run(request) {
+      expect(request.prompt).toBe("Use $probe:probe and return ready.");
+      expect(request.explicitSkillInvocation).toEqual({
+        pluginName: "probe",
+        skillName: "probe",
+        token: "$probe:probe",
+      });
+      delivered = true;
+      return {
+        finalMessage: "ready",
+        complete: true,
+        actualCondition: "passive",
+      };
+    },
+  };
+  const { outcome, evidence } = await runWithExtension(
+    "lifecycle-codex-marketplace-explicit-invocation",
+    undefined,
+    [],
+    host,
+  );
+  expect(outcome.result.exitCode).toBe(0);
+  expect(delivered).toBe(true);
+  expect(evidence.configuration.redacted.codexSkillInvocation).toEqual({
+    pluginName: "probe",
+    skillName: "probe",
+  });
+  await expect(
+    runWithExtension(
+      "lifecycle-codex-marketplace-explicit-invocation-repeated",
+      undefined,
+      [],
+      host,
+    ),
+  ).rejects.toThrow(/invalid Codex skill invocation declaration/);
+  await expect(
+    runWithExtension(
+      "lifecycle-codex-marketplace-explicit-invocation-unnegotiated",
+      undefined,
+      [],
+      host,
+    ),
+  ).rejects.toThrow(/capability was not negotiated/);
 });
 
 test("prepared executable artifact runs from the fixture and retains its mode", async () => {

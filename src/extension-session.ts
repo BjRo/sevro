@@ -51,6 +51,10 @@ export interface PreparationResult {
     marketplaceName: string;
     pluginNames: string[];
   };
+  codexSkillInvocation?: {
+    pluginName: string;
+    skillName: string;
+  };
   extensionData: Record<string, unknown>;
 }
 

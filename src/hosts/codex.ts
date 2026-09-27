@@ -269,7 +269,10 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
     throw new Error("invalid Codex host configuration");
   return {
     id: "sevro.host.codex",
-    hostCapabilities: ["sevro.codex.plugin-marketplace"],
+    hostCapabilities: [
+      "sevro.codex.plugin-marketplace",
+      "sevro.codex.explicit-invocation",
+    ],
     model: options.model,
     effort: options.effort,
     async run(request) {
@@ -282,6 +285,18 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
         throw new Error("Codex instrumentation is unavailable");
       if (request.condition !== "passive")
         throw new Error("Codex enforcement instrumentation is unavailable");
+      if (request.explicitSkillInvocation) {
+        const { pluginName, skillName, token } =
+          request.explicitSkillInvocation;
+        if (
+          !request.codexMarketplace?.pluginNames.includes(pluginName) ||
+          !/^[a-z][a-z0-9-]*$/.test(pluginName) ||
+          !/^[A-Za-z0-9._-]+$/.test(skillName) ||
+          token !== `$${pluginName}:${skillName}` ||
+          request.prompt.split(token).length !== 2
+        )
+          throw new Error("invalid Codex explicit skill invocation");
+      }
       if (existsSync(join(request.workspace, ".codex")))
         throw new Error("fixture Codex configuration is unsupported");
       const stateRoot = await mkdtemp(join(tmpdir(), "sevro-codex-state-"));
@@ -416,6 +431,22 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
             )
               throw new Error("Codex plugin installation receipt is invalid");
             installedPluginRoots.push(actualInstalledPath);
+            if (
+              request.explicitSkillInvocation?.pluginName === pluginName &&
+              !(
+                await stat(
+                  join(
+                    actualInstalledPath,
+                    "skills",
+                    request.explicitSkillInvocation.skillName,
+                    "SKILL.md",
+                  ),
+                ).catch(() => null)
+              )?.isFile()
+            )
+              throw new Error(
+                "invoked Codex skill is absent from the installation",
+              );
           }
         }
         const probe = join(commandTemp, "isolation-probe");
@@ -496,10 +527,30 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
           request.workspace,
           installedPluginRoots,
         );
+        const explicit = request.explicitSkillInvocation;
+        const explicitReceipt = explicit
+          ? {
+              id: "sevro.codex.explicit-invocation",
+              completeness: skillReads.completeness,
+              data: {
+                method: "explicit_invocation",
+                primarySkill: explicit.skillName,
+                observedSkills: [
+                  explicit.skillName,
+                  ...skillReads.data.observedSkills.filter(
+                    (skill) => skill !== explicit.skillName,
+                  ),
+                ],
+              },
+            }
+          : null;
         return {
           finalMessage: summary.finalMessage,
           complete: summary.finalMessage !== null,
-          observations: [skillReads],
+          observations: [
+            skillReads,
+            ...(explicitReceipt ? [explicitReceipt] : []),
+          ],
           artifacts: [
             {
               id: "sevro.codex.events",

@@ -129,6 +129,13 @@ installs the marketplace and named plugins in its private home for each trial;
 no package is installed from an undeclared artifact. This fixture setup is
 available in passive trials because it does not add enforcement
 instrumentation.
+An extension that also negotiates `sevro.codex.explicit-invocation` may declare
+`codexSkillInvocation` with a plugin and skill in that package. Its resolved
+prompt must contain `{{sevro.codex.skill_invocation}}` exactly once. Sevro
+renders the installed `$plugin:skill` token separately for each trial and the
+Codex host retains a bounded dispatch receipt only after a completed turn.
+Missing or repeated tokens, absent packaged skills, and unsupported hosts fail
+before candidate execution. Supporting skill reads remain separate evidence.
 
 An artifact for a generated or cloned Git fixture may set `gitExclude: true`.
 Sevro mounts its verified bytes, adds only that exact artifact path to the

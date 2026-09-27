@@ -134,6 +134,11 @@ export interface HostAdapter {
       pluginNames: string[];
       artifactPaths: string[];
     };
+    explicitSkillInvocation?: {
+      pluginName: string;
+      skillName: string;
+      token: string;
+    };
     signal?: AbortSignal;
   }): Promise<HostResult>;
 }
@@ -249,7 +254,10 @@ async function createFixture(
         signal,
       });
     for (const artifact of artifacts) {
-      const target = await safePreparationTarget(workspace, artifact.relativePath);
+      const target = await safePreparationTarget(
+        workspace,
+        artifact.relativePath,
+      );
       await writeFile(target, artifact.bytes, {
         flag: "wx",
         mode: artifact.executable ? 0o700 : 0o600,
@@ -749,7 +757,9 @@ export async function runEvaluation(
       )
         throw new Error("invalid marketplace or plugin name");
     } catch {
-      throw new EvaluationConfigurationError("invalid Codex marketplace declaration");
+      throw new EvaluationConfigurationError(
+        "invalid Codex marketplace declaration",
+      );
     }
     if (
       !options.extension?.session.identity.capabilities.includes(
@@ -776,6 +786,42 @@ export async function runEvaluation(
         "Codex marketplace requires Git-excluded package artifacts and a manifest",
       );
   }
+  const codexSkillInvocation = extensionPreparation?.codexSkillInvocation;
+  const invocationPlaceholder = "{{sevro.codex.skill_invocation}}";
+  const placeholderCount =
+    options.case.prompt.split(invocationPlaceholder).length - 1;
+  if (codexSkillInvocation) {
+    const { pluginName, skillName } = codexSkillInvocation;
+    if (
+      !codexMarketplace ||
+      !codexMarketplace.pluginNames.includes(pluginName) ||
+      !/^[a-z][a-z0-9-]*$/.test(pluginName) ||
+      !/^[A-Za-z0-9._-]+$/.test(skillName) ||
+      placeholderCount !== 1 ||
+      !inlineArtifacts.some(
+        (artifact) =>
+          artifact.relativePath ===
+          `${codexMarketplace.artifactRoot}/plugin/skills/${skillName}/SKILL.md`,
+      )
+    )
+      throw new EvaluationConfigurationError(
+        "invalid Codex skill invocation declaration",
+      );
+    if (
+      !options.extension?.session.identity.capabilities.includes(
+        "sevro.codex.explicit-invocation",
+      ) ||
+      !options.host.hostCapabilities?.includes(
+        "sevro.codex.explicit-invocation",
+      )
+    )
+      throw new EvaluationConfigurationError(
+        "Codex explicit invocation capability was not negotiated",
+      );
+  } else if (placeholderCount)
+    throw new EvaluationConfigurationError(
+      "Codex skill invocation placeholder requires a declaration",
+    );
   const extensionData = options.extension
     ? {
         ...options.extension.resolvedCase.extensionData,
@@ -821,6 +867,7 @@ export async function runEvaluation(
       options.extension?.session.identity.configurationDigest ?? null,
     ...(fixtureSetup ? { fixtureSetupDigest: hashJson(fixtureSetup) } : {}),
     ...(codexMarketplace ? { codexMarketplace } : {}),
+    ...(codexSkillInvocation ? { codexSkillInvocation } : {}),
     ...(options.advisoryHost
       ? {
           advisoryExcludedPaths: [
@@ -887,6 +934,7 @@ export async function runEvaluation(
         ),
         ...(fixtureSetup ? { fixtureSetup } : {}),
         ...(codexMarketplace ? { codexMarketplace } : {}),
+        ...(codexSkillInvocation ? { codexSkillInvocation } : {}),
       }),
       checksDigest: hashJson(options.case.checks),
       requiredEvidenceDigest: hashJson(options.case.requiredEvidence),
@@ -990,10 +1038,14 @@ export async function runEvaluation(
         options.signal,
       );
       const fixtureBinDir = (await fixtureBinDirectory(workspace)) ?? undefined;
-      const trialPrompt = options.case.prompt.replaceAll(
-        "{{sevro.workspace}}",
-        workspace,
-      );
+      const trialPrompt = options.case.prompt
+        .replaceAll("{{sevro.workspace}}", workspace)
+        .replaceAll(
+          invocationPlaceholder,
+          codexSkillInvocation
+            ? `$${codexSkillInvocation.pluginName}:${codexSkillInvocation.skillName}`
+            : invocationPlaceholder,
+        );
       let persisted = false;
       try {
         const advisoryRevision = options.advisoryHost
@@ -1025,6 +1077,14 @@ export async function runEvaluation(
                           ),
                         )
                         .map((artifact) => artifact.relativePath),
+                    },
+                  }
+                : {}),
+              ...(codexSkillInvocation
+                ? {
+                    explicitSkillInvocation: {
+                      ...codexSkillInvocation,
+                      token: `$${codexSkillInvocation.pluginName}:${codexSkillInvocation.skillName}`,
                     },
                   }
                 : {}),

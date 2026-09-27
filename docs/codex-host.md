@@ -24,6 +24,10 @@ for its case.
 The same check accepts skill files below the exact installed plugin roots from
 Codex's installation receipts. It does not infer activation from arbitrary
 files in the private plugin cache.
+For an explicitly declared `$plugin:skill`, the host verifies that the installed
+skill exists and that the exact token occurs once in the delivered prompt. A
+completed turn yields `sevro.codex.explicit-invocation` with the owner first and
+verified supporting reads after it. Incomplete reads make that receipt partial.
 
 `createCodexHost` copies file-based authentication into a private Codex home
 for one turn. It supplies only explicit environment variables to the parent
