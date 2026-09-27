@@ -158,6 +158,7 @@ test("parent diagnostics cover sessions without a spawn", async () => {
   ).toEqual({
     completeness: "complete",
     observedSkills: [],
+    completedReads: [],
     commandExecutions: 0,
     readAttempts: 0,
     truncated: false,
@@ -181,7 +182,40 @@ test("parent diagnostics cover sessions without a spawn", async () => {
   expect(observed.data.parentReadDiagnostics).toMatchObject({
     completeness: "complete",
     observedSkills: ["example"],
+    completedReads: [{ skill: "example", ordinal: 0 }],
   });
+  await session(
+    root,
+    lines([
+      {
+        type: "item_completed",
+        item: {
+          type: "CommandExecution",
+          command: ["/bin/zsh", "-lc", "cat .agents/skills/example/SKILL.md"],
+          aggregated_output: body,
+          exit_code: 0,
+          status: "completed",
+        },
+      },
+      {
+        type: "item_completed",
+        item: {
+          type: "CommandExecution",
+          command: ["/bin/zsh", "-lc", "cat .agents/skills/example/SKILL.md"],
+          aggregated_output: body,
+          exit_code: 0,
+          status: "completed",
+        },
+      },
+    ]),
+  );
+  expect(
+    (await codexNativeCallObservation(root, "thread-1", context)).data
+      .parentReadDiagnostics?.completedReads,
+  ).toEqual([
+    { skill: "example", ordinal: 0 },
+    { skill: "example", ordinal: 1 },
+  ]);
   expect(JSON.stringify(observed)).not.toContain("Private parent body.");
 });
 
@@ -321,6 +355,7 @@ test("accepted child skill reads require the exact mounted body", async () => {
       readDiagnostics: {
         completeness: "complete",
         observedSkills: ["example"],
+        completedReads: [{ skill: "example", ordinal: 0 }],
         commandExecutions: 1,
         readAttempts: 1,
         truncated: false,
@@ -547,6 +582,7 @@ test("child read diagnostics distinguish no read from an indirect attempt", asyn
   ).toEqual({
     completeness: "complete",
     observedSkills: [],
+    completedReads: [],
     commandExecutions: 0,
     readAttempts: 0,
     truncated: false,

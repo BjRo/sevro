@@ -129,12 +129,14 @@ function fullCoverage(
 }
 
 interface NativeEntry {
+  ordinal: number;
   payload: Record<string, unknown>;
 }
 
 export interface NativeReadDiagnostic {
   completeness: "complete" | "partial";
   observedSkills: string[];
+  completedReads: Array<{ skill: string; ordinal: number }>;
   commandExecutions: number;
   readAttempts: number;
   truncated: boolean;
@@ -164,11 +166,12 @@ export async function codexNativeReadDiagnostic(
     { ranges: Array<[number, number]>; bodyLength: number }
   >();
   const observedSkills: string[] = [];
+  const completedReads: Array<{ skill: string; ordinal: number }> = [];
   let commandExecutions = 0;
   let readAttempts = 0;
   let partial = false;
   let truncated = false;
-  for (const { payload } of entries) {
+  for (const { ordinal, payload } of entries) {
     const item = payload.item;
     if (
       payload.type !== "item_completed" ||
@@ -220,17 +223,20 @@ export async function codexNativeReadDiagnostic(
       partial = true;
       continue;
     }
-    const coverage = attempted.get(read.path) ?? {
-      ranges: [],
-      bodyLength: read.bodyLength,
-    };
+    const prior = attempted.get(read.path);
+    const coverage =
+      prior && !fullCoverage(prior.ranges, prior.bodyLength)
+        ? prior
+        : {
+            ranges: [],
+            bodyLength: read.bodyLength,
+          };
     coverage.ranges.push(read.range);
     attempted.set(read.path, coverage);
-    if (
-      fullCoverage(coverage.ranges, coverage.bodyLength) &&
-      !observedSkills.includes(read.skill)
-    )
-      observedSkills.push(read.skill);
+    if (fullCoverage(coverage.ranges, coverage.bodyLength)) {
+      completedReads.push({ skill: read.skill, ordinal });
+      if (!observedSkills.includes(read.skill)) observedSkills.push(read.skill);
+    }
   }
   return {
     completeness:
@@ -241,6 +247,7 @@ export async function codexNativeReadDiagnostic(
         ? "complete"
         : "partial",
     observedSkills,
+    completedReads,
     commandExecutions,
     readAttempts,
     truncated,

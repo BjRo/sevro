@@ -56,6 +56,11 @@ order or a missing repeat read without inferring it from the combined list.
 It also checks native parent command records for exact mounted skill bodies,
 including sessions with no spawn request. The bounded diagnostic distinguishes
 no read from an incomplete read without claiming skill activation.
+It retains the skill name and native ordinal when verified reads complete a
+whole body. Repeated complete reads produce separate receipts; paged reads
+produce one receipt when their ranges first cover the body. An incomplete
+later reread makes the diagnostic partial. Extensions can compare these
+ordinals with an accepted owner boundary without retaining commands or output.
 For accepted spawns, it also checks up to eight child thread rollouts and
 reports whether each is available, unavailable, ambiguous, or partial, with an
 explicit truncation flag. An available rollout includes bounded diagnostics for
