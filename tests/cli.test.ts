@@ -1070,3 +1070,54 @@ printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_token
   ]);
   expect(conflicting.code).toBe(64);
 });
+
+test("CLI runs its bundled Claude route with isolated credentials", async () => {
+  if (process.platform !== "darwin") return;
+  const { args, caseFile } = await fixture();
+  const projectRoot = join(caseFile, "..");
+  const credentialFile = join(projectRoot, "claude-credentials.json");
+  const binRoot = await mkdtemp(join(tmpdir(), "sevro-claude-bin-"));
+  roots.push(binRoot);
+  const binary = join(binRoot, "claude-wrapper");
+  await writeFile(credentialFile, '{"test":"private-login"}', {
+    mode: 0o600,
+  });
+  await writeFile(
+    binary,
+    [
+      "#!/bin/sh",
+      'test -r "$CLAUDE_CONFIG_DIR/.credentials.json" || exit 3',
+      'printf \'%s\\n\' \'{"type":"result","subtype":"success","is_error":false,"result":"ready","usage":{"input_tokens":1,"output_tokens":2},"total_cost_usd":0.01}\'',
+    ].join("\n") + "\n",
+    { mode: 0o700 },
+  );
+  const withoutAdapter = args.filter(
+    (value, index) =>
+      value !== "--adapter-module" && args[index - 1] !== "--adapter-module",
+  );
+  const claudeArgs = [
+    ...withoutAdapter,
+    "--host",
+    "claude",
+    "--claude-bin",
+    binary,
+    "--claude-credential-file",
+    credentialFile,
+    "--model",
+    "sonnet",
+    "--effort",
+    "low",
+  ];
+  const run = await invoke(claudeArgs);
+  expect(run.code).toBe(0);
+  expect(run.result.task.verdict).toBe("passed");
+  const trial = JSON.parse(
+    await readFile(run.result.cases[0].trials[0].artifactPath, "utf8"),
+  );
+  expect(trial.evidence.routes[0]).toMatchObject({
+    host: "sevro.host.claude",
+    model: "sonnet",
+  });
+  const invalid = await invoke([...args, ...claudeArgs.slice(-10)]);
+  expect(invalid.code).toBe(64);
+});

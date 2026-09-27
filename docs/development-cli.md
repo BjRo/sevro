@@ -3,8 +3,8 @@
 The local `sevro run` command connects a resolved JSON case or an explicit
 extension to a host route.
 It uses the engine's normal grading and evidence path. This remains a
-development entrypoint while the Claude adapter, full extension lifecycle,
-and production provenance collection are being built.
+development entrypoint while the full extension lifecycle and production
+provenance collection are being built.
 
 `sevro report` reads one or more retained JSON results through the
 [versioned report contract](report-v1.md). It emits Markdown by default or
@@ -51,6 +51,25 @@ verifies the command sandbox before execution. This route currently supports
 only passive conditions. `--host` and `--adapter-module` are exclusive. Use
 `--protected-root` to add private roots for Codex, including when no shell
 checks are selected.
+
+A bundled Claude Code candidate route is available on macOS:
+
+```sh
+bun src/cli.ts run --json \
+  --case-file /absolute/path/case.json \
+  --host claude --claude-bin /absolute/path/claude \
+  --model sonnet --effort medium \
+  --project-root /absolute/path/project \
+  --results-root /absolute/path/results \
+  --condition passive --trials 1 --threshold 1
+```
+
+The route reads the local Claude Code login from the macOS keychain and stages
+it inside private per-turn state. Pass `--claude-credential-file` with an
+absolute path to use a separate credential file. It accepts declared Claude
+plugin directories and explicit skill invocations from extension preparation.
+It currently supports passive candidate turns only. Use `--protected-root` to
+exclude additional private paths from the candidate's filesystem access.
 
 For cases with `sevro.semantic` checks, also pass
 `--semantic-adapter-module /absolute/path/semantic-adapter.ts` to load an

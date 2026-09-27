@@ -10,6 +10,7 @@ import {
   type ResolvedCase,
 } from "./engine";
 import { createCodexHost } from "./hosts/codex";
+import { createClaudeHost } from "./hosts/claude";
 import { prepareGeneratedFixture } from "./generated-fixture";
 import { prepareRepositoryFixture } from "./repository-fixture";
 import { prepareInstrumentation } from "./instrumentation";
@@ -132,6 +133,8 @@ function parseInvocation(argv: string[]) {
           host: { type: "string" },
           "codex-bin": { type: "string" },
           "codex-auth-file": { type: "string" },
+          "claude-bin": { type: "string" },
+          "claude-credential-file": { type: "string" },
           model: { type: "string" },
           effort: { type: "string" },
           "shell-isolation": { type: "boolean" },
@@ -171,9 +174,12 @@ function parseInvocation(argv: string[]) {
   if (protectedRoots.some((path) => !isAbsolute(path)))
     throw new InvocationError("--protected-root must be absolute");
   const codex = values.host === "codex";
+  const claude = values.host === "claude";
+  const builtinHost = codex || claude;
   const semanticCodex = values["semantic-host"] === "codex";
   const advisoryCodex = values["advisory-host"] === "codex";
-  if (values.host && !codex) throw new InvocationError("unsupported --host");
+  if (values.host && !builtinHost)
+    throw new InvocationError("unsupported --host");
   if (values["semantic-host"] && !semanticCodex)
     throw new InvocationError("unsupported --semantic-host");
   if (values["advisory-host"] && !advisoryCodex)
@@ -186,12 +192,12 @@ function parseInvocation(argv: string[]) {
     throw new InvocationError(
       "--advisory-host and --advisory-adapter-module are exclusive",
     );
-  if (codex && values["adapter-module"])
+  if (builtinHost && values["adapter-module"])
     throw new InvocationError("--host and --adapter-module are exclusive");
-  if (!codex && !values["adapter-module"])
+  if (!builtinHost && !values["adapter-module"])
     throw new InvocationError("missing --adapter-module or --host");
-  if (!codex && (values.model || values.effort))
-    throw new InvocationError("--model and --effort require --host codex");
+  if (!builtinHost && (values.model || values.effort))
+    throw new InvocationError("--model and --effort require a built-in host");
   if (!semanticCodex && (values["semantic-model"] || values["semantic-effort"]))
     throw new InvocationError(
       "semantic model options require --semantic-host codex",
@@ -213,10 +219,12 @@ function parseInvocation(argv: string[]) {
     (values["codex-bin"] || values["codex-auth-file"])
   )
     throw new InvocationError("Codex options require a Codex host route");
+  if (!claude && (values["claude-bin"] || values["claude-credential-file"]))
+    throw new InvocationError("Claude options require --host claude");
   if (
     protectedRoots.length &&
     !values["shell-isolation"] &&
-    !codex &&
+    !builtinHost &&
     !semanticCodex &&
     !advisoryCodex
   )
@@ -276,6 +284,9 @@ function parseInvocation(argv: string[]) {
     throw new InvocationError("case sources require a root and map file");
   const privateRoots = [
     ...protectedRoots,
+    ...(values["claude-credential-file"]
+      ? [values["claude-credential-file"]]
+      : []),
     ...(values["case-file"] ? [values["case-file"]] : []),
     ...(extensionCommandFile ? [extensionCommandFile] : []),
     ...(values["extension-source-file"] ?? []),
@@ -307,6 +318,24 @@ function parseInvocation(argv: string[]) {
           additionalProtectedRoots: [...privateRoots, runStateRoot],
         }
       : undefined;
+  const claudeOptions = claude
+    ? {
+        binary: absoluteOption(values["claude-bin"], "--claude-bin"),
+        ...(values["claude-credential-file"]
+          ? {
+              credentialFile: absoluteOption(
+                values["claude-credential-file"],
+                "--claude-credential-file",
+              ),
+            }
+          : {}),
+        model: requiredOption(values.model, "--model"),
+        effort: requiredOption(values.effort, "--effort"),
+        projectRoot,
+        resultsRoot,
+        additionalProtectedRoots: [...privateRoots, runStateRoot],
+      }
+    : undefined;
   return {
     json: values.json ?? false,
     dry: values.dry ?? false,
@@ -345,7 +374,7 @@ function parseInvocation(argv: string[]) {
     caseSourceMapFile: values["case-source-map-file"]
       ? absoluteOption(values["case-source-map-file"], "--case-source-map-file")
       : undefined,
-    adapterModule: codex
+    adapterModule: builtinHost
       ? undefined
       : absoluteOption(values["adapter-module"], "--adapter-module"),
     semanticAdapterModule: values["semantic-adapter-module"]
@@ -388,6 +417,7 @@ function parseInvocation(argv: string[]) {
           effort: requiredOption(values.effort, "--effort"),
         }
       : undefined,
+    claude: claudeOptions,
     shellIsolation: values["shell-isolation"]
       ? { protectedRoots: privateRoots }
       : undefined,
@@ -616,7 +646,9 @@ async function main(argv: string[]): Promise<void> {
     if (invocation.caseFile) caseData = await loadCase(invocation.caseFile);
     host = invocation.codex
       ? createCodexHost(invocation.codex)
-      : await loadHost(invocation.adapterModule!);
+      : invocation.claude
+        ? createClaudeHost(invocation.claude)
+        : await loadHost(invocation.adapterModule!);
     if (invocation.semanticAdapterModule)
       semanticHost = await loadHost(invocation.semanticAdapterModule);
     else if (invocation.semanticCodex)
