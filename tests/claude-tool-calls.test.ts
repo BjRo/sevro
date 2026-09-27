@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { claudeToolCallsObservation } from "../src/hosts/claude-tool-calls";
 
 const result = JSON.stringify({
@@ -76,6 +77,9 @@ test("Claude retains ordered Skill and Agent facts without their prompts", () =>
             "darrow-adaptive-delivery:adaptive-delivery-sonnet-5-low",
           runInBackground: false,
           model: "claude-sonnet-5",
+          promptSha256: createHash("sha256")
+            .update("Private owner task and answer")
+            .digest("hex"),
         },
         {
           ordinal: 3,
@@ -89,6 +93,20 @@ test("Claude retains ordered Skill and Agent facts without their prompts", () =>
     },
   });
   expect(JSON.stringify(observed)).not.toContain("Private owner task");
+});
+
+test("Claude Agent prompt evidence stays a digest and requires a bounded string", () => {
+  const missingPrompt = assistant([
+    {
+      type: "tool_use",
+      name: "Agent",
+      id: "owner-call",
+      input: { subagent_type: "worker", run_in_background: false },
+    },
+  ]);
+  const observed = claudeToolCallsObservation(missingPrompt + "\n" + result, 0);
+  expect(observed.completeness).toBe("partial");
+  expect(observed.data.calls[0]).toMatchObject({ promptSha256: null });
 });
 
 test("a complete turn with no Skill or Agent call proves absence", () => {

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { summarizeClaudeEvents } from "./claude-events";
 
 const MAX_RETAINED_CALLS = 128;
@@ -32,6 +33,7 @@ interface AgentCall {
   subagentType: string | null;
   runInBackground: boolean | null;
   model: string | null;
+  promptSha256: string | null;
 }
 
 export interface ClaudeToolCallsObservation {
@@ -107,11 +109,17 @@ export function claudeToolCallsObservation(
           ? input.run_in_background
           : null;
       const model = input?.model === undefined ? null : label(input.model, 128);
+      const promptSha256 =
+        typeof input?.prompt === "string" &&
+        Buffer.byteLength(input.prompt, "utf8") <= 1024 * 1024
+          ? createHash("sha256").update(input.prompt).digest("hex")
+          : null;
       if (
         !toolUseId ||
         !subagentType ||
         runInBackground === null ||
-        (input?.model !== undefined && !model)
+        (input?.model !== undefined && !model) ||
+        !promptSha256
       )
         malformed = true;
       calls.push({
@@ -122,6 +130,7 @@ export function claudeToolCallsObservation(
         subagentType,
         runInBackground,
         model,
+        promptSha256,
       });
     }
     if (truncated) break;
