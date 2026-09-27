@@ -1083,7 +1083,9 @@ export async function runEvaluation(
         let producedArtifacts: ReturnType<typeof hostArtifacts> = [];
         let execution: "completed" | "failed" | "cancelled" | "not_run" =
           options.dry ? "not_run" : "completed";
+        let candidateDurationMs: number | null = null;
         if (!options.dry) {
+          const candidateStarted = performance.now();
           try {
             if (options.signal?.aborted) throw new Error("cancelled");
             hostResult = await options.host.run({
@@ -1170,6 +1172,11 @@ export async function runEvaluation(
                     ? error.message
                     : "host execution did not complete",
             };
+          } finally {
+            candidateDurationMs = Math.max(
+              0,
+              performance.now() - candidateStarted,
+            );
           }
         }
         const trialArtifactRefs = [...artifactRefs];
@@ -1771,6 +1778,7 @@ export async function runEvaluation(
           caseId: options.case.id,
           trial,
           executionMode: options.dry ? "dry" : "executed",
+          candidateDurationMs,
           condition: {
             requested: options.condition,
             actual: hostResult?.actualCondition ?? "unknown",

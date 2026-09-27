@@ -27,6 +27,10 @@ run is `not_run` / `not_requested` / `not_assessed` even when preparation checks
 pass. Missing optional cost or usage remains `null` or explicitly incomplete;
 it is never converted to zero.
 
+Each new trial records `candidateDurationMs` from a monotonic clock around the
+candidate host call and observation validation. Dry preparation records `null`;
+older artifacts without this field have unknown duration.
+
 For multiple trials, a case applies its declared pass threshold only after all
 required trials are assessed. An unassessed trial makes the case
 `not_assessed`; otherwise its pass rate determines `passed` or `failed`. The

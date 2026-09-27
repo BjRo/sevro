@@ -103,6 +103,12 @@ test("runs trials, applies threshold, and retains evidence before fixture cleanu
     costUsd: null,
     complete: false,
   });
+  expect(
+    evidence.trials.every(
+      (trial: { candidateDurationMs: number }) =>
+        trial.candidateDurationMs >= 0,
+    ),
+  ).toBeTrue();
   expect(evidence.result).toEqual(outcome.result);
 });
 
@@ -176,6 +182,12 @@ test("dry preparation records every trial without executing the host", async () 
       (trial: { executionMode: string }) => trial.executionMode,
     ),
   ).toEqual(["dry", "dry"]);
+  expect(
+    dryEvidence.trials.map(
+      (trial: { candidateDurationMs: number | null }) =>
+        trial.candidateDurationMs,
+    ),
+  ).toEqual([null, null]);
   expect(dryEvidence.trials[0].rawResult.path).toBeNull();
 
   const executed = await runEvaluation(options);
@@ -674,6 +686,12 @@ test("host failure retains completed trials and reports execution failure", asyn
   expect(outcome.result.cases[0]?.trials).toHaveLength(2);
   expect(existsSync(outcome.result.cases[0]!.trials[0]!.artifactPath!)).toBe(
     true,
+  );
+  const failedEvidence = JSON.parse(
+    await readFile(outcome.result.evidencePath!, "utf8"),
+  );
+  expect(failedEvidence.trials[1].candidateDurationMs).toBeGreaterThanOrEqual(
+    0,
   );
   expect(await readFile(outcome.result.evidencePath!, "utf8")).not.toContain(
     "private host failure",

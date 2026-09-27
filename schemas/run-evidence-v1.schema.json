@@ -373,6 +373,7 @@
         "caseId": { "type": "string", "minLength": 1 },
         "trial": { "type": "integer", "minimum": 1 },
         "executionMode": { "enum": ["executed", "dry", "unknown"] },
+        "candidateDurationMs": { "type": ["number", "null"], "minimum": 0 },
         "condition": {
           "type": "object",
           "required": ["requested", "actual", "appliedInstrumentation"],
