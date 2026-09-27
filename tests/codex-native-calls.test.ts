@@ -242,7 +242,13 @@ test("accepted child sessions distinguish available, malformed, and ambiguous ro
   );
   expect(
     (await codexNativeCallObservation(root, "thread-1")).data.childSessions,
-  ).toEqual([{ threadId: "thread-child", status: "available" }]);
+  ).toEqual([
+    {
+      threadId: "thread-child",
+      status: "available",
+      resultStatus: "unavailable",
+    },
+  ]);
   await session(root, "{broken\n", "thread-child");
   expect(
     (await codexNativeCallObservation(root, "thread-1")).data.childSessions,
@@ -287,6 +293,7 @@ test("accepted child skill reads require the exact mounted body", async () => {
     {
       threadId: "thread-child",
       status: "available",
+      resultStatus: "unavailable",
       readDiagnostics: {
         completeness: "complete",
         observedSkills: ["example"],
@@ -313,6 +320,56 @@ test("accepted child skill reads require the exact mounted body", async () => {
     status: "available",
     readDiagnostics: { completeness: "partial", observedSkills: [] },
   });
+});
+
+test("accepted child completion binds one nonempty final message to its turn", async () => {
+  const root = await home();
+  await session(root, lines([spawn, started, result]));
+  const final = {
+    type: "item_completed",
+    turn_id: "turn-child",
+    item: {
+      type: "AgentMessage",
+      phase: "final_answer",
+      content: [{ type: "Text", text: "private child answer" }],
+    },
+  };
+  const completion = {
+    type: "task_complete",
+    turn_id: "turn-child",
+    last_agent_message: "private child answer",
+  };
+  await session(root, lines([final, completion]), "thread-child");
+  const completed = await codexNativeCallObservation(root, "thread-1");
+  expect(completed.data.childSessions).toEqual([
+    {
+      threadId: "thread-child",
+      status: "available",
+      resultStatus: "completed",
+    },
+  ]);
+  expect(JSON.stringify(completed)).not.toContain("private child answer");
+
+  for (const payloads of [
+    [completion, final],
+    [final, final, completion],
+    [
+      {
+        ...final,
+        item: { ...final.item, content: [{ type: "Text", text: "  " }] },
+      },
+      { ...completion, last_agent_message: "  " },
+    ],
+    [final, { ...completion, turn_id: "other-turn" }],
+    [final, { ...completion, last_agent_message: "different" }],
+    [final, completion, { type: "turn_aborted" }],
+  ]) {
+    await session(root, lines(payloads), "thread-child");
+    expect(
+      (await codexNativeCallObservation(root, "thread-1")).data.childSessions[0]
+        ?.resultStatus,
+    ).toBe("unavailable");
+  }
 });
 
 test("child read diagnostics distinguish no read from an indirect attempt", async () => {

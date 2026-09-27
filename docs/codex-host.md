@@ -49,6 +49,10 @@ the exact mounted `SKILL.md` body was read, and whether the check was complete
 or truncated. A rollout with no read differs from a missing or malformed
 rollout. These diagnostics do not establish skill activation or task completion
 by themselves and retain no child prompt, command, or output.
+An available child rollout also reports whether one nonempty final assistant
+message matches a later native completion event for the same turn. This proves
+a returned turn, not the accuracy of the child's work, and retains no message
+body.
 The record proves an invocation attempt, not its success. A missing, ambiguous,
 unreadable, oversized, or malformed session is unavailable or partial, so its
 absence cannot prove that a control was unused. Calls made through submitted

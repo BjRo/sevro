@@ -52,6 +52,7 @@ interface AcceptedSpawn {
 interface ChildSession {
   threadId: string;
   status: "available" | "unavailable" | "ambiguous" | "partial";
+  resultStatus?: "completed" | "unavailable";
   readDiagnostics?: NativeReadDiagnostic;
 }
 
@@ -373,6 +374,52 @@ function parseSession(text: string): {
   };
 }
 
+/** Bind a private final answer to the same turn's later native completion. */
+function childResultCompleted(
+  entries: Array<{ ordinal: number; payload: Record<string, unknown> }>,
+): boolean {
+  const finals = entries.filter(({ payload }) => {
+    const item = record(payload.item) ? payload.item : null;
+    return (
+      payload.type === "item_completed" &&
+      item?.type === "AgentMessage" &&
+      item.phase === "final_answer"
+    );
+  });
+  const completions = entries.filter(
+    ({ payload }) => payload.type === "task_complete",
+  );
+  if (
+    finals.length !== 1 ||
+    completions.length !== 1 ||
+    entries.some(
+      ({ payload }) =>
+        payload.type === "turn_aborted" || payload.type === "turn_failed",
+    )
+  )
+    return false;
+  const final = finals[0]!;
+  const complete = completions[0]!;
+  const item = final.payload.item as Record<string, unknown>;
+  const content = item.content;
+  if (
+    !bounded(final.payload.turn_id, IDENTIFIER) ||
+    complete.payload.turn_id !== final.payload.turn_id ||
+    final.ordinal >= complete.ordinal ||
+    !Array.isArray(content) ||
+    content.length === 0 ||
+    !content.every(
+      (part) =>
+        record(part) && part.type === "Text" && typeof part.text === "string",
+    )
+  )
+    return false;
+  const message = content.map((part) => part.text as string).join("");
+  return (
+    message.trim().length > 0 && complete.payload.last_agent_message === message
+  );
+}
+
 async function childSessionStatus(
   home: string,
   parentThread: string,
@@ -403,6 +450,9 @@ async function childSessionStatus(
     return {
       threadId,
       status: "available",
+      resultStatus: childResultCompleted(parsed.entries)
+        ? "completed"
+        : "unavailable",
       ...(readDiagnostics ? { readDiagnostics } : {}),
     };
   } catch {
