@@ -124,6 +124,8 @@ fixture's `.git/info/exclude`, and retains the flag in artifact evidence and
 fixture identity. The flag is invalid for a non-Git fixture. It lets evaluator
 assets such as project skills remain visible to the host without appearing as
 candidate changes in Git status checks.
+Artifact mounts refuse existing files and any parent that is a symlink or
+non-directory, including paths created by fixture setup or a cloned repository.
 An artifact may set `executable: true` to install its verified bytes with owner
 execute permission. The flag enters fixture identity and retained artifact
 references; absent or false leaves the file readable without execute permission.

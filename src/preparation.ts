@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { readFile, realpath, stat } from "node:fs/promises";
-import { isAbsolute, relative, sep } from "node:path";
+import { lstat, mkdir, readFile, realpath, stat } from "node:fs/promises";
+import { isAbsolute, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const MAX_ARTIFACT_BYTES = 8 * 1024 * 1024;
@@ -42,6 +42,36 @@ export function fixtureParts(relativePath: string): string[] {
   if (parts.some((part) => !part || part === "." || part === ".."))
     throw new Error(`invalid fixture path: ${relativePath}`);
   return parts;
+}
+
+/** Refuse fixture or setup-created links before mounting trusted artifact bytes. */
+export async function safePreparationTarget(
+  workspace: string,
+  relativePath: string,
+): Promise<string> {
+  const parts = fixtureParts(relativePath);
+  let parent = workspace;
+  for (const part of parts.slice(0, -1)) {
+    parent = join(parent, part);
+    try {
+      const entry = await lstat(parent);
+      if (!entry.isDirectory() || entry.isSymbolicLink())
+        throw new Error("preparation artifact traverses a non-directory");
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT"))
+        throw error;
+      await mkdir(parent, { mode: 0o700 });
+    }
+  }
+  const target = join(workspace, ...parts);
+  try {
+    await lstat(target);
+    throw new Error("preparation artifact path already exists");
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT"))
+      throw error;
+  }
+  return target;
 }
 
 function validatePaths(paths: string[]): void {

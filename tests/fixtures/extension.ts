@@ -31,7 +31,10 @@ const discovery = {
     ...(scenario === "lifecycle-instrumentation-observational"
       ? ["example.extension.trace"]
       : []),
-    ...(scenario === "lifecycle-setup" ? ["sevro.fixture.setup"] : []),
+    ...(scenario.startsWith("lifecycle-setup") &&
+    scenario !== "lifecycle-setup-unnegotiated"
+      ? ["sevro.fixture.setup"]
+      : []),
   ],
   graders: ["example.extension"],
   taskVerdictPolicies: scenario.startsWith("lifecycle-policy")
@@ -151,7 +154,8 @@ const result = scenario.startsWith("lifecycle")
                   {
                     id: "generated-file",
                     relativePath:
-                      scenario === "lifecycle-git-excluded-artifact"
+                      scenario === "lifecycle-git-excluded-artifact" ||
+                      scenario === "lifecycle-setup-link"
                         ? ".agents/skills/example/SKILL.md"
                         : "generated/data.txt",
                     sha256:
@@ -195,9 +199,14 @@ const result = scenario.startsWith("lifecycle")
                   command: [
                     process.execPath,
                     "-e",
-                    'if (await Bun.file("generated/data.txt").exists()) throw new Error("artifact mounted early"); await Bun.write("setup.txt", process.env.CASE_ROOT + "\\n");',
+                    scenario === "lifecycle-setup-link"
+                      ? 'const fs = await import("node:fs/promises"); await fs.mkdir(process.env.OUTSIDE, { recursive: true }); await fs.symlink(process.env.OUTSIDE, ".agents");'
+                      : 'if (await Bun.file("generated/data.txt").exists()) throw new Error("artifact mounted early"); await Bun.write("setup.txt", process.env.CASE_ROOT + "\\n");',
                   ],
-                  environment: { CASE_ROOT: "{{sevro.project}}/cases" },
+                  environment:
+                    scenario === "lifecycle-setup-link"
+                      ? { OUTSIDE: "{{sevro.project}}/outside" }
+                      : { CASE_ROOT: "{{sevro.project}}/cases" },
                 },
               }
             : {}),

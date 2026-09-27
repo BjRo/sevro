@@ -1,10 +1,14 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { expect, test } from "bun:test";
-import { prepareArtifacts, prepareInlineArtifacts } from "../src/preparation";
+import {
+  prepareArtifacts,
+  prepareInlineArtifacts,
+  safePreparationTarget,
+} from "../src/preparation";
 
 const content = Buffer.from("prepared data\n");
 const artifact = {
@@ -141,5 +145,30 @@ test("source references resolve only from the declared case source map", async (
     ).rejects.toThrow(/digest/);
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("preparation artifacts cannot follow fixture symlinks", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "sevro-artifact-workspace-"));
+  const outside = await mkdtemp(join(tmpdir(), "sevro-artifact-outside-"));
+  try {
+    await symlink(outside, join(workspace, "linked"));
+    await expect(
+      safePreparationTarget(workspace, "linked/skills/example/SKILL.md"),
+    ).rejects.toThrow(/non-directory/);
+    expect(await readdir(outside)).toEqual([]);
+
+    await mkdir(join(workspace, "skills"));
+    await symlink(join(outside, "missing"), join(workspace, "skills", "SKILL.md"));
+    await expect(
+      safePreparationTarget(workspace, "skills/SKILL.md"),
+    ).rejects.toThrow(/already exists/);
+    await expect(
+      safePreparationTarget(workspace, "skills/new/SKILL.md"),
+    ).resolves.toBe(join(workspace, "skills", "new", "SKILL.md"));
+    expect(await readdir(outside)).toEqual([]);
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
   }
 });

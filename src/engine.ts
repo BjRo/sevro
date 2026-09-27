@@ -62,6 +62,7 @@ import {
 import {
   fixtureParts,
   prepareArtifacts,
+  safePreparationTarget,
   type InlineArtifact,
   type PreparationSources,
 } from "./preparation";
@@ -241,8 +242,7 @@ async function createFixture(
         signal,
       });
     for (const artifact of artifacts) {
-      const target = join(workspace, ...fixtureParts(artifact.relativePath));
-      await mkdir(dirname(target), { recursive: true, mode: 0o700 });
+      const target = await safePreparationTarget(workspace, artifact.relativePath);
       await writeFile(target, artifact.bytes, {
         flag: "wx",
         mode: artifact.executable ? 0o700 : 0o600,

@@ -544,6 +544,15 @@ test("negotiated fixture setup runs before artifacts and enters comparison ident
   expect(evidence.trials[0].artifactRefs[0].id).toBe("generated-file");
 });
 
+test("fixture setup cannot redirect a preparation artifact outside the trial", async () => {
+  const before = roots.length;
+  await expect(runWithExtension("lifecycle-setup-link")).rejects.toThrow(
+    /preparation artifact traverses a non-directory/,
+  );
+  const projectRoot = roots[before]!;
+  expect(await readdir(join(projectRoot, "outside"))).toEqual([]);
+});
+
 test("fixture setup refuses an extension without its negotiated capability", async () => {
   expect(runWithExtension("lifecycle-setup-unnegotiated")).rejects.toThrow(
     "fixture setup capability was not negotiated",
