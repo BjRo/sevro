@@ -141,6 +141,15 @@ Codex host retains a bounded dispatch receipt only after a completed turn.
 Missing or repeated tokens, absent packaged skills, and unsupported hosts fail
 before candidate execution. Supporting skill reads remain separate evidence.
 
+A Claude extension may negotiate `sevro.claude.plugin-dirs` and return
+`claudePluginDirs` with nonempty fixture-relative `artifactRoots`. Roots must
+be unique and must not overlap. Every file below each root must be a
+Git-excluded preparation artifact, and each root must contain
+`.claude-plugin/plugin.json`. Sevro passes only the declared roots and their
+verified artifact paths to a capable host. The declaration and artifact
+digests enter evaluation identity. The host remains responsible for loading
+the plugin directories and isolating its credentials from candidate tools.
+
 An artifact for a generated or cloned Git fixture may set `gitExclude: true`.
 Sevro mounts its verified bytes, adds only that exact artifact path to the
 fixture's `.git/info/exclude`, and retains the flag in artifact evidence and

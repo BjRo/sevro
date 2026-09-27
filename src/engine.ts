@@ -142,6 +142,10 @@ export interface HostAdapter {
       pluginNames: string[];
       artifactPaths: string[];
     };
+    claudePluginDirs?: {
+      artifactRoots: string[];
+      artifactPaths: string[];
+    };
     explicitSkillInvocation?: {
       pluginName: string;
       skillName: string;
@@ -798,6 +802,54 @@ export async function runEvaluation(
       "preparation artifact uses a reserved semantic evidence ID",
     );
   const codexMarketplace = extensionPreparation?.codexMarketplace;
+  const claudePluginDirs = extensionPreparation?.claudePluginDirs;
+  if (claudePluginDirs) {
+    const roots = claudePluginDirs.artifactRoots;
+    try {
+      if (
+        !Array.isArray(roots) ||
+        !roots.length ||
+        new Set(roots).size !== roots.length
+      )
+        throw new Error("invalid plugin roots");
+      for (const root of roots) fixtureParts(root);
+      if (
+        roots.some((root) =>
+          roots.some((other) => root !== other && root.startsWith(`${other}/`)),
+        )
+      )
+        throw new Error("overlapping plugin roots");
+    } catch {
+      throw new EvaluationConfigurationError(
+        "invalid Claude plugin directory declaration",
+      );
+    }
+    if (
+      !options.extension?.session.identity.capabilities.includes(
+        "sevro.claude.plugin-dirs",
+      ) ||
+      !options.host.hostCapabilities?.includes("sevro.claude.plugin-dirs")
+    )
+      throw new EvaluationConfigurationError(
+        "Claude plugin directory capability was not negotiated",
+      );
+    for (const root of roots) {
+      const files = inlineArtifacts.filter((artifact) =>
+        artifact.relativePath.startsWith(`${root}/`),
+      );
+      if (
+        !files.length ||
+        !files.every((artifact) => artifact.gitExclude) ||
+        !files.some(
+          (artifact) =>
+            artifact.relativePath === `${root}/.claude-plugin/plugin.json`,
+        )
+      )
+        throw new EvaluationConfigurationError(
+          "Claude plugin directory requires Git-excluded package artifacts and a manifest",
+        );
+    }
+  }
   if (codexMarketplace) {
     const { artifactRoot, marketplaceName, pluginNames } = codexMarketplace;
     try {
@@ -842,8 +894,10 @@ export async function runEvaluation(
   const codexSkillInvocation = extensionPreparation?.codexSkillInvocation;
   const invocationPlaceholder = "{{sevro.codex.skill_invocation}}";
   const placeholderCount =
-    options.case.prompt.split(invocationPlaceholder).length - 1 +
-    (options.case.followUpPrompt?.split(invocationPlaceholder).length ?? 1) - 1;
+    options.case.prompt.split(invocationPlaceholder).length -
+    1 +
+    (options.case.followUpPrompt?.split(invocationPlaceholder).length ?? 1) -
+    1;
   if (codexSkillInvocation) {
     const { pluginName, skillName } = codexSkillInvocation;
     if (
@@ -921,6 +975,7 @@ export async function runEvaluation(
       options.extension?.session.identity.configurationDigest ?? null,
     ...(fixtureSetup ? { fixtureSetupDigest: hashJson(fixtureSetup) } : {}),
     ...(codexMarketplace ? { codexMarketplace } : {}),
+    ...(claudePluginDirs ? { claudePluginDirs } : {}),
     ...(codexSkillInvocation ? { codexSkillInvocation } : {}),
     ...(options.advisoryHost
       ? {
@@ -992,6 +1047,7 @@ export async function runEvaluation(
         ),
         ...(fixtureSetup ? { fixtureSetup } : {}),
         ...(codexMarketplace ? { codexMarketplace } : {}),
+        ...(claudePluginDirs ? { claudePluginDirs } : {}),
         ...(codexSkillInvocation ? { codexSkillInvocation } : {}),
       }),
       checksDigest: hashJson(options.case.checks),
@@ -1104,15 +1160,14 @@ export async function runEvaluation(
             ? `$${codexSkillInvocation.pluginName}:${codexSkillInvocation.skillName}`
             : invocationPlaceholder,
         );
-      const trialFollowUpPrompt = options.case.followUpPrompt?.replaceAll(
-        "{{sevro.workspace}}",
-        workspace,
-      ).replaceAll(
-        invocationPlaceholder,
-        codexSkillInvocation
-          ? `$${codexSkillInvocation.pluginName}:${codexSkillInvocation.skillName}`
-          : invocationPlaceholder,
-      );
+      const trialFollowUpPrompt = options.case.followUpPrompt
+        ?.replaceAll("{{sevro.workspace}}", workspace)
+        .replaceAll(
+          invocationPlaceholder,
+          codexSkillInvocation
+            ? `$${codexSkillInvocation.pluginName}:${codexSkillInvocation.skillName}`
+            : invocationPlaceholder,
+        );
       let persisted = false;
       try {
         const gitHeadBase = preparedGitHead.length
@@ -1149,6 +1204,20 @@ export async function runEvaluation(
                         .filter((artifact) =>
                           artifact.relativePath.startsWith(
                             `${codexMarketplace.artifactRoot}/`,
+                          ),
+                        )
+                        .map((artifact) => artifact.relativePath),
+                    },
+                  }
+                : {}),
+              ...(claudePluginDirs
+                ? {
+                    claudePluginDirs: {
+                      ...claudePluginDirs,
+                      artifactPaths: inlineArtifacts
+                        .filter((artifact) =>
+                          claudePluginDirs.artifactRoots.some((root) =>
+                            artifact.relativePath.startsWith(`${root}/`),
                           ),
                         )
                         .map((artifact) => artifact.relativePath),

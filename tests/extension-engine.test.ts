@@ -670,6 +670,72 @@ test("Codex marketplace requires negotiation and a valid artifact root", async (
   ).rejects.toThrow(/invalid Codex marketplace declaration/);
 });
 
+test("negotiated Claude plugin directory reaches the host and binds fixture identity", async () => {
+  const host: HostAdapter = {
+    id: "sevro.host.synthetic",
+    model: "synthetic-v1",
+    effort: "none",
+    hostCapabilities: ["sevro.claude.plugin-dirs"],
+    async run(request) {
+      expect(request.claudePluginDirs).toEqual({
+        artifactRoots: ["marketplace/plugin"],
+        artifactPaths: [
+          "marketplace/plugin/.claude-plugin/plugin.json",
+          "marketplace/plugin/.codex-plugin/plugin.json",
+          "marketplace/plugin/skills/probe/SKILL.md",
+        ],
+      });
+      expect(
+        await readFile(
+          join(
+            request.workspace,
+            "marketplace/plugin/.claude-plugin/plugin.json",
+          ),
+          "utf8",
+        ),
+      ).toContain('"name":"probe"');
+      return {
+        finalMessage: "ready",
+        complete: true,
+        actualCondition: "passive",
+      };
+    },
+  };
+  const { outcome, evidence } = await runWithExtension(
+    "lifecycle-claude-plugin",
+    undefined,
+    [],
+    host,
+  );
+  expect(outcome.result.exitCode).toBe(0);
+  expect(evidence.configuration.redacted.claudePluginDirs).toEqual({
+    artifactRoots: ["marketplace/plugin"],
+  });
+  expect(evidence.trials[0].artifactRefs).toHaveLength(4);
+});
+
+test("Claude plugin directory rejects unnegotiated or unsafe packages", async () => {
+  const host: HostAdapter = {
+    id: "sevro.host.synthetic",
+    model: "synthetic-v1",
+    effort: "none",
+    hostCapabilities: ["sevro.claude.plugin-dirs"],
+    async run() {
+      throw new Error("host should not run");
+    },
+  };
+  for (const scenario of [
+    "lifecycle-claude-plugin-unnegotiated",
+    "lifecycle-claude-plugin-bad-root",
+    "lifecycle-claude-plugin-no-manifest",
+    "lifecycle-claude-plugin-not-excluded",
+  ]) {
+    await expect(
+      runWithExtension(scenario, undefined, [], host),
+    ).rejects.toThrow(/Claude plugin directory/);
+  }
+});
+
 test("explicit Codex invocation renders once and reaches the selected host", async () => {
   let delivered = false;
   const host: HostAdapter = {
@@ -737,10 +803,12 @@ test("explicit Codex invocation can occur in the continuation turn", async () =>
     ],
     async run(request) {
       expect(request.prompt).toBe("Wait for the next request.");
-      expect(request.followUpPrompt).toBe(
-        "Use $probe:probe and return ready.",
-      );
-      return { finalMessage: "ready", complete: true, actualCondition: "passive" };
+      expect(request.followUpPrompt).toBe("Use $probe:probe and return ready.");
+      return {
+        finalMessage: "ready",
+        complete: true,
+        actualCondition: "passive",
+      };
     },
   };
   const { outcome } = await runWithExtension(

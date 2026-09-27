@@ -40,6 +40,10 @@ const discovery = {
     scenario !== "lifecycle-codex-marketplace-unnegotiated"
       ? ["sevro.codex.plugin-marketplace"]
       : []),
+    ...(scenario.startsWith("lifecycle-claude-plugin") &&
+    scenario !== "lifecycle-claude-plugin-unnegotiated"
+      ? ["sevro.claude.plugin-dirs"]
+      : []),
     ...(scenario.includes("explicit-invocation") &&
     !scenario.endsWith("unnegotiated")
       ? ["sevro.codex.explicit-invocation"]
@@ -133,7 +137,8 @@ const result = scenario.startsWith("lifecycle")
                 : scenario === "lifecycle-generated" ||
                     scenario.startsWith("lifecycle-setup") ||
                     scenario === "lifecycle-git-excluded-artifact" ||
-                    scenario.startsWith("lifecycle-codex-marketplace")
+                    scenario.startsWith("lifecycle-codex-marketplace") ||
+                    scenario.startsWith("lifecycle-claude-plugin")
                   ? {
                       kind: "generated",
                       commits: [
@@ -187,54 +192,63 @@ const result = scenario.startsWith("lifecycle")
       }
     : request.method === "prepare"
       ? {
-          artifacts: scenario.startsWith("lifecycle-codex-marketplace")
-            ? Object.entries(marketplaceFiles).map(
-                ([relativePath, content]) => ({
-                  id: `marketplace-${relativePath}`,
-                  relativePath,
-                  sha256: createHash("sha256").update(content).digest("hex"),
-                  contentBase64: Buffer.from(content).toString("base64"),
-                  gitExclude: true,
-                }),
-              )
-            : scenario.includes("artifact") ||
-                scenario.startsWith("lifecycle-setup")
-              ? [
-                  {
-                    id: "generated-file",
-                    relativePath:
-                      scenario === "lifecycle-git-excluded-artifact" ||
-                      scenario === "lifecycle-setup-link"
-                        ? ".agents/skills/example/SKILL.md"
-                        : "generated/data.txt",
-                    sha256:
-                      scenario === "lifecycle-bad-artifact"
-                        ? "a".repeat(64)
-                        : createHash("sha256")
-                            .update(
+          artifacts:
+            scenario.startsWith("lifecycle-codex-marketplace") ||
+            scenario.startsWith("lifecycle-claude-plugin")
+              ? Object.entries(marketplaceFiles)
+                  .map(([relativePath, content]) => ({
+                    id: `marketplace-${relativePath}`,
+                    relativePath,
+                    sha256: createHash("sha256").update(content).digest("hex"),
+                    contentBase64: Buffer.from(content).toString("base64"),
+                    gitExclude:
+                      scenario !== "lifecycle-claude-plugin-not-excluded",
+                  }))
+                  .filter(
+                    (artifact) =>
+                      scenario !== "lifecycle-claude-plugin-no-manifest" ||
+                      !artifact.relativePath.endsWith(
+                        "/.claude-plugin/plugin.json",
+                      ),
+                  )
+              : scenario.includes("artifact") ||
+                  scenario.startsWith("lifecycle-setup")
+                ? [
+                    {
+                      id: "generated-file",
+                      relativePath:
+                        scenario === "lifecycle-git-excluded-artifact" ||
+                        scenario === "lifecycle-setup-link"
+                          ? ".agents/skills/example/SKILL.md"
+                          : "generated/data.txt",
+                      sha256:
+                        scenario === "lifecycle-bad-artifact"
+                          ? "a".repeat(64)
+                          : createHash("sha256")
+                              .update(
+                                scenario === "lifecycle-executable-artifact"
+                                  ? "#!/bin/sh\nprintf 'ready\\n'\n"
+                                  : "prepared data\n",
+                              )
+                              .digest("hex"),
+                      ...(scenario === "lifecycle-source-artifact"
+                        ? { sourceRef: "input-data" }
+                        : {
+                            contentBase64: Buffer.from(
                               scenario === "lifecycle-executable-artifact"
                                 ? "#!/bin/sh\nprintf 'ready\\n'\n"
                                 : "prepared data\n",
-                            )
-                            .digest("hex"),
-                    ...(scenario === "lifecycle-source-artifact"
-                      ? { sourceRef: "input-data" }
-                      : {
-                          contentBase64: Buffer.from(
-                            scenario === "lifecycle-executable-artifact"
-                              ? "#!/bin/sh\nprintf 'ready\\n'\n"
-                              : "prepared data\n",
-                          ).toString("base64"),
-                        }),
-                    ...(scenario.startsWith("lifecycle-git-excluded")
-                      ? { gitExclude: true }
-                      : {}),
-                    ...(scenario === "lifecycle-executable-artifact"
-                      ? { executable: true }
-                      : {}),
-                  },
-                ]
-              : [],
+                            ).toString("base64"),
+                          }),
+                      ...(scenario.startsWith("lifecycle-git-excluded")
+                        ? { gitExclude: true }
+                        : {}),
+                      ...(scenario === "lifecycle-executable-artifact"
+                        ? { executable: true }
+                        : {}),
+                    },
+                  ]
+                : [],
           requestedInstrumentation:
             scenario === "lifecycle-instrumentation-observational"
               ? [{ id: "example.extension.trace", configuration: {} }]
@@ -251,6 +265,17 @@ const result = scenario.startsWith("lifecycle")
                       : "marketplace",
                   marketplaceName: "sevro-probe",
                   pluginNames: ["probe"],
+                },
+              }
+            : {}),
+          ...(scenario.startsWith("lifecycle-claude-plugin")
+            ? {
+                claudePluginDirs: {
+                  artifactRoots: [
+                    scenario === "lifecycle-claude-plugin-bad-root"
+                      ? "../marketplace/plugin"
+                      : "marketplace/plugin",
+                  ],
                 },
               }
             : {}),

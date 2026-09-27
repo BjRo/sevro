@@ -52,6 +52,7 @@ export interface PreparationResult {
     marketplaceName: string;
     pluginNames: string[];
   };
+  claudePluginDirs?: { artifactRoots: string[] };
   codexSkillInvocation?: {
     pluginName: string;
     skillName: string;
