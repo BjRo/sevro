@@ -61,15 +61,19 @@ if [ -z "$workspace" ]; then exit 98; fi
 if [ -f "$workspace/require-plugin.flag" ]; then
   test -f "$CODEX_HOME/plugins/cache/sevro-probe/probe/0.1.0/skills/probe/SKILL.md" || exit 95
 fi
-printf '%s\\n' "$@" > "$workspace/argv.txt"
+capture_root="$workspace"
+if [ -f "$workspace/.git/unchanged.flag" ]; then capture_root="$workspace/.git"; fi
+printf '%s\\n' "$@" > "$capture_root/argv.txt"
 if [ -n "\${OPENAI_API_KEY:-}" ]; then exit 97; fi
-/bin/cat > "$workspace/prompt.txt"
+/bin/cat > "$capture_root/prompt.txt"
 if [ -x "$workspace/.git/fixture-bin/fixture-tool" ]; then
   /bin/zsh -lc 'fixture-tool' > "$workspace/fixture-tool-output.txt" || exit 96
 fi
 if [ -f "$workspace/malformed.flag" ]; then printf '{broken\\n'; exit 0; fi
 if [ -f "$workspace/slow.flag" ]; then printf '%s' "$$" > "$workspace/child.pid"; /bin/sleep 10; fi
-printf 'created\\n' > "$workspace/created.txt"
+if [ ! -f "$workspace/.git/unchanged.flag" ]; then
+  printf 'created\\n' > "$workspace/created.txt"
+fi
 printf '%s\\n' '{"type":"thread.started","thread_id":"thread-1"}'
 if [ -f "$workspace/native-calls.flag" ]; then
   mkdir -p "$CODEX_HOME/sessions/2026/09/27"
@@ -184,6 +188,50 @@ test("Codex host resumes a second prompt in the initial thread", async () => {
     "sevro.codex.events",
     "sevro.codex.follow-up-events",
   ]);
+  expect(result.observations).toContainEqual({
+    id: "sevro.codex.continuation",
+    completeness: "complete",
+    data: {
+      method: "same_thread_resume",
+      threadId: "thread-1",
+      preFollowUpWorktreeUnchanged: false,
+    },
+  });
+});
+
+test("Codex continuation ignores Git-private fixture state at the boundary", async () => {
+  const installedCodex = Bun.which("codex");
+  if (process.platform !== "darwin" || !installedCodex) return;
+  const paths = await fixture();
+  const workspace = await mkdtemp(join(tmpdir(), "sevro-codex-unchanged-"));
+  roots.push(workspace);
+  await mkdir(join(workspace, ".git"));
+  await writeFile(join(workspace, ".git", "unchanged.flag"), "");
+  const host = createCodexHost({
+    binary: paths.fakeBinary,
+    sandboxBinary: installedCodex,
+    authFile: paths.authFile,
+    model: "synthetic-codex",
+    effort: "low",
+    projectRoot: paths.projectRoot,
+    resultsRoot: paths.resultsRoot,
+    additionalProtectedRoots: [],
+  });
+  const result = await host.run({
+    prompt: "Wait.",
+    followUpPrompt: "Continue.",
+    workspace,
+    condition: "passive",
+  });
+  expect(result.observations).toContainEqual({
+    id: "sevro.codex.continuation",
+    completeness: "complete",
+    data: {
+      method: "same_thread_resume",
+      threadId: "thread-1",
+      preFollowUpWorktreeUnchanged: true,
+    },
+  });
 });
 
 test("Codex host refuses a continuation from another thread", async () => {

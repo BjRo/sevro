@@ -171,6 +171,12 @@ prompt. Sevro renders the workspace token in both prompts and requires a host
 that declares `sevro.host.continuation`. The Codex host resumes the original
 thread after a completed first turn and grades the second turn's final message.
 Both bounded event streams are retained as separate artifacts.
+
+The Codex host also retains `sevro.codex.continuation`, a bounded observation
+of the resumed thread and whether visible workspace contents stayed unchanged
+until the second prompt. An unreadable or oversized workspace makes that
+comparison partial and its unchanged value null.
+
 For shell checks, add
 `--shell-isolation` and repeat `--protected-root /absolute/path` for every
 additional source worktree or private root. The engine always protects the

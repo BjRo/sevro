@@ -19,6 +19,7 @@ import { codexNativeCallObservation } from "./codex-native-calls";
 import { codexSkillReadObservation } from "./codex-skill-reads";
 import { codexPermissionProfile } from "./codex-profile";
 import { evaluationProtectedRoots } from "./isolation-roots";
+import { workspaceFingerprint } from "./workspace-fingerprint";
 
 const MAX_AUTH_BYTES = 1024 * 1024;
 const MAX_EVENT_BYTES = 8 * 1024 * 1024;
@@ -507,6 +508,9 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
         if (executableCheck.code !== 0)
           throw new Error("Codex executable preflight failed");
         await rm(probe);
+        const initialWorkspaceFingerprint = request.followUpPrompt
+          ? await workspaceFingerprint(request.workspace)
+          : null;
         const executionArgs = [
           options.binary,
           "exec",
@@ -538,7 +542,28 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
         if (!summary.complete) throw new Error("Codex turn did not complete");
         let followUp: { out: string; code: number } | null = null;
         let followUpSummary: typeof summary | null = null;
+        let continuationObservation:
+          | {
+              id: string;
+              completeness: "complete" | "partial";
+              data: Record<string, unknown>;
+            }
+          | undefined;
         if (request.followUpPrompt) {
+          const beforeFollowUp = await workspaceFingerprint(request.workspace);
+          const measured =
+            initialWorkspaceFingerprint !== null && beforeFollowUp !== null;
+          continuationObservation = {
+            id: "sevro.codex.continuation",
+            completeness: measured ? "complete" : "partial",
+            data: {
+              method: "same_thread_resume",
+              threadId: summary.threadId,
+              preFollowUpWorktreeUnchanged: measured
+                ? initialWorkspaceFingerprint === beforeFollowUp
+                : null,
+            },
+          };
           followUp = await runProcess({
             argv: [
               options.binary,
@@ -612,6 +637,7 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
           observations: [
             skillReads,
             nativeCalls,
+            ...(continuationObservation ? [continuationObservation] : []),
             ...(explicitReceipt ? [explicitReceipt] : []),
           ],
           artifacts: [
