@@ -10,7 +10,7 @@ projects own their cases and evaluator policy.
 
 Machine-readable contracts live in [`schemas/`](schemas/). Run `bun install`,
 `bun test`, `bun run typecheck`, `bun run format:check`, and
-`bun run test:package-install` to validate the package locally. The package
+`bun run test:package-install` to validate the npm tarball locally. The package
 test packs and installs Sevro in a temporary project, then runs the installed
 CLI without a Sevro Git checkout.
 

@@ -24,7 +24,7 @@ try {
   ) as { version: string };
   const archive = join(root, `sevro-${sourceManifest.version}.tgz`);
   await run(
-    [process.execPath, "pm", "pack", "--destination", root, "--quiet"],
+    ["npm", "pack", "--ignore-scripts", "--pack-destination", root, "--silent"],
     sourceRoot,
   );
   const consumer = join(root, "consumer");
