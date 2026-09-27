@@ -20,6 +20,7 @@ function label(value: unknown, max = 256): string | null {
 interface SkillCall {
   ordinal: number;
   actor: "parent" | "nested";
+  parentToolUseId: string | null;
   name: "Skill";
   skill: string;
   invocation: string;
@@ -28,6 +29,7 @@ interface SkillCall {
 interface AgentCall {
   ordinal: number;
   actor: "parent" | "nested";
+  parentToolUseId: string | null;
   name: "Agent";
   toolUseId: string | null;
   subagentType: string | null;
@@ -72,7 +74,8 @@ export function claudeToolCallsObservation(
       malformed = true;
       continue;
     }
-    const actor = label(event.parent_tool_use_id, 128) ? "nested" : "parent";
+    const parentToolUseId = label(event.parent_tool_use_id, 128);
+    const actor = parentToolUseId ? "nested" : "parent";
     if (
       event.parent_tool_use_id !== undefined &&
       event.parent_tool_use_id !== null &&
@@ -97,6 +100,7 @@ export function claudeToolCallsObservation(
         calls.push({
           ordinal,
           actor,
+          parentToolUseId,
           name: "Skill",
           skill: invocation.split(":").at(-1)!,
           invocation,
@@ -134,6 +138,7 @@ export function claudeToolCallsObservation(
       calls.push({
         ordinal,
         actor,
+        parentToolUseId,
         name: "Agent",
         toolUseId,
         subagentType,

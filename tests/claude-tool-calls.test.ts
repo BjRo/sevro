@@ -64,6 +64,7 @@ test("Claude retains ordered Skill and Agent facts without their prompts", () =>
         {
           ordinal: 1,
           actor: "parent",
+          parentToolUseId: null,
           name: "Skill",
           skill: "assess-implementation-readiness",
           invocation: "darrow-readiness-gate:assess-implementation-readiness",
@@ -71,6 +72,7 @@ test("Claude retains ordered Skill and Agent facts without their prompts", () =>
         {
           ordinal: 2,
           actor: "parent",
+          parentToolUseId: null,
           name: "Agent",
           toolUseId: "owner-call",
           subagentType:
@@ -87,6 +89,7 @@ test("Claude retains ordered Skill and Agent facts without their prompts", () =>
         {
           ordinal: 3,
           actor: "nested",
+          parentToolUseId: "owner-call",
           name: "Skill",
           skill: "independent-code-review",
           invocation: "independent-code-review",
@@ -135,6 +138,7 @@ test("Claude Task tool is normalized to an Agent receipt", () => {
   expect(observed.completeness).toBe("complete");
   expect(observed.data.calls[0]).toMatchObject({
     actor: "parent",
+    parentToolUseId: null,
     name: "Agent",
     toolUseId: "owner-task",
     subagentType: "reviewer",
