@@ -5,6 +5,7 @@ test("Claude host settings deny private state to Bash and file tools", () => {
   const settings = claudeHostSettings(
     "/private/sevro-state",
     "/private/sevro-state/config/.credentials.json",
+    ["/private/workspace/plugin"],
   ) as {
     sandbox: {
       enabled: boolean;
@@ -21,7 +22,7 @@ test("Claude host settings deny private state to Bash and file tools", () => {
     failIfUnavailable: true,
     filesystem: {
       denyRead: ["/private/sevro-state"],
-      denyWrite: ["/private/sevro-state"],
+      denyWrite: ["/private/sevro-state", "/private/workspace/plugin"],
     },
     credentials: {
       files: [
@@ -35,6 +36,7 @@ test("Claude host settings deny private state to Bash and file tools", () => {
   expect(settings.permissions.deny).toEqual([
     "Read(//private/sevro-state/**)",
     "Edit(//private/sevro-state/**)",
+    "Edit(//private/workspace/plugin/**)",
   ]);
   expect(settings.permissions.allow).toContain("Bash");
   expect(settings.permissions.allow).toContain("Agent");
