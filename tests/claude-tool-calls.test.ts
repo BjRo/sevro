@@ -115,6 +115,33 @@ test("Claude Agent prompt evidence stays a digest and requires a bounded string"
   });
 });
 
+test("Claude Task tool is normalized to an Agent receipt", () => {
+  const stream = [
+    assistant([
+      {
+        type: "tool_use",
+        name: "Task",
+        id: "owner-task",
+        input: {
+          subagent_type: "reviewer",
+          run_in_background: false,
+          prompt: "- phase: adaptive-delivery-owner\nPrivate contract",
+        },
+      },
+    ]),
+    result,
+  ].join("\n");
+  const observed = claudeToolCallsObservation(stream, 0);
+  expect(observed.completeness).toBe("complete");
+  expect(observed.data.calls[0]).toMatchObject({
+    actor: "parent",
+    name: "Agent",
+    toolUseId: "owner-task",
+    subagentType: "reviewer",
+    runInBackground: false,
+  });
+});
+
 test("a complete turn with no Skill or Agent call proves absence", () => {
   expect(claudeToolCallsObservation(result, 0)).toEqual({
     id: "sevro.claude.tool-calls",

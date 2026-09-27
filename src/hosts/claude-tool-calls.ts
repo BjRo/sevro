@@ -82,7 +82,7 @@ export function claudeToolCallsObservation(
     for (const value of blocks) {
       if (!record(value) || value.type !== "tool_use") continue;
       ordinal++;
-      if (value.name !== "Skill" && value.name !== "Agent") continue;
+      if (!["Skill", "Agent", "Task"].includes(String(value.name))) continue;
       if (calls.length >= MAX_RETAINED_CALLS) {
         truncated = true;
         break;
