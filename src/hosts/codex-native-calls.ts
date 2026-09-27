@@ -2,8 +2,8 @@ import type { Dirent } from "node:fs";
 import { lstat, readFile, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import {
-  codexNativeChildReadDiagnostic,
-  type NativeChildReadDiagnostic,
+  codexNativeReadDiagnostic,
+  type NativeReadDiagnostic,
 } from "./codex-skill-reads";
 
 const MAX_SESSION_BYTES = 8 * 1024 * 1024;
@@ -52,7 +52,7 @@ interface AcceptedSpawn {
 interface ChildSession {
   threadId: string;
   status: "available" | "unavailable" | "ambiguous" | "partial";
-  readDiagnostics?: NativeChildReadDiagnostic;
+  readDiagnostics?: NativeReadDiagnostic;
 }
 
 interface NativeSkillContext {
@@ -69,6 +69,7 @@ interface NativeCallObservation {
     toolCalls: NativeToolCall[];
     submittedExecCalls: number;
     acceptedSpawns: AcceptedSpawn[];
+    parentReadDiagnostics?: NativeReadDiagnostic;
     childSessions: ChildSession[];
     childrenTruncated: boolean;
   };
@@ -393,7 +394,7 @@ async function childSessionStatus(
     if (parsed.observation.completeness !== "complete")
       return { threadId, status: "partial" };
     const readDiagnostics = skillContext
-      ? await codexNativeChildReadDiagnostic(
+      ? await codexNativeReadDiagnostic(
           parsed.entries,
           skillContext.workspace,
           skillContext.installedPluginRoots,
@@ -425,10 +426,17 @@ export async function codexNativeCallObservation(
     if (size > MAX_SESSION_BYTES) return unavailable("partial");
     const bytes = await readFile(located.path);
     if (bytes.byteLength > MAX_SESSION_BYTES) return unavailable("partial");
-    const { observation } = parseSession(
+    const { observation, entries } = parseSession(
       new TextDecoder("utf-8", { fatal: true }).decode(bytes),
     );
     if (observation.completeness !== "complete") return observation;
+    const parentReadDiagnostics = skillContext
+      ? await codexNativeReadDiagnostic(
+          entries,
+          skillContext.workspace,
+          skillContext.installedPluginRoots,
+        )
+      : undefined;
     const children = [
       ...new Set(
         observation.data.acceptedSpawns.map((spawn) => spawn.threadId),
@@ -445,6 +453,7 @@ export async function codexNativeCallObservation(
       ...observation,
       data: {
         ...observation.data,
+        ...(parentReadDiagnostics ? { parentReadDiagnostics } : {}),
         childSessions,
         childrenTruncated: children.length > MAX_CHILD_SESSIONS,
       },

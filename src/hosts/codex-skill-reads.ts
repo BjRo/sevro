@@ -132,7 +132,7 @@ interface NativeEntry {
   payload: Record<string, unknown>;
 }
 
-export interface NativeChildReadDiagnostic {
+export interface NativeReadDiagnostic {
   completeness: "complete" | "partial";
   observedSkills: string[];
   commandExecutions: number;
@@ -149,12 +149,12 @@ function nativeCommandText(value: unknown): string | null {
   return value.join(" ");
 }
 
-/** Verify child skill-file reads without retaining native commands or output. */
-export async function codexNativeChildReadDiagnostic(
+/** Verify native skill-file reads without retaining commands or output. */
+export async function codexNativeReadDiagnostic(
   entries: NativeEntry[],
   workspace: string,
   installedPluginRoots: string[] = [],
-): Promise<NativeChildReadDiagnostic> {
+): Promise<NativeReadDiagnostic> {
   const canonicalWorkspace = await realpath(workspace);
   const pluginRoots = await Promise.all(
     installedPluginRoots.map((root) => realpath(root)),

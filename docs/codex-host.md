@@ -38,6 +38,9 @@ tool calls. For collaboration feedback it includes a bounded target when the
 target is readable. That list lets an extension evaluate parent activity after
 handoff without exposing messages or command input. A partial list cannot
 prove that parent work was absent.
+It also checks native parent command records for exact mounted skill bodies,
+including sessions with no spawn request. The bounded diagnostic distinguishes
+no read from an incomplete read without claiming skill activation.
 For accepted spawns, it also checks up to eight child thread rollouts and
 reports whether each is available, unavailable, ambiguous, or partial, with an
 explicit truncation flag. An available rollout includes bounded diagnostics for

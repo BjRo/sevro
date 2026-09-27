@@ -116,6 +116,55 @@ test("native goal and agent calls retain names and order without private argumen
   expect(JSON.stringify(observed)).not.toContain("private");
 });
 
+test("parent diagnostics cover sessions without a spawn", async () => {
+  const root = await home();
+  const workspace = await mkdtemp(
+    join(tmpdir(), "sevro-native-parent-workspace-"),
+  );
+  roots.push(workspace);
+  const skillDir = join(workspace, ".agents", "skills", "example");
+  await mkdir(skillDir, { recursive: true });
+  const body =
+    "---\nname: example\ndescription: Example\n---\n\nPrivate parent body.\n";
+  await writeFile(join(skillDir, "SKILL.md"), body);
+  const context = { workspace, installedPluginRoots: [] };
+  await session(
+    root,
+    lines([{ type: "item_completed", item: { type: "AgentMessage" } }]),
+  );
+  expect(
+    (await codexNativeCallObservation(root, "thread-1", context)).data
+      .parentReadDiagnostics,
+  ).toEqual({
+    completeness: "complete",
+    observedSkills: [],
+    commandExecutions: 0,
+    readAttempts: 0,
+    truncated: false,
+  });
+  await session(
+    root,
+    lines([
+      {
+        type: "item_completed",
+        item: {
+          type: "CommandExecution",
+          command: ["/bin/zsh", "-lc", "cat .agents/skills/example/SKILL.md"],
+          aggregated_output: body,
+          exit_code: 0,
+          status: "completed",
+        },
+      },
+    ]),
+  );
+  const observed = await codexNativeCallObservation(root, "thread-1", context);
+  expect(observed.data.parentReadDiagnostics).toMatchObject({
+    completeness: "complete",
+    observedSkills: ["example"],
+  });
+  expect(JSON.stringify(observed)).not.toContain("Private parent body.");
+});
+
 function lines(payloads: Array<Record<string, unknown>>) {
   return (
     payloads
