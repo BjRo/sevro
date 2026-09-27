@@ -176,6 +176,9 @@ The Codex host also retains `sevro.codex.continuation`, a bounded observation
 of the resumed thread and whether visible workspace contents stayed unchanged
 until the second prompt. An unreadable or oversized workspace makes that
 comparison partial and its unchanged value null.
+It also records the last validated native-session ordinal before the second
+prompt. Missing or malformed native session evidence leaves this ordinal null;
+the observation retains no prompt, tool arguments, or session content.
 
 For shell checks, add
 `--shell-isolation` and repeat `--protected-root /absolute/path` for every

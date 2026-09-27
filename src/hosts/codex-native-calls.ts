@@ -460,6 +460,27 @@ async function childSessionStatus(
   }
 }
 
+/** Last validated native event before a follow-up prompt enters this thread. */
+export async function codexNativeSessionLastOrdinal(
+  home: string,
+  threadId: string,
+): Promise<number | null> {
+  const located = await sessionPath(home, threadId);
+  if (located.status !== "found") return null;
+  try {
+    if ((await stat(located.path)).size > MAX_SESSION_BYTES) return null;
+    const bytes = await readFile(located.path);
+    if (bytes.byteLength > MAX_SESSION_BYTES) return null;
+    const parsed = parseSession(
+      new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+    );
+    if (parsed.observation.completeness !== "complete") return null;
+    return parsed.entries.at(-1)?.ordinal ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** Bind one private native session to the completed public thread. */
 export async function codexNativeCallObservation(
   home: string,

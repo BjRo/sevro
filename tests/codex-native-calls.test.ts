@@ -2,7 +2,10 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { codexNativeCallObservation } from "../src/hosts/codex-native-calls";
+import {
+  codexNativeCallObservation,
+  codexNativeSessionLastOrdinal,
+} from "../src/hosts/codex-native-calls";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -22,6 +25,20 @@ async function session(root: string, content: string, suffix = "thread-1") {
   await mkdir(directory, { recursive: true });
   await writeFile(join(directory, `rollout-${suffix}.jsonl`), content);
 }
+
+test("native boundary uses only a complete, unique session", async () => {
+  const root = await home();
+  expect(await codexNativeSessionLastOrdinal(root, "thread-1")).toBeNull();
+  await session(
+    root,
+    [0, 3].map((ordinal) => JSON.stringify({ ordinal, payload: {} })).join("\n") + "\n",
+  );
+  expect(await codexNativeSessionLastOrdinal(root, "thread-1")).toBe(3);
+  await session(root, '{"ordinal":0,"payload":{}}\n{broken\n');
+  expect(await codexNativeSessionLastOrdinal(root, "thread-1")).toBeNull();
+  await session(root, '{"ordinal":0,"payload":{}}\n', "other-thread-1");
+  expect(await codexNativeSessionLastOrdinal(root, "thread-1")).toBeNull();
+});
 
 test("native goal and agent calls retain names and order without private arguments", async () => {
   const root = await home();

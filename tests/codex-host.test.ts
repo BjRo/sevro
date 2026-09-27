@@ -152,6 +152,7 @@ test("Codex host resumes a second prompt in the initial thread", async () => {
   const paths = await fixture();
   const workspace = await mkdtemp(join(tmpdir(), "sevro-codex-continuation-"));
   roots.push(workspace);
+  await writeFile(join(workspace, "native-calls.flag"), "\n");
   const host = createCodexHost({
     binary: paths.fakeBinary,
     sandboxBinary: installedCodex,
@@ -194,6 +195,7 @@ test("Codex host resumes a second prompt in the initial thread", async () => {
     data: {
       method: "same_thread_resume",
       threadId: "thread-1",
+      nativeAfterOrdinal: 0,
       preFollowUpWorktreeUnchanged: false,
     },
   });
@@ -229,6 +231,7 @@ test("Codex continuation ignores Git-private fixture state at the boundary", asy
     data: {
       method: "same_thread_resume",
       threadId: "thread-1",
+      nativeAfterOrdinal: null,
       preFollowUpWorktreeUnchanged: true,
     },
   });

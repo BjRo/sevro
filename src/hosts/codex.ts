@@ -15,7 +15,10 @@ import { delimiter, dirname, isAbsolute, join, relative, sep } from "node:path";
 import type { HostAdapter } from "../engine";
 import { fixtureParts } from "../preparation";
 import { summarizeCodexEvents } from "./codex-events";
-import { codexNativeCallObservation } from "./codex-native-calls";
+import {
+  codexNativeCallObservation,
+  codexNativeSessionLastOrdinal,
+} from "./codex-native-calls";
 import { codexSkillReadObservation } from "./codex-skill-reads";
 import { codexPermissionProfile } from "./codex-profile";
 import { evaluationProtectedRoots } from "./isolation-roots";
@@ -551,6 +554,10 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
           | undefined;
         if (request.followUpPrompt) {
           const beforeFollowUp = await workspaceFingerprint(request.workspace);
+          const nativeAfterOrdinal = await codexNativeSessionLastOrdinal(
+            codexHome,
+            summary.threadId,
+          );
           const measured =
             initialWorkspaceFingerprint !== null && beforeFollowUp !== null;
           continuationObservation = {
@@ -559,6 +566,7 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
             data: {
               method: "same_thread_resume",
               threadId: summary.threadId,
+              nativeAfterOrdinal,
               preFollowUpWorktreeUnchanged: measured
                 ? initialWorkspaceFingerprint === beforeFollowUp
                 : null,

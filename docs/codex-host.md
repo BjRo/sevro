@@ -38,6 +38,11 @@ tool calls. For collaboration feedback it includes a bounded target when the
 target is readable. That list lets an extension evaluate parent activity after
 handoff without exposing messages or command input. A partial list cannot
 prove that parent work was absent.
+
+For a second prompt, `sevro.codex.continuation` retains the last validated
+native-session ordinal before resume. Extensions can compare later call
+ordinals with that boundary without reading private arguments.
+
 It also checks native parent command records for exact mounted skill bodies,
 including sessions with no spawn request. The bounded diagnostic distinguishes
 no read from an incomplete read without claiming skill activation.
