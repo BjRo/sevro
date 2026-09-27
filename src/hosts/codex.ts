@@ -642,7 +642,13 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
         const nativeCalls = await codexNativeCallObservation(
           codexHome,
           summary.threadId,
-          { workspace: request.workspace, installedPluginRoots },
+          {
+            workspace: request.workspace,
+            installedPluginRoots,
+            ...(request.followUpPrompt
+              ? { followUpPrompt: request.followUpPrompt }
+              : {}),
+          },
         );
         const explicit = request.explicitSkillInvocation;
         const explicitReceipt = explicit

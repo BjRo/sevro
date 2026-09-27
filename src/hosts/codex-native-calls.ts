@@ -54,6 +54,8 @@ interface NativeFeedbackCall {
   tool: "followup_task" | "send_message" | "interrupt_agent";
   target: string | null;
   responseObserved: boolean;
+  messageRepresentation: "plaintext" | "encrypted" | "unavailable";
+  messageMatchesFollowUpPrompt: boolean | null;
 }
 
 interface ChildSession {
@@ -66,6 +68,7 @@ interface ChildSession {
 interface NativeSkillContext {
   workspace: string;
   installedPluginRoots: string[];
+  followUpPrompt?: string;
 }
 
 interface NativeCallObservation {
@@ -308,8 +311,37 @@ function acceptedSpawns(
   return accepted;
 }
 
+function feedbackMessageEvidence(
+  payload: Record<string, unknown>,
+  followUpPrompt?: string,
+) {
+  let message: unknown;
+  if (typeof payload.arguments === "string") {
+    try {
+      const args: unknown = JSON.parse(payload.arguments);
+      if (record(args)) message = args.message;
+    } catch {
+      // An unreadable message remains unavailable.
+    }
+  }
+  const messageRepresentation =
+    typeof message !== "string"
+      ? ("unavailable" as const)
+      : /^gAAAAA[A-Za-z0-9_-]+={0,2}$/.test(message)
+        ? ("encrypted" as const)
+        : ("plaintext" as const);
+  return {
+    messageRepresentation,
+    messageMatchesFollowUpPrompt:
+      messageRepresentation === "plaintext" && followUpPrompt !== undefined
+        ? message === followUpPrompt
+        : null,
+  };
+}
+
 function nativeFeedbackCalls(
   entries: Array<{ ordinal: number; payload: Record<string, unknown> }>,
+  followUpPrompt?: string,
 ): NativeFeedbackCall[] {
   return entries.flatMap(({ ordinal, payload }) => {
     if (
@@ -337,12 +369,16 @@ function nativeFeedbackCalls(
         responseObserved:
           outputs.length === 1 &&
           typeof outputs[0]?.payload.output === "string",
+        ...feedbackMessageEvidence(payload, followUpPrompt),
       },
     ];
   });
 }
 
-function parseSession(text: string): {
+function parseSession(
+  text: string,
+  followUpPrompt?: string,
+): {
   observation: NativeCallObservation;
   entries: Array<{ ordinal: number; payload: Record<string, unknown> }>;
 } {
@@ -411,7 +447,9 @@ function parseSession(text: string): {
         acceptedSpawns:
           malformed || entries.length === 0 ? [] : acceptedSpawns(entries),
         feedbackCalls:
-          malformed || entries.length === 0 ? [] : nativeFeedbackCalls(entries),
+          malformed || entries.length === 0
+            ? []
+            : nativeFeedbackCalls(entries, followUpPrompt),
         childSessions: [],
         childrenTruncated: false,
       },
@@ -544,6 +582,7 @@ export async function codexNativeCallObservation(
     if (bytes.byteLength > MAX_SESSION_BYTES) return unavailable("partial");
     const { observation, entries } = parseSession(
       new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+      skillContext?.followUpPrompt,
     );
     if (observation.completeness !== "complete") return observation;
     const parentReadDiagnostics = skillContext

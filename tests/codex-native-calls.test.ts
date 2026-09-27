@@ -557,8 +557,27 @@ test("native feedback retains target and unique response without message text", 
       tool: "followup_task",
       target: "owner",
       responseObserved: true,
+      messageRepresentation: "plaintext",
+      messageMatchesFollowUpPrompt: null,
     },
   ]);
+  const context = {
+    workspace: root,
+    installedPluginRoots: [],
+    followUpPrompt: "private feedback",
+  };
+  expect(
+    (await codexNativeCallObservation(root, "thread-1", context)).data
+      .feedbackCalls,
+  ).toMatchObject([{ messageMatchesFollowUpPrompt: true }]);
+  expect(
+    (
+      await codexNativeCallObservation(root, "thread-1", {
+        ...context,
+        followUpPrompt: "different feedback",
+      })
+    ).data.feedbackCalls,
+  ).toMatchObject([{ messageMatchesFollowUpPrompt: false }]);
   expect(JSON.stringify(observed)).not.toContain("private feedback");
   expect(JSON.stringify(observed)).not.toContain("private tool result");
   await session(root, lines([feedback]));
@@ -572,7 +591,33 @@ test("native feedback retains target and unique response without message text", 
   await session(root, lines([{ ...feedback, arguments: "{broken" }, response]));
   expect(
     (await codexNativeCallObservation(root, "thread-1")).data.feedbackCalls,
-  ).toMatchObject([{ target: null }]);
+  ).toMatchObject([{
+    target: null,
+    messageRepresentation: "unavailable",
+    messageMatchesFollowUpPrompt: null,
+  }]);
+  await session(
+    root,
+    lines([
+      {
+        ...feedback,
+        arguments: JSON.stringify({
+          target: "owner",
+          message: "gAAAAABencrypted-feedback-token",
+        }),
+      },
+      response,
+    ]),
+  );
+  expect(
+    (await codexNativeCallObservation(root, "thread-1", context)).data
+      .feedbackCalls,
+  ).toMatchObject([
+    {
+      messageRepresentation: "encrypted",
+      messageMatchesFollowUpPrompt: null,
+    },
+  ]);
 });
 
 test("ambiguous, mismatched, and malformed spawn evidence cannot establish acceptance", async () => {

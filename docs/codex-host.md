@@ -41,6 +41,9 @@ prove that parent work was absent.
 The observation also retains bounded feedback call targets and whether one
 native tool response was observed for each call. It discards message text and
 response content. A response receipt does not establish that the child acted.
+For a two-turn case, it classifies native feedback messages as plaintext,
+encrypted, or unavailable and records exact equality with the follow-up prompt
+only when plaintext is readable. It retains neither message nor prompt bytes.
 
 For a second prompt, `sevro.codex.continuation` retains the last validated
 native-session ordinal before resume. Extensions can compare later call

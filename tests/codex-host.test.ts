@@ -33,6 +33,27 @@ async function fixture() {
   const quotedCodex = installedCodex
     ? `'${installedCodex.replaceAll("'", `'"'"'`)}'`
     : "/bin/false";
+  const nativeFeedbackEntry = JSON.stringify({
+    ordinal: 1,
+    payload: {
+      type: "function_call",
+      namespace: "collaboration",
+      name: "followup_task",
+      call_id: "feedback-1",
+      arguments: JSON.stringify({
+        target: "owner",
+        message: "Continue in this thread.",
+      }),
+    },
+  });
+  const nativeFeedbackResponse = JSON.stringify({
+    ordinal: 2,
+    payload: {
+      type: "function_call_output",
+      call_id: "feedback-1",
+      output: "response",
+    },
+  });
   await writeFile(
     fakeBinary,
     `#!/bin/sh
@@ -42,6 +63,9 @@ shift
 if [ "$1" = resume ]; then
   printf '%s\\n' "$@" > "$PWD/resume-argv.txt"
   /bin/cat > "$PWD/follow-up-prompt.txt"
+  if [ -f "$PWD/native-feedback.flag" ]; then
+    printf '%s\\n' '${nativeFeedbackEntry}' '${nativeFeedbackResponse}' >> "$CODEX_HOME/sessions/2026/09/27/rollout-thread-1.jsonl"
+  fi
   if [ -f "$PWD/wrong-thread.flag" ]; then
     printf '%s\\n' '{"type":"thread.started","thread_id":"thread-2"}'
   else
@@ -158,6 +182,7 @@ test("Codex host resumes a second prompt in the initial thread", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "sevro-codex-continuation-"));
   roots.push(workspace);
   await writeFile(join(workspace, "native-calls.flag"), "\n");
+  await writeFile(join(workspace, "native-feedback.flag"), "\n");
   const host = createCodexHost({
     binary: paths.fakeBinary,
     sandboxBinary: installedCodex,
@@ -213,6 +238,24 @@ test("Codex host resumes a second prompt in the initial thread", async () => {
       observedSkills: [],
     },
   });
+  expect(result.observations).toContainEqual(
+    expect.objectContaining({
+      id: "sevro.codex.native-calls",
+      completeness: "complete",
+      data: expect.objectContaining({
+        feedbackCalls: [
+          {
+            ordinal: 1,
+            tool: "followup_task",
+            target: "owner",
+            responseObserved: true,
+            messageRepresentation: "plaintext",
+            messageMatchesFollowUpPrompt: true,
+          },
+        ],
+      }),
+    }),
+  );
   expect(result.observations).toContainEqual({
     id: "sevro.codex.follow-up-skill-reads",
     completeness: "complete",
