@@ -31,7 +31,9 @@ test("native boundary uses only a complete, unique session", async () => {
   expect(await codexNativeSessionLastOrdinal(root, "thread-1")).toBeNull();
   await session(
     root,
-    [0, 3].map((ordinal) => JSON.stringify({ ordinal, payload: {} })).join("\n") + "\n",
+    [0, 3]
+      .map((ordinal) => JSON.stringify({ ordinal, payload: {} }))
+      .join("\n") + "\n",
   );
   expect(await codexNativeSessionLastOrdinal(root, "thread-1")).toBe(3);
   await session(root, '{"ordinal":0,"payload":{}}\n{broken\n');
@@ -265,6 +267,8 @@ test("accepted child sessions distinguish available, malformed, and ambiguous ro
       threadId: "thread-child",
       status: "available",
       resultStatus: "unavailable",
+      nestedSpawns: [],
+      requestsTruncated: false,
     },
   ]);
   await session(root, "{broken\n", "thread-child");
@@ -312,6 +316,8 @@ test("accepted child skill reads require the exact mounted body", async () => {
       threadId: "thread-child",
       status: "available",
       resultStatus: "unavailable",
+      nestedSpawns: [],
+      requestsTruncated: false,
       readDiagnostics: {
         completeness: "complete",
         observedSkills: ["example"],
@@ -364,6 +370,8 @@ test("accepted child completion binds one nonempty final message to its turn", a
       threadId: "thread-child",
       status: "available",
       resultStatus: "completed",
+      nestedSpawns: [],
+      requestsTruncated: false,
     },
   ]);
   expect(JSON.stringify(completed)).not.toContain("private child answer");
@@ -388,6 +396,136 @@ test("accepted child completion binds one nonempty final message to its turn", a
         ?.resultStatus,
     ).toBe("unavailable");
   }
+});
+
+test("nested spawn receipts bind the accepted reader and completed session", async () => {
+  const root = await home();
+  await session(root, lines([spawn, started, result]));
+  const nestedSpawn = {
+    ...spawn,
+    call_id: "nested_call",
+    arguments: JSON.stringify({
+      task_name: "spec_reader",
+      model: "gpt-6-luna",
+      reasoning_effort: "high",
+      fork_turns: "none",
+      message: "private reader instructions",
+    }),
+  };
+  const nestedStart = {
+    ...started,
+    item: {
+      ...started.item,
+      id: "nested_call",
+      agent_path: "/root/spec_reader",
+      agent_thread_id: "thread-reader",
+    },
+  };
+  const nestedResult = {
+    ...result,
+    call_id: "nested_call",
+    output: JSON.stringify({ task_name: "/root/spec_reader" }),
+  };
+  await session(
+    root,
+    lines([nestedSpawn, nestedStart, nestedResult]),
+    "thread-child",
+  );
+  const final = {
+    type: "item_completed",
+    turn_id: "turn-reader",
+    item: {
+      type: "AgentMessage",
+      phase: "final_answer",
+      content: [{ type: "Text", text: "private reader conclusion" }],
+    },
+  };
+  const complete = {
+    type: "task_complete",
+    turn_id: "turn-reader",
+    last_agent_message: "private reader conclusion",
+  };
+  await session(root, lines([final, complete]), "thread-reader");
+  const observed = await codexNativeCallObservation(root, "thread-1");
+  expect(observed.data.childSessions[0]).toMatchObject({
+    threadId: "thread-child",
+    status: "available",
+    nestedSpawns: [
+      {
+        requestedOrdinal: 0,
+        status: "accepted",
+        taskName: "spec_reader",
+        model: "gpt-6-luna",
+        reasoningEffort: "high",
+        forkTurns: "none",
+        agentRef: "/root/spec_reader",
+        threadId: "thread-reader",
+        sessionStatus: "available",
+        readerResultStatus: "completed",
+      },
+    ],
+    requestsTruncated: false,
+  });
+  expect(JSON.stringify(observed)).not.toContain("private reader instructions");
+  expect(JSON.stringify(observed)).not.toContain("private reader conclusion");
+
+  await session(root, lines([final]), "thread-reader");
+  expect(
+    (await codexNativeCallObservation(root, "thread-1")).data.childSessions[0]
+      ?.nestedSpawns?.[0]?.readerResultStatus,
+  ).toBe("unavailable");
+  await session(
+    root,
+    lines([
+      {
+        ...nestedSpawn,
+        arguments: JSON.stringify({
+          task_name: "spec_reader",
+          model: "gpt-6-luna",
+          reasoning_effort: "high",
+          fork_turns: "all",
+          message: "private inherited request",
+        }),
+      },
+    ]),
+    "thread-child",
+  );
+  expect(
+    (await codexNativeCallObservation(root, "thread-1")).data.childSessions[0]
+      ?.nestedSpawns,
+  ).toEqual([
+    {
+      requestedOrdinal: 0,
+      status: "unaccepted",
+      taskName: "spec_reader",
+      model: "gpt-6-luna",
+      reasoningEffort: "high",
+      forkTurns: "all",
+      sessionStatus: "unavailable",
+      readerResultStatus: "unavailable",
+    },
+  ]);
+});
+
+test("nested request truncation is explicit", async () => {
+  const root = await home();
+  await session(root, lines([spawn, started, result]));
+  await session(
+    root,
+    lines(
+      Array.from({ length: 9 }, (_, index) => ({
+        ...spawn,
+        call_id: `nested_${index}`,
+      })),
+    ),
+    "thread-child",
+  );
+  const observed = await codexNativeCallObservation(root, "thread-1");
+  expect(observed.data.childSessions[0]).toMatchObject({
+    status: "available",
+    requestsTruncated: true,
+  });
+  expect(observed.data.childSessions[0]?.nestedSpawns).toHaveLength(8);
 });
 
 test("child read diagnostics distinguish no read from an indirect attempt", async () => {
@@ -591,11 +729,13 @@ test("native feedback retains target and unique response without message text", 
   await session(root, lines([{ ...feedback, arguments: "{broken" }, response]));
   expect(
     (await codexNativeCallObservation(root, "thread-1")).data.feedbackCalls,
-  ).toMatchObject([{
-    target: null,
-    messageRepresentation: "unavailable",
-    messageMatchesFollowUpPrompt: null,
-  }]);
+  ).toMatchObject([
+    {
+      target: null,
+      messageRepresentation: "unavailable",
+      messageMatchesFollowUpPrompt: null,
+    },
+  ]);
   await session(
     root,
     lines([

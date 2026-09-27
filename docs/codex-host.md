@@ -68,6 +68,15 @@ An available child rollout also reports whether one nonempty final assistant
 message matches a later native completion event for the same turn. This proves
 a returned turn, not the accuracy of the child's work, and retains no message
 body.
+Each available accepted child rollout also retains up to eight nested spawn
+requests with an explicit `requestsTruncated` flag. A request records bounded
+task name, model, effort, and context-fork fields, whether the host accepted it,
+and, for an accepted request, the child reference and thread. The corresponding
+reader session is classified as available, unavailable, ambiguous, or partial;
+`readerResultStatus` is completed only when a nonempty final answer matches a
+later native completion in that session. Private task and answer text are
+discarded. Extensions interpret task names and decide whether a nested reader
+satisfies their policy.
 The record proves an invocation attempt, not its success. A missing, ambiguous,
 unreadable, oversized, or malformed session is unavailable or partial, so its
 absence cannot prove that a control was unused. Calls made through submitted

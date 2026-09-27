@@ -63,6 +63,21 @@ interface ChildSession {
   status: "available" | "unavailable" | "ambiguous" | "partial";
   resultStatus?: "completed" | "unavailable";
   readDiagnostics?: NativeReadDiagnostic;
+  nestedSpawns?: NestedSpawn[];
+  requestsTruncated?: boolean;
+}
+
+interface NestedSpawn {
+  requestedOrdinal: number;
+  status: "accepted" | "unaccepted";
+  taskName?: string;
+  model?: string;
+  reasoningEffort?: string;
+  forkTurns?: string;
+  agentRef?: string;
+  threadId?: string;
+  sessionStatus: ChildSession["status"];
+  readerResultStatus: "completed" | "unavailable";
 }
 
 interface NativeSkillContext {
@@ -503,11 +518,75 @@ function childResultCompleted(
   );
 }
 
+function nestedRequestFields(payload: Record<string, unknown>) {
+  let args: unknown;
+  try {
+    args = JSON.parse(payload.arguments as string);
+  } catch {
+    return {};
+  }
+  if (!record(args)) return {};
+  return {
+    ...(bounded(args.task_name, /^[a-z0-9][a-z0-9_]{0,63}$/)
+      ? { taskName: args.task_name as string }
+      : {}),
+    ...(bounded(args.model, IDENTIFIER) ? { model: args.model as string } : {}),
+    ...(bounded(args.reasoning_effort, /^(?:low|medium|high|xhigh|max|ultra)$/)
+      ? { reasoningEffort: args.reasoning_effort as string }
+      : {}),
+    ...(bounded(args.fork_turns, /^(?:none|all|[1-9][0-9]*)$/)
+      ? { forkTurns: args.fork_turns as string }
+      : {}),
+  };
+}
+
+async function nestedSpawnReceipts(
+  home: string,
+  rootThread: string,
+  parentThread: string,
+  entries: Array<{ ordinal: number; payload: Record<string, unknown> }>,
+) {
+  const requests = entries.filter(
+    ({ payload }) =>
+      payload.type === "function_call" &&
+      payload.namespace === "collaboration" &&
+      payload.name === "spawn_agent",
+  );
+  const accepted = acceptedSpawns(entries);
+  const nestedSpawns: NestedSpawn[] = await Promise.all(
+    requests.slice(0, MAX_CHILD_SESSIONS).map(async ({ ordinal, payload }) => {
+      const receipt = accepted.find(
+        (spawn) => spawn.requestedOrdinal === ordinal,
+      );
+      const session: ChildSession | null = receipt
+        ? receipt.threadId === rootThread
+          ? { threadId: receipt.threadId, status: "partial" }
+          : await childSessionStatus(home, parentThread, receipt.threadId)
+        : null;
+      return {
+        requestedOrdinal: ordinal,
+        status: receipt ? ("accepted" as const) : ("unaccepted" as const),
+        ...nestedRequestFields(payload),
+        ...(receipt
+          ? { agentRef: receipt.agentRef, threadId: receipt.threadId }
+          : {}),
+        sessionStatus: session?.status ?? "unavailable",
+        readerResultStatus: session?.resultStatus ?? "unavailable",
+      };
+    }),
+  );
+  return {
+    nestedSpawns,
+    requestsTruncated: requests.length > MAX_CHILD_SESSIONS,
+  };
+}
+
 async function childSessionStatus(
   home: string,
   parentThread: string,
   threadId: string,
   skillContext?: NativeSkillContext,
+  rootThread?: string,
 ): Promise<ChildSession> {
   if (threadId === parentThread) return { threadId, status: "partial" };
   const located = await sessionPath(home, threadId);
@@ -530,6 +609,9 @@ async function childSessionStatus(
           skillContext.installedPluginRoots,
         )
       : undefined;
+    const nested = rootThread
+      ? await nestedSpawnReceipts(home, rootThread, threadId, parsed.entries)
+      : undefined;
     return {
       threadId,
       status: "available",
@@ -537,6 +619,7 @@ async function childSessionStatus(
         ? "completed"
         : "unavailable",
       ...(readDiagnostics ? { readDiagnostics } : {}),
+      ...nested,
     };
   } catch {
     return { threadId, status: "partial" };
@@ -601,7 +684,7 @@ export async function codexNativeCallObservation(
       children
         .slice(0, MAX_CHILD_SESSIONS)
         .map((child) =>
-          childSessionStatus(home, threadId, child, skillContext),
+          childSessionStatus(home, threadId, child, skillContext, threadId),
         ),
     );
     return {
