@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, stat } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 import { prepareMacSandboxCommand } from "../hosts/mac-sandbox";
 
@@ -180,6 +180,8 @@ export async function runShellCheck(
   options: {
     workspace: string;
     fixtureBinDir?: string;
+    toolchainBinDir?: string;
+    uvRuntimeCache?: boolean;
     protectedRoots: string[];
     protectedRootsCanonical?: boolean;
     privateStateRoot: string;
@@ -201,6 +203,10 @@ export async function runShellCheck(
     privateStateRoot: options.privateStateRoot,
     denyNetwork: true,
   });
+  const runtimeRoot = join(options.workspace, ".git", "sevro-runtime");
+  const uvCache = join(runtimeRoot, "uv-cache");
+  if (options.uvRuntimeCache && !(await stat(uvCache)).isDirectory())
+    throw new Error("isolated UV cache is missing");
   let proc: Bun.Subprocess | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let cancel: (() => void) | undefined;
@@ -208,14 +214,25 @@ export async function runShellCheck(
     proc = Bun.spawn(isolated.argv, {
       cwd: options.workspace,
       env: {
-        PATH: options.fixtureBinDir
-          ? `${options.fixtureBinDir}${delimiter}/usr/bin:/bin:/usr/sbin:/sbin`
-          : "/usr/bin:/bin:/usr/sbin:/sbin",
+        PATH: [
+          options.fixtureBinDir,
+          options.toolchainBinDir,
+          "/usr/bin:/bin:/usr/sbin:/sbin",
+        ]
+          .filter(Boolean)
+          .join(delimiter),
         HOME: home,
         TMPDIR: temp,
         LANG: process.env.LANG ?? "C",
         GIT_CONFIG_GLOBAL: "/dev/null",
         GIT_CONFIG_NOSYSTEM: "1",
+        ...(options.uvRuntimeCache
+          ? {
+              UV_CACHE_DIR: uvCache,
+              DARROW_CACHE_DIR: join(runtimeRoot, "darrow-cache"),
+              UV_OFFLINE: "1",
+            }
+          : {}),
       },
       detached: true,
       stdin: "ignore",

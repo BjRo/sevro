@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -85,6 +85,42 @@ test("timed out shell checks stop without returning a result", async () => {
         privateStateRoot: join(root, "private"),
       }),
     ).rejects.toThrow(/timed out/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("isolated shell checks can use an explicit toolchain", async () => {
+  if (process.platform !== "darwin") return;
+  const root = await mkdtemp(join(tmpdir(), "sevro-shell-toolchain-"));
+  const workspace = join(root, "fixture");
+  const toolchainBinDir = join(root, "toolchain");
+  try {
+    await Promise.all([workspace, toolchainBinDir].map((path) => mkdir(path)));
+    await mkdir(join(workspace, ".git", "sevro-runtime", "uv-cache"), {
+      recursive: true,
+    });
+    const tool = join(toolchainBinDir, "sevro-tool");
+    await writeFile(tool, "#!/bin/sh\nprintf 'ready\\n'\n");
+    await chmod(tool, 0o755);
+    const [check] = prepareShellChecks([
+      {
+        id: "toolchain",
+        grader: "sevro.shell",
+        configuration: {
+          run: 'test -d "$UV_CACHE_DIR" && test "$UV_OFFLINE" = 1 && sevro-tool',
+          expectExact: "ready",
+        },
+      },
+    ]);
+    const result = await runShellCheck(check!, {
+      workspace,
+      toolchainBinDir,
+      uvRuntimeCache: true,
+      protectedRoots: [join(import.meta.dir, "..", "src")],
+      privateStateRoot: join(root, "private"),
+    });
+    expect(result.exitCode).toBe(0);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

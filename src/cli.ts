@@ -135,6 +135,9 @@ function parseInvocation(argv: string[]) {
           "codex-auth-file": { type: "string" },
           "claude-bin": { type: "string" },
           "claude-credential-file": { type: "string" },
+          "claude-uv-cache-dir": { type: "string" },
+          "claude-project-settings": { type: "boolean" },
+          "toolchain-bin-dir": { type: "string" },
           model: { type: "string" },
           effort: { type: "string" },
           "shell-isolation": { type: "boolean" },
@@ -173,6 +176,9 @@ function parseInvocation(argv: string[]) {
   const protectedRoots = values["protected-root"] ?? [];
   if (protectedRoots.some((path) => !isAbsolute(path)))
     throw new InvocationError("--protected-root must be absolute");
+  const toolchainBinDir = values["toolchain-bin-dir"]
+    ? absoluteOption(values["toolchain-bin-dir"], "--toolchain-bin-dir")
+    : undefined;
   const codex = values.host === "codex";
   const claude = values.host === "claude";
   const builtinHost = codex || claude;
@@ -219,7 +225,13 @@ function parseInvocation(argv: string[]) {
     (values["codex-bin"] || values["codex-auth-file"])
   )
     throw new InvocationError("Codex options require a Codex host route");
-  if (!claude && (values["claude-bin"] || values["claude-credential-file"]))
+  if (
+    !claude &&
+    (values["claude-bin"] ||
+      values["claude-credential-file"] ||
+      values["claude-uv-cache-dir"] ||
+      values["claude-project-settings"])
+  )
     throw new InvocationError("Claude options require --host claude");
   if (
     protectedRoots.length &&
@@ -329,8 +341,18 @@ function parseInvocation(argv: string[]) {
               ),
             }
           : {}),
+        ...(values["claude-uv-cache-dir"]
+          ? {
+              uvCacheDir: absoluteOption(
+                values["claude-uv-cache-dir"],
+                "--claude-uv-cache-dir",
+              ),
+            }
+          : {}),
         model: requiredOption(values.model, "--model"),
         effort: requiredOption(values.effort, "--effort"),
+        toolchainBinDir,
+        projectSettings: values["claude-project-settings"] ?? false,
         projectRoot,
         resultsRoot,
         additionalProtectedRoots: [...privateRoots, runStateRoot],
@@ -419,7 +441,11 @@ function parseInvocation(argv: string[]) {
       : undefined,
     claude: claudeOptions,
     shellIsolation: values["shell-isolation"]
-      ? { protectedRoots: privateRoots }
+      ? {
+          protectedRoots: privateRoots,
+          toolchainBinDir,
+          uvRuntimeCache: !!values["claude-uv-cache-dir"],
+        }
       : undefined,
     projectRoot,
     resultsRoot,

@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import {
+  cp,
   mkdir,
   mkdtemp,
   readFile,
@@ -29,6 +30,9 @@ export interface ClaudeHostOptions {
   resultsRoot: string;
   additionalProtectedRoots: string[];
   credentialFile?: string;
+  uvCacheDir?: string;
+  toolchainBinDir?: string;
+  projectSettings?: boolean;
   timeoutMs?: number;
 }
 
@@ -226,6 +230,9 @@ export function createClaudeHost(options: ClaudeHostOptions): HostAdapter {
     options.additionalProtectedRoots.some((root) => !isAbsolute(root)) ||
     (options.credentialFile !== undefined &&
       !isAbsolute(options.credentialFile)) ||
+    (options.uvCacheDir !== undefined && !isAbsolute(options.uvCacheDir)) ||
+    (options.toolchainBinDir !== undefined &&
+      !isAbsolute(options.toolchainBinDir)) ||
     !options.model ||
     !options.effort ||
     !Number.isSafeInteger(timeoutMs) ||
@@ -282,6 +289,33 @@ export function createClaudeHost(options: ClaudeHostOptions): HostAdapter {
         const binaryRoot = await realpath(options.binary);
         if (protectedRoots.some((root) => inside(root, binaryRoot)))
           throw new Error("Claude executable resides inside a protected root");
+        const toolchainBinDir = options.toolchainBinDir
+          ? await realpath(options.toolchainBinDir)
+          : null;
+        if (
+          toolchainBinDir &&
+          (protectedRoots.some((root) => inside(root, toolchainBinDir)) ||
+            !(await stat(toolchainBinDir)).isDirectory())
+        )
+          throw new Error(
+            "Claude toolchain directory is unavailable or protected",
+          );
+        let runtimeRoot: string | null = null;
+        if (options.uvCacheDir) {
+          const cacheRoot = await realpath(options.uvCacheDir);
+          if (
+            protectedRoots.some((root) => inside(root, cacheRoot)) ||
+            !(await stat(cacheRoot)).isDirectory()
+          )
+            throw new Error("Claude UV cache is unavailable or protected");
+          runtimeRoot = join(request.workspace, ".git", "sevro-runtime");
+          await mkdir(runtimeRoot, { recursive: true, mode: 0o700 });
+          await cp(cacheRoot, join(runtimeRoot, "uv-cache"), {
+            recursive: true,
+            force: false,
+            errorOnExist: true,
+          });
+        }
         const settingsPath = join(privateRoot, "settings.json");
         await writeFile(
           settingsPath,
@@ -296,14 +330,25 @@ export function createClaudeHost(options: ClaudeHostOptions): HostAdapter {
           { flag: "wx", mode: 0o600 },
         );
         const env: Record<string, string> = {
-          PATH: request.fixtureBinDir
-            ? `${request.fixtureBinDir}${delimiter}${process.env.PATH ?? "/usr/bin:/bin"}`
-            : (process.env.PATH ?? "/usr/bin:/bin"),
+          PATH: [
+            request.fixtureBinDir,
+            toolchainBinDir,
+            process.env.PATH ?? "/usr/bin:/bin",
+          ]
+            .filter(Boolean)
+            .join(delimiter),
           LANG: process.env.LANG ?? "C",
           HOME: home,
           TMPDIR: temp,
           CLAUDE_CONFIG_DIR: dirname(credential),
           NO_COLOR: "1",
+          ...(runtimeRoot
+            ? {
+                UV_CACHE_DIR: join(runtimeRoot, "uv-cache"),
+                DARROW_CACHE_DIR: join(runtimeRoot, "darrow-cache"),
+                UV_OFFLINE: "1",
+              }
+            : {}),
         };
         const execution = await runProcess({
           argv: [
@@ -322,7 +367,7 @@ export function createClaudeHost(options: ClaudeHostOptions): HostAdapter {
             "--tools",
             "Bash,Read,Edit,Skill,Agent",
             "--setting-sources",
-            "",
+            options.projectSettings ? "project" : "",
             "--settings",
             settingsPath,
             "--strict-mcp-config",

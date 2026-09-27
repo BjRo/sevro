@@ -193,7 +193,11 @@ export interface EvaluationOptions {
     resolvedCase: ExtensionCase;
   };
   preparationSources?: PreparationSources;
-  shellIsolation?: { protectedRoots: string[] };
+  shellIsolation?: {
+    protectedRoots: string[];
+    toolchainBinDir?: string;
+    uvRuntimeCache?: boolean;
+  };
 }
 
 interface TrialSummary extends Assessment {
@@ -1453,6 +1457,8 @@ export async function runEvaluation(
               const shellResult = await runShellCheck(check, {
                 workspace,
                 fixtureBinDir,
+                toolchainBinDir: options.shellIsolation?.toolchainBinDir,
+                uvRuntimeCache: options.shellIsolation?.uvRuntimeCache,
                 protectedRoots,
                 protectedRootsCanonical: true,
                 privateStateRoot: join(stateDir, "shell-sandbox"),

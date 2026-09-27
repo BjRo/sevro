@@ -72,7 +72,18 @@ It runs candidate tools under Claude Code's native macOS sandbox with private,
 source, and result paths denied. The route disables hooks and does not expose
 the Write tool. It currently supports passive candidate turns only. Use
 `--protected-root` to exclude additional private paths from the candidate's
-filesystem access.
+filesystem access. For plugins that run locked UV backends, use
+`--claude-uv-cache-dir /absolute/path/to/curated-cache` to copy a prepared UV
+cache into the trial's Git-private runtime directory before the turn. Use
+`--toolchain-bin-dir /absolute/path/to/bin` for a compatible Python and other
+case tools. The host and isolated shell checks place that directory on `PATH`.
+The cache and toolchain directories must be outside protected roots. Their
+contents are available to the candidate, so prepare them from public tools and
+dependencies only.
+Use `--claude-project-settings` when an isolated fixture intentionally defines
+project-local `.claude/skills/`. The host still disables hooks in its explicit
+settings and keeps its native sandbox rules. Leave this option off for plugin-only
+cases.
 
 For cases with `sevro.semantic` checks, also pass
 `--semantic-adapter-module /absolute/path/semantic-adapter.ts` to load an
