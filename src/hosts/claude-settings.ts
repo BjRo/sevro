@@ -11,32 +11,38 @@ export function claudeHostSettings(
   privateRoot: string,
   credentialFile: string,
   pluginRoots: string[] = [],
+  protectedRoots: string[] = [],
 ): Record<string, unknown> {
   if (
     !isAbsolute(privateRoot) ||
     !isAbsolute(credentialFile) ||
     !credentialFile.startsWith(`${privateRoot}/`) ||
-    pluginRoots.some((root) => !isAbsolute(root) || /[\r\n()]/.test(root))
+    [...pluginRoots, ...protectedRoots].some(
+      (root) => !isAbsolute(root) || /[\r\n()]/.test(root),
+    )
   )
     throw new Error("Claude private state paths are invalid");
   return {
+    disableAllHooks: true,
     sandbox: {
       enabled: true,
       allowUnsandboxedCommands: false,
       failIfUnavailable: true,
       filesystem: {
-        denyRead: [privateRoot],
-        denyWrite: [privateRoot, ...pluginRoots],
+        denyRead: [privateRoot, ...protectedRoots],
+        denyWrite: [privateRoot, ...pluginRoots, ...protectedRoots],
       },
       credentials: {
         files: [{ path: credentialFile, mode: "deny" }],
       },
     },
     permissions: {
-      allow: ["Bash", "Read", "Edit", "Write", "Skill", "Agent"],
+      allow: ["Bash", "Read", "Edit", "Skill", "Agent"],
       deny: [
-        absoluteRule(privateRoot, "Read"),
-        absoluteRule(privateRoot, "Edit"),
+        ...[privateRoot, ...protectedRoots].flatMap((root) => [
+          absoluteRule(root, "Read"),
+          absoluteRule(root, "Edit"),
+        ]),
         ...pluginRoots.map((root) => absoluteRule(root, "Edit")),
       ],
     },

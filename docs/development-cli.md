@@ -68,8 +68,11 @@ The route reads the local Claude Code login from the macOS keychain and stages
 it inside private per-turn state. Pass `--claude-credential-file` with an
 absolute path to use a separate credential file. It accepts declared Claude
 plugin directories and explicit skill invocations from extension preparation.
-It currently supports passive candidate turns only. Use `--protected-root` to
-exclude additional private paths from the candidate's filesystem access.
+It runs candidate tools under Claude Code's native macOS sandbox with private,
+source, and result paths denied. The route disables hooks and does not expose
+the Write tool. It currently supports passive candidate turns only. Use
+`--protected-root` to exclude additional private paths from the candidate's
+filesystem access.
 
 For cases with `sevro.semantic` checks, also pass
 `--semantic-adapter-module /absolute/path/semantic-adapter.ts` to load an

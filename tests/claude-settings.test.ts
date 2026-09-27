@@ -6,6 +6,7 @@ test("Claude host settings deny private state to Bash and file tools", () => {
     "/private/sevro-state",
     "/private/sevro-state/config/.credentials.json",
     ["/private/workspace/plugin"],
+    ["/private/source", "/private/results"],
   ) as {
     sandbox: {
       enabled: boolean;
@@ -16,13 +17,23 @@ test("Claude host settings deny private state to Bash and file tools", () => {
     };
     permissions: { allow: string[]; deny: string[] };
   };
+  expect(settings).toMatchObject({ disableAllHooks: true });
   expect(settings.sandbox).toMatchObject({
     enabled: true,
     allowUnsandboxedCommands: false,
     failIfUnavailable: true,
     filesystem: {
-      denyRead: ["/private/sevro-state"],
-      denyWrite: ["/private/sevro-state", "/private/workspace/plugin"],
+      denyRead: [
+        "/private/sevro-state",
+        "/private/source",
+        "/private/results",
+      ],
+      denyWrite: [
+        "/private/sevro-state",
+        "/private/workspace/plugin",
+        "/private/source",
+        "/private/results",
+      ],
     },
     credentials: {
       files: [
@@ -36,6 +47,10 @@ test("Claude host settings deny private state to Bash and file tools", () => {
   expect(settings.permissions.deny).toEqual([
     "Read(//private/sevro-state/**)",
     "Edit(//private/sevro-state/**)",
+    "Read(//private/source/**)",
+    "Edit(//private/source/**)",
+    "Read(//private/results/**)",
+    "Edit(//private/results/**)",
     "Edit(//private/workspace/plugin/**)",
   ]);
   expect(settings.permissions.allow).toContain("Bash");

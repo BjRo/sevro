@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import {
   mkdir,
@@ -18,7 +17,6 @@ import { summarizeClaudeEvents } from "./claude-events";
 import { claudeHostSettings } from "./claude-settings";
 import { claudeToolCallsObservation } from "./claude-tool-calls";
 import { evaluationProtectedRoots } from "./isolation-roots";
-import { macSandboxProfile } from "./mac-sandbox";
 
 const MAX_EVENT_BYTES = 8 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 10 * 60_000;
@@ -39,6 +37,12 @@ function inside(root: string, path: string): boolean {
   return (
     child === "" ||
     (child !== ".." && !child.startsWith(`..${sep}`) && !isAbsolute(child))
+  );
+}
+
+function minimalRoots(roots: string[]): string[] {
+  return roots.filter(
+    (root) => !roots.some((other) => other !== root && inside(other, root)),
   );
 }
 
@@ -210,7 +214,7 @@ async function verifyInvocation(
   throw new Error("invoked Claude skill is absent from the package");
 }
 
-/** Run Claude with explicit plugins and two nested filesystem boundaries. */
+/** Run Claude with explicit plugins and its native tool sandbox. */
 export function createClaudeHost(options: ClaudeHostOptions): HostAdapter {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   if (
@@ -265,42 +269,31 @@ export function createClaudeHost(options: ClaudeHostOptions): HostAdapter {
           join(privateRoot, "config"),
           options.credentialFile,
         );
-        const settingsPath = join(privateRoot, "settings.json");
-        await writeFile(
-          settingsPath,
-          JSON.stringify(
-            claudeHostSettings(privateRoot, credential, pluginDirs),
-          ),
-          { flag: "wx", mode: 0o600 },
+        const protectedRoots = minimalRoots(
+          await evaluationProtectedRoots({
+            workspace: request.workspace,
+            projectRoot: options.projectRoot,
+            resultsRoot: options.resultsRoot,
+            additionalRoots: options.additionalProtectedRoots,
+          }),
         );
-        const protectedRoots = await evaluationProtectedRoots({
-          workspace: request.workspace,
-          projectRoot: options.projectRoot,
-          resultsRoot: options.resultsRoot,
-          additionalRoots: options.additionalProtectedRoots,
-        });
         if (protectedRoots.some((root) => inside(root, credential)))
           throw new Error("Claude private state overlaps a protected root");
         const binaryRoot = await realpath(options.binary);
         if (protectedRoots.some((root) => inside(root, binaryRoot)))
           throw new Error("Claude executable resides inside a protected root");
-        const protectedProbe = join(stateRoot, "outer-protected");
-        await mkdir(protectedProbe, { mode: 0o700 });
-        await writeFile(join(protectedProbe, "probe.txt"), "probe\n", {
-          flag: "wx",
-          mode: 0o600,
-        });
-        const profilePath = join(privateRoot, `outer-${randomUUID()}.sb`);
+        const settingsPath = join(privateRoot, "settings.json");
         await writeFile(
-          profilePath,
-          macSandboxProfile([
-            ...protectedRoots,
-            await realpath(protectedProbe),
-          ]),
-          {
-            flag: "wx",
-            mode: 0o600,
-          },
+          settingsPath,
+          JSON.stringify(
+            claudeHostSettings(
+              privateRoot,
+              credential,
+              pluginDirs,
+              protectedRoots,
+            ),
+          ),
+          { flag: "wx", mode: 0o600 },
         );
         const env: Record<string, string> = {
           PATH: request.fixtureBinDir
@@ -312,32 +305,8 @@ export function createClaudeHost(options: ClaudeHostOptions): HostAdapter {
           CLAUDE_CONFIG_DIR: dirname(credential),
           NO_COLOR: "1",
         };
-        const preflight = await runProcess({
-          argv: [
-            "/usr/bin/sandbox-exec",
-            "-f",
-            profilePath,
-            "/bin/sh",
-            "-c",
-            '/bin/test -r "$1" || exit 31; /bin/cat "$2/probe.txt" >/dev/null 2>&1 && exit 32; exit 0',
-            "sevro-claude-preflight",
-            credential,
-            protectedProbe,
-          ],
-          cwd: request.workspace,
-          env,
-          timeoutMs: 10_000,
-          signal: request.signal,
-        });
-        if (preflight.code !== 0)
-          throw new Error(
-            `Claude outer isolation preflight failed (${preflight.code})`,
-          );
         const execution = await runProcess({
           argv: [
-            "/usr/bin/sandbox-exec",
-            "-f",
-            profilePath,
             options.binary,
             "-p",
             request.prompt,
@@ -351,7 +320,7 @@ export function createClaudeHost(options: ClaudeHostOptions): HostAdapter {
             "--permission-mode",
             "dontAsk",
             "--tools",
-            "Bash,Read,Edit,Write,Skill,Agent",
+            "Bash,Read,Edit,Skill,Agent",
             "--setting-sources",
             "",
             "--settings",

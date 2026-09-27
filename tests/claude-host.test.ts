@@ -18,7 +18,7 @@ afterEach(async () => {
   );
 });
 
-test("Claude host runs with private login, outer isolation, and declared plugins", async () => {
+test("Claude host runs with native sandbox settings and declared plugins", async () => {
   if (process.platform !== "darwin") return;
   const root = await mkdtemp(join(tmpdir(), "sevro-claude-host-"));
   roots.push(root);
@@ -53,6 +53,9 @@ test("Claude host runs with private login, outer isolation, and declared plugins
       "#!/bin/sh",
       'test -r "$CLAUDE_CONFIG_DIR/.credentials.json" || exit 3',
       'printf "%s\\n" "$@" > argv.txt',
+      'while [ "$#" -gt 1 ]; do if [ "$1" = --settings ]; then settings=$2; break; fi; shift; done',
+      `grep -F '${projectRoot}' "$settings" >/dev/null || exit 4`,
+      `grep -F '${resultsRoot}' "$settings" >/dev/null || exit 5`,
       'printf \'%s\\n\' \'{"type":"result","subtype":"success","is_error":false,"result":"ready","usage":{"input_tokens":1,"output_tokens":2},"total_cost_usd":0.01}\'',
     ].join("\n") + "\n",
   );
@@ -95,6 +98,7 @@ test("Claude host runs with private login, outer isolation, and declared plugins
   expect(argv).toContain("--setting-sources\n\n");
   expect(argv).toContain("--permission-mode\ndontAsk\n");
   expect(argv).not.toContain("--allowedTools");
+  expect(argv).toContain("--tools\nBash,Read,Edit,Skill,Agent\n");
 });
 
 test("Claude host refuses undeclared and escaping plugin packages", async () => {
