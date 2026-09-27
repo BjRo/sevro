@@ -498,6 +498,9 @@ function selectExtensionCase(
               ...(resolvedCase.fixture.hooks
                 ? { hooks: resolvedCase.fixture.hooks }
                 : {}),
+              ...(resolvedCase.fixture.bin
+                ? { bin: resolvedCase.fixture.bin }
+                : {}),
             }
           : resolvedCase.fixture,
   });

@@ -170,6 +170,71 @@ test("generated Git hooks run for host commits after fixture preparation", async
   ).toThrow(/invalid fixture hooks/);
 });
 
+test("fixture binaries reach the host and isolated shell checks", async () => {
+  if (process.platform !== "darwin") return;
+  const projectRoot = await mkdtemp(join(tmpdir(), "sevro-bin-test-"));
+  roots.push(projectRoot);
+  const host: HostAdapter = {
+    id: "sevro.host.synthetic",
+    model: "synthetic-v1",
+    effort: "none",
+    async run({ workspace, fixtureBinDir }) {
+      expect(fixtureBinDir).toBe(join(workspace, ".git", "fixture-bin"));
+      const proc = Bun.spawn(["fixture-tool"], {
+        cwd: workspace,
+        env: { PATH: `${fixtureBinDir}:/usr/bin:/bin` },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const [stdout, code] = await Promise.all([
+        new Response(proc.stdout).text(),
+        proc.exited,
+      ]);
+      expect(code).toBe(0);
+      expect(stdout).toBe("fixture tool\n");
+      return { finalMessage: "ready", complete: true };
+    },
+  };
+  const result = await runEvaluation({
+    projectRoot,
+    resultsRoot: join(projectRoot, "results"),
+    case: {
+      id: "bin-case",
+      prompt: "Return ready.",
+      fixture: {
+        kind: "generated",
+        commits: [
+          { message: "Initialize", files: { "README.md": "source\n" } },
+        ],
+        bin: { "fixture-tool": "#!/bin/sh\nprintf 'fixture tool\\n'\n" },
+      },
+      checks: [
+        {
+          id: "fixture-tool",
+          grader: "sevro.shell",
+          configuration: { run: "fixture-tool", expectExact: "fixture tool" },
+        },
+      ],
+      requiredEvidence: [],
+    },
+    host,
+    shellIsolation: { protectedRoots: [] },
+    runnerBuildDigest: digest,
+    projectDigest: digest,
+    condition: "passive",
+    trialCount: 1,
+    passThreshold: 1,
+  });
+  expect(result.result.task.verdict).toBe("passed");
+  expect(() =>
+    prepareGeneratedFixture({
+      kind: "generated",
+      commits: [{ message: "Initialize", files: { "README.md": "source\n" } }],
+      bin: { "../fixture-tool": "exit 0" },
+    }),
+  ).toThrow(/invalid fixture binaries/);
+});
+
 test("engine gives each generated trial the same history and a fresh working tree", async () => {
   const projectRoot = await mkdtemp(join(tmpdir(), "sevro-generated-engine-"));
   roots.push(projectRoot);

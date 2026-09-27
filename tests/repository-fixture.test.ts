@@ -226,11 +226,12 @@ test("repository overlays preserve source, index state, and metadata boundaries"
         files: { "notes.txt": "committed\n" },
         commitFiles: true,
         hooks: { "pre-commit": "#!/bin/sh\nexit 1\n" },
+        bin: { "fixture-tool": "#!/bin/sh\nexit 0\n" },
       },
     },
     host: {
       ...host,
-      async run({ workspace }) {
+      async run({ workspace, fixtureBinDir }) {
         expect(await git(workspace, "log", "-1", "--format=%s")).toBe(
           "Add evaluation scaffolding",
         );
@@ -238,6 +239,7 @@ test("repository overlays preserve source, index state, and metadata boundaries"
         expect(
           await readFile(join(workspace, ".git/hooks/pre-commit"), "utf8"),
         ).toBe("#!/bin/sh\nexit 1\n");
+        expect(fixtureBinDir).toBe(join(workspace, ".git/fixture-bin"));
         return { finalMessage: "ready", complete: true };
       },
     },

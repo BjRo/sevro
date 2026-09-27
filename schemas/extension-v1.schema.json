@@ -259,6 +259,11 @@
               "type": "object",
               "maxProperties": 32,
               "additionalProperties": { "type": "string" }
+            },
+            "bin": {
+              "type": "object",
+              "maxProperties": 64,
+              "additionalProperties": { "type": "string" }
             }
           },
           "additionalProperties": false
@@ -298,6 +303,11 @@
             "hooks": {
               "type": "object",
               "maxProperties": 32,
+              "additionalProperties": { "type": "string" }
+            },
+            "bin": {
+              "type": "object",
+              "maxProperties": 64,
               "additionalProperties": { "type": "string" }
             }
           },

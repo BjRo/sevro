@@ -40,6 +40,7 @@ import {
 } from "./graders/semantic";
 import { evaluationProtectedRoots } from "./hosts/isolation-roots";
 import { canonicalJson, createEvaluationIdentity, hashJson } from "./identity";
+import { fixtureBinDirectory, installFixtureBin } from "./fixture-bin";
 import { installGitHooks } from "./git-hooks";
 import {
   InstrumentationEvidenceError,
@@ -123,6 +124,7 @@ export interface HostAdapter {
     prompt: string;
     workspace: string;
     condition: "passive" | "enforced";
+    fixtureBinDir?: string;
     instrumentation?: InstrumentationRequest[];
     signal?: AbortSignal;
   }): Promise<HostResult>;
@@ -218,6 +220,10 @@ async function createFixture(
     if (generated) await materializeGeneratedFixture(generated, workspace);
     if (repositoryFixture)
       await applyRepositoryOverlay(repositoryFixture, workspace);
+    await installFixtureBin(
+      generated?.bin ?? repositoryFixture?.bin,
+      workspace,
+    );
     await installGitHooks(
       generated?.hooks ?? repositoryFixture?.hooks,
       workspace,
@@ -227,7 +233,13 @@ async function createFixture(
       await mkdir(dirname(target), { recursive: true, mode: 0o700 });
       await writeFile(target, file.content, { flag: "wx", mode: 0o600 });
     }
-    if (setup) await runFixtureSetup(setup, { workspace, projectRoot, signal });
+    if (setup)
+      await runFixtureSetup(setup, {
+        workspace,
+        projectRoot,
+        fixtureBinDir: (await fixtureBinDirectory(workspace)) ?? undefined,
+        signal,
+      });
     for (const artifact of artifacts) {
       const target = join(workspace, ...fixtureParts(artifact.relativePath));
       await mkdir(dirname(target), { recursive: true, mode: 0o700 });
@@ -251,6 +263,7 @@ async function createFixture(
         `\n${patterns.map((path) => `/${path}`).join("\n")}\n`,
       );
     }
+    await fixtureBinDirectory(workspace);
     return workspace;
   } catch (error) {
     await rm(workspace, { recursive: true, force: true });
@@ -555,6 +568,7 @@ export async function runEvaluation(
               ...(resolved.fixture.hooks
                 ? { hooks: resolved.fixture.hooks }
                 : {}),
+              ...(resolved.fixture.bin ? { bin: resolved.fixture.bin } : {}),
             }
           : resolved.fixture;
     if (
@@ -925,6 +939,7 @@ export async function runEvaluation(
         projectRoot,
         options.signal,
       );
+      const fixtureBinDir = (await fixtureBinDirectory(workspace)) ?? undefined;
       const trialPrompt = options.case.prompt.replaceAll(
         "{{sevro.workspace}}",
         workspace,
@@ -947,6 +962,7 @@ export async function runEvaluation(
               prompt: trialPrompt,
               workspace,
               condition: options.condition,
+              fixtureBinDir,
               instrumentation: requestedInstrumentation,
               signal: options.signal,
             });
@@ -1102,6 +1118,7 @@ export async function runEvaluation(
             for (const check of preparedShell) {
               const shellResult = await runShellCheck(check, {
                 workspace,
+                fixtureBinDir,
                 protectedRoots,
                 protectedRootsCanonical: true,
                 privateStateRoot: join(stateDir, "shell-sandbox"),

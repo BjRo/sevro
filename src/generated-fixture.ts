@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { canonicalJson } from "./identity";
+import { prepareFixtureBin } from "./fixture-bin";
 import { prepareGitHooks } from "./git-hooks";
 import { fixtureParts } from "./preparation";
 
@@ -16,6 +17,7 @@ export interface GeneratedFixture {
   staged?: string[];
   commitFiles?: boolean;
   hooks?: Record<string, string>;
+  bin?: Record<string, string>;
 }
 
 function validFiles(value: unknown): value is Record<string, string> {
@@ -47,6 +49,7 @@ export function prepareGeneratedFixture(value: unknown): GeneratedFixture {
           "staged",
           "commitFiles",
           "hooks",
+          "bin",
         ].includes(key),
     ) ||
     !Array.isArray(fixture.commits) ||
@@ -60,6 +63,7 @@ export function prepareGeneratedFixture(value: unknown): GeneratedFixture {
   )
     throw new Error("invalid generated fixture");
   prepareGitHooks(fixture.hooks);
+  prepareFixtureBin(fixture.bin);
   let bytes = 0;
   let files = 0;
   const paths: string[] = [];

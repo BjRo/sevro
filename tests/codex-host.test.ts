@@ -44,6 +44,9 @@ if [ -z "$workspace" ]; then exit 98; fi
 printf '%s\\n' "$@" > "$workspace/argv.txt"
 if [ -n "\${OPENAI_API_KEY:-}" ]; then exit 97; fi
 /bin/cat > "$workspace/prompt.txt"
+if [ -x "$workspace/.git/fixture-bin/fixture-tool" ]; then
+  /bin/zsh -lc 'fixture-tool' > "$workspace/fixture-tool-output.txt" || exit 96
+fi
 if [ -f "$workspace/malformed.flag" ]; then printf '{broken\\n'; exit 0; fi
 if [ -f "$workspace/slow.flag" ]; then printf '%s' "$$" > "$workspace/child.pid"; /bin/sleep 10; fi
 printf 'created\\n' > "$workspace/created.txt"
@@ -136,6 +139,56 @@ test("Codex host verifies its permission profile and feeds the engine", async ()
   expect(await readFile(new URL(events.path), "utf8")).toContain(
     '"type":"turn.completed"',
   );
+});
+
+test("Codex fixture tools survive login-shell PATH setup", async () => {
+  const installedCodex = Bun.which("codex");
+  if (process.platform !== "darwin" || !installedCodex) return;
+  const paths = await fixture();
+  const host = createCodexHost({
+    binary: paths.fakeBinary,
+    sandboxBinary: installedCodex,
+    authFile: paths.authFile,
+    model: "synthetic-codex",
+    effort: "low",
+    projectRoot: paths.projectRoot,
+    resultsRoot: paths.resultsRoot,
+    additionalProtectedRoots: [],
+  });
+  const outcome = await runEvaluation({
+    projectRoot: paths.projectRoot,
+    resultsRoot: paths.resultsRoot,
+    case: {
+      id: "codex-fixture-tool",
+      prompt: "Return ready.",
+      fixture: {
+        kind: "generated",
+        commits: [
+          { message: "Initialize", files: { "README.md": "fixture\n" } },
+        ],
+        bin: { "fixture-tool": "#!/bin/sh\nprintf 'fixture tool\\n'\n" },
+      },
+      checks: [
+        {
+          id: "fixture-tool-output",
+          grader: "sevro.shell",
+          configuration: {
+            run: "cat fixture-tool-output.txt",
+            expectExact: "fixture tool",
+          },
+        },
+      ],
+      requiredEvidence: [],
+    },
+    host,
+    shellIsolation: { protectedRoots: [] },
+    runnerBuildDigest: digest,
+    projectDigest: digest,
+    condition: "passive",
+    trialCount: 1,
+    passThreshold: 1,
+  });
+  expect(outcome.result.task.verdict).toBe("passed");
 });
 
 test("Codex host rejects malformed streams and unsupported enforcement", async () => {

@@ -1,6 +1,6 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { isAbsolute, join } from "node:path";
+import { delimiter, isAbsolute, join } from "node:path";
 
 const MAX_COMMAND_BYTES = 64 * 1024;
 const MAX_ENV_BYTES = 16 * 1024;
@@ -88,7 +88,12 @@ function stopProcess(proc: Bun.Subprocess): void {
 /** Run setup after fixture history and before evaluator artifacts are mounted. */
 export async function runFixtureSetup(
   setup: FixtureSetup,
-  options: { workspace: string; projectRoot: string; signal?: AbortSignal },
+  options: {
+    workspace: string;
+    projectRoot: string;
+    fixtureBinDir?: string;
+    signal?: AbortSignal;
+  },
 ): Promise<void> {
   if (options.signal?.aborted) throw new Error("fixture setup cancelled");
   const home = await mkdtemp(join(tmpdir(), "sevro-setup-"));
@@ -107,7 +112,9 @@ export async function runFixtureSetup(
     proc = Bun.spawn(setup.command, {
       cwd: options.workspace,
       env: {
-        PATH: process.env.PATH ?? "/usr/bin:/bin",
+        PATH: options.fixtureBinDir
+          ? `${options.fixtureBinDir}${delimiter}${process.env.PATH ?? "/usr/bin:/bin"}`
+          : (process.env.PATH ?? "/usr/bin:/bin"),
         HOME: home,
         TMPDIR: home,
         LANG: process.env.LANG ?? "C",

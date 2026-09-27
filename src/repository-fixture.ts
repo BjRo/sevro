@@ -2,6 +2,7 @@ import { lstat, mkdir, realpath, stat, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { canonicalJson } from "./identity";
+import { prepareFixtureBin } from "./fixture-bin";
 import { prepareGitHooks } from "./git-hooks";
 import type { PreparationSources } from "./preparation";
 import { fixtureParts } from "./preparation";
@@ -17,6 +18,7 @@ export interface RepositoryFixture {
   staged?: string[];
   commitFiles?: boolean;
   hooks?: Record<string, string>;
+  bin?: Record<string, string>;
 }
 
 /** Validate repository source identity and bounded working-tree changes. */
@@ -35,6 +37,7 @@ export function prepareRepositoryFixture(value: unknown): RepositoryFixture {
           "staged",
           "commitFiles",
           "hooks",
+          "bin",
         ].includes(key),
     ) ||
     typeof fixture.sourceRef !== "string" ||
@@ -54,6 +57,7 @@ export function prepareRepositoryFixture(value: unknown): RepositoryFixture {
   )
     throw new Error("invalid repository fixture");
   prepareGitHooks(fixture.hooks);
+  prepareFixtureBin(fixture.bin);
   const files = (fixture.files ?? {}) as Record<string, string>;
   const staged = (fixture.staged ?? []) as string[];
   const paths = Object.keys(files);

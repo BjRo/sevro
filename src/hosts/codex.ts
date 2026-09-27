@@ -10,7 +10,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, isAbsolute, join, sep } from "node:path";
+import { delimiter, dirname, isAbsolute, join, sep } from "node:path";
 import type { HostAdapter } from "../engine";
 import { summarizeCodexEvents } from "./codex-events";
 import { codexSkillReadObservation } from "./codex-skill-reads";
@@ -49,6 +49,10 @@ function stopProcess(proc: Bun.Subprocess): void {
   } catch {
     // The process already exited.
   }
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
 async function boundedText(
@@ -163,6 +167,11 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
     model: options.model,
     effort: options.effort,
     async run(request) {
+      if (
+        request.fixtureBinDir !== undefined &&
+        request.fixtureBinDir !== join(request.workspace, ".git", "fixture-bin")
+      )
+        throw new Error("fixture binary path is outside the workspace");
       if (request.instrumentation?.length)
         throw new Error("Codex instrumentation is unavailable");
       if (request.condition !== "passive")
@@ -218,13 +227,25 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
           }),
           { flag: "wx", mode: 0o600 },
         );
-        const env = {
-          PATH: process.env.PATH ?? "/usr/bin:/bin",
+        const shellRoot = join(request.workspace, ".git", "sevro-shell");
+        if (request.fixtureBinDir) {
+          await mkdir(shellRoot, { mode: 0o700 });
+          await writeFile(
+            join(shellRoot, ".zprofile"),
+            `export PATH=${shellQuote(request.fixtureBinDir)}:"$PATH"\n`,
+            { flag: "wx", mode: 0o600 },
+          );
+        }
+        const env: Record<string, string> = {
+          PATH: request.fixtureBinDir
+            ? `${request.fixtureBinDir}${delimiter}${process.env.PATH ?? "/usr/bin:/bin"}`
+            : (process.env.PATH ?? "/usr/bin:/bin"),
           LANG: process.env.LANG ?? "C",
           HOME: parentHome,
           TMPDIR: parentTemp,
           CODEX_HOME: codexHome,
           NO_COLOR: "1",
+          ...(request.fixtureBinDir ? { ZDOTDIR: shellRoot } : {}),
         };
         const probe = join(commandTemp, "isolation-probe");
         await writeFile(probe, "probe\n", { flag: "wx", mode: 0o600 });

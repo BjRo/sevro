@@ -1,5 +1,5 @@
 import { mkdir } from "node:fs/promises";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { prepareMacSandboxCommand } from "../hosts/mac-sandbox";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -179,6 +179,7 @@ export async function runShellCheck(
   check: PreparedShellCheck,
   options: {
     workspace: string;
+    fixtureBinDir?: string;
     protectedRoots: string[];
     protectedRootsCanonical?: boolean;
     privateStateRoot: string;
@@ -207,7 +208,9 @@ export async function runShellCheck(
     proc = Bun.spawn(isolated.argv, {
       cwd: options.workspace,
       env: {
-        PATH: "/usr/bin:/bin:/usr/sbin:/sbin",
+        PATH: options.fixtureBinDir
+          ? `${options.fixtureBinDir}${delimiter}/usr/bin:/bin:/usr/sbin:/sbin`
+          : "/usr/bin:/bin:/usr/sbin:/sbin",
         HOME: home,
         TMPDIR: temp,
         LANG: process.env.LANG ?? "C",
