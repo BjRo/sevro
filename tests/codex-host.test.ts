@@ -59,6 +59,10 @@ if [ -f "$workspace/malformed.flag" ]; then printf '{broken\\n'; exit 0; fi
 if [ -f "$workspace/slow.flag" ]; then printf '%s' "$$" > "$workspace/child.pid"; /bin/sleep 10; fi
 printf 'created\\n' > "$workspace/created.txt"
 printf '%s\\n' '{"type":"thread.started","thread_id":"thread-1"}'
+if [ -f "$workspace/require-plugin.flag" ]; then
+  skill_file="$CODEX_HOME/plugins/cache/sevro-probe/probe/0.1.0/skills/probe/SKILL.md"
+  printf '%s\\n' '{"type":"item.completed","item":{"id":"skill","type":"command_execution","command":"cat '"$skill_file"'","aggregated_output":"---\\nname: probe\\ndescription: Test probe\\n---\\nRead this skill.\\n","exit_code":0,"status":"completed"}}'
+fi
 printf '%s\\n' '{"type":"item.completed","item":{"type":"agent_message","text":"ready"}}'
 printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":12,"output_tokens":4}}'
 `,
@@ -135,6 +139,11 @@ test("Codex host installs a declared local plugin in its isolated home", async (
   const result = await host.run(request);
   expect(result.finalMessage).toBe("ready");
   expect(result.complete).toBe(true);
+  expect(result.observations?.[0]).toMatchObject({
+    id: "sevro.codex.skill-reads",
+    completeness: "complete",
+    data: { primarySkill: "probe", observedSkills: ["probe"] },
+  });
   expect(await readFile(join(workspace, "created.txt"), "utf8")).toBe(
     "created\n",
   );
@@ -147,7 +156,11 @@ test("Codex host installs a declared local plugin in its isolated home", async (
       name: "sevro-probe",
       owner: { name: "Sevro" },
       plugins: [
-        { name: "probe", source: "https://example.com/plugin", description: "Probe" },
+        {
+          name: "probe",
+          source: "https://example.com/plugin",
+          description: "Probe",
+        },
       ],
     }),
   );

@@ -21,6 +21,9 @@ still contains the full body; a compressed summary cannot prove the read. An
 attempted indirect, malformed, or incomplete read makes the observation
 partial. This is a host observation; an extension decides what selection means
 for its case.
+The same check accepts skill files below the exact installed plugin roots from
+Codex's installation receipts. It does not infer activation from arbitrary
+files in the private plugin cache.
 
 `createCodexHost` copies file-based authentication into a private Codex home
 for one turn. It supplies only explicit environment variables to the parent

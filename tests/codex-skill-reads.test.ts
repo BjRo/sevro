@@ -76,7 +76,9 @@ test("completed direct Codex reads produce bounded ordered skill evidence", asyn
   );
   expect(compressedShell.data.primarySkill).toBe("example");
   const missingBody = await codexSkillReadObservation(
-    stream([read("lean-ctx -c 'cat .agents/skills/example/SKILL.md'", "summarized")]),
+    stream([
+      read("lean-ctx -c 'cat .agents/skills/example/SKILL.md'", "summarized"),
+    ]),
     workspace,
   );
   expect(missingBody.completeness).toBe("partial");
@@ -169,5 +171,30 @@ test("a completed turn with no mounted skill read records an empty observation",
   expect(await codexSkillReadObservation(stream([]), workspace)).toMatchObject({
     completeness: "complete",
     data: { primarySkill: null, observedSkills: [] },
+  });
+});
+
+test("installed plugin reads count only from receipt-bound roots", async () => {
+  const workspace = await fixture();
+  const installed = await mkdtemp(join(tmpdir(), "sevro-installed-plugin-"));
+  roots.push(installed);
+  const skill = join(installed, "skills", "example");
+  await mkdir(skill, { recursive: true });
+  const path = join(skill, "SKILL.md");
+  await writeFile(path, body);
+  const events = stream([read(`cat ${path}`)]);
+  expect(
+    (await codexSkillReadObservation(events, workspace)).completeness,
+  ).toBe("partial");
+  expect(
+    await codexSkillReadObservation(events, workspace, [installed]),
+  ).toEqual({
+    id: "sevro.codex.skill-reads",
+    completeness: "complete",
+    data: {
+      method: "skill_file_read_probe",
+      primarySkill: "example",
+      observedSkills: ["example"],
+    },
   });
 });

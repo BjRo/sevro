@@ -357,6 +357,7 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
           NO_COLOR: "1",
           ...(request.fixtureBinDir ? { ZDOTDIR: shellRoot } : {}),
         };
+        const installedPluginRoots: string[] = [];
         if (request.codexMarketplace) {
           const root = await marketplaceRoot(
             request.workspace,
@@ -401,18 +402,20 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
               throw new Error("Codex plugin installation receipt is invalid");
             }
             const entry = receipt as Record<string, unknown>;
+            const actualInstalledPath =
+              typeof entry?.installedPath === "string"
+                ? await realpath(entry.installedPath)
+                : null;
             if (
               !entry ||
               entry.name !== pluginName ||
               entry.marketplaceName !==
                 request.codexMarketplace.marketplaceName ||
-              typeof entry.installedPath !== "string" ||
-              !inside(
-                await realpath(pluginCacheRoot),
-                await realpath(entry.installedPath),
-              )
+              !actualInstalledPath ||
+              !inside(await realpath(pluginCacheRoot), actualInstalledPath)
             )
               throw new Error("Codex plugin installation receipt is invalid");
+            installedPluginRoots.push(actualInstalledPath);
           }
         }
         const probe = join(commandTemp, "isolation-probe");
@@ -491,6 +494,7 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
         const skillReads = await codexSkillReadObservation(
           execution.out,
           request.workspace,
+          installedPluginRoots,
         );
         return {
           finalMessage: summary.finalMessage,

@@ -3,6 +3,7 @@ import { isAbsolute, relative, resolve, sep } from "node:path";
 
 const MAX_SKILL_BYTES = 1024 * 1024;
 const SKILL_PATH = /^\.agents\/skills\/([A-Za-z0-9._-]+)\/SKILL\.md$/;
+const PLUGIN_SKILL_PATH = /^skills\/([A-Za-z0-9._-]+)\/SKILL\.md$/;
 
 interface CodexItem {
   id?: unknown;
@@ -76,8 +77,10 @@ function readRange(body: string, read: DirectRead): [number, number] {
 async function verifiedSkillRead(
   item: CodexItem,
   workspace: string,
+  pluginRoots: string[],
 ): Promise<{
   skill: string;
+  path: string;
   range: [number, number];
   bodyLength: number;
 } | null> {
@@ -85,15 +88,19 @@ async function verifiedSkillRead(
   const read = directRead(item.command);
   if (!read || typeof item.aggregated_output !== "string") return null;
   const resolved = resolve(workspace, read.path);
-  if (!within(workspace, resolved)) return null;
-  const match = relative(workspace, resolved)
+  const actual = await realpath(resolved).catch(() => null);
+  if (!actual) return null;
+  const mountedMatch = relative(workspace, actual)
     .split(sep)
     .join("/")
     .match(SKILL_PATH);
+  const pluginMatch = pluginRoots
+    .map((root) =>
+      relative(root, actual).split(sep).join("/").match(PLUGIN_SKILL_PATH),
+    )
+    .find((match) => match !== null);
+  const match = mountedMatch ?? pluginMatch;
   if (!match) return null;
-  const canonicalWorkspace = await realpath(workspace);
-  const actual = await realpath(resolved).catch(() => null);
-  if (!actual || !within(canonicalWorkspace, actual)) return null;
   const body = await readFile(actual).catch(() => null);
   if (!body || body.byteLength > MAX_SKILL_BYTES) return null;
   const text = body.toString("utf8");
@@ -103,7 +110,7 @@ async function verifiedSkillRead(
   const range = readRange(text, read);
   if (range[0] === range[1]) return null;
   if (!item.aggregated_output.includes(text.slice(...range))) return null;
-  return { skill, range, bodyLength: text.length };
+  return { skill, path: actual, range, bodyLength: text.length };
 }
 
 function fullCoverage(
@@ -123,6 +130,7 @@ function fullCoverage(
 export async function codexSkillReadObservation(
   stream: string,
   workspace: string,
+  installedPluginRoots: string[] = [],
 ): Promise<{
   id: "sevro.codex.skill-reads";
   completeness: "complete" | "partial";
@@ -140,6 +148,10 @@ export async function codexSkillReadObservation(
   const pending = new Set<string>();
   let partial = false;
   let completedTurn = false;
+  const canonicalWorkspace = await realpath(workspace);
+  const pluginRoots = await Promise.all(
+    installedPluginRoots.map((root) => realpath(root)),
+  );
   for (const line of stream.split("\n")) {
     if (!line.trim()) continue;
     const event = JSON.parse(line) as CodexEvent;
@@ -168,17 +180,17 @@ export async function codexSkillReadObservation(
       partial = true;
       continue;
     }
-    const read = await verifiedSkillRead(item, workspace);
+    const read = await verifiedSkillRead(item, canonicalWorkspace, pluginRoots);
     if (!read) {
       partial = true;
       continue;
     }
-    const coverage = attempted.get(read.skill) ?? {
+    const coverage = attempted.get(read.path) ?? {
       ranges: [],
       bodyLength: read.bodyLength,
     };
     coverage.ranges.push(read.range);
-    attempted.set(read.skill, coverage);
+    attempted.set(read.path, coverage);
     if (
       fullCoverage(coverage.ranges, coverage.bodyLength) &&
       !observedSkills.includes(read.skill)
