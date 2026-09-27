@@ -189,8 +189,9 @@ export async function runShellCheck(
   },
 ): Promise<ShellCheckResult> {
   if (options.signal?.aborted) throw new Error("shell check cancelled");
-  const home = join(options.workspace, ".sevro-check-home");
-  const temp = join(options.workspace, ".sevro-check-tmp");
+  const runtimeRoot = join(options.workspace, ".git", "sevro-runtime");
+  const home = join(runtimeRoot, "check-home");
+  const temp = join(runtimeRoot, "check-tmp");
   await Promise.all([
     mkdir(home, { recursive: true, mode: 0o700 }),
     mkdir(temp, { recursive: true, mode: 0o700 }),
@@ -203,7 +204,6 @@ export async function runShellCheck(
     privateStateRoot: options.privateStateRoot,
     denyNetwork: true,
   });
-  const runtimeRoot = join(options.workspace, ".git", "sevro-runtime");
   const uvCache = join(runtimeRoot, "uv-cache");
   if (options.uvRuntimeCache && !(await stat(uvCache)).isDirectory())
     throw new Error("isolated UV cache is missing");

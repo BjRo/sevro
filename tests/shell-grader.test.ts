@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { existsSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -121,6 +122,40 @@ test("isolated shell checks can use an explicit toolchain", async () => {
       privateStateRoot: join(root, "private"),
     });
     expect(result.exitCode).toBe(0);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("shell scratch files stay inside Git metadata", async () => {
+  if (process.platform !== "darwin") return;
+  const root = await mkdtemp(join(tmpdir(), "sevro-shell-scratch-"));
+  const workspace = join(root, "fixture");
+  try {
+    await mkdir(join(workspace, ".git"), { recursive: true });
+    const [check] = prepareShellChecks([
+      {
+        id: "scratch",
+        grader: "sevro.shell",
+        configuration: {
+          run: 'printf home >"$HOME/probe" && printf temp >"$TMPDIR/probe"',
+        },
+      },
+    ]);
+    const result = await runShellCheck(check!, {
+      workspace,
+      protectedRoots: [join(import.meta.dir, "..", "src")],
+      privateStateRoot: join(root, "private"),
+    });
+    expect(result.exitCode).toBe(0);
+    expect(
+      existsSync(join(workspace, ".git", "sevro-runtime", "check-home", "probe")),
+    ).toBeTrue();
+    expect(
+      existsSync(join(workspace, ".git", "sevro-runtime", "check-tmp", "probe")),
+    ).toBeTrue();
+    expect(existsSync(join(workspace, ".sevro-check-home"))).toBeFalse();
+    expect(existsSync(join(workspace, ".sevro-check-tmp"))).toBeFalse();
   } finally {
     await rm(root, { recursive: true, force: true });
   }
