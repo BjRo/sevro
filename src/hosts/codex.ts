@@ -271,6 +271,7 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
   return {
     id: "sevro.host.codex",
     hostCapabilities: [
+      "sevro.host.continuation",
       "sevro.codex.plugin-marketplace",
       "sevro.codex.explicit-invocation",
       "sevro.codex.native-calls",
@@ -278,6 +279,12 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
     model: options.model,
     effort: options.effort,
     async run(request) {
+      if (
+        request.followUpPrompt !== undefined &&
+        (typeof request.followUpPrompt !== "string" ||
+          !request.followUpPrompt.trim())
+      )
+        throw new Error("Codex follow-up prompt must be nonempty");
       if (
         request.fixtureBinDir !== undefined &&
         request.fixtureBinDir !== join(request.workspace, ".git", "fixture-bin")
@@ -290,12 +297,17 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
       if (request.explicitSkillInvocation) {
         const { pluginName, skillName, token } =
           request.explicitSkillInvocation;
+        const tokenCount =
+          request.prompt.split(token).length -
+          1 +
+          (request.followUpPrompt?.split(token).length ?? 1) -
+          1;
         if (
           !request.codexMarketplace?.pluginNames.includes(pluginName) ||
           !/^[a-z][a-z0-9-]*$/.test(pluginName) ||
           !/^[A-Za-z0-9._-]+$/.test(skillName) ||
           token !== `$${pluginName}:${skillName}` ||
-          request.prompt.split(token).length !== 2
+          tokenCount !== 1
         )
           throw new Error("invalid Codex explicit skill invocation");
       }
@@ -495,27 +507,27 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
         if (executableCheck.code !== 0)
           throw new Error("Codex executable preflight failed");
         await rm(probe);
+        const executionArgs = [
+          options.binary,
+          "exec",
+          "--json",
+          "--strict-config",
+          "--skip-git-repo-check",
+          ...(request.followUpPrompt ? [] : ["--ephemeral"]),
+          "--ignore-rules",
+          "-C",
+          request.workspace,
+          "-m",
+          options.model,
+          "-c",
+          `model_reasoning_effort=${JSON.stringify(options.effort)}`,
+          "-c",
+          `default_permissions=${JSON.stringify(profileId)}`,
+          "-c",
+          'approval_policy="never"',
+        ];
         const execution = await runProcess({
-          argv: [
-            options.binary,
-            "exec",
-            "--json",
-            "--strict-config",
-            "--skip-git-repo-check",
-            "--ephemeral",
-            "--ignore-rules",
-            "-C",
-            request.workspace,
-            "-m",
-            options.model,
-            "-c",
-            `model_reasoning_effort=${JSON.stringify(options.effort)}`,
-            "-c",
-            `default_permissions=${JSON.stringify(profileId)}`,
-            "-c",
-            'approval_policy="never"',
-            "-",
-          ],
+          argv: [...executionArgs, "-"],
           cwd: request.workspace,
           env,
           input: request.prompt,
@@ -524,8 +536,51 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
         });
         const summary = summarizeCodexEvents(execution.out, execution.code);
         if (!summary.complete) throw new Error("Codex turn did not complete");
+        let followUp: { out: string; code: number } | null = null;
+        let followUpSummary: typeof summary | null = null;
+        if (request.followUpPrompt) {
+          followUp = await runProcess({
+            argv: [
+              options.binary,
+              "exec",
+              "resume",
+              "--json",
+              "--strict-config",
+              "--skip-git-repo-check",
+              "--ignore-rules",
+              "-m",
+              options.model,
+              "-c",
+              `model_reasoning_effort=${JSON.stringify(options.effort)}`,
+              "-c",
+              `default_permissions=${JSON.stringify(profileId)}`,
+              "-c",
+              'approval_policy="never"',
+              summary.threadId,
+              "-",
+            ],
+            cwd: request.workspace,
+            env,
+            input: request.followUpPrompt,
+            timeoutMs,
+            signal: request.signal,
+          });
+          followUpSummary = summarizeCodexEvents(followUp.out, followUp.code);
+          if (
+            !followUpSummary.complete ||
+            followUpSummary.threadId !== summary.threadId
+          )
+            throw new Error(
+              "Codex follow-up turn did not complete in the original thread",
+            );
+        }
+        const observedEvents = followUp
+          ? `${execution.out.trimEnd()}\n${followUp.out.trimStart()}`
+          : execution.out;
+        if (Buffer.byteLength(observedEvents, "utf8") > MAX_EVENT_BYTES)
+          throw new Error("Codex combined event stream exceeds the size limit");
         const skillReads = await codexSkillReadObservation(
-          execution.out,
+          observedEvents,
           request.workspace,
           installedPluginRoots,
         );
@@ -552,8 +607,8 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
             }
           : null;
         return {
-          finalMessage: summary.finalMessage,
-          complete: summary.finalMessage !== null,
+          finalMessage: (followUpSummary ?? summary).finalMessage,
+          complete: (followUpSummary ?? summary).finalMessage !== null,
           observations: [
             skillReads,
             nativeCalls,
@@ -564,11 +619,30 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
               id: "sevro.codex.events",
               bytes: Buffer.from(execution.out, "utf8"),
             },
+            ...(followUp
+              ? [
+                  {
+                    id: "sevro.codex.follow-up-events",
+                    bytes: Buffer.from(followUp.out, "utf8"),
+                  },
+                ]
+              : []),
           ],
           actualCondition: "passive" as const,
-          inputTokens: summary.inputTokens,
-          outputTokens: summary.outputTokens,
-          usageComplete: summary.usageComplete,
+          inputTokens: followUpSummary
+            ? summary.inputTokens !== null &&
+              followUpSummary.inputTokens !== null
+              ? summary.inputTokens + followUpSummary.inputTokens
+              : null
+            : summary.inputTokens,
+          outputTokens: followUpSummary
+            ? summary.outputTokens !== null &&
+              followUpSummary.outputTokens !== null
+              ? summary.outputTokens + followUpSummary.outputTokens
+              : null
+            : summary.outputTokens,
+          usageComplete:
+            summary.usageComplete && (followUpSummary?.usageComplete ?? true),
           costUsd: null,
         };
       } finally {

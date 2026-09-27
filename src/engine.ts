@@ -131,6 +131,7 @@ export interface HostAdapter {
   hostCapabilities?: string[];
   run(request: {
     prompt: string;
+    followUpPrompt?: string;
     workspace: string;
     condition: "passive" | "enforced";
     fixtureBinDir?: string;
@@ -153,6 +154,7 @@ export interface HostAdapter {
 export interface ResolvedCase {
   id: string;
   prompt: string;
+  followUpPrompt?: string;
   fixture:
     | { files: Record<string, string>; sourceRef?: never }
     | Omit<RepositoryFixture, "kind">
@@ -403,6 +405,29 @@ export async function runEvaluation(
       "case and host identities must be nonempty",
     );
   if (
+    options.case.followUpPrompt !== undefined &&
+    (typeof options.case.followUpPrompt !== "string" ||
+      !options.case.followUpPrompt.trim())
+  )
+    throw new EvaluationConfigurationError("follow-up prompt must be nonempty");
+  if (
+    options.case.followUpPrompt !== undefined &&
+    !options.host.hostCapabilities?.includes("sevro.host.continuation")
+  )
+    throw new EvaluationConfigurationError(
+      "selected host does not support continuation",
+    );
+  if (
+    options.case.followUpPrompt !== undefined &&
+    options.extension &&
+    !options.extension.session.identity.capabilities.includes(
+      "sevro.host.continuation",
+    )
+  )
+    throw new EvaluationConfigurationError(
+      "continuation capability was not negotiated",
+    );
+  if (
     !options.case.fixture ||
     typeof options.case.fixture !== "object" ||
     Array.isArray(options.case.fixture)
@@ -609,6 +634,9 @@ export async function runEvaluation(
       hashJson({
         id: resolved.id,
         prompt: resolved.prompt,
+        ...(resolved.followUpPrompt !== undefined
+          ? { followUpPrompt: resolved.followUpPrompt }
+          : {}),
         fixture,
         checks: resolved.checks,
         requiredEvidence: resolved.requiredEvidence,
@@ -616,6 +644,9 @@ export async function runEvaluation(
       hashJson({
         id: options.case.id,
         prompt: options.case.prompt,
+        ...(options.case.followUpPrompt !== undefined
+          ? { followUpPrompt: options.case.followUpPrompt }
+          : {}),
         fixture: options.case.fixture,
         checks: options.case.checks,
         requiredEvidence: options.case.requiredEvidence,
@@ -811,7 +842,8 @@ export async function runEvaluation(
   const codexSkillInvocation = extensionPreparation?.codexSkillInvocation;
   const invocationPlaceholder = "{{sevro.codex.skill_invocation}}";
   const placeholderCount =
-    options.case.prompt.split(invocationPlaceholder).length - 1;
+    options.case.prompt.split(invocationPlaceholder).length - 1 +
+    (options.case.followUpPrompt?.split(invocationPlaceholder).length ?? 1) - 1;
   if (codexSkillInvocation) {
     const { pluginName, skillName } = codexSkillInvocation;
     if (
@@ -935,6 +967,9 @@ export async function runEvaluation(
       caseDigest: hashJson({
         id: options.case.id,
         prompt: options.case.prompt,
+        ...(options.case.followUpPrompt !== undefined
+          ? { followUpPrompt: options.case.followUpPrompt }
+          : {}),
         extensionData,
       }),
       fixtureDigest: hashJson({
@@ -1069,6 +1104,15 @@ export async function runEvaluation(
             ? `$${codexSkillInvocation.pluginName}:${codexSkillInvocation.skillName}`
             : invocationPlaceholder,
         );
+      const trialFollowUpPrompt = options.case.followUpPrompt?.replaceAll(
+        "{{sevro.workspace}}",
+        workspace,
+      ).replaceAll(
+        invocationPlaceholder,
+        codexSkillInvocation
+          ? `$${codexSkillInvocation.pluginName}:${codexSkillInvocation.skillName}`
+          : invocationPlaceholder,
+      );
       let persisted = false;
       try {
         const gitHeadBase = preparedGitHead.length
@@ -1090,6 +1134,9 @@ export async function runEvaluation(
             if (options.signal?.aborted) throw new Error("cancelled");
             hostResult = await options.host.run({
               prompt: trialPrompt,
+              ...(trialFollowUpPrompt !== undefined
+                ? { followUpPrompt: trialFollowUpPrompt }
+                : {}),
               workspace,
               condition: options.condition,
               fixtureBinDir,

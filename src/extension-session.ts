@@ -18,6 +18,7 @@ const PROTOCOL = "sevro.extension.v1";
 export interface ExtensionCase {
   id: string;
   prompt: string;
+  followUpPrompt?: string;
   fixture:
     | { kind: "inline"; files: Record<string, string> }
     | RepositoryFixture

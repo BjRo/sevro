@@ -25,6 +25,7 @@ const discovery = {
   requiredCapabilities: ["sevro.host.exec"],
   optionalCapabilities: [
     "sevro.host.extra",
+    ...(scenario.endsWith("later") ? ["sevro.host.continuation"] : []),
     ...(scenario === "lifecycle-instrumentation-supported"
       ? ["example.extension.guard"]
       : []),
@@ -111,8 +112,16 @@ const result = scenario.startsWith("lifecycle")
             prompt: scenario.includes("explicit-invocation")
               ? scenario.endsWith("repeated")
                 ? "Use {{sevro.codex.skill_invocation}} and {{sevro.codex.skill_invocation}}."
-                : "Use {{sevro.codex.skill_invocation}} and return ready."
+                : scenario.endsWith("later")
+                  ? "Wait for the next request."
+                  : "Use {{sevro.codex.skill_invocation}} and return ready."
               : "Return ready.",
+            ...(scenario.endsWith("later")
+              ? {
+                  followUpPrompt:
+                    "Use {{sevro.codex.skill_invocation}} and return ready.",
+                }
+              : {}),
             fixture:
               scenario === "lifecycle-repository"
                 ? {

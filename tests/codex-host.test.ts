@@ -39,6 +39,18 @@ async function fixture() {
 if [ "$1" = plugin ]; then exec ${quotedCodex} "$@"; fi
 if [ "$1" != exec ]; then exit 99; fi
 shift
+if [ "$1" = resume ]; then
+  printf '%s\\n' "$@" > "$PWD/resume-argv.txt"
+  /bin/cat > "$PWD/follow-up-prompt.txt"
+  if [ -f "$PWD/wrong-thread.flag" ]; then
+    printf '%s\\n' '{"type":"thread.started","thread_id":"thread-2"}'
+  else
+    printf '%s\\n' '{"type":"thread.started","thread_id":"thread-1"}'
+  fi
+  printf '%s\\n' '{"type":"item.completed","item":{"type":"agent_message","text":"follow-up ready"}}'
+  printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":5,"output_tokens":2}}'
+  exit 0
+fi
 workspace=""
 previous=""
 for argument in "$@"; do
@@ -128,6 +140,77 @@ test("Codex host binds bounded native calls to its completed thread", async () =
   expect(JSON.stringify(result.observations)).not.toContain(
     "private objective",
   );
+});
+
+test("Codex host resumes a second prompt in the initial thread", async () => {
+  const installedCodex = Bun.which("codex");
+  if (process.platform !== "darwin" || !installedCodex) return;
+  const paths = await fixture();
+  const workspace = await mkdtemp(join(tmpdir(), "sevro-codex-continuation-"));
+  roots.push(workspace);
+  const host = createCodexHost({
+    binary: paths.fakeBinary,
+    sandboxBinary: installedCodex,
+    authFile: paths.authFile,
+    model: "synthetic-codex",
+    effort: "low",
+    projectRoot: paths.projectRoot,
+    resultsRoot: paths.resultsRoot,
+    additionalProtectedRoots: [],
+  });
+  const result = await host.run({
+    prompt: "Initial instruction.",
+    followUpPrompt: "Continue in this thread.",
+    workspace,
+    condition: "passive",
+  });
+  expect(await readFile(join(workspace, "prompt.txt"), "utf8")).toBe(
+    "Initial instruction.",
+  );
+  expect(await readFile(join(workspace, "follow-up-prompt.txt"), "utf8")).toBe(
+    "Continue in this thread.",
+  );
+  expect(await readFile(join(workspace, "argv.txt"), "utf8")).not.toContain(
+    "--ephemeral",
+  );
+  const resumeArgv = await readFile(join(workspace, "resume-argv.txt"), "utf8");
+  expect(resumeArgv).toContain("thread-1");
+  expect(resumeArgv).toContain('approval_policy="never"');
+  expect(result.finalMessage).toBe("follow-up ready");
+  expect(result.inputTokens).toBe(17);
+  expect(result.outputTokens).toBe(6);
+  expect(result.usageComplete).toBe(true);
+  expect(result.artifacts?.map((artifact) => artifact.id)).toEqual([
+    "sevro.codex.events",
+    "sevro.codex.follow-up-events",
+  ]);
+});
+
+test("Codex host refuses a continuation from another thread", async () => {
+  const installedCodex = Bun.which("codex");
+  if (process.platform !== "darwin" || !installedCodex) return;
+  const paths = await fixture();
+  const workspace = await mkdtemp(join(tmpdir(), "sevro-codex-wrong-thread-"));
+  roots.push(workspace);
+  await writeFile(join(workspace, "wrong-thread.flag"), "");
+  const host = createCodexHost({
+    binary: paths.fakeBinary,
+    sandboxBinary: installedCodex,
+    authFile: paths.authFile,
+    model: "synthetic-codex",
+    effort: "low",
+    projectRoot: paths.projectRoot,
+    resultsRoot: paths.resultsRoot,
+    additionalProtectedRoots: [],
+  });
+  await expect(
+    host.run({
+      prompt: "Initial instruction.",
+      followUpPrompt: "Continue.",
+      workspace,
+      condition: "passive",
+    }),
+  ).rejects.toThrow(/original thread/);
 });
 
 test("Codex host installs a declared local plugin in its isolated home", async () => {

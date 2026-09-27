@@ -143,6 +143,52 @@ test("renders the workspace token separately for each trial", async () => {
   expect(seen[0]).not.toBe(seen[1]);
 });
 
+test("routes a rendered continuation only to a capable host", async () => {
+  const paths = await rootsForRun();
+  const prompts: string[] = [];
+  const host: HostAdapter = {
+    id: "sevro.host.synthetic",
+    hostCapabilities: ["sevro.host.continuation"],
+    model: "synthetic-v1",
+    effort: "none",
+    async run({ prompt, followUpPrompt, workspace }) {
+      expect(prompt).toBe(`Inspect ${workspace}`);
+      expect(followUpPrompt).toBe(`Continue in ${workspace}`);
+      prompts.push(followUpPrompt!);
+      return { finalMessage: "ready", complete: true };
+    },
+  };
+  const selectedCase = {
+    ...baseCase,
+    prompt: "Inspect {{sevro.workspace}}",
+    followUpPrompt: "Continue in {{sevro.workspace}}",
+  };
+  const result = await runEvaluation({
+    ...paths,
+    case: selectedCase,
+    host,
+    runnerBuildDigest: digest,
+    projectDigest: digest,
+    condition: "passive",
+    trialCount: 1,
+    passThreshold: 1,
+  });
+  expect(result.result.exitCode).toBe(0);
+  expect(prompts).toHaveLength(1);
+  await expect(
+    runEvaluation({
+      ...paths,
+      case: selectedCase,
+      host: { ...host, hostCapabilities: [] },
+      runnerBuildDigest: digest,
+      projectDigest: digest,
+      condition: "passive",
+      trialCount: 1,
+      passThreshold: 1,
+    }),
+  ).rejects.toThrow(/does not support continuation/);
+});
+
 test("dry preparation records every trial without executing the host", async () => {
   const paths = await rootsForRun();
   let hostCalls = 0;

@@ -166,7 +166,12 @@ history, or a declared repository, built-in output and semantic checks, and
 isolated shell checks. Add `{{sevro.workspace}}` to a case prompt when the host
 needs the trial's absolute fixture path. Sevro resolves it after fixture
 creation for each trial and retains the template in evaluation identity. For
-shell checks, add
+cases with two participant turns, set `followUpPrompt` to a nonempty second
+prompt. Sevro renders the workspace token in both prompts and requires a host
+that declares `sevro.host.continuation`. The Codex host resumes the original
+thread after a completed first turn and grades the second turn's final message.
+Both bounded event streams are retained as separate artifacts.
+For shell checks, add
 `--shell-isolation` and repeat `--protected-root /absolute/path` for every
 additional source worktree or private root. The engine always protects the
 selected project, results, runner source, user home, configured host homes,

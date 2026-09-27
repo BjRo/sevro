@@ -80,6 +80,9 @@ function parseCase(value: unknown): ResolvedCase {
     !value.id ||
     typeof value.prompt !== "string" ||
     !value.prompt ||
+    (value.followUpPrompt !== undefined &&
+      (typeof value.followUpPrompt !== "string" ||
+        !value.followUpPrompt.trim())) ||
     !validFixture(value.fixture) ||
     !Array.isArray(value.checks) ||
     !value.checks.every(

@@ -76,9 +76,12 @@ guessed from a failed extension call.
 
 `resolve` receives the selected project root, selectors, and extension
 configuration. It returns neutral case descriptions with stable IDs, prompts,
+an optional `followUpPrompt` for a second turn in the same host session,
 fixture and built-in check declarations, required evidence declarations, and
 namespaced extension data. Paths in case descriptions are resolved and
 validated by the engine against the declared project and case-source roots.
+An extension must negotiate `sevro.host.continuation` before resolving a
+continuation case, and the selected host must declare the same capability.
 The extension cannot add a hidden source root by returning an arbitrary path.
 Fixtures may contain inline files, a declared clean repository source, or a
 bounded generated Git history. Both Git fixture kinds support optional
@@ -130,8 +133,9 @@ no package is installed from an undeclared artifact. This fixture setup is
 available in passive trials because it does not add enforcement
 instrumentation.
 An extension that also negotiates `sevro.codex.explicit-invocation` may declare
-`codexSkillInvocation` with a plugin and skill in that package. Its resolved
-prompt must contain `{{sevro.codex.skill_invocation}}` exactly once. Sevro
+`codexSkillInvocation` with a plugin and skill in that package. The resolved
+prompts must contain `{{sevro.codex.skill_invocation}}` exactly once across
+both turns. Sevro
 renders the installed `$plugin:skill` token separately for each trial and the
 Codex host retains a bounded dispatch receipt only after a completed turn.
 Missing or repeated tokens, absent packaged skills, and unsupported hosts fail

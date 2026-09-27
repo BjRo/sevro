@@ -338,6 +338,7 @@
       "properties": {
         "id": { "$ref": "#/$defs/id" },
         "prompt": { "type": "string", "minLength": 1 },
+        "followUpPrompt": { "type": "string", "minLength": 1 },
         "fixture": { "$ref": "#/$defs/fixture" },
         "checks": {
           "type": "array",

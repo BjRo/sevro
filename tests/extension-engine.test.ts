@@ -120,6 +120,9 @@ async function runWithExtension(
     case: {
       id: resolvedCase.id,
       prompt: resolvedCase.prompt,
+      ...(resolvedCase.followUpPrompt !== undefined
+        ? { followUpPrompt: resolvedCase.followUpPrompt }
+        : {}),
       fixture:
         resolvedCase.fixture.kind === "generated"
           ? resolvedCase.fixture
@@ -720,6 +723,33 @@ test("explicit Codex invocation renders once and reaches the selected host", asy
       host,
     ),
   ).rejects.toThrow(/capability was not negotiated/);
+});
+
+test("explicit Codex invocation can occur in the continuation turn", async () => {
+  const host: HostAdapter = {
+    id: "sevro.host.codex",
+    model: "synthetic-v1",
+    effort: "none",
+    hostCapabilities: [
+      "sevro.host.continuation",
+      "sevro.codex.plugin-marketplace",
+      "sevro.codex.explicit-invocation",
+    ],
+    async run(request) {
+      expect(request.prompt).toBe("Wait for the next request.");
+      expect(request.followUpPrompt).toBe(
+        "Use $probe:probe and return ready.",
+      );
+      return { finalMessage: "ready", complete: true, actualCondition: "passive" };
+    },
+  };
+  const { outcome } = await runWithExtension(
+    "lifecycle-codex-marketplace-explicit-invocation-later",
+    undefined,
+    [],
+    host,
+  );
+  expect(outcome.result.exitCode).toBe(0);
 });
 
 test("prepared executable artifact runs from the fixture and retains its mode", async () => {
