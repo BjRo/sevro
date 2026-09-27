@@ -15,6 +15,7 @@ import { delimiter, dirname, isAbsolute, join, relative, sep } from "node:path";
 import type { HostAdapter } from "../engine";
 import { fixtureParts } from "../preparation";
 import { summarizeCodexEvents } from "./codex-events";
+import { codexNativeCallObservation } from "./codex-native-calls";
 import { codexSkillReadObservation } from "./codex-skill-reads";
 import { codexPermissionProfile } from "./codex-profile";
 import { evaluationProtectedRoots } from "./isolation-roots";
@@ -272,6 +273,7 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
     hostCapabilities: [
       "sevro.codex.plugin-marketplace",
       "sevro.codex.explicit-invocation",
+      "sevro.codex.native-calls",
     ],
     model: options.model,
     effort: options.effort,
@@ -527,6 +529,10 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
           request.workspace,
           installedPluginRoots,
         );
+        const nativeCalls = await codexNativeCallObservation(
+          codexHome,
+          summary.threadId,
+        );
         const explicit = request.explicitSkillInvocation;
         const explicitReceipt = explicit
           ? {
@@ -549,6 +555,7 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
           complete: summary.finalMessage !== null,
           observations: [
             skillReads,
+            nativeCalls,
             ...(explicitReceipt ? [explicitReceipt] : []),
           ],
           artifacts: [

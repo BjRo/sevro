@@ -59,6 +59,10 @@ if [ -f "$workspace/malformed.flag" ]; then printf '{broken\\n'; exit 0; fi
 if [ -f "$workspace/slow.flag" ]; then printf '%s' "$$" > "$workspace/child.pid"; /bin/sleep 10; fi
 printf 'created\\n' > "$workspace/created.txt"
 printf '%s\\n' '{"type":"thread.started","thread_id":"thread-1"}'
+if [ -f "$workspace/native-calls.flag" ]; then
+  mkdir -p "$CODEX_HOME/sessions/2026/09/27"
+  echo '{"ordinal":0,"payload":{"type":"function_call","namespace":"functions","name":"create_goal","arguments":"private objective"}}' > "$CODEX_HOME/sessions/2026/09/27/rollout-thread-1.jsonl"
+fi
 if [ -f "$workspace/require-plugin.flag" ] && [ ! -f "$workspace/skip-skill-read.flag" ]; then
   skill_file="$CODEX_HOME/plugins/cache/sevro-probe/probe/0.1.0/skills/probe/SKILL.md"
   printf '%s\\n' '{"type":"item.completed","item":{"id":"skill","type":"command_execution","command":"cat '"$skill_file"'","aggregated_output":"---\\nname: probe\\ndescription: Test probe\\n---\\nRead this skill.\\n","exit_code":0,"status":"completed"}}'
@@ -71,6 +75,49 @@ printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":12,"output_toke
   await chmod(fakeBinary, 0o700);
   return { projectRoot, resultsRoot, authFile, fakeBinary };
 }
+
+test("Codex host binds bounded native calls to its completed thread", async () => {
+  const installedCodex = Bun.which("codex");
+  if (process.platform !== "darwin" || !installedCodex) return;
+  const paths = await fixture();
+  const workspace = await mkdtemp(join(tmpdir(), "sevro-codex-native-"));
+  roots.push(workspace);
+  await writeFile(join(workspace, "native-calls.flag"), "\n");
+  const host = createCodexHost({
+    binary: paths.fakeBinary,
+    sandboxBinary: installedCodex,
+    authFile: paths.authFile,
+    model: "synthetic-codex",
+    effort: "low",
+    projectRoot: paths.projectRoot,
+    resultsRoot: paths.resultsRoot,
+    additionalProtectedRoots: [],
+  });
+  const result = await host.run({
+    prompt: "Return ready.",
+    workspace,
+    condition: "passive",
+  });
+  expect(result.observations).toContainEqual({
+    id: "sevro.codex.native-calls",
+    completeness: "complete",
+    data: {
+      method: "native_session",
+      calls: [
+        {
+          ordinal: 0,
+          namespace: "functions",
+          name: "create_goal",
+          evidence: "invocation_attempt",
+        },
+      ],
+      submittedExecCalls: 0,
+    },
+  });
+  expect(JSON.stringify(result.observations)).not.toContain(
+    "private objective",
+  );
+});
 
 test("Codex host installs a declared local plugin in its isolated home", async () => {
   const installedCodex = Bun.which("codex");

@@ -24,6 +24,14 @@ for its case.
 The same check accepts skill files below the exact installed plugin roots from
 Codex's installation receipts. It does not infer activation from arbitrary
 files in the private plugin cache.
+The `sevro.codex.native-calls` capability retains allowlisted direct goal and
+agent control calls from the native session bound to the completed thread. Its
+observation contains only call names, namespaces, and source ordinals, plus the
+count of submitted `exec` calls. Arguments, code, and outputs are discarded.
+The record proves an invocation attempt, not its success. A missing, ambiguous,
+unreadable, oversized, or malformed session is unavailable or partial, so its
+absence cannot prove that a control was unused. Calls made through submitted
+code are not classified by this first observation.
 For an explicitly declared `$plugin:skill`, the host verifies that the installed
 skill exists and that the exact token occurs once in the delivered prompt. A
 completed turn yields `sevro.codex.explicit-invocation` with the owner first and
