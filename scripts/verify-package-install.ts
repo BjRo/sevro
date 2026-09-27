@@ -131,6 +131,92 @@ try {
     promptOnly.cases[0]?.trials[0]?.checks.length !== 0
   )
     throw new Error("installed prompt-only case claimed task success");
+  if (process.platform === "darwin") {
+    const binDir = join(root, "bin");
+    await mkdir(binDir);
+    const claudeBinary = join(binDir, "synthetic-claude");
+    const credentialFile = join(root, "claude-credential.json");
+    const claudeCase = join(project, "claude-case.json");
+    await Promise.all([
+      writeFile(credentialFile, '{"test":"private-login"}', { mode: 0o600 }),
+      writeFile(
+        claudeBinary,
+        [
+          "#!/bin/sh",
+          'test -r "$CLAUDE_CONFIG_DIR/.credentials.json" || exit 3',
+          'printf \'%s\\n\' \'{"type":"result","subtype":"success","is_error":false,"result":"READY","usage":{"input_tokens":1,"output_tokens":2},"total_cost_usd":0}\'',
+        ].join("\n") + "\n",
+        { mode: 0o700 },
+      ),
+      writeFile(
+        claudeCase,
+        JSON.stringify({
+          id: "installed-claude",
+          prompt: "Return READY.",
+          fixture: { files: { "README.md": "fixture\n" } },
+          checks: [
+            {
+              id: "ready",
+              grader: "sevro.regex",
+              configuration: { pattern: "^READY$" },
+            },
+          ],
+          requiredEvidence: ["sevro.claude.tool-calls"],
+        }),
+      ),
+    ]);
+    const claude = JSON.parse(
+      await run(
+        [
+          installedCommand,
+          "run",
+          "--json",
+          "--case-file",
+          claudeCase,
+          "--host",
+          "claude",
+          "--claude-bin",
+          claudeBinary,
+          "--claude-credential-file",
+          credentialFile,
+          "--model",
+          "synthetic-claude",
+          "--effort",
+          "low",
+          "--project-root",
+          project,
+          "--results-root",
+          results,
+          "--condition",
+          "passive",
+          "--trials",
+          "1",
+          "--threshold",
+          "1",
+        ],
+        consumer,
+      ),
+    ) as {
+      exitCode: number;
+      task: { verdict: string };
+      evidencePath: string;
+    };
+    const claudeEvidence = JSON.parse(
+      await readFile(claude.evidencePath, "utf8"),
+    ) as {
+      runner: { source: string; version: string };
+      routes: Array<{ host: string; model: string }>;
+    };
+    if (
+      claude.exitCode !== 0 ||
+      claude.task.verdict !== "passed" ||
+      claudeEvidence.runner.source !== "package" ||
+      claudeEvidence.runner.version !== manifest.version ||
+      claudeEvidence.routes[0]?.host !== "sevro.host.claude" ||
+      claudeEvidence.routes[0]?.model !== "synthetic-claude"
+    )
+      throw new Error("installed Claude host route did not complete");
+  }
   const gradedResultFile = join(root, "graded-result.json");
   const promptResultFile = join(root, "prompt-result.json");
   await Promise.all([
