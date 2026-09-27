@@ -94,6 +94,160 @@ test("generated fixture builds stable history and a declared index state", async
   expect(await git(scaffold, "status", "--porcelain=v1")).toBe("");
 });
 
+test("Git HEAD grading binds the base revision outside candidate control", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "sevro-git-head-test-"));
+  roots.push(projectRoot);
+  const checks = [
+    {
+      id: "head-changed",
+      grader: "sevro.git-head",
+      configuration: { kind: "changed" },
+    },
+    {
+      id: "base-ancestor",
+      grader: "sevro.git-head",
+      configuration: { kind: "base-ancestor" },
+    },
+  ];
+  const run = async (mode: "advance" | "rewind" | "unchanged") => {
+    const host: HostAdapter = {
+      id: "sevro.host.synthetic",
+      model: "synthetic-v1",
+      effort: "none",
+      async run({ workspace }) {
+        if (mode === "advance") {
+          await writeFile(join(workspace, "README.md"), "third\n");
+          await git(workspace, "add", "README.md");
+          await git(workspace, "commit", "-m", "feat: advance");
+        } else if (mode === "rewind") {
+          await git(workspace, "reset", "--hard", "HEAD~1");
+        }
+        return {
+          finalMessage: "ready",
+          complete: true,
+          actualCondition: "passive",
+        };
+      },
+    };
+    const outcome = await runEvaluation({
+      projectRoot,
+      resultsRoot: join(projectRoot, `results-${mode}`),
+      case: {
+        id: `head-${mode}`,
+        prompt: "Update the repository.",
+        fixture: { kind: "generated", commits: fixture.commits },
+        checks:
+          mode === "unchanged"
+            ? [
+                {
+                  id: "head-unchanged",
+                  grader: "sevro.git-head",
+                  configuration: { kind: "unchanged" },
+                },
+              ]
+            : checks,
+        requiredEvidence: ["sevro.observation.git-head"],
+      },
+      host,
+      runnerBuildDigest: digest,
+      projectDigest: digest,
+      condition: "passive",
+      trialCount: 1,
+      passThreshold: 1,
+    });
+    const evidence = JSON.parse(
+      await readFile(outcome.result.evidencePath, "utf8"),
+    );
+    return { outcome, evidence };
+  };
+  const advanced = await run("advance");
+  expect(advanced.outcome.result.exitCode).toBe(0);
+  expect(
+    advanced.outcome.result.cases[0]?.trials[0]?.checks.map(
+      (check) => check.status,
+    ),
+  ).toEqual(["passed", "passed"]);
+  expect(advanced.evidence.trials[0].observations).toContainEqual(
+    expect.objectContaining({
+      id: "sevro.observation.git-head",
+      source: "sevro.git-head",
+      completeness: "complete",
+      data: expect.objectContaining({ baseAncestor: true }),
+    }),
+  );
+  const rewound = await run("rewind");
+  expect(
+    rewound.outcome.result.cases[0]?.trials[0]?.checks.map(
+      (check) => check.status,
+    ),
+  ).toEqual(["passed", "failed"]);
+  expect(rewound.outcome.result.task.verdict).toBe("failed");
+  const unchanged = await run("unchanged");
+  expect(unchanged.outcome.result.exitCode).toBe(0);
+  expect(unchanged.outcome.result.cases[0]?.trials[0]?.checks[0]?.status).toBe(
+    "passed",
+  );
+});
+
+test("Git HEAD checks reject invalid configuration and non-Git fixtures", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "sevro-git-head-invalid-"));
+  roots.push(projectRoot);
+  const host: HostAdapter = {
+    id: "sevro.host.synthetic",
+    model: "synthetic-v1",
+    effort: "none",
+    async run() {
+      throw new Error("host must not run");
+    },
+  };
+  const options = {
+    projectRoot,
+    resultsRoot: join(projectRoot, "results"),
+    host,
+    runnerBuildDigest: digest,
+    projectDigest: digest,
+    condition: "passive" as const,
+    trialCount: 1,
+    passThreshold: 1,
+  };
+  await expect(
+    runEvaluation({
+      ...options,
+      case: {
+        id: "inline-head",
+        prompt: "Return ready.",
+        fixture: { files: { "README.md": "inline\n" } },
+        checks: [
+          {
+            id: "head",
+            grader: "sevro.git-head",
+            configuration: { kind: "unchanged" },
+          },
+        ],
+        requiredEvidence: [],
+      },
+    }),
+  ).rejects.toThrow(/require a Git fixture/);
+  await expect(
+    runEvaluation({
+      ...options,
+      case: {
+        id: "invalid-head",
+        prompt: "Return ready.",
+        fixture: { kind: "generated", commits: fixture.commits },
+        checks: [
+          {
+            id: "head",
+            grader: "sevro.git-head",
+            configuration: { kind: "guess" },
+          },
+        ],
+        requiredEvidence: [],
+      },
+    }),
+  ).rejects.toThrow(/invalid Git HEAD check declaration/);
+});
+
 test("generated Git hooks run for host commits after fixture preparation", async () => {
   const projectRoot = await mkdtemp(join(tmpdir(), "sevro-hook-test-"));
   roots.push(projectRoot);

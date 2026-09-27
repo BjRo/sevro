@@ -51,6 +51,15 @@ include any other source worktrees or private roots. A peer path already
 canonicalized by the engine remains in the deny profile if that peer is
 removed before the sandbox starts; unverified missing roots still fail.
 
+`sevro.git-head` accepts `kind: "changed"`, `"unchanged"`, or
+`"base-ancestor"` for a generated or repository Git fixture. The engine
+captures the fixture's base HEAD before the candidate turn, then compares the
+current HEAD and ancestry after a completed turn. The base stays in runner
+memory, outside candidate control. An invalid declaration or non-Git fixture
+fails preflight. An unreadable or malformed Git state is a grading error. A
+bounded `sevro.observation.git-head` records the base, current revision, and
+ancestry result; checks reference that observation.
+
 `sevro.semantic` accepts a single nonempty `proposition` string (at most 8 KiB)
 per check. The operator supplies a separate semantic host route. After a
 complete candidate response, the engine sends the bounded final message and

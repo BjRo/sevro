@@ -68,6 +68,9 @@ declared propositions. The engine requires one bounded verdict per check,
 retains the raw response and grader artifacts outside the fixture, and records
 the route and per-check observations. Missing candidate output makes semantic
 checks unavailable; failed or malformed grader output makes grading an error.
+Git HEAD checks capture the base commit before the candidate turn and grade
+unchanged HEAD, changed HEAD, or base ancestry afterward. Candidate edits to
+fixture files cannot rewrite the expected base revision.
 An optional negotiated extension can add declared checks. The engine calls its
 `prepare` method before host execution and its `evaluate` method for each
 trial. It retains extension identity, configuration digest, protocol,

@@ -27,6 +27,13 @@ import {
   type OutputCheckDeclaration,
 } from "./graders/output";
 import {
+  assessGitHeadCheck,
+  gitHeadRevision,
+  gitHeadState,
+  prepareGitHeadChecks,
+  type GitHeadCheckDeclaration,
+} from "./graders/git-head";
+import {
   assessShellCheck,
   prepareShellChecks,
   runShellCheck,
@@ -461,6 +468,9 @@ export async function runEvaluation(
   const allShellDeclarations = options.case.checks.filter(
     (check) => check.grader === "sevro.shell",
   ) as ShellCheckDeclaration[];
+  const allGitHeadDeclarations = options.case.checks.filter(
+    (check) => check.grader === "sevro.git-head",
+  ) as GitHeadCheckDeclaration[];
   const allSemanticDeclarations = options.case.checks.filter(
     (check) => check.grader === "sevro.semantic",
   ) as SemanticCheckDeclaration[];
@@ -468,6 +478,7 @@ export async function runEvaluation(
     (check) =>
       !isOutputGrader(check.grader) &&
       check.grader !== "sevro.shell" &&
+      check.grader !== "sevro.git-head" &&
       check.grader !== "sevro.semantic",
   );
   const replacedBuiltinGraders =
@@ -480,6 +491,7 @@ export async function runEvaluation(
         ![
           ...allBuiltinDeclarations,
           ...allShellDeclarations,
+          ...allGitHeadDeclarations,
           ...allSemanticDeclarations,
         ].some((check) => check.grader === id),
     )
@@ -495,6 +507,9 @@ export async function runEvaluation(
     (check) => !replaced.has(check.grader),
   );
   const shellDeclarations = allShellDeclarations.filter(
+    (check) => !replaced.has(check.grader),
+  );
+  const gitHeadDeclarations = allGitHeadDeclarations.filter(
     (check) => !replaced.has(check.grader),
   );
   const semanticDeclarations = allSemanticDeclarations.filter(
@@ -548,6 +563,10 @@ export async function runEvaluation(
   if (shellDeclarations.length && !options.shellIsolation)
     throw new EvaluationConfigurationError(
       "shell checks require explicit protected source roots",
+    );
+  if (gitHeadDeclarations.length && !generated && !repositoryFixture)
+    throw new EvaluationConfigurationError(
+      "Git HEAD checks require a Git fixture",
     );
   if (
     new Set(options.case.checks.map((check) => check.id)).size !==
@@ -608,6 +627,7 @@ export async function runEvaluation(
   }
   let prepared: ReturnType<typeof prepareOutputChecks>;
   let preparedShell: ReturnType<typeof prepareShellChecks>;
+  let preparedGitHead: ReturnType<typeof prepareGitHeadChecks>;
   let preparedSemantic: ReturnType<typeof prepareSemanticChecks>;
   try {
     prepared = prepareOutputChecks(allBuiltinDeclarations).filter(
@@ -615,6 +635,8 @@ export async function runEvaluation(
     );
     const allPreparedShell = prepareShellChecks(allShellDeclarations);
     preparedShell = replaced.has("sevro.shell") ? [] : allPreparedShell;
+    const allPreparedGitHead = prepareGitHeadChecks(allGitHeadDeclarations);
+    preparedGitHead = replaced.has("sevro.git-head") ? [] : allPreparedGitHead;
     const allPreparedSemantic = prepareSemanticChecks(allSemanticDeclarations);
     preparedSemantic = replaced.has("sevro.semantic")
       ? []
@@ -885,6 +907,7 @@ export async function runEvaluation(
       [
         ...builtinDeclarations,
         ...shellDeclarations,
+        ...gitHeadDeclarations,
         ...semanticDeclarations,
       ].map((check) => check.grader),
     ),
@@ -1048,6 +1071,9 @@ export async function runEvaluation(
         );
       let persisted = false;
       try {
+        const gitHeadBase = preparedGitHead.length
+          ? await gitHeadRevision(workspace, options.signal)
+          : null;
         const advisoryRevision = options.advisoryHost
           ? await advisoryBaseRevision(workspace)
           : null;
@@ -1121,6 +1147,9 @@ export async function runEvaluation(
                 ...preparedShell.map(
                   (item) => `sevro.observation.shell.${item.id}`,
                 ),
+                ...(preparedGitHead.length
+                  ? ["sevro.observation.git-head"]
+                  : []),
                 ...(preparedSemantic.length ? ["sevro.semantic.verdicts"] : []),
               ]),
             );
@@ -1185,6 +1214,12 @@ export async function runEvaluation(
             : {},
         };
         const shellObservations: {
+          id: string;
+          source: string;
+          completeness: "complete";
+          data: Record<string, unknown>;
+        }[] = [];
+        const gitHeadObservations: {
           id: string;
           source: string;
           completeness: "complete";
@@ -1288,6 +1323,58 @@ export async function runEvaluation(
               diagnostic = {
                 code: "sevro.grader.error",
                 message: "shell grading did not complete",
+              };
+            }
+          }
+        }
+        if (
+          execution === "completed" &&
+          !graderError &&
+          preparedGitHead.length
+        ) {
+          try {
+            const state = await gitHeadState(
+              workspace,
+              gitHeadBase!,
+              options.signal,
+            );
+            const observationId = "sevro.observation.git-head";
+            gitHeadObservations.push({
+              id: observationId,
+              source: "sevro.git-head",
+              completeness: "complete",
+              data: {
+                baseRevision: gitHeadBase,
+                currentRevision: state.currentRevision,
+                baseAncestor: state.baseAncestor,
+              },
+            });
+            checks.push(
+              ...preparedGitHead.map((check) => {
+                const graded = assessGitHeadCheck(check, gitHeadBase!, state);
+                return {
+                  id: check.id,
+                  grader: "sevro.git-head",
+                  status: graded.passed
+                    ? ("passed" as const)
+                    : ("failed" as const),
+                  detail: graded.detail,
+                  evidenceRefs: [observationId],
+                };
+              }),
+            );
+          } catch {
+            if (options.signal?.aborted) {
+              execution = "cancelled";
+              diagnostic = {
+                code: "sevro.run.cancelled",
+                message: "run cancelled",
+              };
+            } else {
+              graderError = true;
+              diagnostic = {
+                code: "sevro.grader.error",
+                message: "Git HEAD grading did not complete",
               };
             }
           }
@@ -1461,6 +1548,7 @@ export async function runEvaluation(
                   },
                 },
                 ...shellObservations,
+                ...gitHeadObservations,
                 ...semanticObservations,
                 ...additionalObservations,
               ],
@@ -1527,6 +1615,7 @@ export async function runEvaluation(
               ![
                 observation,
                 ...shellObservations,
+                ...gitHeadObservations,
                 ...semanticObservations,
                 ...additionalObservations,
               ].some(
@@ -1691,6 +1780,7 @@ export async function runEvaluation(
           observations: [
             observation,
             ...shellObservations,
+            ...gitHeadObservations,
             ...semanticObservations,
             ...additionalObservations,
           ],
