@@ -38,7 +38,7 @@ test("Claude retains ordered Skill and Agent facts without their prompts", () =>
             "darrow-adaptive-delivery:adaptive-delivery-sonnet-5-low",
           run_in_background: false,
           model: "claude-sonnet-5",
-          prompt: "Private owner task and answer",
+          prompt: "- phase: adaptive-delivery-owner\nPrivate owner task and answer",
         },
       },
     ]),
@@ -78,7 +78,10 @@ test("Claude retains ordered Skill and Agent facts without their prompts", () =>
           runInBackground: false,
           model: "claude-sonnet-5",
           promptSha256: createHash("sha256")
-            .update("Private owner task and answer")
+            .update("- phase: adaptive-delivery-owner\nPrivate owner task and answer")
+            .digest("hex"),
+          promptFirstLineSha256: createHash("sha256")
+            .update("- phase: adaptive-delivery-owner")
             .digest("hex"),
         },
         {
@@ -107,6 +110,9 @@ test("Claude Agent prompt evidence stays a digest and requires a bounded string"
   const observed = claudeToolCallsObservation(missingPrompt + "\n" + result, 0);
   expect(observed.completeness).toBe("partial");
   expect(observed.data.calls[0]).toMatchObject({ promptSha256: null });
+  expect(observed.data.calls[0]).toMatchObject({
+    promptFirstLineSha256: null,
+  });
 });
 
 test("a complete turn with no Skill or Agent call proves absence", () => {
