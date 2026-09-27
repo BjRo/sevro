@@ -109,6 +109,8 @@ test("native goal and agent calls retain names and order without private argumen
       ],
       submittedExecCalls: 1,
       acceptedSpawns: [],
+      childSessions: [],
+      childrenTruncated: false,
     },
   });
   expect(JSON.stringify(observed)).not.toContain("private");
@@ -171,6 +173,73 @@ test("native spawn acceptance binds one request, start, and result", async () =>
     },
   ]);
   expect(JSON.stringify(observed)).not.toContain("private review task");
+  expect(observed.data.childSessions).toEqual([
+    { threadId: "thread-child", status: "unavailable" },
+  ]);
+});
+
+test("accepted child sessions distinguish available, malformed, and ambiguous rollouts", async () => {
+  const root = await home();
+  await session(root, lines([spawn, started, result]));
+  await session(
+    root,
+    lines([
+      {
+        type: "item_completed",
+        item: { type: "AgentMessage", text: "private result" },
+      },
+    ]),
+    "thread-child",
+  );
+  expect(
+    (await codexNativeCallObservation(root, "thread-1")).data.childSessions,
+  ).toEqual([{ threadId: "thread-child", status: "available" }]);
+  await session(root, "{broken\n", "thread-child");
+  expect(
+    (await codexNativeCallObservation(root, "thread-1")).data.childSessions,
+  ).toEqual([{ threadId: "thread-child", status: "partial" }]);
+  await session(
+    root,
+    lines([{ type: "item_completed" }]),
+    "other-thread-child",
+  );
+  expect(
+    (await codexNativeCallObservation(root, "thread-1")).data.childSessions,
+  ).toEqual([{ threadId: "thread-child", status: "ambiguous" }]);
+});
+
+test("child session lookup is capped with an explicit truncation flag", async () => {
+  const root = await home();
+  const payloads = Array.from({ length: 9 }, (_, index) => {
+    const callId = `call_${index}`;
+    const agentRef = `/root/owner_${index}`;
+    return [
+      {
+        ...spawn,
+        call_id: callId,
+        arguments: JSON.stringify({ task_name: `owner_${index}` }),
+      },
+      {
+        ...started,
+        item: {
+          ...started.item,
+          id: callId,
+          agent_path: agentRef,
+          agent_thread_id: `child-${index}`,
+        },
+      },
+      {
+        ...result,
+        call_id: callId,
+        output: JSON.stringify({ task_name: agentRef }),
+      },
+    ];
+  }).flat();
+  await session(root, lines(payloads));
+  const observed = await codexNativeCallObservation(root, "thread-1");
+  expect(observed.data.acceptedSpawns).toHaveLength(9);
+  expect(observed.data.childSessions).toHaveLength(8);
+  expect(observed.data.childrenTruncated).toBe(true);
 });
 
 test("native spawn route fields stay bounded even when host acceptance succeeds", async () => {

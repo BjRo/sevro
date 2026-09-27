@@ -6,6 +6,7 @@ const MAX_SESSION_BYTES = 8 * 1024 * 1024;
 const MAX_SESSION_ENTRIES = 10_000;
 const MAX_SESSION_FILES = 1024;
 const MAX_RETAINED_CALLS = 128;
+const MAX_CHILD_SESSIONS = 8;
 const THREAD_ID = /^[A-Za-z0-9._-]{1,128}$/;
 const GOAL_CONTROLS = new Set(["create_goal", "get_goal", "update_goal"]);
 const COLLABORATION_CONTROLS = new Set([
@@ -44,6 +45,11 @@ interface AcceptedSpawn {
   forkTurns?: string;
 }
 
+interface ChildSession {
+  threadId: string;
+  status: "available" | "unavailable" | "ambiguous" | "partial";
+}
+
 interface NativeCallObservation {
   id: "sevro.codex.native-calls";
   completeness: "complete" | "partial" | "unavailable";
@@ -53,6 +59,8 @@ interface NativeCallObservation {
     toolCalls: NativeToolCall[];
     submittedExecCalls: number;
     acceptedSpawns: AcceptedSpawn[];
+    childSessions: ChildSession[];
+    childrenTruncated: boolean;
   };
 }
 
@@ -72,6 +80,8 @@ function unavailable(
       toolCalls: [],
       submittedExecCalls: 0,
       acceptedSpawns: [],
+      childSessions: [],
+      childrenTruncated: false,
     },
   };
 }
@@ -111,7 +121,7 @@ async function sessionPath(home: string, threadId: string) {
       if (entry.isDirectory()) pending.push(path);
       else if (entry.isFile() && entry.name.endsWith(suffix))
         matches.push(path);
-      if (matches.length > 1) return { status: "partial" as const };
+      if (matches.length > 1) return { status: "ambiguous" as const };
     }
   }
   return matches.length === 1
@@ -340,8 +350,36 @@ function parseSession(text: string): NativeCallObservation {
       submittedExecCalls,
       acceptedSpawns:
         malformed || entries.length === 0 ? [] : acceptedSpawns(entries),
+      childSessions: [],
+      childrenTruncated: false,
     },
   };
+}
+
+async function childSessionStatus(
+  home: string,
+  parentThread: string,
+  threadId: string,
+): Promise<ChildSession> {
+  if (threadId === parentThread) return { threadId, status: "partial" };
+  const located = await sessionPath(home, threadId);
+  if (located.status !== "found") return { threadId, status: located.status };
+  try {
+    const size = (await stat(located.path)).size;
+    if (size > MAX_SESSION_BYTES) return { threadId, status: "partial" };
+    const bytes = await readFile(located.path);
+    if (bytes.byteLength > MAX_SESSION_BYTES)
+      return { threadId, status: "partial" };
+    const parsed = parseSession(
+      new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+    );
+    return {
+      threadId,
+      status: parsed.completeness === "complete" ? "available" : "partial",
+    };
+  } catch {
+    return { threadId, status: "partial" };
+  }
 }
 
 /** Bind one private native session to the completed public thread. */
@@ -350,15 +388,37 @@ export async function codexNativeCallObservation(
   threadId: string,
 ): Promise<NativeCallObservation> {
   const located = await sessionPath(home, threadId);
-  if (located.status !== "found") return unavailable(located.status);
+  if (located.status !== "found")
+    return unavailable(
+      located.status === "ambiguous" ? "partial" : located.status,
+    );
   try {
     const size = (await stat(located.path)).size;
     if (size > MAX_SESSION_BYTES) return unavailable("partial");
     const bytes = await readFile(located.path);
     if (bytes.byteLength > MAX_SESSION_BYTES) return unavailable("partial");
-    return parseSession(
+    const observation = parseSession(
       new TextDecoder("utf-8", { fatal: true }).decode(bytes),
     );
+    if (observation.completeness !== "complete") return observation;
+    const children = [
+      ...new Set(
+        observation.data.acceptedSpawns.map((spawn) => spawn.threadId),
+      ),
+    ];
+    const childSessions = await Promise.all(
+      children
+        .slice(0, MAX_CHILD_SESSIONS)
+        .map((child) => childSessionStatus(home, threadId, child)),
+    );
+    return {
+      ...observation,
+      data: {
+        ...observation.data,
+        childSessions,
+        childrenTruncated: children.length > MAX_CHILD_SESSIONS,
+      },
+    };
   } catch {
     return unavailable("partial");
   }
