@@ -81,8 +81,10 @@ namespaced extension data. Paths in case descriptions are resolved and
 validated by the engine against the declared project and case-source roots.
 The extension cannot add a hidden source root by returning an arbitrary path.
 Fixtures may contain inline files, a declared clean repository source, or a
-bounded generated Git history with optional working-tree and staged files.
-Generated history is generic fixture data; repository-specific policy and
+bounded generated Git history. Both Git fixture kinds support optional
+working-tree files, staged paths, and committed scaffolding. Sevro validates
+overlay paths, refuses symlinks and repository metadata in repository clones,
+and includes the overlay in fixture identity. Repository-specific policy and
 custom setup remain in the extension.
 
 An extension that negotiates `sevro.fixture.setup` may return an optional

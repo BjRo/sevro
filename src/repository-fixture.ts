@@ -1,9 +1,87 @@
-import { realpath, stat } from "node:fs/promises";
-import { isAbsolute, relative, sep } from "node:path";
+import { lstat, mkdir, realpath, stat, writeFile } from "node:fs/promises";
+import { isAbsolute, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { canonicalJson } from "./identity";
 import type { PreparationSources } from "./preparation";
+import { fixtureParts } from "./preparation";
 
 const MAX_GIT_OUTPUT_BYTES = 64 * 1024;
+const MAX_OVERLAY_FILES = 1024;
+const MAX_OVERLAY_BYTES = 32 * 1024 * 1024;
+
+export interface RepositoryFixture {
+  kind: "repository";
+  sourceRef: string;
+  files?: Record<string, string>;
+  staged?: string[];
+  commitFiles?: boolean;
+}
+
+/** Validate repository source identity and bounded working-tree changes. */
+export function prepareRepositoryFixture(value: unknown): RepositoryFixture {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error("invalid repository fixture");
+  const fixture = value as Record<string, unknown>;
+  if (
+    fixture.kind !== "repository" ||
+    Object.keys(fixture).some(
+      (key) =>
+        !["kind", "sourceRef", "files", "staged", "commitFiles"].includes(key),
+    ) ||
+    typeof fixture.sourceRef !== "string" ||
+    !fixture.sourceRef ||
+    (fixture.files !== undefined &&
+      (!fixture.files ||
+        typeof fixture.files !== "object" ||
+        Array.isArray(fixture.files) ||
+        Object.values(fixture.files).some(
+          (item) => typeof item !== "string",
+        ))) ||
+    (fixture.staged !== undefined &&
+      (!Array.isArray(fixture.staged) ||
+        fixture.staged.some((item) => typeof item !== "string"))) ||
+    (fixture.commitFiles !== undefined &&
+      typeof fixture.commitFiles !== "boolean")
+  )
+    throw new Error("invalid repository fixture");
+  const files = (fixture.files ?? {}) as Record<string, string>;
+  const staged = (fixture.staged ?? []) as string[];
+  const paths = Object.keys(files);
+  if (paths.length > MAX_OVERLAY_FILES)
+    throw new Error("repository fixture exceeds the file limit");
+  let bytes = 0;
+  for (const [path, content] of Object.entries(files)) {
+    const parts = fixtureParts(path);
+    if (parts.some((part) => part.toLowerCase() === ".git"))
+      throw new Error("repository fixture cannot write repository metadata");
+    bytes +=
+      Buffer.byteLength(path, "utf8") + Buffer.byteLength(content, "utf8");
+  }
+  bytes += staged.reduce(
+    (size, path) => size + Buffer.byteLength(path, "utf8"),
+    0,
+  );
+  if (bytes > MAX_OVERLAY_BYTES)
+    throw new Error("repository fixture exceeds the size limit");
+  const normalized = paths.map((path) => path.toLowerCase());
+  for (let index = 0; index < normalized.length; index++) {
+    for (let other = 0; other < index; other++) {
+      if (
+        normalized[index] === normalized[other] ||
+        normalized[index]!.startsWith(`${normalized[other]}/`) ||
+        normalized[other]!.startsWith(`${normalized[index]}/`)
+      )
+        throw new Error("repository fixture overlay paths collide");
+    }
+  }
+  if (
+    new Set(staged.map((path) => path.toLowerCase())).size !== staged.length ||
+    staged.some((path) => !Object.hasOwn(files, path)) ||
+    (fixture.commitFiles === true && paths.length === 0)
+  )
+    throw new Error("invalid repository fixture staging");
+  return JSON.parse(canonicalJson(fixture)) as RepositoryFixture;
+}
 
 export interface RepositorySource {
   path: string;
@@ -36,6 +114,12 @@ async function git(args: string[], cwd: string): Promise<string> {
       GIT_CONFIG_NOSYSTEM: "1",
       GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null",
       GIT_TERMINAL_PROMPT: "0",
+      GIT_AUTHOR_NAME: "Sevro Fixture",
+      GIT_AUTHOR_EMAIL: "fixture@sevro.invalid",
+      GIT_COMMITTER_NAME: "Sevro Fixture",
+      GIT_COMMITTER_EMAIL: "fixture@sevro.invalid",
+      GIT_AUTHOR_DATE: "2000-01-01T00:00:00+00:00",
+      GIT_COMMITTER_DATE: "2000-01-01T00:00:00+00:00",
     },
   });
   try {
@@ -124,4 +208,65 @@ export async function cloneRepositorySource(
   const after = await resolveRepositorySource(sourceRef, sources);
   if (after.path !== expected.path || after.revision !== expected.revision)
     throw new Error("repository source changed during clone");
+}
+
+async function safeOverlayTarget(
+  workspace: string,
+  path: string,
+): Promise<string> {
+  const parts = fixtureParts(path);
+  let parent = workspace;
+  for (const part of parts.slice(0, -1)) {
+    parent = join(parent, part);
+    try {
+      const entry = await lstat(parent);
+      if (!entry.isDirectory() || entry.isSymbolicLink())
+        throw new Error("repository fixture overlay traverses a non-directory");
+    } catch (error) {
+      if (!(
+        error instanceof Error &&
+        "code" in error &&
+        error.code === "ENOENT"
+      ))
+        throw error;
+      await mkdir(parent, { mode: 0o700 });
+    }
+  }
+  const target = join(workspace, ...parts);
+  try {
+    const entry = await lstat(target);
+    if (!entry.isFile() || entry.isSymbolicLink())
+      throw new Error("repository fixture overlay targets a non-file");
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT"))
+      throw error;
+  }
+  return target;
+}
+
+/** Apply declared files after cloning, optionally committing or staging them. */
+export async function applyRepositoryOverlay(
+  fixture: RepositoryFixture,
+  workspace: string,
+): Promise<void> {
+  const files = fixture.files ?? {};
+  for (const [path, content] of Object.entries(files))
+    await writeFile(await safeOverlayTarget(workspace, path), content, {
+      flag: "w",
+      mode: 0o600,
+    });
+  const paths = Object.keys(files);
+  const noHooks = [
+    "-c",
+    `core.hooksPath=${process.platform === "win32" ? "NUL" : "/dev/null"}`,
+  ];
+  if (fixture.commitFiles) {
+    await git([...noHooks, "add", "--", ...paths], workspace);
+    await git(
+      [...noHooks, "commit", "--quiet", "-m", "Add evaluation scaffolding"],
+      workspace,
+    );
+  }
+  if (fixture.staged?.length)
+    await git([...noHooks, "add", "--", ...fixture.staged], workspace);
 }

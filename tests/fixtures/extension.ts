@@ -82,7 +82,12 @@ const result = scenario.startsWith("lifecycle")
             prompt: "Return ready.",
             fixture:
               scenario === "lifecycle-repository"
-                ? { kind: "repository", sourceRef: "fixture-repo" }
+                ? {
+                    kind: "repository",
+                    sourceRef: "fixture-repo",
+                    files: { "README.md": "overlay\n" },
+                    staged: ["README.md"],
+                  }
                 : scenario === "lifecycle-generated" ||
                     scenario.startsWith("lifecycle-setup") ||
                     scenario === "lifecycle-git-excluded-artifact"
@@ -104,6 +109,17 @@ const result = scenario.startsWith("lifecycle")
                   : { kind: "inline", files: { "README.md": "fixture\n" } },
             checks: [
               builtinCheck,
+              ...(scenario === "lifecycle-repository"
+                ? [
+                    {
+                      id: "repository-overlay",
+                      grader: "sevro.shell",
+                      configuration: {
+                        run: 'test "$(cat README.md)" = overlay',
+                      },
+                    },
+                  ]
+                : []),
               ...(scenario === "lifecycle-replace-no-extension"
                 ? []
                 : [

@@ -123,9 +123,13 @@ case file uses `"fixture": {"sourceRef": "fixture-repo"}`; an extension uses
 `{"kind": "repository", "sourceRef": "fixture-repo"}`. The repository must be
 clean and committed. Sevro clones that commit for each trial without hardlinks
 or remotes, and includes the commit in fixture identity. Uncommitted source
-files, hooks, and working-tree state are not copied. Fixture setup operations
-beyond a clean repository snapshot are not yet supported for this fixture kind.
-Repository submodules and preparation artifacts targeting `.git/` are refused.
+files, hooks, and working-tree state are not copied. Repository fixtures
+may declare bounded `files`, `staged`, and `commitFiles` fields. Sevro applies
+files after cloning, optionally commits them as scaffolding, then stages named
+overlay files. Existing source files may be replaced, but symlinks and `.git/`
+paths cannot be overlay targets. A negotiated fixture setup command may then
+prepare the clone before the host runs. Repository submodules and preparation
+artifacts targeting `.git/` are refused.
 
 A direct case or extension can declare a generated Git fixture:
 

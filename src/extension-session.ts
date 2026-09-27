@@ -3,6 +3,7 @@ import { createReadStream } from "node:fs";
 import { isAbsolute } from "node:path";
 import { canonicalJson, hashJson } from "./identity";
 import type { GeneratedFixture } from "./generated-fixture";
+import type { RepositoryFixture } from "./repository-fixture";
 import type { FixtureSetupDeclaration } from "./fixture-setup";
 import {
   ExtensionProtocolError,
@@ -19,7 +20,7 @@ export interface ExtensionCase {
   prompt: string;
   fixture:
     | { kind: "inline"; files: Record<string, string> }
-    | { kind: "repository"; sourceRef: string }
+    | RepositoryFixture
     | GeneratedFixture;
   checks: {
     id: string;

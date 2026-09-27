@@ -124,6 +124,19 @@ test("accepts discovery and each extension operation", () => {
         },
       ],
     }),
+    envelope(extension, "resolve", "result", {
+      cases: [
+        {
+          ...evalCase,
+          fixture: {
+            kind: "repository",
+            sourceRef: "fixture-repo",
+            files: { "README.md": "overlay\n" },
+            staged: ["README.md"],
+          },
+        },
+      ],
+    }),
     envelope(extension, "prepare", "params", {
       case: evalCase,
       host: { id: codexHost.id, capabilities: [] },

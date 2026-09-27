@@ -64,8 +64,11 @@ import {
   type PreparationSources,
 } from "./preparation";
 import {
+  applyRepositoryOverlay,
   cloneRepositorySource,
+  prepareRepositoryFixture,
   resolveRepositorySource,
+  type RepositoryFixture,
   type RepositorySource,
 } from "./repository-fixture";
 import type { EvaluationResult, ExtensionCase } from "./extension-session";
@@ -129,7 +132,7 @@ export interface ResolvedCase {
   prompt: string;
   fixture:
     | { files: Record<string, string>; sourceRef?: never }
-    | { sourceRef: string; files?: never }
+    | Omit<RepositoryFixture, "kind">
     | (GeneratedFixture & { sourceRef?: never });
   checks: {
     id: string;
@@ -189,18 +192,19 @@ async function createFixture(
   artifacts: InlineArtifact[],
   sources: PreparationSources | undefined,
   repository: RepositorySource | null,
+  repositoryFixture: RepositoryFixture | null,
   generated: GeneratedFixture | null,
   setup: FixtureSetup | null,
   projectRoot: string,
   signal?: AbortSignal,
 ): Promise<string> {
-  const paths = Object.entries(generated ? {} : (fixture.files ?? {})).map(
-    ([path, content]) => ({
-      path,
-      parts: fixtureParts(path),
-      content,
-    }),
-  );
+  const paths = Object.entries(
+    generated || repository ? {} : (fixture.files ?? {}),
+  ).map(([path, content]) => ({
+    path,
+    parts: fixtureParts(path),
+    content,
+  }));
   const workspace = await mkdtemp(join(tmpdir(), "sevro-case-"));
   try {
     if (repository)
@@ -211,6 +215,8 @@ async function createFixture(
         workspace,
       );
     if (generated) await materializeGeneratedFixture(generated, workspace);
+    if (repositoryFixture)
+      await applyRepositoryOverlay(repositoryFixture, workspace);
     for (const file of paths) {
       const target = join(workspace, ...file.parts);
       await mkdir(dirname(target), { recursive: true, mode: 0o700 });
@@ -363,6 +369,7 @@ export async function runEvaluation(
   )
     throw new EvaluationConfigurationError("invalid fixture declaration");
   let generated: GeneratedFixture | null = null;
+  let repositoryFixture: RepositoryFixture | null = null;
   if ("kind" in options.case.fixture) {
     try {
       generated = prepareGeneratedFixture(options.case.fixture);
@@ -371,24 +378,29 @@ export async function runEvaluation(
         error instanceof Error ? error.message : "invalid generated fixture",
       );
     }
-  } else {
-    const inlineFixture = Object.hasOwn(options.case.fixture, "files");
-    if (
-      inlineFixture === Object.hasOwn(options.case.fixture, "sourceRef") ||
-      (inlineFixture &&
-        (options.case.fixture.files === null ||
-          typeof options.case.fixture.files !== "object" ||
-          Array.isArray(options.case.fixture.files) ||
-          Object.values(options.case.fixture.files).some(
-            (content) => typeof content !== "string",
-          ))) ||
-      (!inlineFixture &&
-        (typeof options.case.fixture.sourceRef !== "string" ||
-          !options.case.fixture.sourceRef))
-    )
+  } else if (Object.hasOwn(options.case.fixture, "sourceRef")) {
+    try {
+      repositoryFixture = prepareRepositoryFixture({
+        kind: "repository",
+        ...options.case.fixture,
+      });
+    } catch (error) {
       throw new EvaluationConfigurationError(
-        "fixture must declare inline files or a repository source",
+        error instanceof Error ? error.message : "invalid repository fixture",
       );
+    }
+  } else if (
+    !Object.hasOwn(options.case.fixture, "files") ||
+    options.case.fixture.files === null ||
+    typeof options.case.fixture.files !== "object" ||
+    Array.isArray(options.case.fixture.files) ||
+    Object.values(options.case.fixture.files).some(
+      (content) => typeof content !== "string",
+    )
+  ) {
+    throw new EvaluationConfigurationError(
+      "fixture must declare inline files or a repository source",
+    );
   }
   if (!Number.isSafeInteger(options.trialCount) || options.trialCount < 1)
     throw new EvaluationConfigurationError(
@@ -526,7 +538,16 @@ export async function runEvaluation(
       resolved.fixture.kind === "inline"
         ? { files: resolved.fixture.files }
         : resolved.fixture.kind === "repository"
-          ? { sourceRef: resolved.fixture.sourceRef }
+          ? {
+              sourceRef: resolved.fixture.sourceRef,
+              ...(resolved.fixture.files
+                ? { files: resolved.fixture.files }
+                : {}),
+              ...(resolved.fixture.staged
+                ? { staged: resolved.fixture.staged }
+                : {}),
+              ...(resolved.fixture.commitFiles ? { commitFiles: true } : {}),
+            }
           : resolved.fixture;
     if (
       hashJson({
@@ -780,7 +801,7 @@ export async function runEvaluation(
           ? generated
           : repository
             ? {
-                sourceRef: options.case.fixture.sourceRef,
+                ...repositoryFixture,
                 revision: repository.revision,
               }
             : { files: options.case.fixture.files }),
@@ -890,6 +911,7 @@ export async function runEvaluation(
         inlineArtifacts,
         options.preparationSources,
         repository,
+        repositoryFixture,
         generated,
         fixtureSetup,
         projectRoot,
@@ -1140,6 +1162,7 @@ export async function runEvaluation(
               { files: {} },
               [],
               undefined,
+              null,
               null,
               null,
               null,

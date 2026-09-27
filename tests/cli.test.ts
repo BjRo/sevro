@@ -138,14 +138,20 @@ test("CLI derives stable build and project digests without caller inputs", async
   const automatic = args.filter(
     (part, index) =>
       !["--runner-build-digest", "--project-digest"].includes(part) &&
-      !["--runner-build-digest", "--project-digest"].includes(args[index - 1] ?? ""),
+      !["--runner-build-digest", "--project-digest"].includes(
+        args[index - 1] ?? "",
+      ),
   );
   const first = await invoke(automatic);
   const second = await invoke(automatic);
   expect(first.code, first.stderr).toBe(0);
   expect(second.code, second.stderr).toBe(0);
-  const firstEvidence = JSON.parse(await readFile(first.result.evidencePath, "utf8"));
-  const secondEvidence = JSON.parse(await readFile(second.result.evidencePath, "utf8"));
+  const firstEvidence = JSON.parse(
+    await readFile(first.result.evidencePath, "utf8"),
+  );
+  const secondEvidence = JSON.parse(
+    await readFile(second.result.evidencePath, "utf8"),
+  );
   const dimensions = firstEvidence.evaluationIdentity.dimensions;
   expect(dimensions.runnerBuildDigest).toMatch(/^[a-f0-9]{64}$/);
   expect(dimensions.projectDigest).toMatch(/^[a-f0-9]{64}$/);
@@ -687,13 +693,14 @@ test("CLI executes a declared repository fixture", async () => {
     sourceRoot,
     "--case-source-map-file",
     mapFile,
+    "--shell-isolation",
   ]);
   expect(extended.code).toBe(0);
   expect(
     extended.result.cases[0].trials[0].checks.map(
       (check: { id: string }) => check.id,
     ),
-  ).toEqual(["ready", "example.extension.ready"]);
+  ).toEqual(["ready", "repository-overlay", "example.extension.ready"]);
 });
 
 test("CLI accepts generated Git history from a case or extension", async () => {

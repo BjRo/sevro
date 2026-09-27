@@ -244,7 +244,17 @@
           "required": ["kind", "sourceRef"],
           "properties": {
             "kind": { "const": "repository" },
-            "sourceRef": { "$ref": "#/$defs/id" }
+            "sourceRef": { "$ref": "#/$defs/id" },
+            "files": {
+              "type": "object",
+              "additionalProperties": { "type": "string" }
+            },
+            "staged": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 },
+              "uniqueItems": true
+            },
+            "commitFiles": { "type": "boolean" }
           },
           "additionalProperties": false
         },

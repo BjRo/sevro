@@ -1,9 +1,17 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { runEvaluation, type HostAdapter } from "../src/engine";
+import { prepareRepositoryFixture } from "../src/repository-fixture";
 
 const roots: string[] = [];
 const digest = "a".repeat(64);
@@ -129,4 +137,125 @@ test("repository fixtures clone a declared clean commit without remotes", async 
       },
     }),
   ).rejects.toThrow(/escapes its declared root/);
+});
+
+test("repository overlays preserve source, index state, and metadata boundaries", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "sevro-overlay-test-"));
+  roots.push(projectRoot);
+  const sourceRoot = join(projectRoot, "sources");
+  const repository = join(sourceRoot, "example");
+  await mkdir(repository, { recursive: true });
+  await git(repository, "init", "-b", "main");
+  await writeFile(join(repository, "README.md"), "source\n");
+  await symlink("README.md", join(repository, "shortcut"));
+  await git(repository, "add", "README.md", "shortcut");
+  await git(
+    repository,
+    "-c",
+    "user.name=Fixture",
+    "-c",
+    "user.email=fixture@example.invalid",
+    "commit",
+    "-m",
+    "Create fixture",
+  );
+  const original = await git(repository, "rev-parse", "HEAD");
+  const sources = {
+    root: sourceRoot,
+    refs: { "fixture-repo": pathToFileURL(repository).href },
+  };
+  const caseData = {
+    id: "repository-overlay",
+    prompt: "Return ready.",
+    fixture: {
+      sourceRef: "fixture-repo",
+      files: { "README.md": "overlay\n", "notes.txt": "untracked\n" },
+      staged: ["README.md"],
+    },
+    checks: [
+      {
+        id: "ready",
+        grader: "sevro.regex",
+        configuration: { pattern: "^ready$" },
+      },
+    ],
+    requiredEvidence: [],
+  };
+  const host: HostAdapter = {
+    id: "sevro.host.synthetic",
+    model: "synthetic-v1",
+    effort: "none",
+    async run({ workspace }) {
+      expect(await readFile(join(workspace, "README.md"), "utf8")).toBe(
+        "overlay\n",
+      );
+      expect(await git(workspace, "status", "--porcelain=v1")).toContain(
+        "M  README.md",
+      );
+      expect(await git(workspace, "status", "--porcelain=v1")).toContain(
+        "?? notes.txt",
+      );
+      expect(await git(workspace, "rev-parse", "HEAD")).toBe(original);
+      return { finalMessage: "ready", complete: true };
+    },
+  };
+  const options = {
+    projectRoot,
+    resultsRoot: join(projectRoot, "results"),
+    case: caseData,
+    preparationSources: sources,
+    host,
+    runnerBuildDigest: digest,
+    projectDigest: digest,
+    condition: "passive" as const,
+    trialCount: 1,
+    passThreshold: 1,
+  };
+  expect((await runEvaluation(options)).result.task.verdict).toBe("passed");
+  expect(await readFile(join(repository, "README.md"), "utf8")).toBe(
+    "source\n",
+  );
+  expect(await git(repository, "status", "--porcelain=v1")).toBe("");
+
+  const committed = await runEvaluation({
+    ...options,
+    case: {
+      ...caseData,
+      fixture: {
+        sourceRef: "fixture-repo",
+        files: { "notes.txt": "committed\n" },
+        commitFiles: true,
+      },
+    },
+    host: {
+      ...host,
+      async run({ workspace }) {
+        expect(await git(workspace, "log", "-1", "--format=%s")).toBe(
+          "Add evaluation scaffolding",
+        );
+        expect(await git(workspace, "status", "--porcelain=v1")).toBe("");
+        return { finalMessage: "ready", complete: true };
+      },
+    },
+  });
+  expect(committed.result.task.verdict).toBe("passed");
+  expect(() =>
+    prepareRepositoryFixture({
+      kind: "repository",
+      sourceRef: "fixture-repo",
+      files: { ".git/config": "unsafe" },
+    }),
+  ).toThrow(/repository metadata/);
+  await expect(
+    runEvaluation({
+      ...options,
+      case: {
+        ...caseData,
+        fixture: { sourceRef: "fixture-repo", files: { shortcut: "unsafe" } },
+      },
+    }),
+  ).rejects.toThrow(/targets a non-file/);
+  expect(await readFile(join(repository, "README.md"), "utf8")).toBe(
+    "source\n",
+  );
 });

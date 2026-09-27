@@ -11,6 +11,7 @@ import {
 } from "./engine";
 import { createCodexHost } from "./hosts/codex";
 import { prepareGeneratedFixture } from "./generated-fixture";
+import { prepareRepositoryFixture } from "./repository-fixture";
 import { prepareInstrumentation } from "./instrumentation";
 import { openExtensionSession, type ExtensionCase } from "./extension-session";
 import { assertCliResult } from "./schema";
@@ -54,13 +55,21 @@ function validFixture(value: unknown): boolean {
     }
   }
   if (value.kind !== undefined) return false;
+  if (Object.hasOwn(value, "sourceRef")) {
+    try {
+      prepareRepositoryFixture({ kind: "repository", ...value });
+      return true;
+    } catch {
+      return false;
+    }
+  }
   if (Object.hasOwn(value, "files"))
     return (
       !Object.hasOwn(value, "sourceRef") &&
       record(value.files) &&
       Object.values(value.files).every((content) => typeof content === "string")
     );
-  return typeof value.sourceRef === "string" && Boolean(value.sourceRef);
+  return false;
 }
 
 function parseCase(value: unknown): ResolvedCase {
@@ -475,7 +484,18 @@ function selectExtensionCase(
       resolvedCase.fixture.kind === "inline"
         ? { files: resolvedCase.fixture.files }
         : resolvedCase.fixture.kind === "repository"
-          ? { sourceRef: resolvedCase.fixture.sourceRef }
+          ? {
+              sourceRef: resolvedCase.fixture.sourceRef,
+              ...(resolvedCase.fixture.files
+                ? { files: resolvedCase.fixture.files }
+                : {}),
+              ...(resolvedCase.fixture.staged
+                ? { staged: resolvedCase.fixture.staged }
+                : {}),
+              ...(resolvedCase.fixture.commitFiles
+                ? { commitFiles: true }
+                : {}),
+            }
           : resolvedCase.fixture,
   });
   return { caseData, resolvedCase };

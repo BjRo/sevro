@@ -941,7 +941,7 @@ test("rejects fixture paths that could escape their workspace", async () => {
       trialCount: 1,
       passThreshold: 1,
     }),
-  ).rejects.toThrow(/fixture must declare/);
+  ).rejects.toThrow(/invalid repository fixture/);
 });
 
 test("shell checks grade fixture effects and retain exit observations", async () => {
