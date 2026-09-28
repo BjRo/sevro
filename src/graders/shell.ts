@@ -229,7 +229,6 @@ export async function runShellCheck(
         ...(options.uvRuntimeCache
           ? {
               UV_CACHE_DIR: uvCache,
-              DARROW_CACHE_DIR: join(runtimeRoot, "darrow-cache"),
               UV_PROJECT_ENVIRONMENT: join(runtimeRoot, "project-environment"),
               UV_OFFLINE: "1",
               PYTHONDONTWRITEBYTECODE: "1",

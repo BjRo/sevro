@@ -135,6 +135,9 @@ try {
     const binDir = join(root, "bin");
     await mkdir(binDir);
     const claudeBinary = join(binDir, "synthetic-claude");
+    const uvCacheDir = join(binDir, "uv-cache");
+    await mkdir(uvCacheDir);
+    await writeFile(join(uvCacheDir, "sentinel"), "curated");
     const credentialFile = join(root, "claude-credential.json");
     const claudeCase = join(project, "claude-case.json");
     await Promise.all([
@@ -144,6 +147,10 @@ try {
         [
           "#!/bin/sh",
           'test -r "$CLAUDE_CONFIG_DIR/.credentials.json" || exit 3',
+          'test -z "${DARROW_CACHE_DIR+x}" || exit 4',
+          'test "$(cat "$UV_CACHE_DIR/sentinel")" = curated || exit 5',
+          'test "${HOME#*/.git/sevro-runtime/}" = host-home || exit 6',
+          'mkdir -p "$HOME/.tool-cache" && printf isolated > "$HOME/.tool-cache/probe" || exit 7',
           'printf \'%s\\n\' \'{"type":"result","subtype":"success","is_error":false,"result":"READY","usage":{"input_tokens":1,"output_tokens":2},"total_cost_usd":0}\'',
         ].join("\n") + "\n",
         { mode: 0o700 },
@@ -159,6 +166,13 @@ try {
               id: "ready",
               grader: "sevro.regex",
               configuration: { pattern: "^READY$" },
+            },
+            {
+              id: "cache",
+              grader: "sevro.shell",
+              configuration: {
+                run: 'test -z "${DARROW_CACHE_DIR+x}" && test "$(cat "$UV_CACHE_DIR/sentinel")" = curated && mkdir -p "$HOME/.tool-cache" && printf isolated > "$HOME/.tool-cache/probe"',
+              },
             },
           ],
           requiredEvidence: [
@@ -182,6 +196,9 @@ try {
           claudeBinary,
           "--claude-credential-file",
           credentialFile,
+          "--claude-uv-cache-dir",
+          uvCacheDir,
+          "--shell-isolation",
           "--model",
           "synthetic-claude",
           "--effort",

@@ -123,6 +123,12 @@ cache into the trial's Git-private runtime directory before the turn. Use
 case tools. The host and isolated shell checks place that directory on `PATH`.
 They keep UV's project environment and Python bytecode outside the assessed
 worktree contents so a check cannot change the candidate fingerprint.
+With a curated UV cache, the Claude candidate's isolated `HOME` also lives
+under the trial's Git-private runtime directory. Isolated checks use their own
+home there. Tools choose their own caches from those homes; Sevro does not
+set repository-specific cache variables or inherit such overrides from the
+caller. Candidate and check homes are separate, while the curated UV cache is
+shared within one trial. Runtime state is removed with the trial fixture.
 The cache and toolchain directories must be outside protected roots. Their
 contents are available to the candidate, so prepare them from public tools and
 dependencies only.

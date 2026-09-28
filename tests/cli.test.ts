@@ -87,11 +87,15 @@ async function fixture() {
   return { args, caseFile };
 }
 
-async function invoke(args: string[], scenario = "pass") {
+async function invoke(
+  args: string[],
+  scenario = "pass",
+  environment: Record<string, string> = {},
+) {
   const proc = Bun.spawn(args, {
     stdout: "pipe",
     stderr: "pipe",
-    env: { ...process.env, SEVRO_TEST_SCENARIO: scenario },
+    env: { ...process.env, SEVRO_TEST_SCENARIO: scenario, ...environment },
   });
   const [stdout, stderr, code] = await Promise.all([
     new Response(proc.stdout).text(),
@@ -1581,6 +1585,113 @@ if (affected && scenario.startsWith("duplicate-")) process.stdout.write(JSON.str
     launches,
   };
 }
+
+async function claudeCacheFixture() {
+  const { args, caseFile } = await fixture();
+  const projectRoot = join(caseFile, "..");
+  const binaryRoot = await mkdtemp(join(tmpdir(), "sevro-cache-bin-"));
+  roots.push(binaryRoot);
+  const binary = join(binaryRoot, "claude");
+  const credentialFile = join(projectRoot, "credential.json");
+  const uvCacheDir = join(binaryRoot, "uv-cache");
+  await mkdir(uvCacheDir);
+  await writeFile(join(uvCacheDir, "sentinel"), "curated");
+  await writeFile(credentialFile, '{"test":"synthetic-login"}', {
+    mode: 0o600,
+  });
+  const definition = JSON.parse(await readFile(caseFile, "utf8"));
+  definition.fixture = {
+    kind: "generated",
+    commits: [
+      { message: "chore: initial", files: { "README.md": "fixture\n" } },
+    ],
+  };
+  await writeFile(caseFile, JSON.stringify(definition));
+  await writeFile(
+    binary,
+    `#!${process.execPath}
+import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
+import { isAbsolute, relative, join } from "node:path";
+if (Object.hasOwn(process.env, "DARROW_CACHE_DIR")) process.exit(8);
+const home = await realpath(process.env.HOME);
+const path = relative(join(process.cwd(), ".git"), home);
+if (!isAbsolute(home) || path === ".." || path.startsWith("../") || isAbsolute(path)) process.exit(9);
+if (await readFile(join(process.env.UV_CACHE_DIR, "sentinel"), "utf8") !== "curated" ||
+    process.env.UV_OFFLINE !== "1" || process.env.PYTHONDONTWRITEBYTECODE !== "1") process.exit(10);
+await mkdir(join(home, ".tool-cache"), { recursive: true });
+await writeFile(join(home, ".tool-cache", "probe"), "isolated");
+await writeFile(".git/candidate-home", home);
+process.stdout.write(JSON.stringify({ type: "result", subtype: "success", is_error: false, result: "ready" }) + "\\n");
+`,
+    { mode: 0o700 },
+  );
+  const command = args.filter(
+    (value, index) =>
+      value !== "--adapter-module" && args[index - 1] !== "--adapter-module",
+  );
+  return {
+    caseFile,
+    command: [
+      ...command,
+      "--host",
+      "claude",
+      "--claude-bin",
+      binary,
+      "--claude-credential-file",
+      credentialFile,
+      "--claude-uv-cache-dir",
+      uvCacheDir,
+      "--model",
+      "synthetic",
+      "--effort",
+      "low",
+    ],
+  };
+}
+
+test("CLI curated Claude runtime leaves repository caches to tools", async () => {
+  if (process.platform !== "darwin") return;
+  const { command } = await claudeCacheFixture();
+  const proc = Bun.spawn(command, {
+    stdout: "pipe",
+    stderr: "pipe",
+    env: { ...process.env, DARROW_CACHE_DIR: "/unavailable-caller-cache" },
+  });
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  const result = JSON.parse(stdout);
+  expect(code, stderr + stdout).toBe(0);
+  expect(result).toMatchObject({
+    execution: { status: "completed" },
+    grading: { status: "completed" },
+    task: { verdict: "passed" },
+  });
+});
+
+test("CLI curated shell grading leaves repository caches to tools", async () => {
+  if (process.platform !== "darwin") return;
+  const { command, caseFile } = await claudeCacheFixture();
+  const definition = JSON.parse(await readFile(caseFile, "utf8"));
+  definition.checks.push({
+    id: "isolated-cache",
+    grader: "sevro.shell",
+    configuration: {
+      run: 'test -z "${DARROW_CACHE_DIR+x}" && test "$(cat "$UV_CACHE_DIR/sentinel")" = curated && test "$UV_OFFLINE" = 1 && test "$HOME" != "$(cat .git/candidate-home)" && mkdir -p "$HOME/.tool-cache" && printf isolated > "$HOME/.tool-cache/probe" && test "$(git status --porcelain)" = ""',
+    },
+  });
+  await writeFile(caseFile, JSON.stringify(definition));
+  const run = await invoke([...command, "--shell-isolation"], "pass", {
+    DARROW_CACHE_DIR: "/unavailable-caller-cache",
+  });
+  expect(run.code, run.stderr + JSON.stringify(run.result)).toBe(0);
+  expect(run.result.task.verdict).toBe("passed");
+  expect(run.result.cases[0].trials[0].checks).toContainEqual(
+    expect.objectContaining({ id: "isolated-cache", status: "passed" }),
+  );
+});
 
 test("CLI resumes Claude in the same isolated session and grades its final turn", async () => {
   if (process.platform !== "darwin") return;

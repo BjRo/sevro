@@ -371,14 +371,13 @@ export function createClaudeHost(options: ClaudeHostOptions): HostAdapter {
             .filter(Boolean)
             .join(delimiter),
           LANG: process.env.LANG ?? "C",
-          HOME: home,
+          HOME: runtimeRoot ? join(runtimeRoot, "host-home") : home,
           TMPDIR: temp,
           CLAUDE_CONFIG_DIR: dirname(credential),
           NO_COLOR: "1",
           ...(runtimeRoot
             ? {
                 UV_CACHE_DIR: join(runtimeRoot, "uv-cache"),
-                DARROW_CACHE_DIR: join(runtimeRoot, "darrow-cache"),
                 UV_PROJECT_ENVIRONMENT: join(
                   runtimeRoot,
                   "project-environment",
@@ -388,6 +387,7 @@ export function createClaudeHost(options: ClaudeHostOptions): HostAdapter {
               }
             : {}),
         };
+        if (runtimeRoot) await mkdir(env.HOME!, { mode: 0o700 });
         const runTurn = (prompt: string, session?: ClaudeSession) =>
           runProcess({
             argv: [

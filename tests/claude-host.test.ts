@@ -148,7 +148,7 @@ test("Claude host runs with native sandbox settings and declared plugins", async
       'test "$UV_OFFLINE" = 1 || exit 7',
       'test "$PYTHONDONTWRITEBYTECODE" = 1 || exit 10',
       'test "${UV_PROJECT_ENVIRONMENT#*/.git/sevro-runtime/}" = project-environment || exit 11',
-      'test "${DARROW_CACHE_DIR#*/.git/sevro-runtime/}" = darrow-cache || exit 8',
+      'test -z "${DARROW_CACHE_DIR+x}" || exit 8',
       "command -v sevro-tool >/dev/null || exit 9",
       'printf "%s\\n" "$@" > argv.txt',
       'while [ "$#" -gt 1 ]; do if [ "$1" = --settings ]; then settings=$2; break; fi; shift; done',
