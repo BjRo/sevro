@@ -44,6 +44,9 @@ artifacts without a dimension cannot be silently assigned a current identity.
 Credential values, raw transcripts, and temporary output locations never enter
 the stored dimensions. A credential's presence can be recorded in a redacted
 configuration; its bytes are never retained in evidence or its digest input.
+The effective positive trial job limit is retained as `configuration.redacted.jobs`
+and enters `configurationDigest`. Changing parallelism changes evaluation identity,
+even when the condition, host route, trial count, and assessment threshold match.
 
 Extension runs retain the operator-supplied redacted extension configuration
 under `configuration.redacted.extensionConfiguration`, alongside

@@ -60,6 +60,7 @@ test("failed Claude execution retains private evidence without grading", async (
     condition: "passive",
     trialCount: 2,
     passThreshold: 1,
+    jobs: 1,
     case: {
       id: "failed-host",
       prompt: "Return ready.",

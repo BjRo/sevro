@@ -16,6 +16,18 @@ files, and staged overlay paths before execution. Each trial builds the same
 history with a fixed local identity and date, then applies its own working-tree
 state. The declarative history enters fixture identity; no trial can inherit a
 previous trial's edits.
+The engine runs up to the configured positive `jobs` limit at once, defaulting
+to three. Each admitted trial owns its workspace and artifact names. Completed
+trial evidence is checkpointed before cleanup and retained in trial-number order,
+including when trials complete out of order. Errors stop later admission and
+active work drains before finalization. Use one job when serial ordering is needed;
+custom hosts must support independent concurrent calls when the limit is higher.
+Reserve all candidate and semantic workspace roots before launching a process;
+prepare fixture contents only after admission. Sandbox deny lists include future
+peers. Clear completed candidate contents after retention, keep their empty roots
+until active work drains, and then remove unused and completed reservations.
+Close admission when an execution or required grading error is detected, before
+advisory work, persistence, or cleanup. Already admitted peers still retain evidence.
 For each trial it creates a separate workspace, asks the adapter to run the
 prompt, grades its bounded final message, writes the raw-message reference and
 trial artifact, and only then removes the workspace. An adapter exception

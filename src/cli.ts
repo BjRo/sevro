@@ -155,6 +155,7 @@ function parseInvocation(argv: string[]) {
           "project-digest": { type: "string" },
           condition: { type: "string" },
           trials: { type: "string" },
+          jobs: { type: "string", default: "3" },
           threshold: { type: "string" },
         },
       } as const);
@@ -169,9 +170,12 @@ function parseInvocation(argv: string[]) {
   if (condition !== "passive" && condition !== "enforced")
     throw new InvocationError("invalid --condition");
   const trialCount = Number(requiredOption(values.trials, "--trials"));
+  const jobs = Number(requiredOption(values.jobs, "--jobs"));
   const passThreshold = Number(requiredOption(values.threshold, "--threshold"));
   if (!Number.isSafeInteger(trialCount) || trialCount < 1)
     throw new InvocationError("invalid --trials");
+  if (!Number.isSafeInteger(jobs) || jobs < 1)
+    throw new InvocationError("invalid --jobs");
   if (
     !Number.isFinite(passThreshold) ||
     passThreshold <= 0 ||
@@ -471,6 +475,7 @@ function parseInvocation(argv: string[]) {
     projectDigest: optionalDigest(values["project-digest"], "--project-digest"),
     condition: condition as "passive" | "enforced",
     trialCount,
+    jobs,
     passThreshold,
   };
 }
@@ -787,6 +792,7 @@ async function main(argv: string[]): Promise<void> {
         )),
       condition: invocation.condition,
       trialCount: invocation.trialCount,
+      jobs: invocation.jobs,
       passThreshold: invocation.passThreshold,
       dry: invocation.dry,
       signal: cancellation.signal,

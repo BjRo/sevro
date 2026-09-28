@@ -13,6 +13,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   realpath,
   rm,
   writeFile,
@@ -96,6 +97,7 @@ import { assertCliResult, assertRunEvidence } from "./schema";
 import { atomicWriteJson } from "./storage";
 import { projectProvenance, runnerProvenance } from "./provenance";
 import { checkpointRunOwner, startRunOwner } from "./run-owner";
+import { scheduleTrials } from "./trial-scheduler";
 
 const MAX_FINAL_MESSAGE_BYTES = 8 * 1024 * 1024;
 
@@ -195,6 +197,7 @@ export interface EvaluationOptions {
   projectDigest: string;
   condition: "passive" | "enforced";
   trialCount: number;
+  jobs?: number;
   passThreshold: number;
   dry?: boolean;
   signal?: AbortSignal;
@@ -240,6 +243,7 @@ async function createFixture(
   setup: FixtureSetup | null,
   projectRoot: string,
   signal?: AbortSignal,
+  reservedWorkspace?: string,
 ): Promise<string> {
   const paths = Object.entries(
     generated || repository ? {} : (fixture.files ?? {}),
@@ -248,7 +252,8 @@ async function createFixture(
     parts: fixtureParts(path),
     content,
   }));
-  const workspace = await mkdtemp(join(tmpdir(), "sevro-case-"));
+  const workspace =
+    reservedWorkspace ?? (await mkdtemp(join(tmpdir(), "sevro-case-")));
   try {
     if (repository)
       await cloneRepositorySource(
@@ -308,7 +313,8 @@ async function createFixture(
     await fixtureBinDirectory(workspace);
     return workspace;
   } catch (error) {
-    await rm(workspace, { recursive: true, force: true });
+    if (!reservedWorkspace)
+      await rm(workspace, { recursive: true, force: true });
     throw error;
   }
 }
@@ -489,6 +495,9 @@ export async function runEvaluation(
     throw new EvaluationConfigurationError(
       "trial count must be a positive integer",
     );
+  const jobs = options.jobs ?? 3;
+  if (!Number.isSafeInteger(jobs) || jobs < 1)
+    throw new EvaluationConfigurationError("jobs must be a positive integer");
   if (
     !Number.isFinite(options.passThreshold) ||
     options.passThreshold <= 0 ||
@@ -1105,6 +1114,7 @@ export async function runEvaluation(
     condition: options.condition,
     executionMode: options.dry ? "dry" : "executed",
     trialCount: options.trialCount,
+    jobs,
     passThreshold: options.passThreshold,
     ...([
       options.host,
@@ -1277,6 +1287,9 @@ export async function runEvaluation(
       await rm(stateDir, { recursive: true, force: true });
     throw error;
   }
+  const reservedWorkspaces: string[] = [];
+  const reservedSemanticWorkspaces: string[] = [];
+  const retainedWorkspaces = new Set<string>();
   try {
     const artifactRefs: {
       id: string;
@@ -1313,8 +1326,25 @@ export async function runEvaluation(
       }));
       checkpointRunOwner(owner, completedTrials, status);
     }
-    let diagnostic: { code: string; message: string } | undefined;
-    for (let trial = 1; trial <= options.trialCount; trial++) {
+    for (
+      let trial = 1;
+      trial <= options.trialCount && !options.signal?.aborted;
+      trial++
+    ) {
+      reservedWorkspaces.push(await mkdtemp(join(tmpdir(), "sevro-case-")));
+      if (preparedSemantic.length)
+        reservedSemanticWorkspaces.push(
+          await mkdtemp(join(tmpdir(), "sevro-case-")),
+        );
+    }
+    const diagnostics: {
+      trial: number;
+      diagnostic: { code: string; message: string };
+    }[] = [];
+    const runTrial = async (trial: number, stopAdmission: () => void) => {
+      let diagnostic: { code: string; message: string } | undefined;
+      const reservation = reservedWorkspaces[trial - 1]!;
+      retainedWorkspaces.add(reservation);
       const workspace = await createFixture(
         options.case.fixture,
         inlineArtifacts,
@@ -1325,6 +1355,7 @@ export async function runEvaluation(
         fixtureSetup,
         projectRoot,
         options.signal,
+        reservation,
       );
       const fixtureBinDir = (await fixtureBinDirectory(workspace)) ?? undefined;
       const trialPrompt = options.case.prompt
@@ -1452,6 +1483,7 @@ export async function runEvaluation(
             );
             if (hostResult.executionFailed) {
               execution = "failed";
+              stopAdmission();
               diagnostic = {
                 code: "sevro.host.failed",
                 message: "host execution did not complete",
@@ -1459,6 +1491,7 @@ export async function runEvaluation(
             }
           } catch (error) {
             execution = options.signal?.aborted ? "cancelled" : "failed";
+            stopAdmission();
             hostResult = null;
             diagnostic = {
               code:
@@ -1563,6 +1596,7 @@ export async function runEvaluation(
             }));
           } catch {
             graderError = true;
+            stopAdmission();
             diagnostic = {
               code: "sevro.grader.error",
               message: "output grading did not complete",
@@ -1635,6 +1669,7 @@ export async function runEvaluation(
                 code: "sevro.grader.error",
                 message: "shell grading did not complete",
               };
+              stopAdmission();
             }
           }
         }
@@ -1687,6 +1722,7 @@ export async function runEvaluation(
                 code: "sevro.grader.error",
                 message: "Git HEAD grading did not complete",
               };
+              stopAdmission();
             }
           }
         }
@@ -1714,6 +1750,8 @@ export async function runEvaluation(
               null,
               null,
               projectRoot,
+              options.signal,
+              reservedSemanticWorkspaces[trial - 1],
             );
             let semanticResult: HostResult | null = null;
             let semanticArtifacts: ReturnType<typeof hostArtifacts> = [];
@@ -1755,6 +1793,7 @@ export async function runEvaluation(
                   code: "sevro.grader.error",
                   message: "semantic grading did not complete",
                 };
+                stopAdmission();
               }
             } finally {
               await rm(semanticWorkspace, { recursive: true, force: true });
@@ -1838,6 +1877,7 @@ export async function runEvaluation(
                   code: "sevro.grader.error",
                   message: "semantic grading did not complete",
                 };
+                stopAdmission();
               }
             }
           }
@@ -1903,6 +1943,7 @@ export async function runEvaluation(
                 code: "sevro.grader.error",
                 message: "extension grading did not complete",
               };
+              stopAdmission();
             }
           }
         }
@@ -2139,28 +2180,48 @@ export async function runEvaluation(
         }
         persisted = true;
         trialSummaries.push(trialSummary);
+        trialSummaries.sort((left, right) => left.trial - right.trial);
         trialEvidence.push(evidence);
+        trialEvidence.sort(
+          (left, right) => Number(left.trial) - Number(right.trial),
+        );
+        if (diagnostic) diagnostics.push({ trial, diagnostic });
         saveState("active");
-        if (
+        return !(
           (execution !== "completed" && execution !== "not_run") ||
           graderError
-        )
-          break;
+        );
       } finally {
         if (persisted) {
           try {
-            await rm(workspace, { recursive: true, force: true });
+            await Promise.all(
+              (await readdir(workspace)).map((name) =>
+                rm(join(workspace, name), { recursive: true, force: true }),
+              ),
+            );
+            retainedWorkspaces.delete(reservation);
           } catch {
             console.warn(`fixture cleanup failed; retained at ${workspace}`);
           }
         }
       }
-    }
-
-    const caseAssessment = summarizeAssessments(
-      trialSummaries,
-      options.passThreshold,
+    };
+    await scheduleTrials(
+      { count: options.trialCount, jobs, signal: options.signal },
+      runTrial,
     );
+    const diagnostic = diagnostics.sort(
+      (left, right) => left.trial - right.trial,
+    )[0]?.diagnostic;
+
+    const caseAssessment: Assessment =
+      !trialSummaries.length && options.signal?.aborted
+        ? {
+            execution: { status: "cancelled" },
+            grading: { status: "not_requested" },
+            task: { verdict: "not_assessed" },
+          }
+        : summarizeAssessments(trialSummaries, options.passThreshold);
     const caseResult: CaseSummary = {
       caseId: options.case.id,
       ...caseAssessment,
@@ -2263,5 +2324,17 @@ export async function runEvaluation(
       // Preserve the original failure; retained artifacts remain inspectable.
     }
     throw error;
+  } finally {
+    await Promise.all(
+      [...reservedWorkspaces, ...reservedSemanticWorkspaces]
+        .filter((workspace) => !retainedWorkspaces.has(workspace))
+        .map(async (workspace) => {
+          try {
+            await rm(workspace, { recursive: true, force: true });
+          } catch {
+            console.warn(`fixture cleanup failed; retained at ${workspace}`);
+          }
+        }),
+    );
   }
 }

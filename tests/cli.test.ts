@@ -926,10 +926,13 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 export default {
   id: "synthetic", model: "synthetic-v1", effort: "none",
   async run({ signal }) {
-    await writeFile(${JSON.stringify(ready)}, "ready");
-    return new Promise((_resolve, reject) => {
-      signal.addEventListener("abort", () => reject(new Error("cancelled")), { once: true });
+    const cancelled = new Promise((_resolve, reject) => {
+      if (signal.aborted) reject(new Error("cancelled"));
+      else signal.addEventListener("abort", () => reject(new Error("cancelled")), { once: true });
     });
+    cancelled.catch(() => {});
+    await writeFile(${JSON.stringify(ready)}, "ready");
+    return cancelled;
   },
 };
 `,

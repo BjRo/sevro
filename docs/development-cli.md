@@ -52,6 +52,29 @@ only passive conditions. `--host` and `--adapter-module` are exclusive. Use
 `--protected-root` to add private roots for Codex, including when no shell
 checks are selected.
 
+### Trial concurrency
+
+`--jobs <positive integer>` bounds simultaneous trials within one case and
+defaults to `3`. Use `--jobs 1` for serial execution. Each trial has an isolated
+workspace and distinct retained artifacts. Completed trials are checkpointed
+before cleanup; public results and checkpoint entries retain trial-number order
+even when completion order differs. The effective job limit is retained in
+redacted configuration and participates in evaluation identity.
+
+Cancellation stops admission of later trials, reaches all active host calls,
+and waits for them to retain their results before finalizing the run. Execution
+or grading errors also stop admission while already active trials finish.
+Persistence errors drain active trials before the attempt becomes diagnostic;
+their completed evidence survives, and a trial whose evidence could not be
+persisted keeps its fixture.
+
+Sevro reserves candidate and semantic workspace roots before execution so each
+sandbox denies later peers as well as active ones. Fixture preparation stays
+within the job limit. Completed candidate contents are removed after retention;
+empty reservations stay until active trials drain, then unused and completed
+roots are removed. A cancellation before any admission retains an interrupted
+run with no trial evidence and exits `130` or `143` without calling a host.
+
 ### Project and configuration roots
 
 `--project-root` identifies the evaluated project and extension case discovery.

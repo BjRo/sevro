@@ -47,11 +47,13 @@ export async function evaluationProtectedRoots(options: {
     }
     if (canonical !== workspace) {
       roots.push(canonical);
-      roots.push(
-        ...(await protectedWorktrees(canonical)).filter(
-          (root) => root !== workspace,
-        ),
-      );
+      // Peers are denied directly; their Git preparation may still be in progress.
+      if (!peers.includes(candidate))
+        roots.push(
+          ...(await protectedWorktrees(canonical)).filter(
+            (root) => root !== workspace,
+          ),
+        );
     }
   }
   return [...new Set(roots)];

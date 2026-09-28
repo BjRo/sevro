@@ -66,6 +66,7 @@ test("runs trials, applies threshold, and retains evidence before fixture cleanu
     projectDigest: digest,
     condition: "passive",
     trialCount: 2,
+    jobs: 1,
     passThreshold: 0.5,
   });
   expect(outcome.result).toMatchObject({
@@ -379,6 +380,7 @@ test("host artifacts are retained per trial and can satisfy required evidence", 
     projectDigest: digest,
     condition: "passive" as const,
     trialCount: 2,
+    jobs: 1,
     passThreshold: 1,
   };
   const outcome = await runEvaluation(options);
@@ -723,6 +725,7 @@ test("host failure retains completed trials and reports execution failure", asyn
     projectDigest: digest,
     condition: "passive",
     trialCount: 3,
+    jobs: 1,
     passThreshold: 0.5,
   });
   expect(call).toBe(2);
@@ -828,6 +831,7 @@ test("cancellation retains prior trial evidence and finalizes interruption", asy
     condition: "passive",
     trialCount: 2,
     passThreshold: 1,
+    jobs: 1,
     signal: controller.signal,
   });
   await Promise.race([
