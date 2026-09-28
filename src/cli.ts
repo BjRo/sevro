@@ -10,6 +10,10 @@ import {
   type ResolvedCase,
 } from "./engine";
 import { createCodexHost } from "./hosts/codex";
+import {
+  codexAgentConcurrency,
+  configurationRoot,
+} from "./hosts/codex-configuration";
 import { createClaudeHost } from "./hosts/claude";
 import { prepareGeneratedFixture } from "./generated-fixture";
 import { prepareRepositoryFixture } from "./repository-fixture";
@@ -143,6 +147,7 @@ function parseInvocation(argv: string[]) {
           "shell-isolation": { type: "boolean" },
           "protected-root": { type: "string", multiple: true },
           "project-root": { type: "string" },
+          "config-root": { type: "string" },
           "results-root": { type: "string" },
           "run-state-root": { type: "string" },
           "runner-build-digest": { type: "string" },
@@ -242,6 +247,10 @@ function parseInvocation(argv: string[]) {
   )
     throw new InvocationError("--protected-root requires isolation");
   const projectRoot = absoluteOption(values["project-root"], "--project-root");
+  const configRoot =
+    values["config-root"] !== undefined
+      ? absoluteOption(values["config-root"], "--config-root")
+      : projectRoot;
   const resultsRoot = absoluteOption(values["results-root"], "--results-root");
   const runStateRoot = values["run-state-root"]
     ? absoluteOption(values["run-state-root"], "--run-state-root")
@@ -295,6 +304,7 @@ function parseInvocation(argv: string[]) {
   )
     throw new InvocationError("case sources require a root and map file");
   const privateRoots = [
+    configRoot,
     ...protectedRoots,
     ...(values["claude-credential-file"]
       ? [values["claude-credential-file"]]
@@ -448,6 +458,7 @@ function parseInvocation(argv: string[]) {
         }
       : undefined,
     projectRoot,
+    configRoot,
     resultsRoot,
     runStateRoot,
     runnerBuildDigest: optionalDigest(
@@ -669,20 +680,31 @@ async function main(argv: string[]): Promise<void> {
   let advisoryHost: HostAdapter | undefined;
   try {
     invocation = parseInvocation(argv);
+    const configRoot = await configurationRoot(invocation.configRoot);
+    const agentConcurrencyLimit =
+      invocation.codex || invocation.semanticCodex || invocation.advisoryCodex
+        ? await codexAgentConcurrency(configRoot)
+        : null;
     if (invocation.caseFile) caseData = await loadCase(invocation.caseFile);
     host = invocation.codex
-      ? createCodexHost(invocation.codex)
+      ? createCodexHost({ ...invocation.codex, agentConcurrencyLimit })
       : invocation.claude
         ? createClaudeHost(invocation.claude)
         : await loadHost(invocation.adapterModule!);
     if (invocation.semanticAdapterModule)
       semanticHost = await loadHost(invocation.semanticAdapterModule);
     else if (invocation.semanticCodex)
-      semanticHost = createCodexHost(invocation.semanticCodex);
+      semanticHost = createCodexHost({
+        ...invocation.semanticCodex,
+        agentConcurrencyLimit,
+      });
     if (invocation.advisoryAdapterModule)
       advisoryHost = await loadHost(invocation.advisoryAdapterModule);
     else if (invocation.advisoryCodex)
-      advisoryHost = createCodexHost(invocation.advisoryCodex);
+      advisoryHost = createCodexHost({
+        ...invocation.advisoryCodex,
+        agentConcurrencyLimit,
+      });
   } catch (error) {
     const result = failure(
       64,

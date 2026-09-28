@@ -52,6 +52,27 @@ only passive conditions. `--host` and `--adapter-module` are exclusive. Use
 `--protected-root` to add private roots for Codex, including when no shell
 checks are selected.
 
+### Project and configuration roots
+
+`--project-root` identifies the evaluated project and extension case discovery.
+Use optional `--config-root /absolute/path/to/configuration` to import Codex
+settings from a separate directory. It defaults to the project root. Sevro
+captures only `agents.max_concurrent_threads_per_session` from
+`.codex/config.toml` once per invocation and applies it to the candidate,
+semantic judge, and advisory reviewer when those roles use Codex. The value
+must be a positive TOML integer within JavaScript's safe integer range. Missing
+files or an absent setting retain the host default; malformed, unreadable,
+oversized, or linked configuration files fail with exit `64` before execution.
+Model, permission, hook, credential, and environment settings are not imported.
+
+Retained `configuration.redacted.hostConfiguration` records the effective
+namespaced setting separately for each used role. A changed setting changes
+evaluation identity. The selected configuration root and its primary and linked
+Git worktrees are protected from bundled candidates and isolated shell checks.
+The same worktree protection applies to other declared source and private roots;
+a package without Git metadata remains usable. Result and active-run storage
+stay independent through `--results-root` and `--run-state-root`.
+
 A bundled Claude Code candidate route is available on macOS:
 
 ```sh

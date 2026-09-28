@@ -1,6 +1,7 @@
 import { readdir, realpath } from "node:fs/promises";
 import { homedir, tmpdir, userInfo } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
+import { protectedWorktrees } from "./protected-worktrees";
 
 /** Include source, results, host configuration, and every active peer fixture. */
 export async function evaluationProtectedRoots(options: {
@@ -44,7 +45,14 @@ export async function evaluationProtectedRoots(options: {
         continue;
       throw new Error("evaluation protected root is unreadable");
     }
-    if (canonical !== workspace) roots.push(canonical);
+    if (canonical !== workspace) {
+      roots.push(canonical);
+      roots.push(
+        ...(await protectedWorktrees(canonical)).filter(
+          (root) => root !== workspace,
+        ),
+      );
+    }
   }
   return [...new Set(roots)];
 }

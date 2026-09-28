@@ -91,6 +91,7 @@ export interface CodexHostOptions {
   projectRoot: string;
   resultsRoot: string;
   additionalProtectedRoots: string[];
+  agentConcurrencyLimit?: number | null;
   timeoutMs?: number;
   /** Integration-test seam; production uses the same CLI for execution and preflight. */
   sandboxBinary?: string;
@@ -311,6 +312,7 @@ async function marketplaceRoot(
 /** Construct one Codex route without inheriting user settings or credentials. */
 export function createCodexHost(options: CodexHostOptions): HostAdapter {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const agentConcurrencyLimit = options.agentConcurrencyLimit ?? null;
   if (
     !isAbsolute(options.binary) ||
     !isAbsolute(options.authFile) ||
@@ -321,6 +323,9 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
       !isAbsolute(options.sandboxBinary)) ||
     !options.model ||
     !options.effort ||
+    (agentConcurrencyLimit !== null &&
+      (!Number.isSafeInteger(agentConcurrencyLimit) ||
+        agentConcurrencyLimit < 1)) ||
     !Number.isSafeInteger(timeoutMs) ||
     timeoutMs < 1 ||
     timeoutMs > MAX_TIMEOUT_MS
@@ -340,6 +345,9 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
     ],
     model: options.model,
     effort: options.effort,
+    configuration: {
+      "sevro.codex.agent-concurrency-limit": agentConcurrencyLimit,
+    },
     async run(request) {
       if (
         request.followUpPrompt !== undefined &&
@@ -409,7 +417,10 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
               ? { pluginReadRoot: pluginCacheRoot }
               : {}),
             protectedRoots,
-          }),
+          }) +
+            (agentConcurrencyLimit === null
+              ? ""
+              : `\n[agents]\nmax_concurrent_threads_per_session = ${agentConcurrencyLimit}\n`),
           { flag: "wx", mode: 0o600 },
         );
         const shellRoot = join(request.workspace, ".git", "sevro-shell");

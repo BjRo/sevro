@@ -51,3 +51,12 @@ under `configuration.redacted.extensionConfiguration`, alongside
 for extension configuration identity. Private configuration stays outside run
 evidence. Consumers can compare the visible configuration with their declared
 inputs without reconstructing the engine's component digest inputs.
+
+Hosts may supply explicit, redacted `configuration` values. Sevro retains them
+under `configuration.redacted.hostConfiguration`, keyed by the used candidate,
+semantic, or advisory role, and includes them in `configurationDigest`. Custom
+adapter authors must keep secrets out of this object. Bundled Codex roles record
+`sevro.codex.agent-concurrency-limit` as the captured positive integer or `null`
+for the host default. Configuration paths and unrelated TOML bytes are not
+imported settings; a relocated configuration with the same effective values
+keeps this component unchanged.

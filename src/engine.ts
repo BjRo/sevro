@@ -130,6 +130,7 @@ export interface HostAdapter {
   effort: string;
   instrumentation?: InstrumentationCapability[];
   hostCapabilities?: string[];
+  configuration?: Record<string, unknown>;
   run(request: {
     prompt: string;
     followUpPrompt?: string;
@@ -1105,6 +1106,26 @@ export async function runEvaluation(
     executionMode: options.dry ? "dry" : "executed",
     trialCount: options.trialCount,
     passThreshold: options.passThreshold,
+    ...([
+      options.host,
+      preparedSemantic.length ? options.semanticHost : undefined,
+      options.advisoryHost,
+    ].some((host) => host?.configuration !== undefined)
+      ? {
+          hostConfiguration: {
+            ...(options.host.configuration !== undefined
+              ? { candidate: options.host.configuration }
+              : {}),
+            ...(preparedSemantic.length &&
+            options.semanticHost?.configuration !== undefined
+              ? { semantic: options.semanticHost.configuration }
+              : {}),
+            ...(options.advisoryHost?.configuration !== undefined
+              ? { advisory: options.advisoryHost.configuration }
+              : {}),
+          },
+        }
+      : {}),
     extensionConfigurationDigest:
       options.extension?.session.identity.configurationDigest ?? null,
     ...(options.extension
