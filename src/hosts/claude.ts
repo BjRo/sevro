@@ -12,6 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { delimiter, dirname, isAbsolute, join, relative, sep } from "node:path";
 import type { HostAdapter } from "../engine";
+import { claudeNativeControls } from "./native-controls";
 import { fixtureParts } from "../preparation";
 import { stageClaudeCredential } from "./claude-credential";
 import { summarizeClaudeEvents } from "./claude-events";
@@ -260,6 +261,7 @@ export function createClaudeHost(options: ClaudeHostOptions): HostAdapter {
         ? ["sevro.claude.repository-invocation"]
         : []),
       "sevro.claude.tool-calls",
+      "sevro.host.native-controls",
       "sevro.claude.nested-skills",
     ],
     async run(request) {
@@ -436,6 +438,7 @@ export function createClaudeHost(options: ClaudeHostOptions): HostAdapter {
           observations: [
             toolCalls,
             nestedSkills,
+            claudeNativeControls(execution.out, execution.code),
             ...(repositoryObservation ? [repositoryObservation] : []),
           ],
           artifacts: [

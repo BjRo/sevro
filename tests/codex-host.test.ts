@@ -143,6 +143,18 @@ test("Codex host binds bounded native calls to its completed thread", async () =
     workspace,
     condition: "passive",
   });
+  expect(host.hostCapabilities).toContain("sevro.host.native-controls");
+  expect(result.observations).toContainEqual({
+    id: "sevro.host.native-controls",
+    completeness: "complete",
+    data: {
+      method: "native_control_calls",
+      calls: [{ ordinal: 0, namespace: "functions", name: "create_goal" }],
+      acceptedAgentCount: 0,
+      submittedExecCalls: 0,
+      truncated: false,
+    },
+  });
   expect(result.observations).toContainEqual({
     id: "sevro.codex.native-calls",
     completeness: "complete",

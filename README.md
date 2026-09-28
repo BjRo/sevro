@@ -42,6 +42,8 @@ view of the complete candidate change while withholding evaluator paths.
 The [development CLI](docs/development-cli.md) runs that path with a trusted
 adapter module or the bundled Codex and Claude Code routes and emits a
 machine-readable result.
+The [native control observation](docs/native-controls.md) exposes bounded tool
+labels for extension policy on both Codex and Claude, with explicit completeness.
 
 The packaged [basic example](examples/basic/) runs without Darrow or a model
 account. From this checkout, run the graded case with:

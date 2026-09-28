@@ -14,6 +14,7 @@ import {
 import { tmpdir } from "node:os";
 import { delimiter, dirname, isAbsolute, join, relative, sep } from "node:path";
 import type { HostAdapter } from "../engine";
+import { codexNativeControls } from "./native-controls";
 import { fixtureParts } from "../preparation";
 import { summarizeCodexEvents } from "./codex-events";
 import {
@@ -333,6 +334,7 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
       "sevro.codex.explicit-invocation",
       "sevro.codex.repository-invocation",
       "sevro.codex.native-calls",
+      "sevro.host.native-controls",
       "sevro.codex.initial-skill-reads",
       "sevro.codex.follow-up-skill-reads",
     ],
@@ -713,6 +715,7 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
             ...(initialSkillReads ? [initialSkillReads] : []),
             ...(followUpSkillReads ? [followUpSkillReads] : []),
             nativeCalls,
+            codexNativeControls(nativeCalls),
             ...(continuationObservation ? [continuationObservation] : []),
             ...(explicitReceipt ? [explicitReceipt] : []),
           ],

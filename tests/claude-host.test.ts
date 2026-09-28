@@ -188,6 +188,18 @@ test("Claude host runs with native sandbox settings and declared plugins", async
   });
   expect(result.finalMessage).toBe("ready");
   expect(result.complete).toBe(true);
+  expect(host.hostCapabilities).toContain("sevro.host.native-controls");
+  expect(result.observations).toContainEqual({
+    id: "sevro.host.native-controls",
+    completeness: "complete",
+    data: {
+      method: "native_control_calls",
+      calls: [],
+      acceptedAgentCount: null,
+      submittedExecCalls: null,
+      truncated: false,
+    },
+  });
   expect(result.observations?.[0]).toMatchObject({
     id: "sevro.claude.tool-calls",
     completeness: "complete",
