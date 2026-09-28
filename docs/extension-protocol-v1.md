@@ -75,7 +75,15 @@ response or an explicitly selected bridge; an unsupported protocol cannot be
 guessed from a failed extension call.
 
 `resolve` receives the selected project root, selectors, and extension
-configuration. It returns neutral case descriptions with stable IDs, prompts,
+configuration. The CLI also supplies `host` with the candidate adapter's `id`,
+`model`, `effort`, and available `capabilities`. The engine capability
+`sevro.case.host-route` guarantees this context; extensions that depend on it
+must negotiate that capability. These are selected route facts for preparing
+cases, not observations of completed execution. Semantic and advisory judge
+routes are not candidate context. Older v1 callers may omit `host` when this
+capability is unavailable.
+
+It returns neutral case descriptions with stable IDs, prompts,
 an optional `followUpPrompt` for a second turn in the same host session,
 fixture and built-in check declarations, required evidence declarations, and
 namespaced extension data. Paths in case descriptions are resolved and

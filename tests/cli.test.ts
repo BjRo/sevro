@@ -371,6 +371,42 @@ test("CLI resolves an explicit extension case and retains extension evidence", a
   expect(ambiguous.code).toBe(64);
 });
 
+test("CLI supplies the selected candidate route during extension resolution", async () => {
+  const { args, caseFile } = await fixture();
+  const commandFile = join(caseFile, "..", "extension-command.json");
+  await writeFile(
+    commandFile,
+    JSON.stringify([process.execPath, extensionSource, "lifecycle-host-route"]),
+  );
+  const command = args.filter(
+    (part, index) =>
+      part !== "--case-file" && args[index - 1] !== "--case-file",
+  );
+  command.push(
+    "--extension-command-file",
+    commandFile,
+    "--extension-source-file",
+    extensionSource,
+    "--case-id",
+    "extension-case",
+  );
+  const run = await invoke(command, "echo-prompt");
+  expect(run.code, run.stdout + run.stderr).toBe(0);
+  expect(run.result.task.verdict).toBe("passed");
+  const evidence = JSON.parse(await readFile(run.result.evidencePath, "utf8"));
+  const response = await readFile(
+    new URL(evidence.trials[0].rawResult.path),
+    "utf8",
+  );
+  expect(JSON.parse(response)).toEqual({
+    id: "sevro.host.synthetic",
+    model: "synthetic-v1",
+    effort: "none",
+    capabilities: [],
+  });
+  expect(evidence.extension.capabilities).toContain("sevro.case.host-route");
+});
+
 test("CLI text output names domain outcomes apart from the task verdict", async () => {
   const { args, caseFile } = await fixture();
   const commandFile = join(caseFile, "..", "extension-command.json");

@@ -6,11 +6,15 @@ const host: HostAdapter = {
   id: "sevro.host.synthetic",
   model: "synthetic-v1",
   effort: "none",
-  async run({ workspace }) {
+  async run({ workspace, prompt }) {
     await readFile(join(workspace, "README.md"), "utf8");
     return {
       finalMessage:
-        process.env.SEVRO_TEST_SCENARIO === "fail" ? "wait" : "ready",
+        process.env.SEVRO_TEST_SCENARIO === "echo-prompt"
+          ? prompt
+          : process.env.SEVRO_TEST_SCENARIO === "fail"
+            ? "wait"
+            : "ready",
       complete: true,
       inputTokens: null,
       outputTokens: null,

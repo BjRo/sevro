@@ -242,8 +242,18 @@ export async function openExtensionSession(options: ExtensionSessionOptions) {
     async resolve(
       projectRoot: string,
       selectors: Record<string, unknown>,
+      host?: {
+        id: string;
+        model: string;
+        effort: string;
+        capabilities: string[];
+      },
     ): Promise<ExtensionCase[]> {
-      const result = await call("resolve", { projectRoot, selectors });
+      const result = await call("resolve", {
+        projectRoot,
+        selectors,
+        ...(host ? { host } : {}),
+      });
       const cases = result.cases as ExtensionCase[];
       const ids = cases.map((item) => item.id);
       if (new Set(ids).size !== ids.length)

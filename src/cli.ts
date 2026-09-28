@@ -708,22 +708,34 @@ async function main(argv: string[]): Promise<void> {
     if (invocation.extension) {
       const selected = invocation.extension;
       const options = await loadExtensionOptions(selected);
+      const hostCapabilities = [
+        ...(host.instrumentation ?? []).map((item) => item.id),
+        ...(host.hostCapabilities ?? []),
+      ];
       const session = await openExtensionSession({
         ...options,
         sourceFiles: selected.sourceFiles,
-        engineCapabilities: ["sevro.host.exec", "sevro.fixture.setup"],
-        hostCapabilities: [
-          ...(host.instrumentation ?? []).map((item) => item.id),
-          ...(host.hostCapabilities ?? []),
+        engineCapabilities: [
+          "sevro.host.exec",
+          "sevro.fixture.setup",
+          "sevro.case.host-route",
         ],
+        hostCapabilities,
         taskVerdictPolicy: selected.taskVerdictPolicy,
         replaceBuiltinGraders: selected.replaceBuiltinGraders,
         signal: cancellation.signal,
       });
       const chosen = selectExtensionCase(
-        await session.resolve(pathToFileURL(invocation.projectRoot).href, {
-          caseIds: [selected.caseId],
-        }),
+        await session.resolve(
+          pathToFileURL(invocation.projectRoot).href,
+          { caseIds: [selected.caseId] },
+          {
+            id: host.id,
+            model: host.model,
+            effort: host.effort,
+            capabilities: hostCapabilities,
+          },
+        ),
         selected.caseId,
       );
       caseData = chosen.caseData;

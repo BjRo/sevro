@@ -221,6 +221,7 @@
       "properties": {
         "projectRoot": { "type": "string", "pattern": "^file:///" },
         "selectors": { "$ref": "#/$defs/selector" },
+        "host": { "$ref": "#/$defs/hostRoute" },
         "configuration": { "type": "object" }
       },
       "additionalProperties": false
@@ -354,6 +355,17 @@
       "required": ["cases"],
       "properties": {
         "cases": { "type": "array", "items": { "$ref": "#/$defs/case" } }
+      },
+      "additionalProperties": false
+    },
+    "hostRoute": {
+      "type": "object",
+      "required": ["id", "model", "effort", "capabilities"],
+      "properties": {
+        "id": { "$ref": "#/$defs/namespacedId" },
+        "model": { "type": "string", "minLength": 1 },
+        "effort": { "type": "string", "minLength": 1 },
+        "capabilities": { "$ref": "#/$defs/capabilities" }
       },
       "additionalProperties": false
     },

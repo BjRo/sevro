@@ -26,7 +26,10 @@ if (scenario === "malformed") {
 const discovery = {
   extension: { id: "example.extension", version: "1.0.0" },
   protocols: ["sevro.extension.v1"],
-  requiredCapabilities: ["sevro.host.exec"],
+  requiredCapabilities: [
+    "sevro.host.exec",
+    ...(scenario === "lifecycle-host-route" ? ["sevro.case.host-route"] : []),
+  ],
   optionalCapabilities: [
     "sevro.host.extra",
     ...(repositoryInvocation && !scenario.endsWith("unnegotiated")
@@ -103,7 +106,9 @@ const builtinCheck =
               scenario.startsWith("lifecycle-policy") ||
               scenario.startsWith("lifecycle-replace")
                 ? "never"
-                : "ready",
+                : scenario === "lifecycle-host-route"
+                  ? '"model":"synthetic-v1"'
+                  : "ready",
           },
         };
 const marketplaceFiles = {
@@ -130,23 +135,28 @@ const result = scenario.startsWith("lifecycle")
         cases: [
           {
             id: "extension-case",
-            prompt: claudeRepository
-              ? scenario.endsWith("repeated")
-                ? "{{sevro.skill_invocation}} {{sevro.skill_invocation}}"
-                : scenario.endsWith("nonleading")
-                  ? "Use {{sevro.skill_invocation}} and return ready."
-                  : "{{sevro.skill_invocation}} Return ready."
-              : scenario.includes("explicit-invocation")
-                ? scenario.endsWith("repeated")
-                  ? scenario.startsWith("lifecycle-claude-plugin")
-                    ? "Use {{sevro.skill_invocation}} and {{sevro.skill_invocation}}."
-                    : "Use {{sevro.codex.skill_invocation}} and {{sevro.codex.skill_invocation}}."
-                  : scenario.endsWith("later")
-                    ? "Wait for the next request."
-                    : scenario.startsWith("lifecycle-claude-plugin")
+            prompt:
+              scenario === "lifecycle-host-route"
+                ? JSON.stringify(
+                    (request.params as Record<string, unknown>).host ?? null,
+                  )
+                : claudeRepository
+                  ? scenario.endsWith("repeated")
+                    ? "{{sevro.skill_invocation}} {{sevro.skill_invocation}}"
+                    : scenario.endsWith("nonleading")
                       ? "Use {{sevro.skill_invocation}} and return ready."
-                      : "Use {{sevro.codex.skill_invocation}} and return ready."
-                : "Return ready.",
+                      : "{{sevro.skill_invocation}} Return ready."
+                  : scenario.includes("explicit-invocation")
+                    ? scenario.endsWith("repeated")
+                      ? scenario.startsWith("lifecycle-claude-plugin")
+                        ? "Use {{sevro.skill_invocation}} and {{sevro.skill_invocation}}."
+                        : "Use {{sevro.codex.skill_invocation}} and {{sevro.codex.skill_invocation}}."
+                      : scenario.endsWith("later")
+                        ? "Wait for the next request."
+                        : scenario.startsWith("lifecycle-claude-plugin")
+                          ? "Use {{sevro.skill_invocation}} and return ready."
+                          : "Use {{sevro.codex.skill_invocation}} and return ready."
+                    : "Return ready.",
             ...(scenario.endsWith("later")
               ? {
                   followUpPrompt:
