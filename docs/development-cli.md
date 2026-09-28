@@ -94,6 +94,18 @@ The host reads only bounded Skill metadata from completed child Agent sessions
 in its temporary private configuration, then removes those session files. A
 missing or inconsistent graph leaves `sevro.claude.nested-skills` partial.
 
+A case's `followUpPrompt` starts a UUID-bound session and resumes that same
+session after a complete successful initial result. Both results must name
+the requested session. The same isolated workspace, settings, credentials,
+model, and effort apply to both calls. An initial failure prevents resumption;
+a failed or unbound resumed result fails execution and skips grading.
+The `sevro.claude.continuation` observation records the bound session and
+whether visible worktree contents changed before feedback, with partial
+evidence when the fingerprints are unavailable. It retains no file names,
+contents, private launch intent, or message-delivery claim. Combined and
+separate turn event artifacts remain bounded and private. The last response
+is graded, and only complete per-call usage and cost series are summed.
+
 For cases with `sevro.semantic` checks, also pass
 `--semantic-adapter-module /absolute/path/semantic-adapter.ts` to load an
 explicit second `HostAdapter` for grading. Alternatively, select the bundled

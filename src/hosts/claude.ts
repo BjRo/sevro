@@ -24,6 +24,7 @@ import {
 import { claudeHostSettings } from "./claude-settings";
 import { claudeToolCallsObservation } from "./claude-tool-calls";
 import { evaluationProtectedRoots } from "./isolation-roots";
+import { runClaudeTurns, type ClaudeSession } from "./claude-continuation";
 
 const MAX_EVENT_BYTES = 8 * 1024 * 1024;
 const MAX_STDERR_BYTES = 64 * 1024;
@@ -263,10 +264,16 @@ export function createClaudeHost(options: ClaudeHostOptions): HostAdapter {
       "sevro.claude.tool-calls",
       "sevro.host.native-controls",
       "sevro.claude.nested-skills",
+      "sevro.host.continuation",
+      "sevro.claude.continuation",
     ],
     async run(request) {
-      if (request.followUpPrompt !== undefined)
-        throw new Error("Claude continuation is unavailable");
+      if (
+        request.followUpPrompt !== undefined &&
+        (typeof request.followUpPrompt !== "string" ||
+          !request.followUpPrompt.trim())
+      )
+        throw new Error("Claude follow-up prompt must be nonempty");
       if (request.instrumentation?.length || request.condition !== "passive")
         throw new Error("Claude enforcement instrumentation is unavailable");
       if (
@@ -381,36 +388,44 @@ export function createClaudeHost(options: ClaudeHostOptions): HostAdapter {
               }
             : {}),
         };
-        const execution = await runProcess({
-          argv: [
-            options.binary,
-            "-p",
-            request.prompt,
-            "--output-format",
-            "stream-json",
-            "--verbose",
-            "--model",
-            options.model,
-            "--effort",
-            options.effort,
-            "--permission-mode",
-            "dontAsk",
-            "--tools",
-            "Bash,Read,Edit,Skill,Agent",
-            "--setting-sources",
-            options.projectSettings ? "project" : "",
-            "--settings",
-            settingsPath,
-            "--strict-mcp-config",
-            "--mcp-config",
-            '{"mcpServers":{}}',
-            "--no-chrome",
-            ...pluginDirs.flatMap((path) => ["--plugin-dir", path]),
-          ],
-          cwd: request.workspace,
-          env,
-          timeoutMs,
-          signal: request.signal,
+        const runTurn = (prompt: string, session?: ClaudeSession) =>
+          runProcess({
+            argv: [
+              options.binary,
+              "-p",
+              prompt,
+              "--output-format",
+              "stream-json",
+              "--verbose",
+              "--model",
+              options.model,
+              "--effort",
+              options.effort,
+              "--permission-mode",
+              "dontAsk",
+              "--tools",
+              "Bash,Read,Edit,Skill,Agent",
+              "--setting-sources",
+              options.projectSettings ? "project" : "",
+              "--settings",
+              settingsPath,
+              "--strict-mcp-config",
+              "--mcp-config",
+              '{"mcpServers":{}}',
+              "--no-chrome",
+              ...(session ? [session.option, session.id] : []),
+              ...pluginDirs.flatMap((path) => ["--plugin-dir", path]),
+            ],
+            cwd: request.workspace,
+            env,
+            timeoutMs,
+            signal: request.signal,
+          });
+        const execution = await runClaudeTurns({
+          prompt: request.prompt,
+          followUpPrompt: request.followUpPrompt,
+          workspace: request.workspace,
+          run: runTurn,
         });
         const summary = summarizeClaudeEvents(execution.out, execution.code);
         const nestedSkills = await claudeNestedSkillsObservation(
@@ -425,10 +440,12 @@ export function createClaudeHost(options: ClaudeHostOptions): HostAdapter {
         const repositoryObservation = repositoryInvocation
           ? await claudeRepositoryInvocationObservation({
               invocation: repositoryInvocation,
-              stream: execution.out,
+              stream: execution.initialOut ?? execution.out,
               configRoot: dirname(credential),
               workspace: request.workspace,
-              tools: toolCalls,
+              tools: execution.initialOut
+                ? claudeToolCallsObservation(execution.initialOut, 0)
+                : toolCalls,
             })
           : null;
         return {
@@ -440,12 +457,29 @@ export function createClaudeHost(options: ClaudeHostOptions): HostAdapter {
             nestedSkills,
             claudeNativeControls(execution.out, execution.code),
             ...(repositoryObservation ? [repositoryObservation] : []),
+            ...(execution.continuation ? [execution.continuation] : []),
           ],
           artifacts: [
             {
               id: "sevro.claude.events",
               bytes: Buffer.from(execution.out, "utf8"),
             },
+            ...(execution.initialOut !== undefined
+              ? [
+                  {
+                    id: "sevro.claude.initial-events",
+                    bytes: Buffer.from(execution.initialOut, "utf8"),
+                  },
+                ]
+              : []),
+            ...(execution.followUpOut !== undefined
+              ? [
+                  {
+                    id: "sevro.claude.follow-up-events",
+                    bytes: Buffer.from(execution.followUpOut, "utf8"),
+                  },
+                ]
+              : []),
             ...(execution.err
               ? [
                   {
@@ -456,10 +490,18 @@ export function createClaudeHost(options: ClaudeHostOptions): HostAdapter {
               : []),
           ],
           actualCondition: "passive" as const,
-          inputTokens: summary.inputTokens,
-          outputTokens: summary.outputTokens,
-          costUsd: summary.costUsd,
-          usageComplete: summary.usageComplete,
+          inputTokens:
+            execution.sessionResultsBound === false
+              ? null
+              : summary.inputTokens,
+          outputTokens:
+            execution.sessionResultsBound === false
+              ? null
+              : summary.outputTokens,
+          costUsd:
+            execution.sessionResultsBound === false ? null : summary.costUsd,
+          usageComplete:
+            execution.sessionResultsBound !== false && summary.usageComplete,
         };
       } finally {
         await rm(stateRoot, { recursive: true, force: true });
