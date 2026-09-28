@@ -109,6 +109,7 @@ export class EvaluationConfigurationError extends Error {
 export interface HostResult {
   finalMessage: string | null;
   complete: boolean;
+  executionFailed?: boolean;
   artifacts?: { id: string; bytes: Uint8Array }[];
   observations?: {
     id: string;
@@ -1422,6 +1423,13 @@ export async function runEvaluation(
                 ...(preparedSemantic.length ? ["sevro.semantic.verdicts"] : []),
               ]),
             );
+            if (hostResult.executionFailed) {
+              execution = "failed";
+              diagnostic = {
+                code: "sevro.host.failed",
+                message: "host execution did not complete",
+              };
+            }
           } catch (error) {
             execution = options.signal?.aborted ? "cancelled" : "failed";
             hostResult = null;

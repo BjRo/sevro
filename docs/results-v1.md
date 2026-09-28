@@ -109,3 +109,10 @@ The engine persists each completed trial atomically before fixture cleanup.
 An interrupted or failed run keeps completed trials plus an explicit partial
 attempt or diagnostic record. Failed persistence is an internal error and
 cannot be presented as a successful assessment.
+
+A host adapter can return `executionFailed: true` with bounded artifacts from
+a failed process. The engine retains those artifacts, skips all grading, and
+reports `failed` / `not_requested` / `not_assessed` with exit code `2`. A final
+message that happens to match a check cannot turn that failure into a pass.
+Claude retains its bounded event stream and, when present, up to 64 KiB of
+stderr as private host artifacts. Failure bodies do not appear in CLI diagnostics.

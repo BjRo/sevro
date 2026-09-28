@@ -25,6 +25,7 @@ import { claudeToolCallsObservation } from "./claude-tool-calls";
 import { evaluationProtectedRoots } from "./isolation-roots";
 
 const MAX_EVENT_BYTES = 8 * 1024 * 1024;
+const MAX_STDERR_BYTES = 64 * 1024;
 const DEFAULT_TIMEOUT_MS = 10 * 60_000;
 
 export interface ClaudeHostOptions {
@@ -66,6 +67,7 @@ function stop(proc: Bun.Subprocess): void {
 
 async function boundedStream(
   stream: ReadableStream<Uint8Array>,
+  limit = MAX_EVENT_BYTES,
 ): Promise<string> {
   const reader = stream.getReader();
   const chunks: Uint8Array[] = [];
@@ -74,8 +76,8 @@ async function boundedStream(
     const { value, done } = await reader.read();
     if (done) break;
     size += value.byteLength;
-    if (size > MAX_EVENT_BYTES)
-      throw new Error("Claude event stream exceeds 8 MiB");
+    if (size > limit)
+      throw new Error("Claude process output exceeds its limit");
     chunks.push(value);
   }
   return new TextDecoder("utf-8", { fatal: true }).decode(
@@ -89,7 +91,7 @@ async function runProcess(options: {
   env: Record<string, string>;
   timeoutMs: number;
   signal?: AbortSignal;
-}): Promise<{ code: number; out: string }> {
+}): Promise<{ code: number; out: string; err: string }> {
   if (options.signal?.aborted) throw new Error("Claude run cancelled");
   const proc = Bun.spawn(options.argv, {
     cwd: options.cwd,
@@ -97,15 +99,16 @@ async function runProcess(options: {
     detached: process.platform !== "win32",
     stdin: "ignore",
     stdout: "pipe",
-    stderr: "ignore",
+    stderr: "pipe",
   });
   let timer: ReturnType<typeof setTimeout> | undefined;
   let cancel: (() => void) | undefined;
   try {
     const completed = Promise.all([
       boundedStream(proc.stdout),
+      boundedStream(proc.stderr, MAX_STDERR_BYTES),
       proc.exited,
-    ]).then(([out, code]) => ({ out, code }));
+    ]).then(([out, err, code]) => ({ out, err, code }));
     const timeout = new Promise<never>((_resolve, reject) => {
       timer = setTimeout(
         () => reject(new Error("Claude run timed out")),
@@ -408,7 +411,6 @@ export function createClaudeHost(options: ClaudeHostOptions): HostAdapter {
           signal: request.signal,
         });
         const summary = summarizeClaudeEvents(execution.out, execution.code);
-        if (!summary.complete) throw new Error("Claude turn did not complete");
         const nestedSkills = await claudeNestedSkillsObservation(
           execution.out,
           dirname(credential),
@@ -430,6 +432,7 @@ export function createClaudeHost(options: ClaudeHostOptions): HostAdapter {
         return {
           finalMessage: summary.finalMessage,
           complete: summary.complete,
+          executionFailed: !summary.complete,
           observations: [
             toolCalls,
             nestedSkills,
@@ -440,6 +443,14 @@ export function createClaudeHost(options: ClaudeHostOptions): HostAdapter {
               id: "sevro.claude.events",
               bytes: Buffer.from(execution.out, "utf8"),
             },
+            ...(execution.err
+              ? [
+                  {
+                    id: "sevro.claude.stderr",
+                    bytes: Buffer.from(execution.err, "utf8"),
+                  },
+                ]
+              : []),
           ],
           actualCondition: "passive" as const,
           inputTokens: summary.inputTokens,

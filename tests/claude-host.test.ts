@@ -5,10 +5,13 @@ import {
   mkdtemp,
   readFile,
   rm,
+  stat,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { runEvaluation } from "../src/engine";
 import { createClaudeHost } from "../src/hosts/claude";
 
 const roots: string[] = [];
@@ -16,6 +19,87 @@ afterEach(async () => {
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
+});
+
+test("failed Claude execution retains private evidence without grading", async () => {
+  if (process.platform !== "darwin") return;
+  const root = await mkdtemp(join(tmpdir(), "sevro-claude-failure-"));
+  roots.push(root);
+  const projectRoot = join(root, "source");
+  const resultsRoot = join(root, "results");
+  const credentialFile = join(root, "credential.json");
+  const binary = join(root, "fake-claude");
+  await mkdir(projectRoot);
+  await writeFile(credentialFile, '{"test":"private-login"}');
+  const event = JSON.stringify({
+    type: "result",
+    subtype: "error_during_execution",
+    is_error: true,
+    result: "ready",
+  });
+  await writeFile(
+    binary,
+    `#!/bin/sh\nprintf '%s\\n' '${event}'\nprintf '%s\\n' 'private host diagnosis' >&2\nexit 1\n`,
+    { mode: 0o755 },
+  );
+  const host = createClaudeHost({
+    binary,
+    model: "synthetic",
+    effort: "low",
+    projectRoot,
+    resultsRoot,
+    additionalProtectedRoots: [],
+    credentialFile,
+  });
+  const outcome = await runEvaluation({
+    projectRoot,
+    resultsRoot,
+    host,
+    runnerBuildDigest: "a".repeat(64),
+    projectDigest: "b".repeat(64),
+    condition: "passive",
+    trialCount: 2,
+    passThreshold: 1,
+    case: {
+      id: "failed-host",
+      prompt: "Return ready.",
+      fixture: { files: { "README.md": "fixture\n" } },
+      checks: [
+        {
+          id: "response",
+          grader: "sevro.regex",
+          configuration: { pattern: "^ready$" },
+        },
+      ],
+      requiredEvidence: [],
+    },
+  });
+  expect(outcome.result).toMatchObject({
+    execution: { status: "failed" },
+    grading: { status: "not_requested" },
+    task: { verdict: "not_assessed" },
+    exitCode: 2,
+  });
+  expect(outcome.result.cases[0]?.trials).toHaveLength(1);
+  expect(JSON.stringify(outcome.result)).not.toContain(
+    "private host diagnosis",
+  );
+  const evidence = JSON.parse(
+    await readFile(outcome.result.evidencePath!, "utf8"),
+  );
+  expect(outcome.result.cases[0]?.trials[0]?.checks).toEqual([]);
+  for (const [id, contents] of [
+    ["sevro.claude.events", `${event}\n`],
+    ["sevro.claude.stderr", "private host diagnosis\n"],
+  ]) {
+    const artifact = evidence.trials[0].artifactRefs.find(
+      (item: { id: string }) => item.id === id,
+    );
+    expect(artifact).toBeDefined();
+    const path = fileURLToPath(artifact.path);
+    expect(await readFile(path, "utf8")).toBe(contents);
+    expect((await stat(path)).mode & 0o777).toBe(0o600);
+  }
 });
 
 test("Claude host runs with native sandbox settings and declared plugins", async () => {
