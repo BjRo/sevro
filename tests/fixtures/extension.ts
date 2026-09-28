@@ -3,7 +3,10 @@ export {};
 import { createHash } from "node:crypto";
 
 const scenario = process.argv[2] ?? "echo";
-const repositoryInvocation = scenario.startsWith("lifecycle-codex-repository");
+const claudeRepository = scenario.startsWith("lifecycle-claude-repository");
+const repositoryInvocation =
+  claudeRepository || scenario.startsWith("lifecycle-codex-repository");
+const repositoryDirectory = claudeRepository ? ".claude" : ".agents";
 const request = JSON.parse(await Bun.stdin.text()) as Record<string, unknown>;
 
 if (scenario === "wait") {
@@ -27,7 +30,11 @@ const discovery = {
   optionalCapabilities: [
     "sevro.host.extra",
     ...(repositoryInvocation && !scenario.endsWith("unnegotiated")
-      ? ["sevro.codex.repository-invocation"]
+      ? [
+          claudeRepository
+            ? "sevro.claude.repository-invocation"
+            : "sevro.codex.repository-invocation",
+        ]
       : []),
     ...(scenario.endsWith("later") ? ["sevro.host.continuation"] : []),
     ...(scenario === "lifecycle-instrumentation-supported"
@@ -123,17 +130,23 @@ const result = scenario.startsWith("lifecycle")
         cases: [
           {
             id: "extension-case",
-            prompt: scenario.includes("explicit-invocation")
+            prompt: claudeRepository
               ? scenario.endsWith("repeated")
-                ? scenario.startsWith("lifecycle-claude-plugin")
-                  ? "Use {{sevro.skill_invocation}} and {{sevro.skill_invocation}}."
-                  : "Use {{sevro.codex.skill_invocation}} and {{sevro.codex.skill_invocation}}."
-                : scenario.endsWith("later")
-                  ? "Wait for the next request."
-                  : scenario.startsWith("lifecycle-claude-plugin")
-                    ? "Use {{sevro.skill_invocation}} and return ready."
-                    : "Use {{sevro.codex.skill_invocation}} and return ready."
-              : "Return ready.",
+                ? "{{sevro.skill_invocation}} {{sevro.skill_invocation}}"
+                : scenario.endsWith("nonleading")
+                  ? "Use {{sevro.skill_invocation}} and return ready."
+                  : "{{sevro.skill_invocation}} Return ready."
+              : scenario.includes("explicit-invocation")
+                ? scenario.endsWith("repeated")
+                  ? scenario.startsWith("lifecycle-claude-plugin")
+                    ? "Use {{sevro.skill_invocation}} and {{sevro.skill_invocation}}."
+                    : "Use {{sevro.codex.skill_invocation}} and {{sevro.codex.skill_invocation}}."
+                  : scenario.endsWith("later")
+                    ? "Wait for the next request."
+                    : scenario.startsWith("lifecycle-claude-plugin")
+                      ? "Use {{sevro.skill_invocation}} and return ready."
+                      : "Use {{sevro.codex.skill_invocation}} and return ready."
+                : "Return ready.",
             ...(scenario.endsWith("later")
               ? {
                   followUpPrompt:
@@ -212,8 +225,8 @@ const result = scenario.startsWith("lifecycle")
                 {
                   id: "repository-skill",
                   relativePath: scenario.endsWith("missing-mount")
-                    ? ".agents/skills/other/SKILL.md"
-                    : ".agents/skills/probe/SKILL.md",
+                    ? `${repositoryDirectory}/skills/other/SKILL.md`
+                    : `${repositoryDirectory}/skills/probe/SKILL.md`,
                   sha256: createHash("sha256")
                     .update(
                       marketplaceFiles[
@@ -325,7 +338,9 @@ const result = scenario.startsWith("lifecycle")
               }
             : {}),
           ...(repositoryInvocation
-            ? { codexRepositorySkillInvocation: { skillName: "probe" } }
+            ? claudeRepository
+              ? { claudeRepositorySkillInvocation: { skillName: "probe" } }
+              : { codexRepositorySkillInvocation: { skillName: "probe" } }
             : {}),
           ...(repositoryInvocation && scenario.endsWith("conflicting")
             ? {

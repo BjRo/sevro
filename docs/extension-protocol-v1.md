@@ -152,6 +152,19 @@ repeated tokens, or absent negotiation fail before candidate execution. The
 Codex host verifies the repository mount and emits its normal bounded explicit
 dispatch receipt after a completed turn. No plugin package is required.
 
+For a Claude repository skill, negotiate `sevro.claude.repository-invocation`
+and declare `claudeRepositorySkillInvocation` with `skillName`. Mount the exact
+`.claude/skills/<skillName>/SKILL.md` as a Git-excluded preparation artifact.
+The neutral invocation placeholder must lead the initial prompt and occur once;
+Sevro renders `/skillName`. This declaration is mutually exclusive with all
+other invocation declarations and enters retained configuration and identity.
+The host validates the bounded mount without following symbolic links. Its
+`sevro.claude.repository-invocation` observation binds one native command, exact
+arguments, and the complete mounted body before the first assistant entry in
+the completed session. It retains only acceptance and ordered skill metadata.
+Missing or ambiguous session evidence yields a partial observation; later Skill
+calls cannot repair an unverified explicit repository dispatch.
+
 A Claude extension may negotiate `sevro.claude.plugin-dirs` and return
 `claudePluginDirs` with nonempty fixture-relative `artifactRoots`. Roots must
 be unique and must not overlap. Every file below each root must be a

@@ -892,6 +892,73 @@ test("explicit Codex invocation can occur in the continuation turn", async () =>
   expect(outcome.result.exitCode).toBe(0);
 });
 
+test("explicit Claude repository invocation renders a native project command", async () => {
+  const host: HostAdapter = {
+    id: "sevro.host.claude",
+    model: "synthetic-v1",
+    effort: "none",
+    hostCapabilities: ["sevro.claude.repository-invocation"],
+    async run(request) {
+      expect(request.prompt).toBe("/probe Return ready.");
+      expect(request.claudePluginDirs).toBeUndefined();
+      expect(request.explicitSkillInvocation).toEqual({
+        scope: "repository",
+        skillName: "probe",
+        token: "/probe",
+      });
+      expect(
+        await Bun.file(
+          request.workspace + "/.claude/skills/probe/SKILL.md",
+        ).exists(),
+      ).toBe(true);
+      return { finalMessage: "ready", complete: true };
+    },
+  };
+  const { outcome, evidence } = await runWithExtension(
+    "lifecycle-claude-repository-explicit-invocation",
+    undefined,
+    [],
+    host,
+  );
+  expect(outcome.result.exitCode).toBe(0);
+  expect(
+    evidence.configuration.redacted.claudeRepositorySkillInvocation,
+  ).toEqual({ skillName: "probe" });
+  for (const suffix of [
+    "repeated",
+    "missing-mount",
+    "not-excluded",
+    "nonleading",
+  ])
+    await expect(
+      runWithExtension(
+        `lifecycle-claude-repository-explicit-invocation-${suffix}`,
+        undefined,
+        [],
+        host,
+      ),
+    ).rejects.toThrow(/invalid Claude repository skill invocation declaration/);
+  const unsupported: Array<[string, HostAdapter]> = [
+    ["lifecycle-claude-repository-explicit-invocation-unnegotiated", host],
+    [
+      "lifecycle-claude-repository-explicit-invocation",
+      { ...host, hostCapabilities: [] },
+    ],
+  ];
+  for (const [scenario, candidate] of unsupported)
+    await expect(
+      runWithExtension(scenario, undefined, [], candidate),
+    ).rejects.toThrow(/capability was not negotiated/);
+  await expect(
+    runWithExtension(
+      "lifecycle-claude-repository-explicit-invocation-conflicting",
+      undefined,
+      [],
+      host,
+    ),
+  ).rejects.toThrow(/only one explicit skill invocation/);
+});
+
 test("explicit Claude invocation renders a packaged slash token", async () => {
   const host: HostAdapter = {
     id: "sevro.host.claude",

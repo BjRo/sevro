@@ -16,6 +16,10 @@ import { fixtureParts } from "../preparation";
 import { stageClaudeCredential } from "./claude-credential";
 import { summarizeClaudeEvents } from "./claude-events";
 import { claudeNestedSkillsObservation } from "./claude-nested-skills";
+import {
+  claudeRepositoryInvocationObservation,
+  verifyClaudeRepositoryInvocation,
+} from "./claude-repository-invocation";
 import { claudeHostSettings } from "./claude-settings";
 import { claudeToolCallsObservation } from "./claude-tool-calls";
 import { evaluationProtectedRoots } from "./isolation-roots";
@@ -179,8 +183,7 @@ async function verifyInvocation(
 ): Promise<void> {
   const selected = request.explicitSkillInvocation;
   if (!selected) return;
-  if (selected.scope === "repository")
-    throw new Error("Claude repository invocation is unavailable");
+  if (selected.scope === "repository") return;
   const { pluginName, skillName, token } = selected;
   if (
     token !== `/${pluginName}:${skillName}` ||
@@ -250,6 +253,7 @@ export function createClaudeHost(options: ClaudeHostOptions): HostAdapter {
     hostCapabilities: [
       "sevro.claude.plugin-dirs",
       "sevro.claude.explicit-invocation",
+      "sevro.claude.repository-invocation",
       "sevro.claude.tool-calls",
       "sevro.claude.nested-skills",
     ],
@@ -267,6 +271,10 @@ export function createClaudeHost(options: ClaudeHostOptions): HostAdapter {
         ? await pluginDirectories(request.workspace, request.claudePluginDirs)
         : [];
       await verifyInvocation(request, pluginDirs);
+      const repositoryInvocation =
+        request.explicitSkillInvocation?.scope === "repository"
+          ? await verifyClaudeRepositoryInvocation(request)
+          : null;
       const stateRoot = await mkdtemp(join(tmpdir(), "sevro-claude-state-"));
       try {
         await mkdir(join(stateRoot, "private"), { mode: 0o700 });
@@ -397,12 +405,26 @@ export function createClaudeHost(options: ClaudeHostOptions): HostAdapter {
           dirname(credential),
           request.workspace,
         );
+        const toolCalls = claudeToolCallsObservation(
+          execution.out,
+          execution.code,
+        );
+        const repositoryObservation = repositoryInvocation
+          ? await claudeRepositoryInvocationObservation({
+              invocation: repositoryInvocation,
+              stream: execution.out,
+              configRoot: dirname(credential),
+              workspace: request.workspace,
+              tools: toolCalls,
+            })
+          : null;
         return {
           finalMessage: summary.finalMessage,
           complete: summary.complete,
           observations: [
-            claudeToolCallsObservation(execution.out, execution.code),
+            toolCalls,
             nestedSkills,
+            ...(repositoryObservation ? [repositoryObservation] : []),
           ],
           artifacts: [
             {

@@ -469,6 +469,14 @@
           },
           "additionalProperties": false
         },
+        "claudeRepositorySkillInvocation": {
+          "type": "object",
+          "required": ["skillName"],
+          "properties": {
+            "skillName": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        },
         "extensionData": { "$ref": "#/$defs/extensionData" }
       },
       "additionalProperties": false

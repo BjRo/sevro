@@ -907,18 +907,24 @@ export async function runEvaluation(
   const codexRepositorySkillInvocation =
     extensionPreparation?.codexRepositorySkillInvocation;
   const claudeSkillInvocation = extensionPreparation?.claudeSkillInvocation;
+  const claudeRepositorySkillInvocation =
+    extensionPreparation?.claudeRepositorySkillInvocation;
   const invocationPlaceholder = "{{sevro.skill_invocation}}";
   const legacyCodexPlaceholder = "{{sevro.codex.skill_invocation}}";
-  const invocation = codexRepositorySkillInvocation
-    ? { ...codexRepositorySkillInvocation, scope: "repository" as const }
+  const repositoryInvocation =
+    codexRepositorySkillInvocation ?? claudeRepositorySkillInvocation;
+  const invocation = repositoryInvocation
+    ? { ...repositoryInvocation, scope: "repository" as const }
     : (codexSkillInvocation ?? claudeSkillInvocation);
   const invocationToken = codexRepositorySkillInvocation
     ? `$${codexRepositorySkillInvocation.skillName}`
-    : codexSkillInvocation
-      ? `$${codexSkillInvocation.pluginName}:${codexSkillInvocation.skillName}`
-      : claudeSkillInvocation
-        ? `/${claudeSkillInvocation.pluginName}:${claudeSkillInvocation.skillName}`
-        : null;
+    : claudeRepositorySkillInvocation
+      ? `/${claudeRepositorySkillInvocation.skillName}`
+      : codexSkillInvocation
+        ? `$${codexSkillInvocation.pluginName}:${codexSkillInvocation.skillName}`
+        : claudeSkillInvocation
+          ? `/${claudeSkillInvocation.pluginName}:${claudeSkillInvocation.skillName}`
+          : null;
   const placeholderCount =
     options.case.prompt.split(invocationPlaceholder).length -
     1 +
@@ -933,6 +939,7 @@ export async function runEvaluation(
       codexSkillInvocation,
       codexRepositorySkillInvocation,
       claudeSkillInvocation,
+      claudeRepositorySkillInvocation,
     ].filter(Boolean).length > 1
   )
     throw new EvaluationConfigurationError(
@@ -992,6 +999,35 @@ export async function runEvaluation(
     )
       throw new EvaluationConfigurationError(
         "Codex repository invocation capability was not negotiated",
+      );
+  } else if (claudeRepositorySkillInvocation) {
+    const { skillName } = claudeRepositorySkillInvocation;
+    if (
+      !/^[A-Za-z0-9._-]+$/.test(skillName) ||
+      skillName === "." ||
+      skillName === ".." ||
+      placeholderCount !== 1 ||
+      !options.case.prompt.startsWith(invocationPlaceholder) ||
+      options.case.prompt.includes(legacyCodexPlaceholder) ||
+      !inlineArtifacts.some(
+        (artifact) =>
+          artifact.gitExclude &&
+          artifact.relativePath === `.claude/skills/${skillName}/SKILL.md`,
+      )
+    )
+      throw new EvaluationConfigurationError(
+        "invalid Claude repository skill invocation declaration",
+      );
+    if (
+      !options.extension?.session.identity.capabilities.includes(
+        "sevro.claude.repository-invocation",
+      ) ||
+      !options.host.hostCapabilities?.includes(
+        "sevro.claude.repository-invocation",
+      )
+    )
+      throw new EvaluationConfigurationError(
+        "Claude repository invocation capability was not negotiated",
       );
   } else if (claudeSkillInvocation) {
     const { pluginName, skillName } = claudeSkillInvocation;
@@ -1078,6 +1114,9 @@ export async function runEvaluation(
       ? { codexRepositorySkillInvocation }
       : {}),
     ...(claudeSkillInvocation ? { claudeSkillInvocation } : {}),
+    ...(claudeRepositorySkillInvocation
+      ? { claudeRepositorySkillInvocation }
+      : {}),
     ...(options.advisoryHost
       ? {
           advisoryExcludedPaths: [
@@ -1154,6 +1193,9 @@ export async function runEvaluation(
           ? { codexRepositorySkillInvocation }
           : {}),
         ...(claudeSkillInvocation ? { claudeSkillInvocation } : {}),
+        ...(claudeRepositorySkillInvocation
+          ? { claudeRepositorySkillInvocation }
+          : {}),
       }),
       checksDigest: hashJson(options.case.checks),
       requiredEvidenceDigest: hashJson(options.case.requiredEvidence),
