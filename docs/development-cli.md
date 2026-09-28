@@ -86,6 +86,10 @@ Use `--claude-project-settings` when an isolated fixture intentionally defines
 project-local `.claude/skills/`. The host still disables hooks in its explicit
 settings and keeps its native sandbox rules. Leave this option off for plugin-only
 cases.
+Without that option, the host does not advertise
+`sevro.claude.repository-invocation` and refuses explicit repository dispatch
+before launching Claude. This avoids recording an unknown command as a usable
+repository-skill route.
 The host reads only bounded Skill metadata from completed child Agent sessions
 in its temporary private configuration, then removes those session files. A
 missing or inconsistent graph leaves `sevro.claude.nested-skills` partial.

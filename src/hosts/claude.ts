@@ -253,7 +253,9 @@ export function createClaudeHost(options: ClaudeHostOptions): HostAdapter {
     hostCapabilities: [
       "sevro.claude.plugin-dirs",
       "sevro.claude.explicit-invocation",
-      "sevro.claude.repository-invocation",
+      ...(options.projectSettings
+        ? ["sevro.claude.repository-invocation"]
+        : []),
       "sevro.claude.tool-calls",
       "sevro.claude.nested-skills",
     ],
@@ -271,6 +273,13 @@ export function createClaudeHost(options: ClaudeHostOptions): HostAdapter {
         ? await pluginDirectories(request.workspace, request.claudePluginDirs)
         : [];
       await verifyInvocation(request, pluginDirs);
+      if (
+        request.explicitSkillInvocation?.scope === "repository" &&
+        !options.projectSettings
+      )
+        throw new Error(
+          "Claude repository invocation requires project setting sources",
+        );
       const repositoryInvocation =
         request.explicitSkillInvocation?.scope === "repository"
           ? await verifyClaudeRepositoryInvocation(request)

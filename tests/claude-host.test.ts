@@ -165,6 +165,7 @@ for (const entry of [{ type: "system", subtype: "init", session_id: "session-one
     resultsRoot,
     additionalProtectedRoots: [],
     credentialFile,
+    projectSettings: true,
   });
   const request = {
     prompt: "/probe Return ready.",
@@ -200,6 +201,21 @@ for (const entry of [{ type: "system", subtype: "init", session_id: "session-one
   await expect(
     host.run({ ...request, prompt: "/probe /probe" }),
   ).rejects.toThrow(/invalid Claude repository skill invocation/);
+  const disabled = createClaudeHost({
+    binary,
+    model: "synthetic",
+    effort: "low",
+    projectRoot,
+    resultsRoot,
+    additionalProtectedRoots: [],
+    credentialFile,
+  });
+  expect(disabled.hostCapabilities).not.toContain(
+    "sevro.claude.repository-invocation",
+  );
+  await expect(disabled.run(request)).rejects.toThrow(
+    /requires project setting sources/,
+  );
 });
 
 test("Claude host refuses undeclared and escaping plugin packages", async () => {

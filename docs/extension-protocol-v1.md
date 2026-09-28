@@ -155,6 +155,8 @@ dispatch receipt after a completed turn. No plugin package is required.
 For a Claude repository skill, negotiate `sevro.claude.repository-invocation`
 and declare `claudeRepositorySkillInvocation` with `skillName`. Mount the exact
 `.claude/skills/<skillName>/SKILL.md` as a Git-excluded preparation artifact.
+The bundled host advertises this capability only with
+`--claude-project-settings`; otherwise it rejects dispatch before execution.
 The neutral invocation placeholder must lead the initial prompt and occur once;
 Sevro renders `/skillName`. This declaration is mutually exclusive with all
 other invocation declarations and enters retained configuration and identity.
