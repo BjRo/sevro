@@ -239,6 +239,9 @@ export async function openExtensionSession(options: ExtensionSessionOptions) {
 
   return {
     identity,
+    get redactedConfiguration() {
+      return jsonCopy(redactedConfiguration);
+    },
     async resolve(
       projectRoot: string,
       selectors: Record<string, unknown>,

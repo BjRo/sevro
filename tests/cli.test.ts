@@ -407,6 +407,56 @@ test("CLI supplies the selected candidate route during extension resolution", as
   expect(evidence.extension.capabilities).toContain("sevro.case.host-route");
 });
 
+test("CLI retains redacted extension configuration with its identity", async () => {
+  const { args, caseFile } = await fixture();
+  const commandFile = join(caseFile, "..", "extension-command.json");
+  const privateFile = join(caseFile, "..", "private-configuration.json");
+  const redactedFile = join(caseFile, "..", "redacted-configuration.json");
+  await writeFile(
+    commandFile,
+    JSON.stringify([process.execPath, extensionSource, "lifecycle"]),
+  );
+  await writeFile(
+    privateFile,
+    JSON.stringify({
+      label: "condition",
+      secret: "private-configuration-marker",
+    }),
+  );
+  await writeFile(
+    redactedFile,
+    JSON.stringify({ label: "condition", secretPresent: true }),
+  );
+  const command = args.filter(
+    (part, index) =>
+      part !== "--case-file" && args[index - 1] !== "--case-file",
+  );
+  command.push(
+    "--extension-command-file",
+    commandFile,
+    "--extension-source-file",
+    extensionSource,
+    "--extension-configuration-file",
+    privateFile,
+    "--extension-redacted-configuration-file",
+    redactedFile,
+    "--case-id",
+    "extension-case",
+  );
+  const run = await invoke(command);
+  expect(run.code, run.stdout + run.stderr).toBe(0);
+  const text = await readFile(run.result.evidencePath, "utf8");
+  const evidence = JSON.parse(text);
+  expect(evidence.configuration.redacted.extensionConfiguration).toEqual({
+    label: "condition",
+    secretPresent: true,
+  });
+  expect(evidence.configuration.redacted.extensionConfigurationDigest).toBe(
+    evidence.extension.configurationDigest,
+  );
+  expect(text).not.toContain("private-configuration-marker");
+});
+
 test("CLI text output names domain outcomes apart from the task verdict", async () => {
   const { args, caseFile } = await fixture();
   const commandFile = join(caseFile, "..", "extension-command.json");

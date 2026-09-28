@@ -44,3 +44,10 @@ artifacts without a dimension cannot be silently assigned a current identity.
 Credential values, raw transcripts, and temporary output locations never enter
 the stored dimensions. A credential's presence can be recorded in a redacted
 configuration; its bytes are never retained in evidence or its digest input.
+
+Extension runs retain the operator-supplied redacted extension configuration
+under `configuration.redacted.extensionConfiguration`, alongside
+`extensionConfigurationDigest`. The retained copy is the same snapshot used
+for extension configuration identity. Private configuration stays outside run
+evidence. Consumers can compare the visible configuration with their declared
+inputs without reconstructing the engine's component digest inputs.

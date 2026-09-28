@@ -1107,6 +1107,12 @@ export async function runEvaluation(
     passThreshold: options.passThreshold,
     extensionConfigurationDigest:
       options.extension?.session.identity.configurationDigest ?? null,
+    ...(options.extension
+      ? {
+          extensionConfiguration:
+            options.extension.session.redactedConfiguration,
+        }
+      : {}),
     ...(fixtureSetup ? { fixtureSetupDigest: hashJson(fixtureSetup) } : {}),
     ...(codexMarketplace ? { codexMarketplace } : {}),
     ...(claudePluginDirs ? { claudePluginDirs } : {}),
