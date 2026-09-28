@@ -1,9 +1,26 @@
 import { existsSync } from "node:fs";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
+import { parseArgs } from "node:util";
 
 const sourceRoot = resolve(import.meta.dir, "..");
+const { values } = parseArgs({
+  args: Bun.argv.slice(2),
+  options: { tarball: { type: "string" } },
+});
+if (
+  values.tarball !== undefined &&
+  (!isAbsolute(values.tarball) || !(await stat(values.tarball)).isFile())
+)
+  throw new Error("--tarball must name an existing absolute package file");
 const root = await mkdtemp(join(tmpdir(), "sevro-package-install-"));
 
 async function run(argv: string[], cwd: string): Promise<string> {
@@ -22,11 +39,20 @@ try {
   const sourceManifest = JSON.parse(
     await readFile(join(sourceRoot, "package.json"), "utf8"),
   ) as { version: string };
-  const archive = join(root, `sevro-${sourceManifest.version}.tgz`);
-  await run(
-    ["npm", "pack", "--ignore-scripts", "--pack-destination", root, "--silent"],
-    sourceRoot,
-  );
+  const archive =
+    values.tarball ?? join(root, `sevro-${sourceManifest.version}.tgz`);
+  if (values.tarball === undefined)
+    await run(
+      [
+        "npm",
+        "pack",
+        "--ignore-scripts",
+        "--pack-destination",
+        root,
+        "--silent",
+      ],
+      sourceRoot,
+    );
   const consumer = join(root, "consumer");
   const project = join(root, "project");
   const results = join(root, "results");
@@ -55,7 +81,9 @@ try {
     throw new Error("installed package has missing or unexpected files");
   const manifest = JSON.parse(
     await readFile(join(installed, "package.json"), "utf8"),
-  ) as { version: string };
+  ) as { name: string; version: string };
+  if (manifest.name !== "sevro" || manifest.version !== sourceManifest.version)
+    throw new Error("installed package identity differs from source metadata");
   async function installedRun(caseName: string) {
     const output = await run(
       [

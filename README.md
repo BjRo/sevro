@@ -16,6 +16,10 @@ Machine-readable contracts live in [`schemas/`](schemas/). Run `bun install`,
 test packs and installs Sevro in a temporary project, then runs the installed
 CLI without a Sevro Git checkout.
 
+The [release workflow](docs/releases.md) prepares a versioned artifact with its
+file inventory and checksums, verifies that exact tarball, and documents manual
+publication, trusted publishing, Darrow pinning, updates, and rollback.
+
 [`extension-client.ts`](src/extension-client.ts) validates one request and
 response per extension process and negotiates the v1 protocol. It enforces
 message limits, timeouts, response identity, and process-group cancellation.
