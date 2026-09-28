@@ -1614,6 +1614,7 @@ export async function runEvaluation(
                 ...(options.preparationSources
                   ? [options.preparationSources.root]
                   : []),
+                ...(repository ? [repository.path] : []),
                 runStateRoot,
               ],
             });

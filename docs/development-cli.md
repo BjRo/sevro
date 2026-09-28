@@ -225,7 +225,10 @@ those sources with `--case-source-root /absolute/path/sources` and
 object from source ID to `file:///` URL. The runner checks that each referenced
 file stays under the declared root and matches the extension's digest. The
 selected case file, extension inputs, and source root are protected from
-candidate execution and isolated shell checks.
+candidate execution and isolated shell checks. Each mapped source path is also
+protected, including its primary repository and linked Git worktrees even when
+those worktrees are outside the source root. Bundled candidates, semantic judges,
+advisory reviewers, and isolated shell checks receive these protections.
 The same map can declare a repository directory for a case fixture. A direct
 case file uses `"fixture": {"sourceRef": "fixture-repo"}`; an extension uses
 `{"kind": "repository", "sourceRef": "fixture-repo"}`. The repository must be

@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { readFile } from "node:fs/promises";
 import { isAbsolute } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import {
   EvaluationConfigurationError,
@@ -683,8 +683,26 @@ async function main(argv: string[]): Promise<void> {
   let host: HostAdapter;
   let semanticHost: HostAdapter | undefined;
   let advisoryHost: HostAdapter | undefined;
+  let preparationSources: Awaited<ReturnType<typeof loadPreparationSources>>;
   try {
     invocation = parseInvocation(argv);
+    preparationSources = await loadPreparationSources(invocation);
+    const sourceRoots = Object.values(preparationSources?.refs ?? {}).map(
+      (url) => fileURLToPath(url),
+    );
+    for (const native of [
+      invocation.codex,
+      invocation.claude,
+      invocation.semanticCodex,
+      invocation.advisoryCodex,
+    ]) {
+      if (native)
+        native.additionalProtectedRoots = [
+          ...native.additionalProtectedRoots,
+          ...sourceRoots,
+        ];
+    }
+    invocation.shellIsolation?.protectedRoots.push(...sourceRoots);
     const configRoot = await configurationRoot(invocation.configRoot);
     const agentConcurrencyLimit =
       invocation.codex || invocation.semanticCodex || invocation.advisoryCodex
@@ -725,7 +743,6 @@ async function main(argv: string[]): Promise<void> {
   process.on("SIGINT", interrupt);
   process.on("SIGTERM", terminate);
   try {
-    const preparationSources = await loadPreparationSources(invocation);
     let extension:
       | {
           session: Awaited<ReturnType<typeof openExtensionSession>>;
