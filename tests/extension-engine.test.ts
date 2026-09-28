@@ -791,6 +791,78 @@ test("explicit Codex invocation renders once and reaches the selected host", asy
   ).rejects.toThrow(/capability was not negotiated/);
 });
 
+test("explicit repository invocation preserves scope and retained identity", async () => {
+  const host: HostAdapter = {
+    id: "sevro.host.codex",
+    model: "synthetic-v1",
+    effort: "none",
+    hostCapabilities: ["sevro.codex.repository-invocation"],
+    async run(request) {
+      expect(request.prompt).toBe("Use $probe and return ready.");
+      expect(request.codexMarketplace).toBeUndefined();
+      expect(request.explicitSkillInvocation).toEqual({
+        scope: "repository",
+        skillName: "probe",
+        token: "$probe",
+      });
+      expect(
+        await Bun.file(
+          request.workspace + "/.agents/skills/probe/SKILL.md",
+        ).exists(),
+      ).toBeTrue();
+      return {
+        finalMessage: "ready",
+        complete: true,
+        actualCondition: "passive",
+      };
+    },
+  };
+  const { outcome, evidence } = await runWithExtension(
+    "lifecycle-codex-repository-explicit-invocation",
+    undefined,
+    [],
+    host,
+  );
+  expect(outcome.result.exitCode).toBe(0);
+  expect(
+    evidence.configuration.redacted.codexRepositorySkillInvocation,
+  ).toEqual({ skillName: "probe" });
+  expect(evidence.configuration.redacted.codexSkillInvocation).toBeUndefined();
+  for (const suffix of ["repeated", "missing-mount", "not-excluded"])
+    await expect(
+      runWithExtension(
+        `lifecycle-codex-repository-explicit-invocation-${suffix}`,
+        undefined,
+        [],
+        host,
+      ),
+    ).rejects.toThrow(/invalid Codex repository skill invocation declaration/);
+  await expect(
+    runWithExtension(
+      "lifecycle-codex-repository-explicit-invocation-unnegotiated",
+      undefined,
+      [],
+      host,
+    ),
+  ).rejects.toThrow(/capability was not negotiated/);
+  await expect(
+    runWithExtension(
+      "lifecycle-codex-repository-explicit-invocation",
+      undefined,
+      [],
+      { ...host, hostCapabilities: [] },
+    ),
+  ).rejects.toThrow(/capability was not negotiated/);
+  await expect(
+    runWithExtension(
+      "lifecycle-codex-repository-explicit-invocation-conflicting",
+      undefined,
+      [],
+      host,
+    ),
+  ).rejects.toThrow(/only one explicit skill invocation/);
+});
+
 test("explicit Codex invocation can occur in the continuation turn", async () => {
   const host: HostAdapter = {
     id: "sevro.host.codex",

@@ -5,6 +5,7 @@ import {
   mkdtemp,
   readFile,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -159,11 +160,11 @@ test("Codex host binds bounded native calls to its completed thread", async () =
       submittedExecCalls: 0,
       acceptedSpawns: [],
       feedbackCalls: [],
-    parentReadDiagnostics: {
-      completeness: "complete",
-      observedSkills: [],
-      completedReads: [],
-      commandExecutions: 0,
+      parentReadDiagnostics: {
+        completeness: "complete",
+        observedSkills: [],
+        completedReads: [],
+        commandExecutions: 0,
         readAttempts: 0,
         truncated: false,
       },
@@ -471,6 +472,81 @@ test("Codex host installs a declared local plugin in its isolated home", async (
     }),
   );
   await expect(host.run(request)).rejects.toThrow(/declared local source/);
+});
+
+test("Codex host dispatches a verified repository skill without a plugin", async () => {
+  const installedCodex = Bun.which("codex");
+  if (process.platform !== "darwin" || !installedCodex) return;
+  const paths = await fixture();
+  const workspace = await mkdtemp(join(tmpdir(), "sevro-codex-repository-"));
+  roots.push(workspace);
+  const skillRoot = join(workspace, ".agents", "skills", "probe");
+  const skillFile = join(skillRoot, "SKILL.md");
+  await mkdir(skillRoot, { recursive: true });
+  await writeFile(
+    skillFile,
+    "---\nname: probe\ndescription: Test probe\n---\nRead this skill.\n",
+  );
+  const host = createCodexHost({
+    binary: paths.fakeBinary,
+    sandboxBinary: installedCodex,
+    authFile: paths.authFile,
+    model: "synthetic-codex",
+    effort: "low",
+    projectRoot: paths.projectRoot,
+    resultsRoot: paths.resultsRoot,
+    additionalProtectedRoots: [],
+  });
+  const request = {
+    prompt: "Use $probe and return ready.",
+    workspace,
+    condition: "passive" as const,
+    explicitSkillInvocation: {
+      scope: "repository" as const,
+      skillName: "probe",
+      token: "$probe",
+    },
+  };
+  const result = await host.run(request);
+  expect(result.complete).toBe(true);
+  expect(result.finalMessage).toBe("ready");
+  expect(await readFile(join(workspace, "prompt.txt"), "utf8")).toBe(
+    request.prompt,
+  );
+  expect(result.observations).toContainEqual({
+    id: "sevro.codex.explicit-invocation",
+    completeness: "complete",
+    data: {
+      method: "explicit_invocation",
+      primarySkill: "probe",
+      observedSkills: ["probe"],
+    },
+  });
+  await expect(
+    host.run({ ...request, followUpPrompt: "Use $probe again." }),
+  ).rejects.toThrow(/invalid Codex explicit skill invocation/);
+  await expect(
+    host.run({
+      ...request,
+      explicitSkillInvocation: {
+        ...request.explicitSkillInvocation,
+        token: "$other",
+      },
+      prompt: "Use $other.",
+    }),
+  ).rejects.toThrow(/invalid Codex explicit skill invocation/);
+  await rm(skillFile);
+  await expect(host.run(request)).rejects.toThrow(/unavailable or unsafe/);
+  const linkedFile = join(workspace, "linked-skill.md");
+  await writeFile(linkedFile, "---\nname: probe\n---\n");
+  await symlink(linkedFile, skillFile);
+  await expect(host.run(request)).rejects.toThrow(/unavailable or unsafe/);
+  await rm(skillRoot, { recursive: true });
+  const linkedRoot = join(workspace, "linked-skill");
+  await mkdir(linkedRoot);
+  await writeFile(join(linkedRoot, "SKILL.md"), "---\nname: probe\n---\n");
+  await symlink(linkedRoot, skillRoot);
+  await expect(host.run(request)).rejects.toThrow(/unavailable or unsafe/);
 });
 
 test("Codex host verifies its permission profile and feeds the engine", async () => {

@@ -179,6 +179,8 @@ async function verifyInvocation(
 ): Promise<void> {
   const selected = request.explicitSkillInvocation;
   if (!selected) return;
+  if (selected.scope === "repository")
+    throw new Error("Claude repository invocation is unavailable");
   const { pluginName, skillName, token } = selected;
   if (
     token !== `/${pluginName}:${skillName}` ||

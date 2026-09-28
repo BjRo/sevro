@@ -57,6 +57,7 @@ export interface PreparationResult {
     pluginName: string;
     skillName: string;
   };
+  codexRepositorySkillInvocation?: { skillName: string };
   claudeSkillInvocation?: {
     pluginName: string;
     skillName: string;

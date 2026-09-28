@@ -141,6 +141,17 @@ Codex host retains a bounded dispatch receipt only after a completed turn.
 Missing or repeated tokens, absent packaged skills, and unsupported hosts fail
 before candidate execution. Supporting skill reads remain separate evidence.
 
+For a repository skill, negotiate `sevro.codex.repository-invocation` and
+declare `codexRepositorySkillInvocation` with `skillName`. It is mutually
+exclusive with the plugin invocation declarations. Prepare the exact
+`.agents/skills/<skillName>/SKILL.md` as a Git-excluded artifact, and place
+`{{sevro.skill_invocation}}` exactly once across the prompts. Sevro renders
+`$skillName`, preserves repository scope in the host request, and records the
+declaration separately in configuration and evaluation identity. Missing mounts,
+repeated tokens, or absent negotiation fail before candidate execution. The
+Codex host verifies the repository mount and emits its normal bounded explicit
+dispatch receipt after a completed turn. No plugin package is required.
+
 A Claude extension may negotiate `sevro.claude.plugin-dirs` and return
 `claudePluginDirs` with nonempty fixture-relative `artifactRoots`. Roots must
 be unique and must not overlap. Every file below each root must be a

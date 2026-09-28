@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import {
+  lstat,
   mkdir,
   mkdtemp,
   readFile,
@@ -28,6 +29,58 @@ const MAX_AUTH_BYTES = 1024 * 1024;
 const MAX_EVENT_BYTES = 8 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 10 * 60_000;
 const MAX_TIMEOUT_MS = 30 * 60_000;
+
+async function verifyCodexInvocation(
+  request: Parameters<HostAdapter["run"]>[0],
+): Promise<void> {
+  const selected = request.explicitSkillInvocation;
+  if (!selected) return;
+  const { skillName, token } = selected;
+  const tokenCount =
+    request.prompt.split(token).length -
+    1 +
+    (request.followUpPrompt?.split(token).length ?? 1) -
+    1;
+  if (
+    !/^[A-Za-z0-9._-]+$/.test(skillName) ||
+    skillName === "." ||
+    skillName === ".." ||
+    tokenCount !== 1
+  )
+    throw new Error("invalid Codex explicit skill invocation");
+  if (selected.scope === "repository") {
+    if (token !== `$${skillName}`)
+      throw new Error("invalid Codex explicit skill invocation");
+    let path = request.workspace;
+    for (const [index, part] of [
+      ".agents",
+      "skills",
+      skillName,
+      "SKILL.md",
+    ].entries()) {
+      path = join(path, part);
+      const entry = await lstat(path).catch(() => null);
+      if (
+        !entry ||
+        entry.isSymbolicLink() ||
+        (index === 3
+          ? !entry.isFile() || entry.size > 1024 * 1024
+          : !entry.isDirectory())
+      )
+        throw new Error(
+          "invoked Codex repository skill is unavailable or unsafe",
+        );
+    }
+    return;
+  }
+  const { pluginName } = selected;
+  if (
+    !request.codexMarketplace?.pluginNames.includes(pluginName) ||
+    !/^[a-z][a-z0-9-]*$/.test(pluginName) ||
+    token !== `$${pluginName}:${skillName}`
+  )
+    throw new Error("invalid Codex explicit skill invocation");
+}
 
 export interface CodexHostOptions {
   binary: string;
@@ -278,6 +331,7 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
       "sevro.host.continuation",
       "sevro.codex.plugin-marketplace",
       "sevro.codex.explicit-invocation",
+      "sevro.codex.repository-invocation",
       "sevro.codex.native-calls",
       "sevro.codex.initial-skill-reads",
       "sevro.codex.follow-up-skill-reads",
@@ -300,23 +354,7 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
         throw new Error("Codex instrumentation is unavailable");
       if (request.condition !== "passive")
         throw new Error("Codex enforcement instrumentation is unavailable");
-      if (request.explicitSkillInvocation) {
-        const { pluginName, skillName, token } =
-          request.explicitSkillInvocation;
-        const tokenCount =
-          request.prompt.split(token).length -
-          1 +
-          (request.followUpPrompt?.split(token).length ?? 1) -
-          1;
-        if (
-          !request.codexMarketplace?.pluginNames.includes(pluginName) ||
-          !/^[a-z][a-z0-9-]*$/.test(pluginName) ||
-          !/^[A-Za-z0-9._-]+$/.test(skillName) ||
-          token !== `$${pluginName}:${skillName}` ||
-          tokenCount !== 1
-        )
-          throw new Error("invalid Codex explicit skill invocation");
-      }
+      await verifyCodexInvocation(request);
       if (existsSync(join(request.workspace, ".codex")))
         throw new Error("fixture Codex configuration is unsupported");
       const stateRoot = await mkdtemp(join(tmpdir(), "sevro-codex-state-"));

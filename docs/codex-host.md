@@ -90,6 +90,11 @@ For an explicitly declared `$plugin:skill`, the host verifies that the installed
 skill exists and that the exact token occurs once in the delivered prompt. A
 completed turn yields `sevro.codex.explicit-invocation` with the owner first and
 verified supporting reads after it. Incomplete reads make that receipt partial.
+The `sevro.codex.repository-invocation` capability supports an explicitly
+declared `$skill` from `.agents/skills/<skill>/SKILL.md`. The host checks that
+the repository mount is a bounded regular file with no symlink components and
+that the token occurs once across the delivered turns. It uses the same
+completed-turn dispatch receipt without wrapping the skill as a plugin.
 
 `createCodexHost` copies file-based authentication into a private Codex home
 for one turn. It supplies only explicit environment variables to the parent

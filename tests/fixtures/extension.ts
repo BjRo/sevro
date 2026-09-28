@@ -3,6 +3,7 @@ export {};
 import { createHash } from "node:crypto";
 
 const scenario = process.argv[2] ?? "echo";
+const repositoryInvocation = scenario.startsWith("lifecycle-codex-repository");
 const request = JSON.parse(await Bun.stdin.text()) as Record<string, unknown>;
 
 if (scenario === "wait") {
@@ -25,6 +26,9 @@ const discovery = {
   requiredCapabilities: ["sevro.host.exec"],
   optionalCapabilities: [
     "sevro.host.extra",
+    ...(repositoryInvocation && !scenario.endsWith("unnegotiated")
+      ? ["sevro.codex.repository-invocation"]
+      : []),
     ...(scenario.endsWith("later") ? ["sevro.host.continuation"] : []),
     ...(scenario === "lifecycle-instrumentation-supported"
       ? ["example.extension.guard"]
@@ -148,6 +152,7 @@ const result = scenario.startsWith("lifecycle")
                     scenario.startsWith("lifecycle-setup") ||
                     scenario === "lifecycle-git-excluded-artifact" ||
                     scenario.startsWith("lifecycle-codex-marketplace") ||
+                    repositoryInvocation ||
                     scenario.startsWith("lifecycle-claude-plugin")
                   ? {
                       kind: "generated",
@@ -202,9 +207,30 @@ const result = scenario.startsWith("lifecycle")
       }
     : request.method === "prepare"
       ? {
-          artifacts:
-            scenario.startsWith("lifecycle-codex-marketplace") ||
-            scenario.startsWith("lifecycle-claude-plugin")
+          artifacts: repositoryInvocation
+            ? [
+                {
+                  id: "repository-skill",
+                  relativePath: scenario.endsWith("missing-mount")
+                    ? ".agents/skills/other/SKILL.md"
+                    : ".agents/skills/probe/SKILL.md",
+                  sha256: createHash("sha256")
+                    .update(
+                      marketplaceFiles[
+                        "marketplace/plugin/skills/probe/SKILL.md"
+                      ],
+                    )
+                    .digest("hex"),
+                  contentBase64: Buffer.from(
+                    marketplaceFiles[
+                      "marketplace/plugin/skills/probe/SKILL.md"
+                    ],
+                  ).toString("base64"),
+                  gitExclude: !scenario.endsWith("not-excluded"),
+                },
+              ]
+            : scenario.startsWith("lifecycle-codex-marketplace") ||
+                scenario.startsWith("lifecycle-claude-plugin")
               ? Object.entries(marketplaceFiles)
                   .map(([relativePath, content]) => ({
                     id: `marketplace-${relativePath}`,
@@ -291,6 +317,17 @@ const result = scenario.startsWith("lifecycle")
             : {}),
           ...(scenario.startsWith("lifecycle-codex-marketplace") &&
           scenario.includes("explicit-invocation")
+            ? {
+                codexSkillInvocation: {
+                  pluginName: "probe",
+                  skillName: "probe",
+                },
+              }
+            : {}),
+          ...(repositoryInvocation
+            ? { codexRepositorySkillInvocation: { skillName: "probe" } }
+            : {}),
+          ...(repositoryInvocation && scenario.endsWith("conflicting")
             ? {
                 codexSkillInvocation: {
                   pluginName: "probe",

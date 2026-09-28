@@ -146,11 +146,19 @@ export interface HostAdapter {
       artifactRoots: string[];
       artifactPaths: string[];
     };
-    explicitSkillInvocation?: {
-      pluginName: string;
-      skillName: string;
-      token: string;
-    };
+    explicitSkillInvocation?:
+      | {
+          scope?: "plugin";
+          pluginName: string;
+          skillName: string;
+          token: string;
+        }
+      | {
+          scope: "repository";
+          pluginName?: never;
+          skillName: string;
+          token: string;
+        };
     signal?: AbortSignal;
   }): Promise<HostResult>;
 }
@@ -896,15 +904,21 @@ export async function runEvaluation(
       );
   }
   const codexSkillInvocation = extensionPreparation?.codexSkillInvocation;
+  const codexRepositorySkillInvocation =
+    extensionPreparation?.codexRepositorySkillInvocation;
   const claudeSkillInvocation = extensionPreparation?.claudeSkillInvocation;
   const invocationPlaceholder = "{{sevro.skill_invocation}}";
   const legacyCodexPlaceholder = "{{sevro.codex.skill_invocation}}";
-  const invocation = codexSkillInvocation ?? claudeSkillInvocation;
-  const invocationToken = codexSkillInvocation
-    ? `$${codexSkillInvocation.pluginName}:${codexSkillInvocation.skillName}`
-    : claudeSkillInvocation
-      ? `/${claudeSkillInvocation.pluginName}:${claudeSkillInvocation.skillName}`
-      : null;
+  const invocation = codexRepositorySkillInvocation
+    ? { ...codexRepositorySkillInvocation, scope: "repository" as const }
+    : (codexSkillInvocation ?? claudeSkillInvocation);
+  const invocationToken = codexRepositorySkillInvocation
+    ? `$${codexRepositorySkillInvocation.skillName}`
+    : codexSkillInvocation
+      ? `$${codexSkillInvocation.pluginName}:${codexSkillInvocation.skillName}`
+      : claudeSkillInvocation
+        ? `/${claudeSkillInvocation.pluginName}:${claudeSkillInvocation.skillName}`
+        : null;
   const placeholderCount =
     options.case.prompt.split(invocationPlaceholder).length -
     1 +
@@ -914,7 +928,13 @@ export async function runEvaluation(
     1 +
     (options.case.followUpPrompt?.split(legacyCodexPlaceholder).length ?? 1) -
     1;
-  if (codexSkillInvocation && claudeSkillInvocation)
+  if (
+    [
+      codexSkillInvocation,
+      codexRepositorySkillInvocation,
+      claudeSkillInvocation,
+    ].filter(Boolean).length > 1
+  )
     throw new EvaluationConfigurationError(
       "only one explicit skill invocation may be declared",
     );
@@ -945,6 +965,33 @@ export async function runEvaluation(
     )
       throw new EvaluationConfigurationError(
         "Codex explicit invocation capability was not negotiated",
+      );
+  } else if (codexRepositorySkillInvocation) {
+    const { skillName } = codexRepositorySkillInvocation;
+    if (
+      !/^[A-Za-z0-9._-]+$/.test(skillName) ||
+      skillName === "." ||
+      skillName === ".." ||
+      placeholderCount !== 1 ||
+      !inlineArtifacts.some(
+        (artifact) =>
+          artifact.gitExclude &&
+          artifact.relativePath === `.agents/skills/${skillName}/SKILL.md`,
+      )
+    )
+      throw new EvaluationConfigurationError(
+        "invalid Codex repository skill invocation declaration",
+      );
+    if (
+      !options.extension?.session.identity.capabilities.includes(
+        "sevro.codex.repository-invocation",
+      ) ||
+      !options.host.hostCapabilities?.includes(
+        "sevro.codex.repository-invocation",
+      )
+    )
+      throw new EvaluationConfigurationError(
+        "Codex repository invocation capability was not negotiated",
       );
   } else if (claudeSkillInvocation) {
     const { pluginName, skillName } = claudeSkillInvocation;
@@ -1027,6 +1074,9 @@ export async function runEvaluation(
     ...(codexMarketplace ? { codexMarketplace } : {}),
     ...(claudePluginDirs ? { claudePluginDirs } : {}),
     ...(codexSkillInvocation ? { codexSkillInvocation } : {}),
+    ...(codexRepositorySkillInvocation
+      ? { codexRepositorySkillInvocation }
+      : {}),
     ...(claudeSkillInvocation ? { claudeSkillInvocation } : {}),
     ...(options.advisoryHost
       ? {
@@ -1100,6 +1150,9 @@ export async function runEvaluation(
         ...(codexMarketplace ? { codexMarketplace } : {}),
         ...(claudePluginDirs ? { claudePluginDirs } : {}),
         ...(codexSkillInvocation ? { codexSkillInvocation } : {}),
+        ...(codexRepositorySkillInvocation
+          ? { codexRepositorySkillInvocation }
+          : {}),
         ...(claudeSkillInvocation ? { claudeSkillInvocation } : {}),
       }),
       checksDigest: hashJson(options.case.checks),
