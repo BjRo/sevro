@@ -161,7 +161,10 @@ try {
               configuration: { pattern: "^READY$" },
             },
           ],
-          requiredEvidence: ["sevro.claude.tool-calls"],
+          requiredEvidence: [
+            "sevro.claude.tool-calls",
+            "sevro.host.native-controls",
+          ],
         }),
       ),
     ]);
