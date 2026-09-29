@@ -1,10 +1,12 @@
 import { afterEach, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
 import {
   chmod,
   mkdir,
   mkdtemp,
   readFile,
   rm,
+  stat,
   symlink,
   writeFile,
 } from "node:fs/promises";
@@ -137,6 +139,69 @@ test("CLI emits one JSON result and uses the task exit category", async () => {
     exitCode: 1,
   });
 });
+
+test.each(["child", "root", "readable root"])(
+  "CLI removes a permission-locked candidate directory (%s)",
+  async (location) => {
+    const { args, caseFile } = await fixture();
+    const host = join(caseFile, "..", "locked-host.ts");
+    const external = join(caseFile, "..", "external");
+    await mkdir(external);
+    const externalFile = join(external, "retained.txt");
+    await writeFile(externalFile, "external retained\n");
+    await chmod(externalFile, 0o400);
+    await chmod(external, 0o500);
+    const externalMode = (await stat(external)).mode;
+    const externalFileMode = (await stat(externalFile)).mode;
+    await writeFile(
+      host,
+      `import { chmod, mkdir, symlink, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+export default {
+  id: "sevro.host.synthetic", model: "synthetic-v1", effort: "none",
+  async run({ workspace }) {
+    const locked = ${location === "child" ? 'join(workspace, "locked")' : "workspace"};
+    if (locked !== workspace) await mkdir(locked);
+    await writeFile(join(locked, "value.txt"), "candidate output\\n");
+    await symlink(${JSON.stringify(external)}, join(locked, "external"), "junction");
+    await chmod(locked, ${location === "readable root" ? "0o500" : "0o000"});
+    return {
+      finalMessage: "ready", complete: true,
+      observations: [{ id: "sevro.test.workspace", source: "sevro.host.synthetic", completeness: "complete", data: { path: workspace } }],
+    };
+  },
+};\n`,
+    );
+    args[args.indexOf("--adapter-module") + 1] = host;
+    let workspace = "";
+    try {
+      const run = await invoke(args);
+      expect(run.code, run.stderr).toBe(0);
+      const evidence = JSON.parse(
+        await readFile(run.result.evidencePath, "utf8"),
+      );
+      expect(evidence.result).toEqual(run.result);
+      workspace = evidence.trials[0].observations.find(
+        (item: { id: string }) => item.id === "sevro.test.workspace",
+      ).data.path;
+      expect(workspace).toBeString();
+      expect(workspace.length).toBeGreaterThan(0);
+      expect(existsSync(workspace)).toBe(false);
+      expect((await stat(external)).mode).toBe(externalMode);
+      expect((await stat(externalFile)).mode).toBe(externalFileMode);
+      expect(await readFile(externalFile, "utf8")).toBe("external retained\n");
+    } finally {
+      if (workspace && existsSync(workspace)) {
+        await chmod(workspace, 0o700);
+        if (existsSync(join(workspace, "locked")))
+          await chmod(join(workspace, "locked"), 0o700);
+        await rm(workspace, { recursive: true, force: true });
+      }
+      await chmod(external, 0o700);
+      await chmod(externalFile, 0o600);
+    }
+  },
+);
 
 test("CLI derives stable build and project digests without caller inputs", async () => {
   const { args } = await fixture();

@@ -49,6 +49,7 @@ import {
 import { evaluationProtectedRoots } from "./hosts/isolation-roots";
 import { canonicalJson, createEvaluationIdentity, hashJson } from "./identity";
 import { fixtureBinDirectory, installFixtureBin } from "./fixture-bin";
+import { clearFixtureContents } from "./fixture-cleanup";
 import { installGitHooks } from "./git-hooks";
 import {
   InstrumentationEvidenceError,
@@ -2195,11 +2196,7 @@ export async function runEvaluation(
       } finally {
         if (persisted) {
           try {
-            await Promise.all(
-              (await readdir(workspace)).map((name) =>
-                rm(join(workspace, name), { recursive: true, force: true }),
-              ),
-            );
+            await clearFixtureContents(workspace);
             retainedWorkspaces.delete(reservation);
           } catch {
             console.warn(`fixture cleanup failed; retained at ${workspace}`);

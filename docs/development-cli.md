@@ -75,6 +75,12 @@ empty reservations stay until active trials drain, then unused and completed
 roots are removed. A cancellation before any admission retains an interrupted
 run with no trial evidence and exits `130` or `143` without calling a host.
 
+Completed fixture cleanup restores owner access to permission-locked candidate
+directories when necessary, then removes their contents. It keeps empty reserved
+roots until active work drains. Permission repair stays in the completed
+workspace and never follows symbolic links to external targets. Evidence is
+retained before cleanup, including when cleanup itself fails.
+
 ### Project and configuration roots
 
 `--project-root` identifies the evaluated project and extension case discovery.
