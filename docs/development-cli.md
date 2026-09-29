@@ -68,6 +68,10 @@ Persistence errors drain active trials before the attempt becomes diagnostic;
 their completed evidence survives, and a trial whose evidence could not be
 persisted keeps its fixture.
 
+Host adapters receive the operating system's canonical absolute workspace path.
+This keeps native cwd evidence and path-bound tooling consistent when the
+temporary directory has a logical alias, such as macOS `/var` and `/private/var`.
+
 Sevro reserves candidate and semantic workspace roots before execution so each
 sandbox denies later peers as well as active ones. Fixture preparation stays
 within the job limit. Completed candidate contents are removed after retention;

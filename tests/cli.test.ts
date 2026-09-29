@@ -140,6 +140,34 @@ test("CLI emits one JSON result and uses the task exit category", async () => {
   });
 });
 
+test("CLI supplies a canonical candidate workspace", async () => {
+  const { args, caseFile } = await fixture();
+  const host = join(caseFile, "..", "canonical-host.ts");
+  await writeFile(
+    host,
+    `import { realpath } from "node:fs/promises";
+export default {
+  id: "sevro.host.synthetic", model: "synthetic-v1", effort: "none",
+  async run({ workspace }) {
+    return {
+      finalMessage: "ready", complete: true,
+      observations: [{ id: "sevro.test.workspace", source: "sevro.host.synthetic", completeness: "complete", data: { path: workspace, canonicalPath: await realpath(workspace) } }],
+    };
+  },
+};\n`,
+  );
+  args[args.indexOf("--adapter-module") + 1] = host;
+  const run = await invoke(args);
+  expect(run.code, run.stderr).toBe(0);
+  expect(run.result.execution.status).toBe("completed");
+  const evidence = JSON.parse(await readFile(run.result.evidencePath, "utf8"));
+  const observation = evidence.trials[0].observations.find(
+    (item: { id: string }) => item.id === "sevro.test.workspace",
+  );
+  expect(observation.data.path).toBeString();
+  expect(observation.data.path).toBe(observation.data.canonicalPath);
+});
+
 test.each(["child", "root", "readable root"])(
   "CLI removes a permission-locked candidate directory (%s)",
   async (location) => {

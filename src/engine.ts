@@ -254,7 +254,8 @@ async function createFixture(
     content,
   }));
   const workspace =
-    reservedWorkspace ?? (await mkdtemp(join(tmpdir(), "sevro-case-")));
+    reservedWorkspace ??
+    (await realpath(await mkdtemp(join(tmpdir(), "sevro-case-"))));
   try {
     if (repository)
       await cloneRepositorySource(
@@ -1332,10 +1333,12 @@ export async function runEvaluation(
       trial <= options.trialCount && !options.signal?.aborted;
       trial++
     ) {
-      reservedWorkspaces.push(await mkdtemp(join(tmpdir(), "sevro-case-")));
+      reservedWorkspaces.push(
+        await realpath(await mkdtemp(join(tmpdir(), "sevro-case-"))),
+      );
       if (preparedSemantic.length)
         reservedSemanticWorkspaces.push(
-          await mkdtemp(join(tmpdir(), "sevro-case-")),
+          await realpath(await mkdtemp(join(tmpdir(), "sevro-case-"))),
         );
     }
     const diagnostics: {
