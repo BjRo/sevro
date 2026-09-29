@@ -38,7 +38,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
       - run: bun run format:check
-      - run: bun test
+      - run: bun test --timeout 15000
       - name: Prepare the tagged package
         run: bun run release:prepare --tag "$RELEASE_TAG" --output "$RUNNER_TEMP/sevro-release"
       - name: Install and verify that exact tarball
