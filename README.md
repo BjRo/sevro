@@ -20,6 +20,11 @@ The [release workflow](docs/releases.md) prepares a versioned artifact with its
 file inventory and checksums, verifies that exact tarball, and documents manual
 publication, trusted publishing, Darrow pinning, updates, and rollback.
 
+Sevro uses the owner-selected [Business Source License 1.1](LICENSE), preserving
+Darrow's terms and parameters with Sevro named as the Licensed Work. The first
+local candidate is `0.1.0-rc.1`; publication and Darrow's registry pin remain
+separate steps.
+
 [`extension-client.ts`](src/extension-client.ts) validates one request and
 response per extension process and negotiates the v1 protocol. It enforces
 message limits, timeouts, response identity, and process-group cancellation.

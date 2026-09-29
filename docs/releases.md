@@ -78,8 +78,9 @@ The workflow checks the downloaded artifact's SHA-256 before publishing and
 retains its release record. Configuring an owner or workflow does not itself
 authorize this coding session to publish or push.
 
-The current source remains a development version until the owner selects its
-license and commits release metadata. Neither local checks nor a workflow file
-claim a remote CI run or publication. Darrow's exact registry pin, default
-caller switch, remaining workflow migrations, focused live validation, and
+The first local candidate is `0.1.0-rc.1`, using the owner-selected
+`BUSL-1.1` license. Its `LICENSE` preserves Darrow's terms and parameters,
+changing only the Licensed Work name and description to Sevro. Neither local
+checks nor a workflow file claim a remote CI run or publication. Darrow's exact
+registry pin, default caller switch, remaining workflow migrations, focused live validation, and
 generic runner removal remain separate extraction gates.

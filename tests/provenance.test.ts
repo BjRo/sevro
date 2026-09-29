@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
@@ -76,10 +76,13 @@ test("project identity snapshots non-Git content but excludes result storage", a
 
 test("runner provenance uses package identity unless the running checkout is explicit", async () => {
   const digest = "a".repeat(64);
+  const { version } = JSON.parse(
+    await readFile(resolve(import.meta.dir, "../package.json"), "utf8"),
+  );
   expect(await runnerProvenance(digest)).toMatchObject({
     source: "package",
     packageName: "sevro",
-    version: "0.1.0-dev.0",
+    version,
     buildDigest: digest,
   });
   const checkout = await runnerProvenance(

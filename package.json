@@ -1,6 +1,7 @@
 {
   "name": "sevro",
-  "version": "0.1.0-dev.0",
+  "version": "0.1.0-rc.1",
+  "license": "BUSL-1.1",
   "description": "A standalone evaluation runner for agentic coding capabilities",
   "type": "module",
   "private": false,
