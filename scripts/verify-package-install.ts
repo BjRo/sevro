@@ -40,7 +40,8 @@ try {
     await readFile(join(sourceRoot, "package.json"), "utf8"),
   ) as { version: string };
   const archive =
-    values.tarball ?? join(root, `sevro-${sourceManifest.version}.tgz`);
+    values.tarball ??
+    join(root, `bjoernrochel-sevro-${sourceManifest.version}.tgz`);
   if (values.tarball === undefined)
     await run(
       [
@@ -62,7 +63,7 @@ try {
     JSON.stringify({ name: "sevro-package-consumer", private: true }),
   );
   await run([process.execPath, "add", archive], consumer);
-  const installed = join(consumer, "node_modules", "sevro");
+  const installed = join(consumer, "node_modules", "@bjoernrochel", "sevro");
   const installedCommand = join(
     consumer,
     "node_modules",
@@ -82,7 +83,10 @@ try {
   const manifest = JSON.parse(
     await readFile(join(installed, "package.json"), "utf8"),
   ) as { name: string; version: string };
-  if (manifest.name !== "sevro" || manifest.version !== sourceManifest.version)
+  if (
+    manifest.name !== "@bjoernrochel/sevro" ||
+    manifest.version !== sourceManifest.version
+  )
     throw new Error("installed package identity differs from source metadata");
   async function installedRun(caseName: string) {
     const output = await run(
@@ -134,7 +138,7 @@ try {
     result.grading.status !== "completed" ||
     result.task.verdict !== "passed" ||
     evidence.runner.source !== "package" ||
-    evidence.runner.packageName !== "sevro" ||
+    evidence.runner.packageName !== "@bjoernrochel/sevro" ||
     evidence.runner.version !== manifest.version ||
     !/^[a-f0-9]{64}$/.test(evidence.runner.buildDigest) ||
     evidence.evaluationIdentity.dimensions.runnerBuildDigest !==

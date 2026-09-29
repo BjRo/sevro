@@ -1,6 +1,8 @@
 # Releases
 
-Sevro releases are public npm packages named `sevro`. A release version is an
+Sevro releases are public npm packages named `@bjoernrochel/sevro`. The public
+command remains `sevro`, and npm archives use `bjoernrochel-sevro-<version>.tgz`.
+A release version is an
 exact semantic version; development versions containing `-dev` are not release
 candidates. Darrow pins the published version in development dependencies and
 its lockfile. Marketplace plugins do not depend on Sevro.
@@ -37,13 +39,13 @@ metadata in the installed package.
 
    ```sh
    bun run release:prepare --tag v0.1.0-rc.1 --output /absolute/new/release-directory
-   bun run test:package-install --tarball /absolute/new/release-directory/sevro-0.1.0-rc.1.tgz
+   bun run test:package-install --tarball /absolute/new/release-directory/bjoernrochel-sevro-0.1.0-rc.1.tgz
    ```
 
 4. Run Darrow's public integration against that same tarball:
 
    ```sh
-   SEVRO_PACKAGE_TARBALL=/absolute/new/release-directory/sevro-0.1.0-rc.1.tgz bun run test:eval-runner-sevro-package
+   SEVRO_PACKAGE_TARBALL=/absolute/new/release-directory/bjoernrochel-sevro-0.1.0-rc.1.tgz bun run test:eval-runner-sevro-package
    ```
 
 5. Review the changes, file inventory, retained checks, and compatibility
@@ -66,7 +68,7 @@ publishing authorization. The initial reviewed tarball can be published
 manually with an authenticated npm account:
 
 ```sh
-npm publish /absolute/reviewed/sevro-0.1.0-rc.1.tgz --ignore-scripts --access public --tag next
+npm publish /absolute/reviewed/bjoernrochel-sevro-0.1.0-rc.1.tgz --ignore-scripts --access public --tag next
 ```
 
 After the package exists, configure its trusted publisher for GitHub owner

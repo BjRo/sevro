@@ -31,7 +31,7 @@ async function fixture() {
     command,
   );
   const manifest = {
-    name: "sevro",
+    name: "@bjoernrochel/sevro",
     version: "0.1.0-rc.1",
     private: false,
     bin: { sevro: "./src/cli.ts" },
@@ -79,6 +79,14 @@ async function invoke(command: string, args: string[]) {
   return { stdout, stderr, code };
 }
 
+test("scoped package installation retains the sevro command and release provenance", async () => {
+  const checked = await invoke(
+    resolve(import.meta.dir, "../scripts/verify-package-install.ts"),
+    [],
+  );
+  expect(checked.code, checked.stderr).toBe(0);
+}, 60_000);
+
 test("release preparation retains a real tarball, identity, inventory, and checksums", async () => {
   const { source, command, output } = await fixture();
   const run = await invoke(command, [
@@ -89,11 +97,11 @@ test("release preparation retains a real tarball, identity, inventory, and check
   ]);
   expect(run.code, run.stderr).toBe(0);
   const release = JSON.parse(run.stdout);
-  const archive = join(output, "sevro-0.1.0-rc.1.tgz");
+  const archive = join(output, "bjoernrochel-sevro-0.1.0-rc.1.tgz");
   const bytes = await readFile(archive);
   expect(release).toMatchObject({
     format: "sevro.release.v1",
-    name: "sevro",
+    name: "@bjoernrochel/sevro",
     version: "0.1.0-rc.1",
     releaseTag: "v0.1.0-rc.1",
     distTag: "next",
@@ -107,7 +115,7 @@ test("release preparation retains a real tarball, identity, inventory, and check
     JSON.parse(await readFile(join(output, "release.json"), "utf8")),
   ).toEqual(release);
   expect(await readFile(join(output, "SHA256SUMS"), "utf8")).toBe(
-    `${release.sha256}  sevro-0.1.0-rc.1.tgz\n`,
+    `${release.sha256}  bjoernrochel-sevro-0.1.0-rc.1.tgz\n`,
   );
   expect(release.files.map((file: { path: string }) => file.path)).toContain(
     "LICENSE",
@@ -199,7 +207,7 @@ test("the package installation gate rejects a different candidate version", asyn
     output,
   ]);
   expect(prepared.code, prepared.stderr).toBe(0);
-  const archive = join(output, "sevro-9.8.7-rc.1.tgz");
+  const archive = join(output, "bjoernrochel-sevro-9.8.7-rc.1.tgz");
   const original = await readFile(archive);
   const checked = await invoke(
     resolve(import.meta.dir, "../scripts/verify-package-install.ts"),

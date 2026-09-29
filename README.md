@@ -3,6 +3,7 @@
 Sevro is a standalone evaluation runner for agentic coding capabilities. It is
 being extracted from [Darrow](https://github.com/BjRo/darrow/issues/95). This
 checkout runs locally and packs as an installable npm tarball.
+The npm package is `@bjoernrochel/sevro`; its installed command is `sevro`.
 
 The public v1 contracts are [the extension protocol](docs/extension-protocol-v1.md)
 and [run results](docs/results-v1.md). Sevro owns these generic interfaces;

@@ -42,7 +42,7 @@ jobs:
       - name: Prepare the tagged package
         run: bun run release:prepare --tag "$RELEASE_TAG" --output "$RUNNER_TEMP/sevro-release"
       - name: Install and verify that exact tarball
-        run: bun run test:package-install --tarball "$RUNNER_TEMP/sevro-release/sevro-${RELEASE_TAG#v}.tgz"
+        run: bun run test:package-install --tarball "$RUNNER_TEMP/sevro-release/bjoernrochel-sevro-${RELEASE_TAG#v}.tgz"
       - uses: actions/upload-artifact@v7
         with:
           name: sevro-release
@@ -71,4 +71,4 @@ jobs:
         working-directory: ${{ runner.temp }}/sevro-release
         run: sha256sum --check SHA256SUMS
       - name: Publish the verified artifact with trusted publishing
-        run: npm publish "$RUNNER_TEMP/sevro-release/sevro-${RELEASE_TAG#v}.tgz" --ignore-scripts
+        run: npm publish "$RUNNER_TEMP/sevro-release/bjoernrochel-sevro-${RELEASE_TAG#v}.tgz" --ignore-scripts

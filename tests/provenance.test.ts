@@ -81,7 +81,7 @@ test("runner provenance uses package identity unless the running checkout is exp
   );
   expect(await runnerProvenance(digest)).toMatchObject({
     source: "package",
-    packageName: "sevro",
+    packageName: "@bjoernrochel/sevro",
     version,
     buildDigest: digest,
   });

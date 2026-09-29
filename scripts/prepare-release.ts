@@ -35,7 +35,7 @@ async function prepare() {
     publishConfig?: { registry?: string; access?: string; tag?: string };
   };
   if (
-    manifest.name !== "sevro" ||
+    manifest.name !== "@bjoernrochel/sevro" ||
     manifest.private !== false ||
     typeof manifest.version !== "string" ||
     !releaseVersion.test(manifest.version) ||
@@ -97,7 +97,7 @@ async function prepare() {
       !pack ||
       pack.name !== manifest.name ||
       pack.version !== manifest.version ||
-      pack.filename !== `sevro-${manifest.version}.tgz` ||
+      pack.filename !== `bjoernrochel-sevro-${manifest.version}.tgz` ||
       basename(pack.filename) !== pack.filename
     )
       throw new Error("npm packed an unexpected release identity");
