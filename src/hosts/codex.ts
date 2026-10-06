@@ -1,3 +1,4 @@
+import { runCodexAppServer } from "./codex-app-server";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import {
@@ -19,6 +20,7 @@ import { fixtureParts } from "../preparation";
 import { summarizeCodexEvents } from "./codex-events";
 import {
   codexNativeCallObservation,
+  codexNativeSkillReadRecovery,
   codexNativeSessionLastOrdinal,
 } from "./codex-native-calls";
 import { codexSkillReadObservation } from "./codex-skill-reads";
@@ -93,6 +95,7 @@ export interface CodexHostOptions {
   additionalProtectedRoots: string[];
   agentConcurrencyLimit?: number | null;
   timeoutMs?: number;
+  entrypoint?: "exec" | "app-server";
   /** Integration-test seam; production uses the same CLI for execution and preflight. */
   sandboxBinary?: string;
 }
@@ -323,6 +326,8 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
       !isAbsolute(options.sandboxBinary)) ||
     !options.model ||
     !options.effort ||
+    (options.entrypoint !== undefined &&
+      !["exec", "app-server"].includes(options.entrypoint)) ||
     (agentConcurrencyLimit !== null &&
       (!Number.isSafeInteger(agentConcurrencyLimit) ||
         agentConcurrencyLimit < 1)) ||
@@ -335,6 +340,9 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
     id: "sevro.host.codex",
     hostCapabilities: [
       "sevro.host.continuation",
+      ...(options.entrypoint === "app-server"
+        ? ["sevro.host.native-goal"]
+        : []),
       "sevro.codex.plugin-marketplace",
       "sevro.codex.explicit-invocation",
       "sevro.codex.repository-invocation",
@@ -347,6 +355,9 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
     effort: options.effort,
     configuration: {
       "sevro.codex.agent-concurrency-limit": agentConcurrencyLimit,
+      ...(options.entrypoint === "app-server"
+        ? { "sevro.codex.entrypoint": "app-server" }
+        : {}),
     },
     async run(request) {
       if (
@@ -586,16 +597,96 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
           "-c",
           'approval_policy="never"',
         ];
-        const execution = await runProcess({
-          argv: [...executionArgs, "-"],
-          cwd: request.workspace,
-          env,
-          input: request.prompt,
-          timeoutMs,
-          signal: request.signal,
-        });
-        const summary = summarizeCodexEvents(execution.out, execution.code);
-        if (!summary.complete) throw new Error("Codex turn did not complete");
+        let appServerContinuation:
+          | {
+              id: string;
+              completeness: "complete" | "partial";
+              data: Record<string, unknown>;
+            }
+          | undefined;
+        const appServer =
+          options.entrypoint === "app-server"
+            ? await runCodexAppServer({
+                argv: [
+                  options.binary,
+                  "app-server",
+                  "--stdio",
+                  "--strict-config",
+                  "-c",
+                  `default_permissions=${JSON.stringify(profileId)}`,
+                ],
+                env,
+                permissionProfile: profileId,
+                request: {
+                  repoDir: request.workspace,
+                  prompt: request.prompt,
+                  model: options.model,
+                  effort: options.effort,
+                  signal: request.signal,
+                  control: {
+                    appServerTimeoutMs: timeoutMs,
+                    ...(request.followUpPrompt
+                      ? { followUpPrompt: request.followUpPrompt }
+                      : {}),
+                  },
+                },
+                followUpBoundary: async (threadId, goal) => {
+                  const boundary = await workspaceFingerprint(
+                    request.workspace,
+                  );
+                  const measured =
+                    initialWorkspaceFingerprint !== null && boundary !== null;
+                  appServerContinuation = {
+                    id: "sevro.codex.continuation",
+                    completeness: measured ? "complete" : "partial",
+                    data: {
+                      method: "same_thread_resume",
+                      ...goal,
+                      threadId,
+                      nativeAfterOrdinal: await codexNativeSessionLastOrdinal(
+                        codexHome,
+                        threadId,
+                      ),
+                      preFollowUpWorktreeUnchanged: measured
+                        ? initialWorkspaceFingerprint === boundary
+                        : null,
+                    },
+                  };
+                  return JSON.stringify({
+                    type: "sevro.codex.feedback-boundary",
+                    ...appServerContinuation.data,
+                  });
+                },
+              })
+            : null;
+        const execution =
+          appServer ??
+          (await runProcess({
+            argv: [...executionArgs, "-"],
+            cwd: request.workspace,
+            env,
+            input: request.prompt,
+            timeoutMs,
+            signal: request.signal,
+          }));
+        const summary = appServer
+          ? {
+              threadId: appServer.evidence.threadId ?? "",
+              complete: appServer.code === 0,
+              finalMessage:
+                appServer.code === 0
+                  ? await readFile(
+                      join(request.workspace, ".git", "last-message.md"),
+                      "utf8",
+                    )
+                  : null,
+              inputTokens: null,
+              outputTokens: null,
+              usageComplete: false,
+            }
+          : summarizeCodexEvents(execution.out, execution.code);
+        if (!summary.complete && !appServer)
+          throw new Error("Codex turn did not complete");
         let followUp: { out: string; code: number } | null = null;
         let followUpSummary: typeof summary | null = null;
         let continuationObservation:
@@ -604,8 +695,8 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
               completeness: "complete" | "partial";
               data: Record<string, unknown>;
             }
-          | undefined;
-        if (request.followUpPrompt) {
+          | undefined = appServerContinuation;
+        if (request.followUpPrompt && !appServer) {
           const beforeFollowUp = await workspaceFingerprint(request.workspace);
           const nativeAfterOrdinal = await codexNativeSessionLastOrdinal(
             codexHome,
@@ -665,10 +756,15 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
           : execution.out;
         if (Buffer.byteLength(observedEvents, "utf8") > MAX_EVENT_BYTES)
           throw new Error("Codex combined event stream exceeds the size limit");
+        const recoveredReads = await codexNativeSkillReadRecovery(
+          codexHome,
+          summary.threadId,
+        );
         const skillReads = await codexSkillReadObservation(
           observedEvents,
           request.workspace,
           installedPluginRoots,
+          recoveredReads,
         );
         const initialSkillReads = followUp
           ? {
@@ -676,6 +772,7 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
                 execution.out,
                 request.workspace,
                 installedPluginRoots,
+                recoveredReads,
               )),
               id: "sevro.codex.initial-skill-reads",
             }
@@ -686,6 +783,7 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
                 followUp.out,
                 request.workspace,
                 installedPluginRoots,
+                recoveredReads,
               )),
               id: "sevro.codex.follow-up-skill-reads",
             }
@@ -720,8 +818,21 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
           : null;
         return {
           finalMessage: (followUpSummary ?? summary).finalMessage,
+          ...(appServer ? { executionFailed: !summary.complete } : {}),
           complete: (followUpSummary ?? summary).finalMessage !== null,
           observations: [
+            ...(appServer
+              ? [
+                  {
+                    id: "sevro.host.native-goal",
+                    completeness:
+                      appServer.code === 0
+                        ? ("complete" as const)
+                        : ("partial" as const),
+                    data: { ...appServer.evidence },
+                  },
+                ]
+              : []),
             skillReads,
             ...(initialSkillReads ? [initialSkillReads] : []),
             ...(followUpSkillReads ? [followUpSkillReads] : []),

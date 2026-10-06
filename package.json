@@ -1,6 +1,6 @@
 {
   "name": "@bjoernrochel/sevro",
-  "version": "0.1.0-rc.1",
+  "version": "0.1.0-rc.2",
   "license": "BUSL-1.1",
   "description": "A standalone evaluation runner for agentic coding capabilities",
   "type": "module",
@@ -35,11 +35,11 @@
   },
   "dependencies": {
     "ajv": "8.20.0",
-    "smol-toml": "1.8.0"
+    "smol-toml": "1.8.0",
+    "typescript": "5.9.3"
   },
   "devDependencies": {
     "@types/bun": "^1.2.0",
-    "prettier": "^3.9.9",
-    "typescript": "^5.7.0"
+    "prettier": "^3.9.9"
   }
 }

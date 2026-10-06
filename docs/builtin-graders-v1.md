@@ -75,3 +75,12 @@ artifacts returned by the semantic route. The route identity enters the
 evaluation identity and run evidence. Semantic host usage is retained
 separately from candidate usage. Advisory quality judgments still need a host
 routing implementation.
+
+An optional `artifactPath` selects a saved fixture document instead of the final
+response. It must be relative to the fixture, exclude `.git` and parent traversal,
+and contain at most one `*` in the basename. Exactly one regular file of at most
+64 KiB must match; a missing, ambiguous, escaping or oversized artifact makes
+grading an error. Checks are grouped by source, so response and document checks
+remain independent in the same trial. Artifact outcomes retain the resolved
+path and content digest. The semantic host uses an empty workspace and receives
+the document as untrusted data.

@@ -61,6 +61,12 @@ whole body. Repeated complete reads produce separate receipts; paged reads
 produce one receipt when their ranges first cover the body. An incomplete
 later reread makes the diagnostic partial. Extensions can compare these
 ordinals with an accepted owner boundary without retaining commands or output.
+Earlier yielded output can complete a read only when its process and unique
+call identity bind it to that actor's native command completion. Completed
+literal command calls use a bounded TypeScript parser; conditional or ambiguous
+code cannot establish that binding. Recovery verifies the exact mounted bytes
+and recomputes completeness for the matching CLI command. Private commands,
+submitted code and recovered skill bodies stay out of public observations.
 For accepted spawns, it also checks up to eight child thread rollouts and
 reports whether each is available, unavailable, ambiguous, or partial, with an
 explicit truncation flag. An available rollout includes bounded diagnostics for
@@ -132,3 +138,10 @@ parent can read authentication before it starts sandboxed commands. Tests
 invoke the installed `codex sandbox` CLI to prove fixture access, denied
 source/auth reads, and executable access. The process adapter verifies these
 properties before every turn.
+
+Native read diagnostics retain at most 64 `recoverySources` entries. Each
+records its native ordinal, whether the native completion had output, the
+yielded chunk count, and separate `completedCall` and `literalCommandCall`
+flags. These facts distinguish recovery sources without retaining commands,
+submitted code, or skill bodies. The diagnostic's completeness and truncation
+fields still determine whether its read evidence can support grading.

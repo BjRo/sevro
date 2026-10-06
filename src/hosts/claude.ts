@@ -1,3 +1,4 @@
+import { observeClaudeNativeGoal } from "./claude-native-goal";
 import { existsSync } from "node:fs";
 import {
   cp,
@@ -256,6 +257,7 @@ export function createClaudeHost(options: ClaudeHostOptions): HostAdapter {
     model: options.model,
     effort: options.effort,
     hostCapabilities: [
+      "sevro.host.native-goal",
       "sevro.claude.plugin-dirs",
       "sevro.claude.explicit-invocation",
       ...(options.projectSettings
@@ -454,6 +456,10 @@ export function createClaudeHost(options: ClaudeHostOptions): HostAdapter {
           executionFailed: !summary.complete,
           observations: [
             toolCalls,
+            await observeClaudeNativeGoal(
+              dirname(credential),
+              execution.followUpOut ?? execution.out,
+            ),
             nestedSkills,
             claudeNativeControls(execution.out, execution.code),
             ...(repositoryObservation ? [repositoryObservation] : []),

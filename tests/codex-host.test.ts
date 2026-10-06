@@ -176,6 +176,7 @@ test("Codex host binds bounded native calls to its completed thread", async () =
         completeness: "complete",
         observedSkills: [],
         completedReads: [],
+        recoverySources: [],
         commandExecutions: 0,
         readAttempts: 0,
         truncated: false,

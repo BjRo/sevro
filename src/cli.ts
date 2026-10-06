@@ -136,6 +136,7 @@ function parseInvocation(argv: string[]) {
           "advisory-exclude": { type: "string", multiple: true },
           host: { type: "string" },
           "codex-bin": { type: "string" },
+          "codex-entrypoint": { type: "string" },
           "codex-auth-file": { type: "string" },
           "claude-bin": { type: "string" },
           "claude-credential-file": { type: "string" },
@@ -189,6 +190,13 @@ function parseInvocation(argv: string[]) {
     ? absoluteOption(values["toolchain-bin-dir"], "--toolchain-bin-dir")
     : undefined;
   const codex = values.host === "codex";
+  if (
+    values["codex-entrypoint"] !== undefined &&
+    (!codex || !["exec", "app-server"].includes(values["codex-entrypoint"]))
+  )
+    throw new InvocationError(
+      "--codex-entrypoint requires --host codex and exec or app-server",
+    );
   const claude = values.host === "claude";
   const builtinHost = codex || claude;
   const semanticCodex = values["semantic-host"] === "codex";
@@ -448,6 +456,8 @@ function parseInvocation(argv: string[]) {
     advisoryExcludedPaths: values["advisory-exclude"] ?? [],
     codex: codex
       ? {
+          entrypoint: values["codex-entrypoint"] as
+            "exec" | "app-server" | undefined,
           ...codexCommon!,
           model: requiredOption(values.model, "--model"),
           effort: requiredOption(values.effort, "--effort"),

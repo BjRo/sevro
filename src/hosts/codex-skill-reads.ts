@@ -1,3 +1,4 @@
+import { nativeCommandOutputs } from "./codex-command-output";
 import { readFile, realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 
@@ -137,6 +138,13 @@ export interface NativeReadDiagnostic {
   completeness: "complete" | "partial";
   observedSkills: string[];
   completedReads: Array<{ skill: string; ordinal: number }>;
+  recoverySources: Array<{
+    ordinal: number;
+    nativeOutput: boolean;
+    yieldedChunks: number;
+    completedCall: boolean;
+    literalCommandCall: boolean;
+  }>;
   commandExecutions: number;
   readAttempts: number;
   truncated: boolean;
@@ -161,12 +169,14 @@ export async function codexNativeReadDiagnostic(
   const pluginRoots = await Promise.all(
     installedPluginRoots.map((root) => realpath(root)),
   );
+  const recoveredOutputs = nativeCommandOutputs(entries);
   const attempted = new Map<
     string,
     { ranges: Array<[number, number]>; bodyLength: number }
   >();
   const observedSkills: string[] = [];
   const completedReads: Array<{ skill: string; ordinal: number }> = [];
+  const recoverySources: NativeReadDiagnostic["recoverySources"] = [];
   let commandExecutions = 0;
   let readAttempts = 0;
   let partial = false;
@@ -196,6 +206,16 @@ export async function codexNativeReadDiagnostic(
       partial = true;
       break;
     }
+    const recovered = recoveredOutputs.get(ordinal);
+    recoverySources.push({
+      ordinal,
+      nativeOutput:
+        typeof commandItem.aggregated_output === "string" &&
+        commandItem.aggregated_output.length > 0,
+      yieldedChunks: recovered?.chunks ?? 0,
+      completedCall: recovered?.completedCall === true,
+      literalCommandCall: recovered?.literalCommandCall === true,
+    });
     if (
       typeof commandItem.exit_code !== "number" ||
       commandItem.status !== "completed"
@@ -214,7 +234,15 @@ export async function codexNativeReadDiagnostic(
       continue;
     }
     const read = await verifiedSkillRead(
-      { ...commandItem, command },
+      {
+        ...commandItem,
+        command,
+        aggregated_output:
+          (recoveredOutputs.get(ordinal)?.output ?? "") +
+          (typeof commandItem.aggregated_output === "string"
+            ? commandItem.aggregated_output
+            : ""),
+      },
       canonicalWorkspace,
       pluginRoots,
       cwd,
@@ -248,6 +276,7 @@ export async function codexNativeReadDiagnostic(
         : "partial",
     observedSkills,
     completedReads,
+    recoverySources,
     commandExecutions,
     readAttempts,
     truncated,
@@ -259,6 +288,7 @@ export async function codexSkillReadObservation(
   stream: string,
   workspace: string,
   installedPluginRoots: string[] = [],
+  recoveredReads: Map<string, { command: string; output: string }> = new Map(),
 ): Promise<{
   id: "sevro.codex.skill-reads";
   completeness: "complete" | "partial";
@@ -283,7 +313,23 @@ export async function codexSkillReadObservation(
   for (const line of stream.split("\n")) {
     if (!line.trim()) continue;
     const event = JSON.parse(line) as CodexEvent;
-    const item = event.item;
+    let item = event.item;
+    if (typeof item?.id === "string") {
+      const recovered = recoveredReads.get(item.id);
+      if (
+        recovered &&
+        typeof item.command === "string" &&
+        shellPayload(item.command) === shellPayload(recovered.command)
+      )
+        item = {
+          ...item,
+          aggregated_output:
+            recovered.output +
+            (typeof item.aggregated_output === "string"
+              ? item.aggregated_output
+              : ""),
+        };
+    }
     if (event.type === "turn.completed") completedTurn = true;
     if (event.type === "turn.failed") partial = true;
     if (!item || item.type !== "command_execution") continue;

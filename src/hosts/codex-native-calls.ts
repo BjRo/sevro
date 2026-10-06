@@ -1,3 +1,4 @@
+import { nativeCommandOutputs } from "./codex-command-output";
 import type { Dirent } from "node:fs";
 import { lstat, readFile, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
@@ -698,5 +699,59 @@ export async function codexNativeCallObservation(
     };
   } catch {
     return unavailable("partial");
+  }
+}
+
+/** Actor-local recovery stays in host memory and never enters public observations. */
+export async function codexNativeSkillReadRecovery(
+  home: string,
+  threadId: string,
+): Promise<Map<string, { command: string; output: string }>> {
+  const found = await sessionPath(home, threadId);
+  if (found.status !== "found") return new Map();
+  try {
+    if ((await stat(found.path)).size > MAX_SESSION_BYTES) return new Map();
+    const text = await readFile(found.path, "utf8");
+    if (Buffer.byteLength(text) > MAX_SESSION_BYTES) return new Map();
+    const parsed = parseSession(text);
+    if (parsed.observation.completeness !== "complete") return new Map();
+    const output = nativeCommandOutputs(parsed.entries);
+    const recovered = new Map<string, { command: string; output: string }>();
+    const counts = new Map<string, number>();
+    for (const { payload } of parsed.entries) {
+      const item = record(payload.item) ? payload.item : null;
+      if (
+        payload.type === "item_completed" &&
+        item?.type === "CommandExecution" &&
+        typeof item.id === "string"
+      )
+        counts.set(item.id, (counts.get(item.id) ?? 0) + 1);
+    }
+    for (const { ordinal, payload } of parsed.entries) {
+      const item = record(payload.item) ? payload.item : null;
+      if (
+        payload.type !== "item_completed" ||
+        item?.type !== "CommandExecution" ||
+        typeof item.id !== "string" ||
+        counts.get(item.id) !== 1
+      )
+        continue;
+      const recoveredOutput = output.get(ordinal)?.output;
+      if (
+        recoveredOutput === undefined ||
+        !Array.isArray(item.command) ||
+        item.command.length !== 3 ||
+        !["-c", "-lc"].includes(String(item.command[1])) ||
+        typeof item.command[2] !== "string"
+      )
+        continue;
+      recovered.set(item.id, {
+        command: item.command[2],
+        output: recoveredOutput,
+      });
+    }
+    return recovered;
+  } catch {
+    return new Map();
   }
 }

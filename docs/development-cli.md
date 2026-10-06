@@ -325,3 +325,27 @@ grading and the bundled Codex route protect this state root from candidate
 commands.
 SIGINT and SIGTERM request cancellation, retain completed trial evidence, and
 return exit codes 130 and 143 respectively after interruption is recorded.
+
+## Native goal trials
+
+Select `--host codex --codex-entrypoint app-server --condition passive` to host
+the original participant thread through native goal continuation. The default
+entrypoint remains `exec`. Transport selection enters the host configuration
+and evaluation identity. The client sends the original prompt once, waits through
+native turns, and reads the final response from the completing root turn. Only
+an explicit `followUpPrompt` starts another client-requested turn.
+
+The app-server uses the same isolated Codex home, installed plugins, permission
+profile and isolation preflight as the exec route. Native goal facts are retained
+as `sevro.host.native-goal`; the objective text is excluded. Failed transport
+or turns retain partial evidence and cannot pass the task. Token usage remains
+unknown for this transport. Its declared feedback boundary retains whether a
+goal was observed and its status before user input was delivered.
+
+Claude also advertises `sevro.host.native-goal`. Its observer binds one persisted
+transcript to the original successful native session and retains goal status
+and objective length. Missing, ambiguous, malformed or oversized evidence is
+unavailable; an unavailable observation cannot prove goal absence.
+
+These additions require the `0.1.0-rc.2` candidate. The published `rc.1` lacks
+the app-server selector and native goal observations.

@@ -1,3 +1,4 @@
+import { readSemanticArtifact } from "./graders/artifact";
 import { createHash, randomUUID } from "node:crypto";
 import {
   advisoryPrompt,
@@ -44,6 +45,7 @@ import {
   parseSemanticVerdicts,
   prepareSemanticChecks,
   semanticPrompt,
+  semanticCheckGroups,
   type SemanticCheckDeclaration,
 } from "./graders/semantic";
 import { evaluationProtectedRoots } from "./hosts/isolation-roots";
@@ -1731,158 +1733,188 @@ export async function runEvaluation(
             }
           }
         }
-        if (
-          execution === "completed" &&
-          !graderError &&
-          preparedSemantic.length
-        ) {
-          if (hostResult?.finalMessage == null || !hostResult.complete) {
-            checks.push(
-              ...preparedSemantic.map((check) => ({
-                id: check.id,
-                grader: "sevro.semantic",
-                status: "unavailable" as const,
-                evidenceRefs: [],
-              })),
-            );
-          } else {
-            const semanticWorkspace = await createFixture(
-              { files: {} },
-              [],
-              undefined,
-              null,
-              null,
-              null,
-              null,
-              projectRoot,
-              options.signal,
-              reservedSemanticWorkspaces[trial - 1],
-            );
-            let semanticResult: HostResult | null = null;
-            let semanticArtifacts: ReturnType<typeof hostArtifacts> = [];
-            try {
-              const response = await options.semanticHost!.run({
-                prompt: semanticPrompt(
-                  hostResult.finalMessage,
-                  preparedSemantic,
-                ),
-                workspace: semanticWorkspace,
-                condition: "passive",
-                signal: options.signal,
-              });
-              semanticArtifacts = hostArtifacts(
-                {
-                  ...response,
-                  artifacts: response.artifacts?.map((item) => ({
-                    ...item,
-                    id: `sevro.semantic.${item.id}`,
-                  })),
-                },
-                new Set([
-                  ...trialArtifactRefs.map((item) => item.id),
-                  ...options.case.checks.map((item) => item.id),
-                  "sevro.semantic.verdicts",
-                ]),
+        for (const semanticGroup of semanticCheckGroups(preparedSemantic)) {
+          const preparedSemantic = semanticGroup;
+          const artifactPattern = semanticGroup[0]!.artifactPath;
+          const semanticSuffix =
+            artifactPattern === undefined ? "" : "." + sha256(artifactPattern);
+          let semanticSource: Record<string, unknown> = { kind: "response" };
+          if (
+            execution === "completed" &&
+            !graderError &&
+            preparedSemantic.length
+          ) {
+            if (hostResult?.finalMessage == null || !hostResult.complete) {
+              checks.push(
+                ...preparedSemantic.map((check) => ({
+                  id: check.id,
+                  grader: "sevro.semantic",
+                  status: "unavailable" as const,
+                  evidenceRefs: [],
+                })),
               );
-              semanticResult = response;
-            } catch {
-              if (options.signal?.aborted) {
-                execution = "cancelled";
-                diagnostic = {
-                  code: "sevro.run.cancelled",
-                  message: "run cancelled",
-                };
-              } else {
-                graderError = true;
-                diagnostic = {
-                  code: "sevro.grader.error",
-                  message: "semantic grading did not complete",
-                };
-                stopAdmission();
-              }
-            } finally {
-              await rm(semanticWorkspace, { recursive: true, force: true });
-            }
-            if (semanticResult) {
-              for (const artifact of semanticArtifacts) {
-                const path = join(runDir, `trial-${trial}-${artifact.id}.bin`);
-                try {
-                  await writeFile(path, artifact.bytes, {
-                    flag: "wx",
-                    mode: 0o600,
-                  });
-                } catch {
-                  throw new Error(
-                    `trial persistence failed; fixture retained at ${workspace}`,
-                  );
-                }
-                trialArtifactRefs.push({
-                  id: artifact.id,
-                  path: pathToFileURL(path).href,
-                  sha256: sha256(artifact.bytes),
-                });
-              }
-              semanticObservations.push({
-                id: "sevro.observation.semantic.usage",
-                source: options.semanticHost!.id,
-                completeness: semanticResult.usageComplete
-                  ? "complete"
-                  : "partial",
-                data: usage(semanticResult),
-              });
-              if (
-                semanticResult.finalMessage !== null &&
-                Buffer.byteLength(semanticResult.finalMessage, "utf8") <=
-                  1024 * 1024
-              ) {
-                const bytes = Buffer.from(semanticResult.finalMessage, "utf8");
-                const path = join(
-                  runDir,
-                  `trial-${trial}-semantic-verdicts.json`,
-                );
-                try {
-                  await writeFile(path, bytes, { flag: "wx", mode: 0o600 });
-                } catch {
-                  throw new Error(
-                    `trial persistence failed; fixture retained at ${workspace}`,
-                  );
-                }
-                trialArtifactRefs.push({
-                  id: "sevro.semantic.verdicts",
-                  path: pathToFileURL(path).href,
-                  sha256: sha256(bytes),
-                });
-              }
+            } else {
+              const semanticWorkspace = await createFixture(
+                { files: {} },
+                [],
+                undefined,
+                null,
+                null,
+                null,
+                null,
+                projectRoot,
+                options.signal,
+                reservedSemanticWorkspaces[trial - 1],
+              );
+              let semanticResult: HostResult | null = null;
+              let semanticArtifacts: ReturnType<typeof hostArtifacts> = [];
               try {
-                if (!semanticResult.complete || !semanticResult.finalMessage)
-                  throw new Error("semantic grader result is incomplete");
-                const verdicts = parseSemanticVerdicts(
-                  semanticResult.finalMessage,
-                  preparedSemantic,
+                const artifact =
+                  artifactPattern === undefined
+                    ? null
+                    : await readSemanticArtifact(workspace, artifactPattern);
+                if (artifact)
+                  semanticSource = {
+                    kind: "artifact",
+                    path: artifact.path,
+                    sha256: sha256(artifact.content),
+                  };
+                const response = await options.semanticHost!.run({
+                  prompt: semanticPrompt(
+                    artifact?.content ?? hostResult.finalMessage,
+                    preparedSemantic,
+                    artifact ? "document" : "response",
+                  ),
+                  workspace: semanticWorkspace,
+                  condition: "passive",
+                  signal: options.signal,
+                });
+                semanticArtifacts = hostArtifacts(
+                  {
+                    ...response,
+                    artifacts: response.artifacts?.map((item) => ({
+                      ...item,
+                      id: `sevro.semantic${semanticSuffix}.${item.id}`,
+                    })),
+                  },
+                  new Set([
+                    ...trialArtifactRefs.map((item) => item.id),
+                    ...options.case.checks.map((item) => item.id),
+                    `sevro.semantic.verdicts${semanticSuffix}`,
+                  ]),
                 );
-                for (const verdict of verdicts) {
-                  const observationId = `sevro.observation.semantic.${sha256(verdict.id)}`;
-                  semanticObservations.push({
-                    id: observationId,
-                    source: options.semanticHost!.id,
-                    completeness: "complete",
-                    data: { verdict: verdict.verdict, reason: verdict.reason },
-                  });
-                  checks.push({
-                    id: verdict.id,
-                    grader: "sevro.semantic",
-                    status: verdict.verdict === "pass" ? "passed" : "failed",
-                    detail: verdict.reason,
-                    evidenceRefs: [observationId],
+                semanticResult = response;
+              } catch {
+                if (options.signal?.aborted) {
+                  execution = "cancelled";
+                  diagnostic = {
+                    code: "sevro.run.cancelled",
+                    message: "run cancelled",
+                  };
+                } else {
+                  graderError = true;
+                  diagnostic = {
+                    code: "sevro.grader.error",
+                    message: "semantic grading did not complete",
+                  };
+                  stopAdmission();
+                }
+              } finally {
+                await rm(semanticWorkspace, { recursive: true, force: true });
+              }
+              if (semanticResult) {
+                for (const artifact of semanticArtifacts) {
+                  const path = join(
+                    runDir,
+                    `trial-${trial}-${artifact.id}.bin`,
+                  );
+                  try {
+                    await writeFile(path, artifact.bytes, {
+                      flag: "wx",
+                      mode: 0o600,
+                    });
+                  } catch {
+                    throw new Error(
+                      `trial persistence failed; fixture retained at ${workspace}`,
+                    );
+                  }
+                  trialArtifactRefs.push({
+                    id: artifact.id,
+                    path: pathToFileURL(path).href,
+                    sha256: sha256(artifact.bytes),
                   });
                 }
-              } catch {
-                graderError = true;
-                diagnostic = {
-                  code: "sevro.grader.error",
-                  message: "semantic grading did not complete",
-                };
-                stopAdmission();
+                semanticObservations.push({
+                  id: `sevro.observation.semantic.usage${semanticSuffix}`,
+                  source: options.semanticHost!.id,
+                  completeness: semanticResult.usageComplete
+                    ? "complete"
+                    : "partial",
+                  data: usage(semanticResult),
+                });
+                if (
+                  semanticResult.finalMessage !== null &&
+                  Buffer.byteLength(semanticResult.finalMessage, "utf8") <=
+                    1024 * 1024
+                ) {
+                  const bytes = Buffer.from(
+                    semanticResult.finalMessage,
+                    "utf8",
+                  );
+                  const path = join(
+                    runDir,
+                    `trial-${trial}-semantic-verdicts${semanticSuffix}.json`,
+                  );
+                  try {
+                    await writeFile(path, bytes, { flag: "wx", mode: 0o600 });
+                  } catch {
+                    throw new Error(
+                      `trial persistence failed; fixture retained at ${workspace}`,
+                    );
+                  }
+                  trialArtifactRefs.push({
+                    id: `sevro.semantic.verdicts${semanticSuffix}`,
+                    path: pathToFileURL(path).href,
+                    sha256: sha256(bytes),
+                  });
+                }
+                try {
+                  if (!semanticResult.complete || !semanticResult.finalMessage)
+                    throw new Error("semantic grader result is incomplete");
+                  const verdicts = parseSemanticVerdicts(
+                    semanticResult.finalMessage,
+                    preparedSemantic,
+                  );
+                  for (const verdict of verdicts) {
+                    const observationId = `sevro.observation.semantic.${sha256(verdict.id)}`;
+                    semanticObservations.push({
+                      id: observationId,
+                      source: options.semanticHost!.id,
+                      completeness: "complete",
+                      data: {
+                        verdict: verdict.verdict,
+                        reason: verdict.reason,
+                        ...(artifactPattern === undefined
+                          ? {}
+                          : { source: semanticSource }),
+                      },
+                    });
+                    checks.push({
+                      id: verdict.id,
+                      grader: "sevro.semantic",
+                      status: verdict.verdict === "pass" ? "passed" : "failed",
+                      detail: verdict.reason,
+                      evidenceRefs: [observationId],
+                    });
+                  }
+                } catch {
+                  graderError = true;
+                  diagnostic = {
+                    code: "sevro.grader.error",
+                    message: "semantic grading did not complete",
+                  };
+                  stopAdmission();
+                }
               }
             }
           }
