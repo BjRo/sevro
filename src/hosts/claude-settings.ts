@@ -1,4 +1,5 @@
 import { isAbsolute } from "node:path";
+import { CLAUDE_AUTH_VARIABLES } from "./claude-credential";
 
 function absoluteRule(root: string, tool: "Read" | "Edit"): string {
   if (!isAbsolute(root) || /[\r\n()]/.test(root))
@@ -34,6 +35,7 @@ export function claudeHostSettings(
       },
       credentials: {
         files: [{ path: credentialFile, mode: "deny" }],
+        envVars: CLAUDE_AUTH_VARIABLES.map((name) => ({ name, mode: "deny" })),
       },
     },
     permissions: {

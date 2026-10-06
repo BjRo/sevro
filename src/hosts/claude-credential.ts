@@ -1,8 +1,59 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { homedir } from "node:os";
 
 const MAX_CREDENTIAL_BYTES = 1024 * 1024;
+
+async function savedClaudeCredential(): Promise<string | undefined> {
+  const path = join(
+    process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"),
+    ".credentials.json",
+  );
+  try {
+    await stat(path);
+    return path;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw new Error("Claude saved credential is unreadable or unavailable");
+  }
+}
+
+export const CLAUDE_AUTH_VARIABLES = [
+  "ANTHROPIC_API_KEY",
+  "CLAUDE_CODE_OAUTH_TOKEN",
+] as const;
+
+/** Keep the CLI's authentication separate from the candidate tool environment. */
+export async function stageClaudeAuthentication(
+  configRoot: string,
+  sourceFile?: string,
+) {
+  const environment: Record<string, string> = {};
+  if (sourceFile === undefined) {
+    for (const name of CLAUDE_AUTH_VARIABLES) {
+      const value = process.env[name];
+      if (value) {
+        if (Buffer.byteLength(value, "utf8") > MAX_CREDENTIAL_BYTES)
+          throw new Error(
+            "Claude environment credential exceeds the size limit",
+          );
+        environment[name] = value;
+      }
+    }
+  }
+  if (Object.keys(environment).length) {
+    await mkdir(configRoot, { recursive: true, mode: 0o700 });
+    return {
+      credentialFile: join(configRoot, ".credentials.json"),
+      environment,
+    };
+  }
+  return {
+    credentialFile: await stageClaudeCredential(configRoot, sourceFile),
+    environment,
+  };
+}
 
 async function keychainCredential(): Promise<Buffer> {
   if (process.platform !== "darwin" || !existsSync("/usr/bin/security"))
@@ -50,6 +101,7 @@ export async function stageClaudeCredential(
   configRoot: string,
   sourceFile?: string,
 ): Promise<string> {
+  sourceFile ??= await savedClaudeCredential();
   await mkdir(configRoot, { recursive: true, mode: 0o700 });
   let credential: Buffer;
   try {

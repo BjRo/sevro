@@ -118,9 +118,19 @@ bun src/cli.ts run --json \
   --condition passive --trials 1 --threshold 1
 ```
 
-The route reads the local Claude Code login from the macOS keychain and stages
-it inside private per-turn state. Pass `--claude-credential-file` with an
-absolute path to use a separate credential file. It accepts declared Claude
+The route reuses existing Claude authentication. An explicit
+`--claude-credential-file` takes precedence over inherited credentials. Otherwise,
+it forwards `ANTHROPIC_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN` when present, leaving
+their relative precedence to Claude Code. With neither variable present, it
+copies `.credentials.json` from `CLAUDE_CONFIG_DIR` or `~/.claude`, then falls back
+to the macOS Keychain if the saved file is absent. An unreadable, empty or
+oversized selected file fails rather than falling back to another login.
+Only credentials enter private per-turn state; user rules, settings and hooks
+remain excluded. The host denies both authentication variables to sandboxed
+commands and enables Claude Code's subprocess credential scrubbing. Credential
+values are excluded from retained evidence and configuration digests. Pass
+`--claude-credential-file` with an absolute path to select a separate saved login.
+It accepts declared Claude
 plugin directories and explicit skill invocations from extension preparation.
 It runs candidate tools under Claude Code's native macOS sandbox with private,
 source, and result paths denied. The route disables hooks and does not expose

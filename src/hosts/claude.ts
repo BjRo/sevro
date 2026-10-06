@@ -15,7 +15,7 @@ import { delimiter, dirname, isAbsolute, join, relative, sep } from "node:path";
 import type { HostAdapter } from "../engine";
 import { claudeNativeControls } from "./native-controls";
 import { fixtureParts } from "../preparation";
-import { stageClaudeCredential } from "./claude-credential";
+import { stageClaudeAuthentication } from "./claude-credential";
 import { summarizeClaudeEvents } from "./claude-events";
 import { claudeNestedSkillsObservation } from "./claude-nested-skills";
 import {
@@ -307,10 +307,11 @@ export function createClaudeHost(options: ClaudeHostOptions): HostAdapter {
         await Promise.all(
           [home, temp].map((path) => mkdir(path, { mode: 0o700 })),
         );
-        const credential = await stageClaudeCredential(
+        const authentication = await stageClaudeAuthentication(
           join(privateRoot, "config"),
           options.credentialFile,
         );
+        const credential = authentication.credentialFile;
         const protectedRoots = minimalRoots(
           await evaluationProtectedRoots({
             workspace: request.workspace,
@@ -365,6 +366,8 @@ export function createClaudeHost(options: ClaudeHostOptions): HostAdapter {
           { flag: "wx", mode: 0o600 },
         );
         const env: Record<string, string> = {
+          ...authentication.environment,
+          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1",
           PATH: [
             request.fixtureBinDir,
             toolchainBinDir,
