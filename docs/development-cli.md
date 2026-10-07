@@ -1,10 +1,8 @@
 # Development CLI
 
-The local `sevro run` command connects a resolved JSON case or an explicit
-extension to a host route.
-It uses the engine's normal grading and evidence path. This remains a
-development entrypoint while the full extension lifecycle and production
-provenance collection are being built.
+The `sevro run` command connects a resolved JSON case or an explicit extension
+to a host route. The installed CLI and source entrypoint use the same engine
+grading, evidence, and extension lifecycle.
 
 `sevro report` reads one or more retained JSON results through the
 [versioned report contract](report-v1.md). It emits Markdown by default or
@@ -289,9 +287,9 @@ fixture digest.
 
 The case file follows the `ResolvedCase`
 interface in `src/engine.ts`; this slice accepts inline files, generated Git
-history, or a declared repository, built-in output and semantic checks, and
-isolated shell checks. Add `{{sevro.workspace}}` to a case prompt when the host
-needs the trial's absolute fixture path. Sevro resolves it after fixture
+history, or a declared repository, built-in output, semantic, and Git HEAD
+checks, and isolated shell checks. Add `{{sevro.workspace}}` to a case prompt
+when the host needs the trial's absolute fixture path. Sevro resolves it after fixture
 creation for each trial and retains the template in evaluation identity. For
 cases with two participant turns, set `followUpPrompt` to a nonempty second
 prompt. Sevro renders the workspace token in both prompts and requires a host
@@ -325,9 +323,10 @@ Its retained trials record `not_run` / `not_requested` / `not_assessed` and exit
 successfully when preparation succeeds. Dry and executed runs have different
 evaluation identities.
 Run evidence and trial files live under `--results-root`. A packaged runner
-needs no Git checkout. This private development checkout records its Git
-revision and dirty content. `--runner-build-digest` and `--project-digest`
-remain optional explicit overrides for test fixtures and coordinated
+needs no Git checkout. Source runs also use package provenance by default;
+pass `--runner-checkout-root` with the absolute path to the running checkout
+to record its Git revision and dirty content. `--runner-build-digest` and
+`--project-digest` remain optional explicit overrides for test fixtures and coordinated
 development; normal CLI runs derive both values.
 Use `--run-state-root /absolute/path/state` to keep active records and trial
 checkpoints separate from results; it defaults to `--results-root`. Shell
