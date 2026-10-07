@@ -25,5 +25,8 @@ jobs:
       - run: bun run schemas:check
       - run: bun run typecheck
       - run: bun run format:check
+      - run: bun run check:docs
+      - run: bun run eval:guide --host codex --dry
+      - run: bun run test:docs-examples
       - run: bun test --timeout 15000
       - run: bun run test:package-install

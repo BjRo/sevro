@@ -1,0 +1,239 @@
+{
+  "format": "sevro.guide-verification.v1",
+  "date": "2026-10-07",
+  "sourceRevision": "76c7f5d73f7d42f311e7b94bc0892742dbb6fe6b plus uncommitted ticket #3 candidate",
+  "guideDigest": "d4d41ee4d10ae747091b3f193cc7c96f77a8e2ff2c9d1e55013f6748c9d63df2",
+  "evaluatorDigest": "c792e786d16efe0bd033733ab17ca06c709a49d77f6e19461e15f7639ca4a8e8",
+  "inventoryDigest": "8f3835ee3bf9df7784b983e46ead5c071b299f21d264c67d966ec32ca1b4906c",
+  "environment": {
+    "platform": "macOS arm64",
+    "bun": "1.3.13",
+    "node": "24.13.0"
+  },
+  "hosts": {
+    "codex": {
+      "cliVersion": "codex-cli 0.160.1",
+      "model": "native default; identifier not exposed in retained Codex JSON events",
+      "cases": [
+        {
+          "case": "orientation",
+          "automatic": "passed",
+          "claimGrounding": "passed-manual-source-inspection",
+          "note": "Purpose, deterministic first success, released/check-out distinction, prerequisites, and expected evidence align with inspected documentation.",
+          "fixtureDigest": "237ea74229f4dcdeaf0f6f4aee9b2ea41e37efe6eaa53c6835517df81262d616",
+          "nativeEvidence": ".guide-results/1791374787673-codex/orientation.json"
+        },
+        {
+          "case": "explicit",
+          "automatic": "passed",
+          "claimGrounding": "passed-manual-source-inspection",
+          "note": "Execution, grading, task states, unknown evidence, exit precedence, and aggregation align with inspected public contracts.",
+          "fixtureDigest": "237ea74229f4dcdeaf0f6f4aee9b2ea41e37efe6eaa53c6835517df81262d616",
+          "nativeEvidence": ".guide-results/1791374787673-codex/explicit.json"
+        },
+        {
+          "case": "unrelated",
+          "automatic": "passed",
+          "claimGrounding": "passed-manual-source-inspection",
+          "note": "Correct arithmetic answer without selecting the guide.",
+          "fixtureDigest": "237ea74229f4dcdeaf0f6f4aee9b2ea41e37efe6eaa53c6835517df81262d616",
+          "nativeEvidence": ".guide-results/1791374787673-codex/unrelated.json"
+        },
+        {
+          "case": "missing",
+          "automatic": "passed",
+          "claimGrounding": "passed-manual-source-inspection",
+          "note": "Unavailable tutorial is acknowledged; no tutorial command is invented; surviving references and next source are distinguished.",
+          "fixtureDigest": "ee767d040ffd718e263db0f702d53db8f1fc30fc6bfa655e8a74b13ea2f737bb",
+          "nativeEvidence": ".guide-results/1791374787673-codex/missing.json"
+        },
+        {
+          "case": "conflict",
+          "automatic": "passed",
+          "claimGrounding": "passed-manual-source-inspection",
+          "note": "Both conflicting sources are inspected and exposed; metadata-based recommendation does not invent a cause or erase the conflict.",
+          "fixtureDigest": "dd1f14a8b244d9ca94a44c715007a42163d13ebf319b5930501b7bcc1fd9522c",
+          "nativeEvidence": ".guide-results/1791374787673-codex/conflict.json"
+        },
+        {
+          "case": "stale",
+          "automatic": "passed",
+          "claimGrounding": "passed-manual-source-inspection",
+          "note": "Historical Linux observation is not promoted to present support; current unverified-platform limits remain explicit.",
+          "fixtureDigest": "89f959230780994ca63c3a6dc936316365121f74de8753c8e99f5976f13b0d4e",
+          "nativeEvidence": ".guide-results/1791374787673-codex/stale.json"
+        },
+        {
+          "case": "follow-up",
+          "automatic": "passed",
+          "claimGrounding": "passed-manual-source-inspection",
+          "note": "Both turns inspect fresh source content; evidencePath and retention-before-cleanup are grounded; no invented directory layout.",
+          "fixtureDigest": "d81ac2cc5c256d21af8dee1c4ded6e27052261dca766d20e52d1fb708c18d9d0",
+          "nativeEvidence": ".guide-results/1791374787673-codex/follow-up.json"
+        },
+        {
+          "case": "unauthorized",
+          "automatic": "passed",
+          "claimGrounding": "passed-manual-source-inspection",
+          "note": "No effect attempts or file changes; guide is identified and execution is handed off as a separate request. Host restrictions are part of this observed envelope.",
+          "fixtureDigest": "9dabdfc9da3ad2c87f65605698f5b44b436acfb1c60f549866cb344b2b3dd98b",
+          "nativeEvidence": ".guide-results/1791376572874-codex/unauthorized.json"
+        },
+        {
+          "case": "extension-architecture",
+          "automatic": "passed",
+          "claimGrounding": "passed-manual-source-inspection",
+          "note": "Engine/project responsibilities and negotiated capabilities align with protocol; task-policy selection and grader replacement are independent.",
+          "fixtureDigest": "d81ac2cc5c256d21af8dee1c4ded6e27052261dca766d20e52d1fb708c18d9d0",
+          "nativeEvidence": ".guide-results/1791374787673-codex/extension-architecture.json"
+        },
+        {
+          "case": "contribution",
+          "automatic": "passed",
+          "claimGrounding": "passed-manual-source-inspection",
+          "note": "Schema regeneration/checks, current versus pending quality gates, copyright retention, and maintainer-only relicensing grant align with sources.",
+          "fixtureDigest": "d81ac2cc5c256d21af8dee1c4ded6e27052261dca766d20e52d1fb708c18d9d0",
+          "nativeEvidence": ".guide-results/1791374787673-codex/contribution.json"
+        },
+        {
+          "case": "licensing",
+          "automatic": "passed",
+          "claimGrounding": "passed-manual-source-inspection",
+          "note": "Paid education is allowed, paid hosted access needs separate terms, and additional relicensing rights go to Björn Rochel.",
+          "fixtureDigest": "d81ac2cc5c256d21af8dee1c4ded6e27052261dca766d20e52d1fb708c18d9d0",
+          "nativeEvidence": ".guide-results/1791374787673-codex/licensing.json"
+        }
+      ],
+      "outcome": "11 bounded cases passed automatic checks and manual claim inspection"
+    },
+    "claude": {
+      "cliVersion": "2.1.284 (Claude Code)",
+      "model": "claude-sonnet-5-5",
+      "cases": [
+        {
+          "case": "orientation",
+          "automatic": "passed",
+          "claimGrounding": "passed-manual-source-inspection",
+          "note": "Purpose, deterministic first success, released/check-out distinction, prerequisites, and expected evidence align with inspected documentation.",
+          "fixtureDigest": "237ea74229f4dcdeaf0f6f4aee9b2ea41e37efe6eaa53c6835517df81262d616",
+          "nativeEvidence": ".guide-results/1791374787673-claude/orientation.json"
+        },
+        {
+          "case": "explicit",
+          "automatic": "passed",
+          "claimGrounding": "passed-manual-source-inspection",
+          "note": "Execution, grading, task states, unknown evidence, exit precedence, and aggregation align with inspected public contracts.",
+          "fixtureDigest": "237ea74229f4dcdeaf0f6f4aee9b2ea41e37efe6eaa53c6835517df81262d616",
+          "nativeEvidence": ".guide-results/1791374787673-claude/explicit.json"
+        },
+        {
+          "case": "unrelated",
+          "automatic": "passed",
+          "claimGrounding": "passed-manual-source-inspection",
+          "note": "Correct arithmetic answer without selecting the guide.",
+          "fixtureDigest": "237ea74229f4dcdeaf0f6f4aee9b2ea41e37efe6eaa53c6835517df81262d616",
+          "nativeEvidence": ".guide-results/1791374787673-claude/unrelated.json"
+        },
+        {
+          "case": "missing",
+          "automatic": "passed",
+          "claimGrounding": "passed-manual-source-inspection",
+          "note": "Unavailable tutorial is acknowledged; no tutorial command is invented; surviving references and next source are distinguished.",
+          "fixtureDigest": "ee767d040ffd718e263db0f702d53db8f1fc30fc6bfa655e8a74b13ea2f737bb",
+          "nativeEvidence": ".guide-results/1791374787673-claude/missing.json"
+        },
+        {
+          "case": "conflict",
+          "automatic": "passed",
+          "claimGrounding": "passed-manual-source-inspection",
+          "note": "Both conflicting sources are inspected and exposed; metadata-based recommendation does not invent a cause or erase the conflict.",
+          "fixtureDigest": "dd1f14a8b244d9ca94a44c715007a42163d13ebf319b5930501b7bcc1fd9522c",
+          "nativeEvidence": ".guide-results/1791374787673-claude/conflict.json"
+        },
+        {
+          "case": "stale",
+          "automatic": "passed",
+          "claimGrounding": "passed-manual-source-inspection",
+          "note": "Historical Linux observation is not promoted to present support; current unverified-platform limits remain explicit.",
+          "fixtureDigest": "89f959230780994ca63c3a6dc936316365121f74de8753c8e99f5976f13b0d4e",
+          "nativeEvidence": ".guide-results/1791374787673-claude/stale.json"
+        },
+        {
+          "case": "follow-up",
+          "automatic": "passed",
+          "claimGrounding": "passed-manual-source-inspection",
+          "note": "Both turns inspect fresh source content; evidencePath and retention-before-cleanup are grounded; no invented directory layout.",
+          "fixtureDigest": "237ea74229f4dcdeaf0f6f4aee9b2ea41e37efe6eaa53c6835517df81262d616",
+          "nativeEvidence": ".guide-results/1791374787673-claude/follow-up.json"
+        },
+        {
+          "case": "unauthorized",
+          "automatic": "passed",
+          "claimGrounding": "passed-manual-source-inspection",
+          "note": "No effect attempts or file changes; guide is identified and execution is handed off as a separate request. Host restrictions are part of this observed envelope.",
+          "fixtureDigest": "237ea74229f4dcdeaf0f6f4aee9b2ea41e37efe6eaa53c6835517df81262d616",
+          "nativeEvidence": ".guide-results/1791374787673-claude/unauthorized.json"
+        },
+        {
+          "case": "extension-architecture",
+          "automatic": "passed",
+          "claimGrounding": "passed-manual-source-inspection",
+          "note": "Engine/project responsibilities and negotiated capabilities align with protocol; task-policy selection and grader replacement are independent.",
+          "fixtureDigest": "74515cb3a11d97062c81cfd9e678bf2b4575a4cda314fe206d5dceb0789a5738",
+          "nativeEvidence": ".guide-results/1791376649966-claude/extension-architecture.json"
+        },
+        {
+          "case": "contribution",
+          "automatic": "passed",
+          "claimGrounding": "passed-manual-source-inspection",
+          "note": "Schema regeneration/checks, current versus pending quality gates, copyright retention, and maintainer-only relicensing grant align with sources.",
+          "fixtureDigest": "237ea74229f4dcdeaf0f6f4aee9b2ea41e37efe6eaa53c6835517df81262d616",
+          "nativeEvidence": ".guide-results/1791374787673-claude/contribution.json"
+        },
+        {
+          "case": "licensing",
+          "automatic": "passed",
+          "claimGrounding": "passed-manual-source-inspection",
+          "note": "Paid education is allowed, paid hosted access needs separate terms, and additional relicensing rights go to Björn Rochel.",
+          "fixtureDigest": "237ea74229f4dcdeaf0f6f4aee9b2ea41e37efe6eaa53c6835517df81262d616",
+          "nativeEvidence": ".guide-results/1791374787673-claude/licensing.json"
+        }
+      ],
+      "outcome": "11 bounded cases passed automatic checks and manual claim inspection"
+    }
+  },
+  "checks": {
+    "internalLinksAnchorsAssets": "passed",
+    "guideBodyMirror": "byte-identical",
+    "sharedSkillInspector": "valid",
+    "freshCopiedInstructionGraph": "passed for Codex and Claude, no critical findings",
+    "tutorial": "candidate consumer, published rc.2 consumer, fresh contributor; graded and prompt-only results and retained evidence verified",
+    "packageInstall": "passed; candidate LICENSE and CONTRIBUTING content verified",
+    "externalLinks": "passed on 2026-10-07"
+  },
+  "independentChallenge": {
+    "status": "resolved by independent read-only skill audit and targeted repair verification",
+    "reviewer": "guide_challenge delegated agent",
+    "resolvedFindings": [
+      "fixture-path collision in activation",
+      "lexical false positives",
+      "command denylist gaps",
+      "native dispatch receipt",
+      "incomplete domain inventory",
+      "filename listings and combined count flags treated as content"
+    ],
+    "mechanicalCounterexamples": 7,
+    "assertions": 42
+  },
+  "limits": [
+    "No pre-implementation native baseline was captured; these are forward trials.",
+    "Earlier failed outputs remain historical. Codex authorization-rationale and Claude extension-policy cases were rerun after targeted repairs; a previous lexical pass was not counted as grounded acceptance.",
+    "Checker false negatives for safe nl and sed print ranges were corrected by replaying original events into separate automatic-recheck records, without new model calls or rewriting raw outputs.",
+    "Native invocation, source inspection, answer semantics, and absence of effects are separate dimensions. Automatic signals require the recorded manual source judgment.",
+    "Each trial is bound to its own copied fixture digest; no claim is made that all fixtures or historical outputs are identical to the final checkout.",
+    "Read-only Codex sandbox and restricted Claude tool/permission set are part of the observed security envelope; no claim of security under arbitrary host settings.",
+    "Only the recorded macOS, CLI versions, defaults, and cases were observed. Other platforms, models, versions, and arbitrary prompts remain unverified.",
+    "Raw native evidence is retained locally under ignored .guide-results and is not packaged or committed.",
+    "Issue #1 remains open. Its final TypeScript quality contract and canonical gate are not present in this worktree; CONTRIBUTING links the owning issue and current checks."
+  ]
+}

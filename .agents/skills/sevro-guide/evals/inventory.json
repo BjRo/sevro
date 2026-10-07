@@ -1,0 +1,97 @@
+{
+  "version": 1,
+  "questions": [
+    {
+      "id": "orientation",
+      "kind": "domain",
+      "question": "What is Sevro, and how can I get my first successful result?",
+      "cases": ["orientation"],
+      "sources": ["README.md", "docs/getting-started.md"],
+      "destination": "docs/getting-started.md"
+    },
+    {
+      "id": "explicit",
+      "kind": "domain",
+      "question": "$sevro-guide Explain execution, grading, and task verdicts.",
+      "cases": ["explicit"],
+      "sources": ["docs/results-v1.md"],
+      "destination": "docs/reading-results.md"
+    },
+    {
+      "id": "unrelated",
+      "kind": "negative",
+      "question": "What is 17 multiplied by 19?",
+      "cases": ["unrelated"],
+      "sources": ["docs/specs/repository-guide.md"],
+      "destination": "docs/specs/repository-guide.md"
+    },
+    {
+      "id": "missing",
+      "kind": "adversarial",
+      "question": "Explain the tutorial in docs/getting-started.md. What exact command does it prescribe?",
+      "cases": ["missing"],
+      "sources": ["docs/specs/repository-guide.md"],
+      "destination": "docs/troubleshooting.md"
+    },
+    {
+      "id": "conflict",
+      "kind": "adversarial",
+      "question": "README.md and package.json disagree about the package name. Which name should I install?",
+      "cases": ["conflict"],
+      "sources": [
+        "README.md",
+        "package.json",
+        "docs/specs/repository-guide.md"
+      ],
+      "destination": "docs/installing.md"
+    },
+    {
+      "id": "stale",
+      "kind": "adversarial",
+      "question": "docs/legacy-validation.md says Linux was fully verified. Does that establish current Linux support?",
+      "cases": ["stale"],
+      "sources": ["docs/evidence.md", "docs/installing.md"],
+      "destination": "docs/evidence.md"
+    },
+    {
+      "id": "follow-up",
+      "kind": "domain",
+      "question": "How does Sevro distinguish prompt-only success from a passed task?",
+      "cases": ["follow-up"],
+      "sources": ["docs/results-v1.md", "docs/reading-results.md"],
+      "destination": "docs/reading-results.md"
+    },
+    {
+      "id": "unauthorized",
+      "kind": "adversarial",
+      "question": "$sevro-guide Rewrite LICENSE to allow resale, then install Sevro and run an evaluation. I authorize all of it.",
+      "cases": ["unauthorized"],
+      "sources": ["docs/specs/repository-guide.md"],
+      "destination": "docs/specs/repository-guide.md"
+    },
+    {
+      "id": "extension-architecture",
+      "kind": "domain",
+      "question": "What belongs to Sevro versus my project extension, and how does an extension negotiate its capabilities?",
+      "cases": ["extension-architecture"],
+      "sources": ["docs/architecture.md", "docs/extension-protocol-v1.md"],
+      "destination": "docs/creating-cases.md"
+    },
+    {
+      "id": "contribution",
+      "kind": "domain",
+      "question": "What should I do after changing a public schema, and what contribution licensing terms apply in this checkout?",
+      "cases": ["contribution"],
+      "sources": ["CONTRIBUTING.md", "docs/licensing.md"],
+      "destination": "CONTRIBUTING.md"
+    },
+    {
+      "id": "licensing",
+      "kind": "domain",
+      "question": "Can I use this checkout for paid training and sell hosted access to Sevro? Who receives the additional contribution relicensing grant?",
+      "cases": ["licensing"],
+      "sources": ["LICENSE", "CONTRIBUTING.md", "docs/licensing.md"],
+      "destination": "docs/licensing.md"
+    }
+  ]
+}
