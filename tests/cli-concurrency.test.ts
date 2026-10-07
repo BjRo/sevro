@@ -62,7 +62,7 @@ export default {
     if (active === 2) release();
     const original = await readFile(join(workspace, "marker"), "utf8");
     await writeFile(join(workspace, "marker"), String(position));
-    if (position <= 2) await Promise.race([firstPair, Bun.sleep(1000)]);
+    if (process.env.SEVRO_TEST_SYNCHRONIZE !== "false" && position <= 2) await Promise.race([firstPair, Bun.sleep(1000)]);
     await Bun.sleep(position === 1 ? 50 : 5);
     active--;
     return { finalMessage: "ready", complete: true, actualCondition: condition,
@@ -99,8 +99,12 @@ export default {
   return { root, args, adapter };
 }
 
-async function invoke(args: string[]) {
-  const child = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" });
+async function invoke(args: string[], synchronize = true) {
+  const child = Bun.spawn(args, {
+    stdout: "pipe",
+    stderr: "pipe",
+    env: { ...process.env, SEVRO_TEST_SYNCHRONIZE: String(synchronize) },
+  });
   const [stdout, stderr, code] = await Promise.all([
     new Response(child.stdout).text(),
     new Response(child.stderr).text(),
@@ -288,7 +292,7 @@ export default {
 test("CLI defaults to three trial jobs and serial limits change configuration identity", async () => {
   const { args } = await fixture(4);
   const parallel = await invoke(args);
-  const serial = await invoke([...args, "--jobs", "1"]);
+  const serial = await invoke([...args, "--jobs", "1"], false);
   expect(parallel.code, parallel.stderr).toBe(0);
   expect(serial.code, serial.stderr).toBe(0);
   const concurrentEvidence = JSON.parse(

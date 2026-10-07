@@ -28,6 +28,8 @@
   "scripts": {
     "cli:dev": "bun src/cli.ts",
     "test": "bun test",
+    "schemas:generate": "bun scripts/generate-schemas.ts",
+    "schemas:check": "bun scripts/generate-schemas.ts --check",
     "test:package-install": "bun scripts/verify-package-install.ts",
     "release:prepare": "bun scripts/prepare-release.ts",
     "typecheck": "tsc --noEmit",

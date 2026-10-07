@@ -1,19 +1,6 @@
-import Ajv2020 from "ajv/dist/2020.js";
-import cliSchema from "../schemas/cli-result-v1.schema.json";
-import runSchema from "../schemas/run-evidence-v1.schema.json";
-import reportSchema from "../schemas/report-v1.schema.json";
-
-const ajv = new Ajv2020({
-  strict: true,
-  strictRequired: false,
-  strictTypes: false,
-});
-ajv.addSchema(cliSchema);
-ajv.addSchema(runSchema);
-ajv.addSchema(reportSchema);
-const cliValidator = ajv.getSchema("urn:sevro:schema:cli-result:v1")!;
-const runValidator = ajv.getSchema("urn:sevro:schema:run-evidence:v1")!;
-const reportValidator = ajv.getSchema("urn:sevro:schema:report:v1")!;
+import cliValidator from "./generated/cli-result.cjs";
+import runValidator from "./generated/run-evidence.cjs";
+import reportValidator from "./generated/report.cjs";
 
 export function assertCliResult(value: unknown): void {
   if (!cliValidator(value)) throw new Error("invalid Sevro CLI result");

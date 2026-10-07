@@ -6,6 +6,9 @@ import cliSchema from "../schemas/cli-result-v1.schema.json";
 import extensionSchema from "../schemas/extension-v1.schema.json";
 import runSchema from "../schemas/run-evidence-v1.schema.json";
 import { createCodexHost } from "../src/hosts/codex";
+import cliValidator from "../src/generated/cli-result.cjs";
+import extensionValidator from "../src/generated/extension.cjs";
+import runValidator from "../src/generated/run-evidence.cjs";
 
 const ajv = new Ajv2020({
   allErrors: true,
@@ -19,7 +22,14 @@ for (const schema of [cliSchema, extensionSchema, runSchema])
 function valid(schemaId: string, value: unknown): boolean {
   const validator = ajv.getSchema(schemaId);
   if (!validator) throw new Error(`missing schema: ${schemaId}`);
-  return validator(value) === true;
+  const result = validator(value) === true;
+  const generated: Record<string, (value: unknown) => boolean> = {
+    "urn:sevro:schema:cli-result:v1": cliValidator,
+    "urn:sevro:schema:extension:v1": extensionValidator,
+    "urn:sevro:schema:run-evidence:v1": runValidator,
+  };
+  expect(generated[schemaId]!(value)).toBe(result);
+  return result;
 }
 
 const digest = "a".repeat(64);

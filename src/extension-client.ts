@@ -1,18 +1,10 @@
 import { randomUUID } from "node:crypto";
-import Ajv2020 from "ajv/dist/2020.js";
-import extensionSchema from "../schemas/extension-v1.schema.json";
+import validExchange from "./generated/extension.cjs";
 
 const MAX_MESSAGE_BYTES = 8 * 1024 * 1024;
 const MAX_DIAGNOSTIC_BYTES = 64 * 1024;
 const DEFAULT_TIMEOUT_MS = 30_000;
 const PROTOCOL = "sevro.extension.v1";
-
-const ajv = new Ajv2020({
-  strict: true,
-  strictRequired: false,
-  strictTypes: false,
-});
-const validExchange = ajv.compile(extensionSchema);
 
 export class ExtensionProtocolError extends Error {
   constructor(message: string) {

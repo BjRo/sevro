@@ -1,4 +1,12 @@
-import ts from "typescript";
+import type ts from "typescript";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+let parser: typeof ts | undefined;
+
+function typescript(): typeof ts {
+  return (parser ??= require("typescript"));
+}
 
 export interface LiteralExecutorCommand {
   command: string;
@@ -7,6 +15,7 @@ export interface LiteralExecutorCommand {
 }
 
 function primitive(node: ts.Expression): string | number | boolean | undefined {
+  const ts = typescript();
   if (ts.isStringLiteralLike(node)) return node.text;
   if (ts.isNumericLiteral(node)) return Number(node.text);
   if (node.kind === ts.SyntaxKind.TrueKeyword) return true;
@@ -17,6 +26,7 @@ function primitive(node: ts.Expression): string | number | boolean | undefined {
 function literalOptions(
   node: ts.Expression,
 ): Map<string, string | number | boolean> | undefined {
+  const ts = typescript();
   if (!ts.isObjectLiteralExpression(node)) return undefined;
   const values = new Map<string, string | number | boolean>();
   const allowed = new Set([
@@ -40,6 +50,7 @@ function literalOptions(
 }
 
 function propertyName(name: ts.PropertyName): string | undefined {
+  const ts = typescript();
   return ts.isIdentifier(name) || ts.isStringLiteral(name)
     ? name.text
     : undefined;
@@ -77,6 +88,7 @@ function commandDeclaration(statement: ts.Statement):
       command: LiteralExecutorCommand;
     }
   | undefined {
+  const ts = typescript();
   if (
     !ts.isVariableStatement(statement) ||
     !(statement.declarationList.flags & ts.NodeFlags.Const) ||
@@ -97,6 +109,7 @@ function commandDeclaration(statement: ts.Statement):
 function awaitedCommand(
   expression: ts.Expression,
 ): LiteralExecutorCommand | undefined {
+  const ts = typescript();
   if (!ts.isAwaitExpression(expression)) return undefined;
   const call = expression.expression;
   if (
@@ -116,6 +129,7 @@ function resultProperty(
   name: string,
   field: string,
 ): boolean {
+  const ts = typescript();
   return (
     ts.isPropertyAccessExpression(node) &&
     ts.isIdentifier(node.expression) &&
@@ -128,6 +142,7 @@ function outputStatement(
   statement: ts.Statement,
   name: string,
 ): string | undefined {
+  const ts = typescript();
   if (
     !ts.isExpressionStatement(statement) ||
     !ts.isCallExpression(statement.expression) ||
@@ -141,6 +156,7 @@ function directOutput(
   call: ts.CallExpression,
   name: string,
 ): string | undefined {
+  const ts = typescript();
   const operation = (call.expression as ts.Identifier).text;
   if (
     operation === "text" &&
@@ -163,6 +179,7 @@ export function literalExecutorCommand(
   code: unknown,
 ): LiteralExecutorCommand | undefined {
   if (typeof code !== "string") return undefined;
+  const ts = typescript();
   const source = ts.createSourceFile(
     "native-exec.js",
     code,

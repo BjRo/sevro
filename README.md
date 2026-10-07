@@ -17,6 +17,10 @@ Machine-readable contracts live in [`schemas/`](schemas/). Run `bun install`,
 test packs and installs Sevro in a temporary project, then runs the installed
 CLI without a Sevro Git checkout.
 
+Fixed contracts use checked-in validators to avoid schema compilation at CLI
+startup. After editing a schema, run `bun run schemas:generate`; CI verifies
+their freshness with `bun run schemas:check`.
+
 The [release workflow](docs/releases.md) prepares a versioned artifact with its
 file inventory and checksums, verifies that exact tarball, and documents manual
 publication, trusted publishing, Darrow pinning, updates, and rollback.

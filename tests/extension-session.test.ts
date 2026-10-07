@@ -3,9 +3,11 @@ import { copyFile, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openExtensionSession } from "../src/extension-session";
+import { extensionFixtureCommand } from "./fixtures/extension-command";
 
 const source = join(import.meta.dir, "fixtures", "extension.ts");
 const roots: string[] = [];
+const extensionCommand = extensionFixtureCommand();
 afterEach(async () => {
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
@@ -14,7 +16,7 @@ afterEach(async () => {
 
 test("negotiates and runs resolve, prepare, and evaluate in separate processes", async () => {
   const session = await openExtensionSession({
-    command: [process.execPath, source, "lifecycle"],
+    command: extensionCommand(source, "lifecycle"),
     sourceFiles: [source],
     configuration: {},
     redactedConfiguration: {},
@@ -63,7 +65,7 @@ test("refuses a changed extension source during the same session", async () => {
   const copied = join(root, "extension.ts");
   await copyFile(source, copied);
   const session = await openExtensionSession({
-    command: [process.execPath, copied, "lifecycle"],
+    command: extensionCommand(copied, "lifecycle"),
     sourceFiles: [copied],
     configuration: {},
     redactedConfiguration: {},
@@ -86,11 +88,11 @@ test("command arguments affect identity and passed checks need evidence", async 
   };
   const normal = await openExtensionSession({
     ...base,
-    command: [process.execPath, source, "lifecycle"],
+    command: extensionCommand(source, "lifecycle"),
   });
   const altered = await openExtensionSession({
     ...base,
-    command: [process.execPath, source, "lifecycle-empty-evidence"],
+    command: extensionCommand(source, "lifecycle-empty-evidence"),
   });
   expect(altered.identity.configurationDigest).not.toBe(
     normal.identity.configurationDigest,

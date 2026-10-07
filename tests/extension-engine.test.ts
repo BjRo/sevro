@@ -13,10 +13,12 @@ import { pathToFileURL } from "node:url";
 import { runEvaluation, type HostAdapter } from "../src/engine";
 import { openExtensionSession } from "../src/extension-session";
 import instrumentedHost from "./fixtures/instrumented-adapter";
+import { extensionFixtureCommand } from "./fixtures/extension-command";
 
 const roots: string[] = [];
 const source = join(import.meta.dir, "fixtures", "extension.ts");
 const digest = "a".repeat(64);
+const extensionCommand = extensionFixtureCommand();
 afterEach(async () => {
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
@@ -36,7 +38,7 @@ async function runWithExtension(
   if (scenario === "lifecycle-source-artifact")
     await Bun.write(sourcePath, "prepared data\n");
   const session = await openExtensionSession({
-    command: [process.execPath, source, scenario],
+    command: extensionCommand(source, scenario),
     sourceFiles: [source],
     configuration: {},
     redactedConfiguration: {},
@@ -357,7 +359,7 @@ test("unsupported instrumentation stops before host execution", async () => {
   const projectRoot = await mkdtemp(join(tmpdir(), "sevro-extension-prepare-"));
   roots.push(projectRoot);
   const session = await openExtensionSession({
-    command: [process.execPath, source, "lifecycle-instrumentation"],
+    command: extensionCommand(source, "lifecycle-instrumentation"),
     sourceFiles: [source],
     configuration: {},
     redactedConfiguration: {},
@@ -1060,7 +1062,7 @@ test("a wrong preparation digest fails before host execution", async () => {
   );
   roots.push(projectRoot);
   const session = await openExtensionSession({
-    command: [process.execPath, source, "lifecycle-bad-artifact"],
+    command: extensionCommand(source, "lifecycle-bad-artifact"),
     sourceFiles: [source],
     configuration: {},
     redactedConfiguration: {},

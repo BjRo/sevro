@@ -13,6 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { extensionFixtureCommand } from "./fixtures/extension-command";
 
 const roots: string[] = [];
 const cli = join(import.meta.dir, "..", "src", "cli.ts");
@@ -34,6 +35,7 @@ const advisoryAdapter = join(
 );
 const extensionSource = join(import.meta.dir, "fixtures", "extension.ts");
 const digest = "a".repeat(64);
+const fixtureExtensionCommand = extensionFixtureCommand();
 
 afterEach(async () => {
   await Promise.all(
@@ -293,7 +295,9 @@ test("CLI dry run retains preparation without calling the host", async () => {
   const commandFile = join(caseFile, "..", "extension-command.json");
   await writeFile(
     commandFile,
-    JSON.stringify([process.execPath, extensionSource, "lifecycle-artifact"]),
+    JSON.stringify(
+      fixtureExtensionCommand(extensionSource, "lifecycle-artifact"),
+    ),
   );
   const command = args.filter(
     (part, index) =>
@@ -432,7 +436,7 @@ test("CLI resolves an explicit extension case and retains extension evidence", a
   const commandFile = join(caseFile, "..", "extension-command.json");
   await writeFile(
     commandFile,
-    JSON.stringify([process.execPath, extensionSource, "lifecycle"]),
+    JSON.stringify(fixtureExtensionCommand(extensionSource, "lifecycle")),
   );
   const command = args.filter(
     (part, index) =>
@@ -474,7 +478,9 @@ test("CLI supplies the selected candidate route during extension resolution", as
   const commandFile = join(caseFile, "..", "extension-command.json");
   await writeFile(
     commandFile,
-    JSON.stringify([process.execPath, extensionSource, "lifecycle-host-route"]),
+    JSON.stringify(
+      fixtureExtensionCommand(extensionSource, "lifecycle-host-route"),
+    ),
   );
   const command = args.filter(
     (part, index) =>
@@ -512,7 +518,7 @@ test("CLI retains redacted extension configuration with its identity", async () 
   const redactedFile = join(caseFile, "..", "redacted-configuration.json");
   await writeFile(
     commandFile,
-    JSON.stringify([process.execPath, extensionSource, "lifecycle"]),
+    JSON.stringify(fixtureExtensionCommand(extensionSource, "lifecycle")),
   );
   await writeFile(
     privateFile,
@@ -560,11 +566,9 @@ test("CLI text output names domain outcomes apart from the task verdict", async 
   const commandFile = join(caseFile, "..", "extension-command.json");
   await writeFile(
     commandFile,
-    JSON.stringify([
-      process.execPath,
-      extensionSource,
-      "lifecycle-domain-outcome",
-    ]),
+    JSON.stringify(
+      fixtureExtensionCommand(extensionSource, "lifecycle-domain-outcome"),
+    ),
   );
   const command = args.filter(
     (part, index) =>
@@ -600,7 +604,9 @@ test("CLI selects an advertised extension task policy explicitly", async () => {
   const commandFile = join(caseFile, "..", "extension-command.json");
   await writeFile(
     commandFile,
-    JSON.stringify([process.execPath, extensionSource, "lifecycle-policy"]),
+    JSON.stringify(
+      fixtureExtensionCommand(extensionSource, "lifecycle-policy"),
+    ),
   );
   const command = args.filter(
     (part, index) =>
@@ -649,11 +655,9 @@ test("CLI replaces a selected built-in grader through the extension", async () =
   const commandFile = join(caseFile, "..", "extension-command.json");
   await writeFile(
     commandFile,
-    JSON.stringify([
-      process.execPath,
-      extensionSource,
-      "lifecycle-replace-regex",
-    ]),
+    JSON.stringify(
+      fixtureExtensionCommand(extensionSource, "lifecycle-replace-regex"),
+    ),
   );
   const command = args.filter(
     (part, index) =>
@@ -706,11 +710,12 @@ test("CLI negotiates and records enforced host instrumentation", async () => {
   const commandFile = join(caseFile, "..", "extension-command.json");
   await writeFile(
     commandFile,
-    JSON.stringify([
-      process.execPath,
-      extensionSource,
-      "lifecycle-instrumentation-supported",
-    ]),
+    JSON.stringify(
+      fixtureExtensionCommand(
+        extensionSource,
+        "lifecycle-instrumentation-supported",
+      ),
+    ),
   );
   const command = args.filter(
     (part, index) =>
@@ -758,11 +763,9 @@ test("CLI mounts only declared preparation source files", async () => {
   await Bun.write(sourceFile, "prepared data\n");
   await writeFile(
     commandFile,
-    JSON.stringify([
-      process.execPath,
-      extensionSource,
-      "lifecycle-source-artifact",
-    ]),
+    JSON.stringify(
+      fixtureExtensionCommand(extensionSource, "lifecycle-source-artifact"),
+    ),
   );
   await writeFile(
     mapFile,
@@ -859,7 +862,9 @@ test("CLI executes a declared repository fixture", async () => {
   const commandFile = join(projectRoot, "extension-command.json");
   await writeFile(
     commandFile,
-    JSON.stringify([process.execPath, extensionSource, "lifecycle-repository"]),
+    JSON.stringify(
+      fixtureExtensionCommand(extensionSource, "lifecycle-repository"),
+    ),
   );
   const extensionCommand = args.filter(
     (part, index) =>
@@ -1083,7 +1088,9 @@ test("CLI accepts generated Git history from a case or extension", async () => {
   const commandFile = join(caseFile, "..", "extension-command.json");
   await writeFile(
     commandFile,
-    JSON.stringify([process.execPath, extensionSource, "lifecycle-generated"]),
+    JSON.stringify(
+      fixtureExtensionCommand(extensionSource, "lifecycle-generated"),
+    ),
   );
   const extensionCommand = args.filter(
     (part, index) =>
