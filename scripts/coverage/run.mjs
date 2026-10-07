@@ -14,7 +14,6 @@ import { createContext } from "istanbul-lib-report";
 import reports from "istanbul-reports";
 import { prepare } from "./prepare.mjs";
 import { mergeChecked, coverageRecord } from "./gate.mjs";
-import { exemptionCounts, readExemptions, enforceAdjusted } from "./exemptions";
 import { participant, object } from "./records.mjs";
 
 /** @param {string} repo @param {string[]} testArguments */
@@ -83,18 +82,25 @@ export function runCoverage(repo, testArguments = []) {
     throw new Error(
       `Deterministic Bun tests failed with exit ${child.exitCode}`,
     );
-  const enforcement = exemptionCounts(
-    map,
-    prepared.source,
-    readExemptions(repo),
-  );
+  const enforcement = {
+    scope: "inventory.production",
+    summary: map.getCoverageSummary().toJSON(),
+  };
   writeFileSync(
     join(output, "enforcement.json"),
     JSON.stringify(enforcement, null, 2),
   );
   console.log(JSON.stringify(enforcement));
-  enforceAdjusted(enforcement.adjusted);
+  enforceThresholds(enforcement.summary);
   return map;
+}
+
+/** @param {import('istanbul-lib-coverage').CoverageSummaryData} summary */
+export function enforceThresholds(summary) {
+  const failed = /** @type {const} */ (["statements", "branches"]).filter(
+    (metric) => summary[metric].covered * 100 < summary[metric].total * 95,
+  );
+  if (failed.length) throw new Error(`Below 95%: ${failed.join(", ")}`);
 }
 
 /** @param {string} root @param {string} output @param {string} source */

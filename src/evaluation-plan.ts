@@ -20,7 +20,7 @@ import {
   prepareSemanticChecks,
   type SemanticCheckDeclaration,
 } from "./graders/semantic";
-import { createEvaluationIdentity, hashJson } from "./identity";
+import { canonicalJson, createEvaluationIdentity, hashJson } from "./identity";
 import {
   prepareInstrumentation,
   type InstrumentationRequest,
@@ -256,17 +256,17 @@ function validateBuiltInReplacements(context: CaseCheckDeclarations): void {
     replacedBuiltinGraders,
     replaced,
   } = context;
+  const declaredGraders = new Set<string>(
+    [
+      ...allBuiltinDeclarations,
+      ...allShellDeclarations,
+      ...allGitHeadDeclarations,
+      ...allSemanticDeclarations,
+    ].map((check) => check.grader),
+  );
   if (
     replaced.size !== replacedBuiltinGraders.length ||
-    replacedBuiltinGraders.some(
-      (id) =>
-        ![
-          ...allBuiltinDeclarations,
-          ...allShellDeclarations,
-          ...allGitHeadDeclarations,
-          ...allSemanticDeclarations,
-        ].some((check) => check.grader === id),
-    )
+    replacedBuiltinGraders.some((id) => !declaredGraders.has(id))
   )
     throw new EvaluationConfigurationError(
       "unknown or duplicate built-in grader replacement",
@@ -1569,7 +1569,7 @@ function prepareEvaluationIdentity(
     state.preparedSemantic.length > 0,
     route,
   );
-  const redactedConfig = redactedEvaluationConfiguration(options, state);
+  const redactedConfig = snapshotEvaluationConfiguration(options, state);
   const activeGraders = activeEvaluationGraders(options, state);
   const context = {
     ...state,
@@ -1581,6 +1581,22 @@ function prepareEvaluationIdentity(
   };
   const evaluationIdentity = evaluationComparisonIdentity(options, context);
   return { ...context, runId, evaluationIdentity };
+}
+
+function snapshotEvaluationConfiguration(
+  options: EvaluationOptions,
+  state: InvocationPlan,
+): ReturnType<typeof redactedEvaluationConfiguration> {
+  try {
+    return JSON.parse(
+      canonicalJson(redactedEvaluationConfiguration(options, state)),
+    ) as ReturnType<typeof redactedEvaluationConfiguration>;
+  } catch (cause) {
+    throw new EvaluationConfigurationError(
+      "invalid evaluation identity inputs",
+      { cause },
+    );
+  }
 }
 
 export async function prepareEvaluation(options: EvaluationOptions) {

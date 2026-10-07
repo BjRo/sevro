@@ -402,3 +402,224 @@ for (const assessment of assessmentPaths) {
     });
   }
 }
+
+const nullableRecordBoundaries: Boundary[] = [
+  {
+    name: "extension ID",
+    path: ["extension", "id"],
+    valid: ["example.extension"],
+    invalid: [""],
+  },
+  {
+    name: "extension version",
+    path: ["extension", "version"],
+    valid: ["1.0.0"],
+    invalid: [""],
+  },
+  {
+    name: "extension protocol",
+    path: ["extension", "protocol"],
+    valid: ["sevro.extension.v1"],
+    invalid: ["foreign.extension.v1"],
+  },
+  {
+    name: "unique negotiated capabilities",
+    path: ["extension", "capabilities"],
+    valid: [[], ["example.first", "example.second"]],
+    invalid: [[""], ["example.first", "example.first"]],
+  },
+  {
+    name: "unique replacement graders",
+    path: ["extension", "replacements", "graders"],
+    valid: [[], ["example.first", "example.second"]],
+    invalid: [[""], ["example.first", "example.first"]],
+  },
+  {
+    name: "selected policy ID",
+    path: ["trials", 0, "taskVerdictPolicy", "id"],
+    valid: ["example.policy"],
+    invalid: [""],
+  },
+  {
+    name: "selected policy recommendation",
+    path: ["trials", 0, "taskVerdictPolicy", "recommendation"],
+    valid: [null, "not_assessed"],
+    invalid: ["unknown"],
+  },
+  {
+    name: "advisory status",
+    path: ["trials", 0, "advisoryReview", "status"],
+    valid: ["failed"],
+    invalid: ["unavailable"],
+  },
+  {
+    name: "advisory verdict",
+    path: ["trials", 0, "advisoryReview", "assessment", "verdict"],
+    valid: ["pass", "fail"],
+    invalid: ["passed"],
+  },
+  {
+    name: "advisory summary",
+    path: ["trials", 0, "advisoryReview", "assessment", "summary"],
+    valid: ["Reviewed"],
+    invalid: [""],
+  },
+  {
+    name: "advisory source",
+    path: ["trials", 0, "advisoryReview", "rawResult", "source"],
+    valid: ["advisory"],
+    invalid: [""],
+  },
+  ...["correctness", "maintainability", "testQuality", "scopeDiscipline"].map(
+    (dimension) => ({
+      name: `advisory ${dimension} rating`,
+      path: [
+        "trials",
+        0,
+        "advisoryReview",
+        "assessment",
+        "dimensions",
+        dimension,
+      ],
+      valid: [1, 5],
+      invalid: [0, 6, 1.5],
+    }),
+  ),
+  ...["inputTokens", "outputTokens", "costUsd"].map((measurement) => ({
+    name: `advisory ${measurement} measurement`,
+    path: ["trials", 0, "advisoryReview", "usage", measurement],
+    valid: [null, 0, 1],
+    invalid: [-1],
+  })),
+  ...[
+    ["extension", "sourceDigest"],
+    ["extension", "configurationDigest"],
+    ["runner", "dirtyPatchDigest"],
+    ["project", "dirtyPatchDigest"],
+    ["evaluationIdentity", "dimensions", "extensionDigest"],
+    ["trials", 0, "rawResult", "sha256"],
+    ["trials", 0, "advisoryReview", "rawResult", "sha256"],
+  ].map((path) => ({
+    name: `digest spelling at ${path.join("/")}`,
+    path,
+    valid: ["a".repeat(64)],
+    invalid: ["A".repeat(64), "a".repeat(63)],
+  })),
+  ...[
+    ["trials", 0, "rawResult", "path"],
+    ["trials", 0, "advisoryReview", "rawResult", "path"],
+  ].map((path) => ({
+    name: `absolute artifact URL at ${path.join("/")}`,
+    path,
+    valid: [null, "file:///tmp/raw"],
+    invalid: ["https://example.com/private", "file://relative"],
+  })),
+  {
+    name: "trial applied instrumentation declaration",
+    path: ["trials", 0, "condition", "appliedInstrumentation"],
+    valid: [[], [{ id: "example.instrumentation", configuration: {} }]],
+    invalid: [
+      [{ configuration: {} }],
+      [{ id: "", configuration: {} }],
+      [{ id: 42, configuration: {} }],
+      [{ id: "example.instrumentation", configuration: [] }],
+      [{ id: "example.instrumentation", configuration: {}, extra: true }],
+      [null],
+    ],
+  },
+];
+
+test.each(
+  nullableRecordBoundaries.map(
+    (boundary) => [boundary.name, boundary] as const,
+  ),
+)("retained nullable records enforce %s", (_name, boundary) => {
+  const baseline = richBaseline();
+  for (const value of boundary.valid)
+    assertRunEvidence(replace(baseline, boundary.path, value));
+  for (const value of boundary.invalid)
+    refuses(replace(baseline, boundary.path, value), boundary.name);
+});
+
+function advisoryBaseline(value: RunEvidenceData) {
+  return defined(defined(value.trials[0]).advisoryReview);
+}
+
+function advisoryAssessment(value: RunEvidenceData) {
+  return defined(advisoryBaseline(value).assessment);
+}
+
+const closedEvidenceRecords: {
+  name: string;
+  path: Path;
+  select: (value: RunEvidenceData) => Record<string, unknown>;
+}[] = [
+  {
+    name: "extension",
+    path: ["extension"],
+    select: (value) => defined(value.extension),
+  },
+  {
+    name: "extension replacements",
+    path: ["extension", "replacements"],
+    select: (value) => defined(value.extension).replacements,
+  },
+  {
+    name: "task policy",
+    path: ["trials", 0, "taskVerdictPolicy"],
+    select: (value) => defined(defined(value.trials[0]).taskVerdictPolicy),
+  },
+  {
+    name: "advisory review",
+    path: ["trials", 0, "advisoryReview"],
+    select: advisoryBaseline,
+  },
+  {
+    name: "advisory assessment",
+    path: ["trials", 0, "advisoryReview", "assessment"],
+    select: advisoryAssessment,
+  },
+  {
+    name: "advisory dimensions",
+    path: ["trials", 0, "advisoryReview", "assessment", "dimensions"],
+    select: (value) => advisoryAssessment(value).dimensions,
+  },
+  {
+    name: "advisory usage",
+    path: ["trials", 0, "advisoryReview", "usage"],
+    select: (value) => advisoryBaseline(value).usage,
+  },
+  {
+    name: "advisory provenance",
+    path: ["trials", 0, "advisoryReview", "rawResult"],
+    select: (value) => advisoryBaseline(value).rawResult,
+  },
+];
+
+test.each(
+  closedEvidenceRecords.map((boundary) => [boundary.name, boundary] as const),
+)(
+  "retained %s refuses undeclared fields inside nullable alternatives",
+  (_name, boundary) => {
+    const baseline = richBaseline();
+    const record = boundary.select(baseline);
+    assertRunEvidence(replace(baseline, boundary.path, record));
+    refuses(
+      replace(baseline, boundary.path, { ...record, extra: true }),
+      boundary.name,
+    );
+  },
+);
+
+test("retained nullable identities preserve explicitly unknown digests and absent policies", () => {
+  const baseline = richBaseline();
+  for (const path of [
+    ["extension"],
+    ["trials", 0, "taskVerdictPolicy"],
+    ["trials", 0, "advisoryReview"],
+    ["runner", "dirtyPatchDigest"],
+    ["project", "dirtyPatchDigest"],
+    ["evaluationIdentity", "dimensions", "extensionDigest"],
+  ])
+    assertRunEvidence(replace(baseline, path, null));
+});

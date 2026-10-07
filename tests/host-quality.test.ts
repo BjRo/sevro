@@ -6,6 +6,7 @@ import {
   mkdtemp,
   readFile,
   realpath,
+  rename,
   rm,
   symlink,
   writeFile,
@@ -13,13 +14,24 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  watch,
+  writeFileSync,
+} from "node:fs";
+import {
   runCodexAppServer,
+  appServerFinal,
   type AppServerRunOptions,
 } from "../src/hosts/codex-app-server";
 import { codexNativeReadDiagnostic } from "../src/hosts/codex-skill-reads";
 import { claudeNestedSkillsObservation } from "../src/hosts/claude-nested-skills";
 import { createClaudeHost, type ClaudeHostOptions } from "../src/hosts/claude";
 import { codexNativeCallObservation } from "../src/hosts/codex-native-calls";
+import { runCodexProcess } from "../src/hosts/codex-process";
+import { runClaudeProcess } from "../src/hosts/claude-process";
 import {
   withAuthenticationEnvironment,
   withSyntheticKeychain,
@@ -196,6 +208,111 @@ test("app-server retry evidence is bounded, classified, and redacted", async () 
   ).toBeLessThanOrEqual(2000);
 });
 
+test.each([
+  "empty-error-errors",
+  "invalid-message-errors",
+  "invalid-http-errors",
+])(
+  "app-server wire retry diagnostics preserve unknown fields: %s",
+  async (mode) => {
+    const result = await runCodexAppServer(await serverOptions(mode));
+    expect(result.code, result.evidence.failure).toBe(0);
+    const error = defined(result.evidence.errors?.[0]);
+    expect(error.willRetry).toBe(true);
+    expect(error.httpStatusCode).toBeUndefined();
+    expect(error.message).toBe(
+      mode === "invalid-http-errors" ? "Temporary failure" : null,
+    );
+    expect(error.code).toBe(
+      mode === "empty-error-errors" ? null : "httpConnectionFailed",
+    );
+  },
+);
+
+test.each([
+  ["fail-after-initialize-response", /Malformed app-server object/, 0],
+  [
+    "exit-pending-thread-start",
+    /closed before settlement|exited before settlement/,
+    0,
+  ],
+  [
+    "exit-after-turn-response",
+    /closed before settlement|exited before settlement/,
+    1,
+  ],
+  ["null-goal-notification", /Malformed app-server object/, 1],
+] as const)(
+  "app-server wire failure at a pending boundary is retained: %s",
+  async (mode, diagnostic, turns) => {
+    const result = await runCodexAppServer(await serverOptions(mode));
+    expect(result.code).toBe(1);
+    expect(result.evidence.failure).toMatch(diagnostic);
+    expect(result.evidence.clientTurns).toBe(turns);
+    expect(result.evidence.finalTurnId).toBeUndefined();
+    expect(result.out).toContain('"type":"turn.failed"');
+  },
+);
+
+test("app-server wire repeated goals retain one observation per unchanged state and source", async () => {
+  const result = await runCodexAppServer(await serverOptions("duplicate-goal"));
+  expect(result.code, result.evidence.failure).toBe(0);
+  expect(
+    result.evidence.goals.map((goal) => ({
+      status: goal.status,
+      source: goal.source,
+    })),
+  ).toEqual([
+    { status: "complete", source: "notification" },
+    { status: "complete", source: "readback" },
+  ]);
+  expect(JSON.stringify(result.evidence)).not.toContain("PRIVATE_OBJECTIVE");
+});
+
+test("app-server wire a failed command remains distinct from successful root completion", async () => {
+  const result = await runCodexAppServer(
+    await serverOptions("failed-command-item"),
+  );
+  expect(result.code, result.evidence.failure).toBe(0);
+  expect(result.evidence.finalTurnId).toBe("first");
+  const events = result.out.split("\n").map((line) => record(JSON.parse(line)));
+  expect(events.map((event) => event.item).filter(Boolean)).toContainEqual(
+    expect.objectContaining({
+      type: "command_execution",
+      status: "failed",
+      exit_code: 1,
+    }),
+  );
+});
+
+test("app-server wire final response decoder requires retained root turns", () => {
+  const turn = {
+    id: "first",
+    status: "completed",
+    items: [
+      {
+        id: "answer",
+        type: "agentMessage",
+        phase: "final_answer",
+        text: "ready",
+      },
+    ],
+  };
+  expect(appServerFinal({ id: "root", turns: [turn] }, "first")).toBe("ready");
+  expect(() => appServerFinal({ id: "root", turns: null }, "first")).toThrow(
+    "App-server thread has no retained turns",
+  );
+});
+
+test("app-server wire foreign settlement events cannot invalidate a completed root", async () => {
+  const result = await runCodexAppServer(
+    await serverOptions("settlement-foreign"),
+  );
+  expect(result.code, result.evidence.failure).toBe(0);
+  expect(result.evidence.finalTurnId).toBe("first");
+  expect(result.evidence.goals).toEqual([]);
+});
+
 test("app-server delivers exactly one declared feedback turn", async () => {
   const options = await serverOptions("success");
   options.request.control = {
@@ -318,6 +435,11 @@ function literalRecovery(
   ];
 }
 const literalRefusals = [
+  "const r = await tools.exec_command(null); text(r.output);",
+  "const r = await tools.exec_command([]); text(r.output);",
+  "const r = await tools.exec_command({cmd: null}); text(r.output);",
+  "const r = await tools.exec_command({cmd: COMMAND}); text(r.output); store();",
+  "const r = await tools.exec_command({cmd: COMMAND}); text(r.output); store('session');",
   "let r = await tools.exec_command({cmd: COMMAND}); text(r.output);",
   "const r = tools.exec_command({cmd: COMMAND}); text(r.output);",
   "const {output} = await tools.exec_command({cmd: COMMAND}); text(output);",
@@ -349,6 +471,18 @@ test.each(literalRefusals)(
       literalRecovery(source, command, root),
       root,
     );
+    expect(observed.completeness).toBe("partial");
+    expect(observed.observedSkills).toEqual([]);
+    expect(JSON.stringify(observed)).not.toContain("PRIVATE_SKILL_BODY");
+  },
+);
+test.each([null, 42, { command: "cat .agents/skills/probe/SKILL.md" }])(
+  "native recovery refuses nonstring serialized executor input: %j",
+  async (input) => {
+    const { root, command } = await skillWorkspace();
+    const entries = literalRecovery("unused", command, root);
+    defined(entries[0]).payload.input = input;
+    const observed = await codexNativeReadDiagnostic(entries, root);
     expect(observed.completeness).toBe("partial");
     expect(observed.observedSkills).toEqual([]);
     expect(JSON.stringify(observed)).not.toContain("PRIVATE_SKILL_BODY");
@@ -492,6 +626,150 @@ test("app-server oversized transport input is refused before becoming a result",
   expect(result.evidence.failure).toBe("App-server stream exceeds limit");
   expect(result.evidence.clientTurns).toBe(0);
 });
+
+test("app-server drains oversized diagnostic stderr while retaining a valid root response", async () => {
+  const options = await serverOptions("large-stderr");
+  const result = await runCodexAppServer(options);
+  expect(result.code, result.evidence.failure).toBe(0);
+  expect(result.evidence.finalTurnId).toBe("first");
+  expect(result.err).toHaveLength(16000);
+  expect(result.err).toEndWith("RETAINED_DIAGNOSTIC_TAIL\n");
+  expect(result.err).not.toContain("DISCARDED_DIAGNOSTIC_PREFIX");
+  expect(result.out).not.toContain("RETAINED_DIAGNOSTIC_TAIL");
+  expect(
+    await readFile(
+      join(options.request.repoDir, ".git/last-message.md"),
+      "utf8",
+    ),
+  ).toBe("ready\n\ndone");
+});
+
+test("app-server refuses a notification backlog within the transport byte bound", async () => {
+  const options = await serverOptions("notification-backlog");
+  const result = await runCodexAppServer(options);
+  expect(result.code).toBe(1);
+  expect(result.evidence.failure).toBe(
+    "App-server notification queue exceeds limit",
+  );
+  expect(result.evidence.clientTurns).toBe(0);
+  expect(result.evidence.finalTurnId).toBeUndefined();
+  expect(result.out).toContain('"type":"turn.failed"');
+  expect(
+    readFile(join(options.request.repoDir, ".git/last-message.md")),
+  ).rejects.toThrow();
+});
+
+async function peerEvents(root: string): Promise<Record<string, unknown>[]> {
+  const text = await readFile(join(root, ".git/peer-events.jsonl"), "utf8");
+  return text
+    .trim()
+    .split("\n")
+    .map((line) => record(JSON.parse(line)));
+}
+
+const nativeProcessRunners = {
+  Codex: runCodexProcess,
+  Claude: runClaudeProcess,
+};
+
+async function processBoundaryOptions(
+  stream: "stdout" | "stderr",
+  size: number,
+  overflow: boolean,
+) {
+  const root = await workspace();
+  return {
+    argv: [
+      process.execPath,
+      join(import.meta.dir, "fixtures/quality-host-app-server.ts"),
+      `process-${stream}`,
+      String(size),
+      overflow ? "stay-open" : "exit",
+    ],
+    cwd: root,
+    env: {},
+    timeoutMs: 2000,
+  };
+}
+
+test.each(["Codex", "Claude"] as const)(
+  "native process pre-aborted %s request refuses child admission",
+  async (host) => {
+    const options = await processBoundaryOptions("stdout", 1, false);
+    const controller = new AbortController();
+    controller.abort();
+    expect(
+      nativeProcessRunners[host]({ ...options, signal: controller.signal }),
+    ).rejects.toThrow(`${host} run cancelled`);
+    expect(
+      readFile(join(options.cwd, ".git/peer-events.jsonl")),
+    ).rejects.toThrow(/ENOENT/);
+  },
+);
+
+test.each([
+  ["Codex", "stdout", 8 * 1024 * 1024, false],
+  ["Codex", "stdout", 8 * 1024 * 1024, true],
+  ["Claude", "stdout", 8 * 1024 * 1024, false],
+  ["Claude", "stdout", 8 * 1024 * 1024, true],
+  ["Claude", "stderr", 64 * 1024, false],
+  ["Claude", "stderr", 64 * 1024, true],
+] as const)(
+  "native process %s %s byte boundary %s; overflow=%s",
+  async (host, stream, limit, overflow) => {
+    const options = await processBoundaryOptions(
+      stream,
+      limit + Number(overflow),
+      overflow,
+    );
+    const pending = nativeProcessRunners[host](options);
+    if (overflow) {
+      const diagnostic =
+        host === "Codex"
+          ? "Codex event stream exceeds the size limit"
+          : "Claude process output exceeds its limit";
+      expect(pending).rejects.toThrow(diagnostic);
+    } else {
+      const result = await pending;
+      expect(result.code).toBe(0);
+      const output = stream === "stdout" ? result.out : record(result).err;
+      expect(output).toBe("x".repeat(limit));
+    }
+    const events = await peerEvents(options.cwd);
+    expect(defined(events[0]).event).toBe("process-started");
+    const pid = Number(defined(events[0]).pid);
+    expect(Number.isSafeInteger(pid)).toBe(true);
+    expect(pid).toBeGreaterThan(0);
+    expect(() => process.kill(pid, 0)).toThrow(/ESRCH|No such process/);
+  },
+);
+
+test.each(["ignore-eof", "ignore-eof-and-term"])(
+  "app-server closes only its resistant owned peer after a validated result: %s",
+  async (mode) => {
+    const options = await serverOptions(mode);
+    const result = await runCodexAppServer(options);
+    expect(result.code, result.evidence.failure).toBe(0);
+    expect(result.evidence.finalTurnId).toBe("first");
+    expect(
+      await readFile(
+        join(options.request.repoDir, ".git/last-message.md"),
+        "utf8",
+      ),
+    ).toBe("ready\n\ndone");
+    const events = await peerEvents(options.request.repoDir);
+    expect(events.map((event) => event.event)).toEqual([
+      "client-first",
+      "stdin-eof",
+      "sigterm",
+    ]);
+    const pid = Number(defined(events[0]).pid);
+    expect(Number.isSafeInteger(pid)).toBe(true);
+    expect(pid).toBeGreaterThan(0);
+    expect(() => process.kill(pid, 0)).toThrow(/ESRCH|No such process/);
+  },
+  15000,
+);
 test("app-server declared feedback can enter a thread while its native goal is active", async () => {
   const options = await serverOptions("feedback-active-goal");
   options.request.control = {
@@ -964,6 +1242,217 @@ test.each([false, true])(
   },
 );
 
+function receiptFileState(directory: string, name: string) {
+  try {
+    return { name, contents: readFileSync(join(directory, name), "utf8") };
+  } catch (error) {
+    return { name, unavailable: String(error) };
+  }
+}
+
+function receiptTimeoutEvidence(
+  directory: string,
+  command: string,
+  receipt: string,
+  events: Array<{ at: number; event: string; name: string | null }>,
+): Error {
+  const message = `Peer receipt unavailable: ${receipt}`;
+  try {
+    const retained = mkdtempSync(join(tmpdir(), "sevro-peer-receipt-failure-"));
+    const names = [
+      command,
+      receipt,
+      receipt + ".pending",
+      "requests.jsonl",
+      "peer-events.jsonl",
+      "boundary-trace.jsonl",
+      "last-message.md",
+    ];
+    writeFileSync(
+      join(retained, "state.json"),
+      JSON.stringify(
+        {
+          at: Date.now(),
+          directory,
+          command,
+          receipt,
+          events,
+          directoryEntries: readdirSync(directory),
+          files: names.map((name) => receiptFileState(directory, name)),
+        },
+        null,
+        2,
+      ),
+    );
+    return new Error(`${message}; evidence: ${retained}`);
+  } catch (cause) {
+    return new Error(`${message}; evidence retention failed`, { cause });
+  }
+}
+
+async function exchangePeerReceipt(
+  root: string,
+  command: string,
+  receipt: string,
+): Promise<void> {
+  const directory = join(root, ".git");
+  expect(existsSync(join(directory, command))).toBe(false);
+  expect(existsSync(join(directory, receipt))).toBe(false);
+  const acknowledged = Promise.withResolvers<undefined>();
+  const events: Array<{ at: number; event: string; name: string | null }> = [];
+  const inspectReceipt = (): boolean => {
+    if (receiptFileState(directory, receipt).contents !== "emitted")
+      return false;
+    acknowledged.resolve(undefined);
+    return true;
+  };
+  const observer = watch(directory, (event, name) => {
+    events.push({ at: Date.now(), event, name });
+    inspectReceipt();
+  });
+  const timer = setTimeout(() => {
+    if (!inspectReceipt())
+      acknowledged.reject(
+        receiptTimeoutEvidence(directory, command, receipt, events),
+      );
+  }, 2000);
+  try {
+    await writeFile(join(directory, command + ".pending"), "emit");
+    await rename(
+      join(directory, command + ".pending"),
+      join(directory, command),
+    );
+    inspectReceipt();
+    await acknowledged.promise;
+    expect(await readFile(join(directory, receipt), "utf8")).toBe("emitted");
+  } finally {
+    observer.close();
+    clearTimeout(timer);
+  }
+}
+
+async function turnRequests(root: string): Promise<Record<string, unknown>[]> {
+  const text = await readFile(join(root, ".git/requests.jsonl"), "utf8");
+  return text
+    .trim()
+    .split("\n")
+    .map((line) => record(JSON.parse(line)))
+    .filter((message) => message.method === "turn/start");
+}
+
+function feedbackCapture(
+  options: AppServerRunOptions,
+  nativeTurn: boolean,
+): () => Promise<string> {
+  let captured = false;
+  return async () => {
+    if (!captured) {
+      captured = true;
+      await exchangePeerReceipt(
+        options.request.repoDir,
+        "capture-boundary",
+        "boundary-emitted",
+      );
+      expect(await turnRequests(options.request.repoDir)).toHaveLength(1);
+      if (nativeTurn)
+        await exchangePeerReceipt(
+          options.request.repoDir,
+          "release-native-turn",
+          "native-completed",
+        );
+    }
+    return JSON.stringify({
+      type: "sevro.follow_up_boundary",
+      thread_id: "root",
+    });
+  };
+}
+
+test.each([
+  ["boundary-fatal", /fatal error during settlement/],
+  ["boundary-cleared", /goal cleared during settlement/],
+] as const)(
+  "app-server withholds correction after root event during feedback capture: %s",
+  async (mode, diagnostic) => {
+    const options = await serverOptions(mode);
+    options.request.control = {
+      followUpPrompt: "User correction",
+      appServerTimeoutMs: 5000,
+    };
+    options.followUpBoundary = feedbackCapture(options, false);
+    const result = await runCodexAppServer(options);
+    expect(result.code).toBe(1);
+    expect(result.evidence.failure).toMatch(diagnostic);
+    expect(result.evidence.clientTurns).toBe(1);
+    expect(result.out).toContain('"type":"turn.failed"');
+    expect(result.out).not.toContain('"type":"sevro.follow_up_boundary"');
+    const requests = await turnRequests(options.request.repoDir);
+    expect(requests).toHaveLength(1);
+    expect(JSON.stringify(requests)).not.toContain("User correction");
+    expect(JSON.stringify(result.evidence)).not.toContain(
+      "boundary-credential",
+    );
+    expect(
+      (await peerEvents(options.request.repoDir)).map((event) => event.event),
+    ).toEqual(["client-first", "boundary-emitted"]);
+  },
+);
+
+test("app-server defers correction for a native turn started during feedback capture", async () => {
+  const options = await serverOptions("boundary-native-turn");
+  options.request.control = {
+    followUpPrompt: "User correction",
+    appServerTimeoutMs: 5000,
+  };
+  options.followUpBoundary = feedbackCapture(options, true);
+  const result = await runCodexAppServer(options);
+  expect(result.code, result.evidence.failure).toBe(0);
+  expect(result.evidence.clientTurns).toBe(2);
+  expect(result.evidence.finalTurnId).toBe("follow-up");
+  expect(
+    result.evidence.turns.find(
+      (turn) => turn.id === "native-2" && turn.status === "completed",
+    ),
+  ).toMatchObject({ status: "completed" });
+  const requests = await turnRequests(options.request.repoDir);
+  expect(requests).toHaveLength(2);
+  expect(JSON.stringify(defined(requests[1]))).toContain("User correction");
+  expect(
+    (await peerEvents(options.request.repoDir)).map((event) => event.event),
+  ).toEqual([
+    "client-first",
+    "boundary-emitted",
+    "native-completed",
+    "client-follow-up",
+  ]);
+  expect(result.out.split('"type":"sevro.follow_up_boundary"')).toHaveLength(2);
+});
+
+test.each(["boundary-goal-valid", "boundary-goal-invalid"])(
+  "app-server wire validates queued goal readback during feedback capture: %s",
+  async (mode) => {
+    const options = await serverOptions(mode);
+    options.request.control = {
+      followUpPrompt: "User correction",
+      appServerTimeoutMs: 5000,
+    };
+    options.followUpBoundary = feedbackCapture(options, false);
+    const result = await runCodexAppServer(options);
+    const requests = await turnRequests(options.request.repoDir);
+    if (mode === "boundary-goal-valid") {
+      expect(result.code, result.evidence.failure).toBe(0);
+      expect(requests).toHaveLength(2);
+      expect(result.evidence.finalTurnId).toBe("follow-up");
+      expect(JSON.stringify(defined(requests[1]))).toContain("User correction");
+    } else {
+      expect(result.code).toBe(1);
+      expect(result.evidence.failure).toBe("Invalid native goal readback");
+      expect(requests).toHaveLength(1);
+      expect(JSON.stringify(requests)).not.toContain("User correction");
+    }
+  },
+);
+
 async function claudeHostFixture() {
   const root = await workspace(),
     candidate = join(root, "candidate"),
@@ -1292,6 +1781,46 @@ async function nativeSession(entries: readonly unknown[], raw?: string) {
   );
   return home;
 }
+
+test.each(["", "root with spaces", "x".repeat(129)])(
+  "native wire an invalid thread identifier cannot establish a session: %s",
+  async (threadId) => {
+    const home = await nativeSession([{ ordinal: 0, payload: {} }]);
+    const observed = await codexNativeCallObservation(home, threadId);
+    expect(observed.completeness).toBe("partial");
+    expect(observed.data.calls).toEqual([]);
+  },
+);
+
+test.each(["home", "sessions"])(
+  "native wire unreadable owned %s leaves session evidence partial",
+  async (directory) => {
+    const home = await nativeSession([{ ordinal: 0, payload: {} }]);
+    const path = directory === "home" ? home : join(home, "sessions");
+    await chmod(path, 0);
+    try {
+      const observed = await codexNativeCallObservation(home, "root");
+      expect(observed.completeness).toBe("partial");
+      expect(observed.data.calls).toEqual([]);
+    } finally {
+      await chmod(path, 0o700);
+    }
+  },
+);
+
+test("native wire session traversal accepts its declared file bound and refuses excess metadata", async () => {
+  const home = await nativeSession([{ ordinal: 0, payload: {} }]);
+  const directory = join(home, "sessions");
+  for (let index = 0; index < 1023; index++)
+    await writeFile(join(directory, `entry-${index}.jsonl`), "{}");
+  expect((await codexNativeCallObservation(home, "root")).completeness).toBe(
+    "complete",
+  );
+  await writeFile(join(directory, "entry-overflow.jsonl"), "{}");
+  const observed = await codexNativeCallObservation(home, "root");
+  expect(observed.completeness).toBe("partial");
+  expect(observed.data.calls).toEqual([]);
+});
 test.each([
   { label: "malformed JSON", raw: "{broken" },
   { label: "nonobject entry", entries: [[]] },
@@ -1629,6 +2158,108 @@ test("native early completed output proves one exact actor-local mounted read", 
     },
   ]);
   expect(JSON.stringify(observed)).not.toContain("PRIVATE_SKILL_BODY");
+});
+
+test("native wire already aggregated command bytes need no duplicate output recovery", async () => {
+  const { root, command } = await skillWorkspace();
+  const entries = completedRecovery(command, root);
+  const completion = defined(entries[1]);
+  completion.payload.item = {
+    ...record(completion.payload.item),
+    aggregated_output: skillBody,
+  };
+  const observed = await codexNativeReadDiagnostic(entries, root);
+  expect(observed.completeness).toBe("complete");
+  expect(observed.completedReads).toEqual([{ skill: "probe", ordinal: 1 }]);
+  expect(observed.recoverySources).toMatchObject([
+    { nativeOutput: true, completedCall: false, literalCommandCall: false },
+  ]);
+});
+
+test.each([
+  {
+    label: "string argv",
+    fields: { command: "cat .agents/skills/probe/SKILL.md" },
+  },
+  {
+    label: "short argv",
+    fields: { command: ["cat", ".agents/skills/probe/SKILL.md"] },
+  },
+  { label: "missing cwd", fields: { cwd: null } },
+  { label: "relative cwd", fields: { cwd: "relative-directory" } },
+])(
+  "native wire recovery refuses incomplete command binding: %s",
+  async ({ fields }) => {
+    const { root, command } = await skillWorkspace();
+    const entries = completedRecovery(command, root);
+    const completion = defined(entries[1]);
+    completion.payload.item = { ...record(completion.payload.item), ...fields };
+    const observed = await codexNativeReadDiagnostic(entries, root);
+    expect(observed.completeness).toBe("partial");
+    expect(observed.observedSkills).toEqual([]);
+  },
+);
+
+test("native wire structured process identity is not plain completed command output", async () => {
+  const { root, command } = await skillWorkspace();
+  const entries = completedRecovery(command, root);
+  defined(entries[2]).payload.output = completedEnvelope(
+    JSON.stringify({ session_id: 101 }),
+  );
+  const observed = await codexNativeReadDiagnostic(entries, root);
+  expect(observed.completeness).toBe("partial");
+  expect(observed.observedSkills).toEqual([]);
+  expect(observed.recoverySources).toMatchObject([{ completedCall: false }]);
+});
+
+test.each([
+  { label: "null", output: null },
+  { label: "number", output: 42 },
+])(
+  "native wire yielded primitive result cannot establish a read: %s",
+  async ({ output }) => {
+    const { root, command } = await skillWorkspace();
+    const observed = await codexNativeReadDiagnostic(
+      yieldedRecovery(output, command, root),
+      root,
+    );
+    expect(observed.completeness).toBe("partial");
+    expect(observed.observedSkills).toEqual([]);
+  },
+);
+
+test("native wire yielded output requires correlation and bounded envelope nesting", async () => {
+  const { root, command } = await skillWorkspace();
+  const chunk = {
+    session_id: 101,
+    chunk_id: "part",
+    wall_time_seconds: 0,
+    output: skillBody,
+  };
+  const envelope = [{ type: "text", text: JSON.stringify(chunk) }];
+  expect(
+    (
+      await codexNativeReadDiagnostic(
+        yieldedRecovery(envelope, command, root),
+        root,
+      )
+    ).completeness,
+  ).toBe("complete");
+  const unbound = yieldedRecovery(chunk, command, root);
+  defined(unbound[1]).payload.call_id = null;
+  expect((await codexNativeReadDiagnostic(unbound, root)).completeness).toBe(
+    "partial",
+  );
+  let deep: unknown = envelope;
+  for (let layer = 0; layer < 4; layer++) deep = [deep];
+  expect(
+    (
+      await codexNativeReadDiagnostic(
+        yieldedRecovery(deep, command, root),
+        root,
+      )
+    ).completeness,
+  ).toBe("partial");
 });
 const malformedCompletedOutputs: Array<{ label: string; output: unknown }> = [
   { label: "unstructured JSON", output: "{broken" },

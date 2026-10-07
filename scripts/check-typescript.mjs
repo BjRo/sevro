@@ -1,15 +1,14 @@
 import { createInstrumenter } from "istanbul-lib-instrument";
 import { createCoverageMap } from "istanbul-lib-coverage";
 import { mergeChecked } from "./coverage/gate.mjs";
-import { runCoverage } from "./coverage/run.mjs";
+import { runCoverage, enforceThresholds } from "./coverage/run.mjs";
 import { resolve } from "node:path";
 import { checkInventory } from "./typescript-inventory.mjs";
 import { runInNewContext } from "node:vm";
 import { integrityProbes } from "./coverage/probes.mjs";
 import { sourceMapProbe } from "./coverage/source-map-probe.mjs";
-import { exemptionProbe } from "./coverage/exemptions";
-import { compilerFlowProbe } from "./coverage/compiler-flow-probes";
 import { snapshotProbe } from "./coverage/snapshot-probe";
+import { coverageScopeProbe } from "./coverage/scope-probe.mjs";
 
 /** @param {string[]} command @param {string} root */
 function run(command, root) {
@@ -44,9 +43,8 @@ async function qualityGate(fast) {
   run([process.execPath, "run", "test:docs-examples"], root);
   integrityProbes();
   sourceMapProbe();
-  exemptionProbe(root);
-  compilerFlowProbe();
   snapshotProbe(root);
+  coverageScopeProbe(root);
   runCoverage(root);
   run([process.execPath, "run", "test:package-install"], root);
 }
@@ -78,11 +76,7 @@ function branchProbe() {
       },
     }),
   );
-  for (const metric of /** @type {const} */ (["statements", "branches"])) {
-    if (summary[metric].covered * 100 < summary[metric].total * 95) {
-      throw new Error(`Below 95%: ${metric}`);
-    }
-  }
+  enforceThresholds(summary);
 }
 
 try {
@@ -91,12 +85,10 @@ try {
     integrityProbes();
   else if (process.argv.slice(2).join(" ") === "--probe source-map")
     sourceMapProbe();
-  else if (process.argv.slice(2).join(" ") === "--probe exemptions")
-    exemptionProbe(resolve(import.meta.dir, ".."));
-  else if (process.argv.slice(2).join(" ") === "--probe compiler-flow")
-    compilerFlowProbe();
   else if (process.argv.slice(2).join(" ") === "--probe snapshot")
     snapshotProbe(resolve(import.meta.dir, ".."));
+  else if (process.argv.slice(2).join(" ") === "--probe scope")
+    coverageScopeProbe(resolve(import.meta.dir, ".."));
   else if (process.argv.slice(2).join(" ") === "--probe missing-reports") {
     mergeChecked({}, [], [], { version: 1, runId: "probe", layout: "probe" });
   } else if (process.argv[2] === "--inventory") {

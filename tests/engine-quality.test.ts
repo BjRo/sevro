@@ -1,19 +1,32 @@
 import { afterEach, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { existsSync, watch } from "node:fs";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { openExtensionSession } from "../src/extension-session";
-import { wireOptions } from "./fixtures/quality-engine-session";
+import { prepareFixtureSetup } from "../src/fixture-setup";
+import { wireCase, wireOptions } from "./fixtures/quality-engine-session";
 import {
   runEvaluation,
   EvaluationConfigurationError,
   type EvaluationOptions,
   type HostResult,
 } from "../src/engine";
-import { defined, parseRecord, parseRunEvidence } from "./fixtures/assertions";
+import {
+  defined,
+  parseRecord,
+  parseRunEvidence,
+  string,
+} from "./fixtures/assertions";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -59,6 +72,112 @@ function observation(id: string) {
   return { id, completeness: "complete" as const, data: { ready: true } };
 }
 
+test("fixture setup validation preserves declared argv and environment placeholders without executing them", () => {
+  const declaration = {
+    command: [process.execPath, "-e", "return-ready"],
+    environment: {
+      DATA: "{{sevro.workspace}}/input",
+      PROJECT: "{{sevro.project}}",
+    },
+  };
+  expect(prepareFixtureSetup(declaration)).toEqual(declaration);
+  expect(prepareFixtureSetup({ command: [process.execPath] })).toEqual({
+    command: [process.execPath],
+    environment: {},
+  });
+  expect(prepareFixtureSetup(undefined)).toBeNull();
+});
+
+const invalidDirectSetup = [
+  {
+    name: "null declaration",
+    value: null,
+    diagnostic: "invalid fixture setup",
+  },
+  { name: "array declaration", value: [], diagnostic: "invalid fixture setup" },
+  {
+    name: "scalar declaration",
+    value: 42,
+    diagnostic: "invalid fixture setup",
+  },
+  {
+    name: "empty argv",
+    value: { command: [] },
+    diagnostic: "invalid fixture setup command",
+  },
+  {
+    name: "nonstring argv item",
+    value: { command: [process.execPath, 42] },
+    diagnostic: "invalid fixture setup command",
+  },
+  {
+    name: "more than sixteen argv items",
+    value: {
+      command: [
+        process.execPath,
+        ...Array.from({ length: 16 }, () => "argument"),
+      ],
+    },
+    diagnostic: "invalid fixture setup command",
+  },
+  {
+    name: "argv above 64 KiB",
+    value: { command: [process.execPath, "x".repeat(64 * 1024)] },
+    diagnostic: "invalid fixture setup command",
+  },
+  {
+    name: "NUL in argv",
+    value: { command: [process.execPath, "\0"] },
+    diagnostic: "invalid fixture setup command",
+  },
+  {
+    name: "array environment",
+    value: { command: [process.execPath], environment: [] },
+    diagnostic: "invalid fixture setup environment",
+  },
+  {
+    name: "scalar environment",
+    value: { command: [process.execPath], environment: "environment" },
+    diagnostic: "invalid fixture setup environment",
+  },
+  {
+    name: "undeclared top-level field",
+    value: { command: [process.execPath], extra: true },
+    diagnostic: "unsupported fixture setup field",
+  },
+  {
+    name: "more than thirty-two environment entries",
+    value: {
+      command: [process.execPath],
+      environment: Object.fromEntries(
+        Array.from({ length: 33 }, (_, index) => [`VALUE_${index}`, "x"]),
+      ),
+    },
+    diagnostic: "invalid fixture setup environment",
+  },
+  {
+    name: "environment above 16 KiB",
+    value: {
+      command: [process.execPath],
+      environment: { DATA: "x".repeat(16 * 1024) },
+    },
+    diagnostic: "invalid fixture setup environment",
+  },
+  {
+    name: "NUL in environment",
+    value: { command: [process.execPath], environment: { DATA: "\0" } },
+    diagnostic: "invalid fixture setup environment",
+  },
+];
+
+for (const invalid of invalidDirectSetup) {
+  test(`fixture setup validation refuses ${invalid.name} at its unknown-input boundary`, () => {
+    expect(() => prepareFixtureSetup(invalid.value)).toThrow(
+      invalid.diagnostic,
+    );
+  });
+}
+
 test("retained host configuration digest stays coherent when an adapter updates its configuration during execution", async () => {
   const options = await evaluation({ finalMessage: "ready", complete: true });
   const configuration = { "example.setting": "before" };
@@ -75,6 +194,11 @@ test("retained host configuration digest stays coherent when an adapter updates 
   expect(evidence.configuration.digest).toBe(
     evidence.evaluationIdentity.dimensions.configurationDigest,
   );
+  expect(evidence.configuration).toMatchObject({
+    redacted: {
+      hostConfiguration: { candidate: { "example.setting": "before" } },
+    },
+  });
 });
 
 function requireSemantic(options: EvaluationOptions, result: HostResult): void {
@@ -111,13 +235,16 @@ function advisoryResponse(): string {
 
 async function extensionEvaluation(
   responses: Record<string, unknown> = {},
+  engineCapabilities: string[] = [],
 ): Promise<EvaluationOptions> {
   const options = await evaluation({
     finalMessage: "ready",
     complete: true,
     observations: [observation("example.evidence")],
   });
-  const session = await openExtensionSession(wireOptions(responses));
+  const sessionOptions = wireOptions(responses);
+  sessionOptions.engineCapabilities = engineCapabilities;
+  const session = await openExtensionSession(sessionOptions);
   const resolved = defined(
     (await session.resolve(pathToFileURL(options.projectRoot).href, {}))[0],
   );
@@ -126,6 +253,820 @@ async function extensionEvaluation(
   options.case = { ...resolved, fixture: { files: resolved.fixture.files } };
   options.extension = { session, resolvedCase: resolved };
   return options;
+}
+
+async function setupEvaluation(
+  command: string[],
+  preparation: Record<string, unknown> = {},
+): Promise<EvaluationOptions> {
+  const options = await evaluation({ finalMessage: "ready", complete: true });
+  const fixture = {
+    kind: "generated" as const,
+    commits: [
+      { message: "Setup baseline", files: { "README.md": "baseline\n" } },
+    ],
+  };
+  const sessionOptions = wireOptions({
+    describe: {
+      extension: { id: "example.extension", version: "1.0.0" },
+      protocols: ["sevro.extension.v1"],
+      requiredCapabilities: ["sevro.fixture.setup"],
+      optionalCapabilities: [],
+      graders: ["example.extension"],
+      taskVerdictPolicies: [],
+    },
+    resolve: { cases: [{ ...wireCase, fixture }] },
+    prepare: {
+      artifacts: [],
+      requestedInstrumentation: [],
+      fixtureSetup: { command },
+      extensionData: {},
+      ...preparation,
+    },
+  });
+  sessionOptions.engineCapabilities = ["sevro.fixture.setup"];
+  const session = await openExtensionSession(sessionOptions);
+  const resolvedCase = defined(
+    (await session.resolve(pathToFileURL(options.projectRoot).href, {}))[0],
+  );
+  options.case = { ...resolvedCase, fixture };
+  options.extension = { session, resolvedCase };
+  return options;
+}
+
+async function cancelReadySetup(options: EvaluationOptions) {
+  const abort = new AbortController();
+  options.signal = abort.signal;
+  const ready = Promise.withResolvers<undefined>();
+  const observer = watch(options.projectRoot, (_event, name) => {
+    if (name === "setup-ready.json") ready.resolve(undefined);
+  });
+  const timer = setTimeout(() => {
+    ready.reject(new Error("Fixture setup did not publish readiness"));
+  }, 5000);
+  const pending = runEvaluation(options);
+  try {
+    await Promise.race([
+      ready.promise,
+      pending.then(() => {
+        throw new Error("Evaluation finished before setup readiness");
+      }),
+    ]);
+    const receipt = parseRecord(
+      await readFile(join(options.projectRoot, "setup-ready.json"), "utf8"),
+    );
+    expect(receipt).toHaveProperty("phase", "setup-running");
+    abort.abort("SIGINT");
+    return await pending;
+  } finally {
+    abort.abort("SIGINT");
+    observer.close();
+    clearTimeout(timer);
+    await pending.catch(() => undefined);
+  }
+}
+
+test("active trusted fixture setup cancellation retains an interrupted unassessed run before candidate admission", async () => {
+  const options = await setupEvaluation([process.execPath, "-e", ""]);
+  const script = join(options.projectRoot, "setup.ts");
+  await writeFile(
+    script,
+    `
+    import { writeFileSync, renameSync } from "node:fs";
+    import { join } from "node:path";
+    const root = process.argv[2];
+    writeFileSync(join(root, "setup-ready.tmp"), JSON.stringify({phase: "setup-running"}));
+    renameSync(join(root, "setup-ready.tmp"), join(root, "setup-ready.json"));
+    setInterval(() => {}, 1000);
+  `,
+  );
+  const configured = await setupEvaluation([
+    process.execPath,
+    script,
+    options.projectRoot,
+  ]);
+  let candidateCalls = 0;
+  configured.host.run = () => {
+    candidateCalls++;
+    return Promise.resolve({ finalMessage: "ready", complete: true });
+  };
+  configured.projectRoot = options.projectRoot;
+  const { result } = await cancelReadySetup(configured);
+  expect(candidateCalls).toBe(0);
+  expect(result.execution.status).toBe("cancelled");
+  expect(result.grading.status).toBe("not_requested");
+  expect(result.task.verdict).toBe("not_assessed");
+  expect(result.exitCode).toBe(130);
+  const evidence = parseRunEvidence(
+    await readFile(result.evidencePath, "utf8"),
+  );
+  expect(evidence.result.execution.status).toBe("cancelled");
+});
+
+test("fixture setup interruption retains a prior completed trial and one cancelled partial attempt", async () => {
+  const base = await evaluation({ finalMessage: "ready", complete: true });
+  const code = `
+    const fs = require("node:fs"), path = require("node:path"), root = process.argv[1];
+    const first = path.join(root, "first-setup-complete");
+    if (fs.existsSync(first)) {
+      fs.writeFileSync(path.join(root, "setup-ready.tmp"), JSON.stringify({phase: "setup-running"}));
+      fs.renameSync(path.join(root, "setup-ready.tmp"), path.join(root, "setup-ready.json"));
+      setInterval(() => {}, 1000);
+    } else fs.writeFileSync(first, "prepared");
+  `;
+  const options = await setupEvaluation([
+    process.execPath,
+    "-e",
+    code,
+    base.projectRoot,
+  ]);
+  options.projectRoot = base.projectRoot;
+  options.trialCount = 2;
+  options.jobs = 1;
+  let candidateCalls = 0;
+  options.host.run = () => {
+    candidateCalls++;
+    return Promise.resolve({
+      finalMessage: "ready",
+      complete: true,
+      observations: [observation("example.evidence")],
+    });
+  };
+  const { result } = await cancelReadySetup(options);
+  expect(result.exitCode).toBe(130);
+  expect(candidateCalls).toBe(1);
+  const trials = defined(result.cases[0]).trials;
+  expect(
+    trials.map((trial) => [trial.execution.status, trial.task.verdict]),
+  ).toEqual([
+    ["completed", "passed"],
+    ["cancelled", "not_assessed"],
+  ]);
+  const evidence = parseRunEvidence(
+    await readFile(result.evidencePath, "utf8"),
+  );
+  expect(evidence.trials).toHaveLength(2);
+  expect(
+    await readFile(
+      new URL(defined(defined(evidence.trials[0]).rawResult.path)),
+      "utf8",
+    ),
+  ).toBe("ready");
+  expect(defined(evidence.trials[1]).candidateDurationMs).toBeNull();
+  expect(defined(evidence.trials[1]).rawResult.path).toBeNull();
+});
+
+test("ordinary trusted fixture setup failure stays a failure before candidate admission", async () => {
+  const receiptRoot = await mkdtemp(
+    join(tmpdir(), "sevro-setup-failure-receipt-"),
+  );
+  roots.push(receiptRoot);
+  const receiptPath = join(receiptRoot, "failure.json");
+  const code = `require("node:fs").writeFileSync(process.argv[1], JSON.stringify({workspace: process.cwd()})); process.exit(7);`;
+  const options = await setupEvaluation([
+    process.execPath,
+    "-e",
+    code,
+    receiptPath,
+  ]);
+  let candidateCalls = 0;
+  options.host.run = () => {
+    candidateCalls++;
+    return Promise.resolve({ finalMessage: "ready", complete: true });
+  };
+  const pending = runEvaluation(options);
+  expect(pending).rejects.toThrow("fixture setup failed (7)");
+  await pending.catch(() => undefined);
+  const receipt = parseRecord(await readFile(receiptPath, "utf8"));
+  const workspace = string(receipt.workspace);
+  try {
+    expect(candidateCalls).toBe(0);
+    expect(options.signal).toBeUndefined();
+    expect(await readFile(join(workspace, "README.md"), "utf8")).toBe(
+      "baseline\n",
+    );
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
+async function refusePreparedEvaluation(
+  options: EvaluationOptions,
+  diagnostic: string,
+  cause?: string,
+): Promise<void> {
+  let candidateCalls = 0;
+  options.host.run = () => {
+    candidateCalls++;
+    return Promise.resolve({ finalMessage: "ready", complete: true });
+  };
+  const pending = runEvaluation(options);
+  expect(pending).rejects.toBeInstanceOf(EvaluationConfigurationError);
+  expect(pending).rejects.toThrow(diagnostic);
+  const failure: unknown = await pending.catch((error: unknown) => error);
+  if (cause !== undefined)
+    expect(failure).toHaveProperty("cause", new Error(cause));
+  expect(candidateCalls).toBe(0);
+  expect(existsSync(options.resultsRoot)).toBeFalse();
+}
+
+function setupResponses(fixtureSetup: Record<string, unknown>) {
+  return {
+    describe: {
+      extension: { id: "example.extension", version: "1.0.0" },
+      protocols: ["sevro.extension.v1"],
+      requiredCapabilities: ["sevro.fixture.setup"],
+      optionalCapabilities: [],
+      graders: ["example.extension"],
+      taskVerdictPolicies: [],
+    },
+    prepare: {
+      artifacts: [],
+      requestedInstrumentation: [],
+      fixtureSetup,
+      extensionData: {},
+    },
+  };
+}
+
+const refusedSetupConfigurations = [
+  {
+    name: "a relative setup executable",
+    setup: { command: ["relative-tool"] },
+    diagnostic: "invalid fixture setup command",
+  },
+  {
+    name: "a reserved setup HOME",
+    setup: {
+      command: [process.execPath],
+      environment: { HOME: "private-home" },
+    },
+    diagnostic: "invalid fixture setup environment",
+  },
+  {
+    name: "an unknown setup environment placeholder",
+    setup: {
+      command: [process.execPath],
+      environment: { VALUE: "{{unknown}}" },
+    },
+    diagnostic: "invalid fixture setup environment",
+  },
+  {
+    name: "negotiated setup for an inline fixture",
+    setup: { command: [process.execPath] },
+    diagnostic: "fixture setup requires a Git fixture",
+  },
+];
+
+for (const refused of refusedSetupConfigurations) {
+  test(`preparation refuses ${refused.name} before candidate admission or run allocation`, async () => {
+    const options = await extensionEvaluation(setupResponses(refused.setup), [
+      "sevro.fixture.setup",
+    ]);
+    await refusePreparedEvaluation(options, refused.diagnostic);
+  });
+}
+
+test("preparation refuses an incomplete advisory route before candidate admission or run allocation", async () => {
+  const options = await evaluation({ finalMessage: "ready", complete: true });
+  options.case.fixture = {
+    kind: "generated",
+    commits: [{ message: "Baseline", files: { "README.md": "baseline\n" } }],
+  };
+  options.advisoryHost = { ...options.host, id: "example.advisory", model: "" };
+  await refusePreparedEvaluation(
+    options,
+    "advisory host identity is incomplete",
+  );
+});
+
+test("preparation refuses a check from an unadvertised extension grader before candidate admission or run allocation", async () => {
+  const options = await extensionEvaluation({
+    resolve: {
+      cases: [
+        {
+          ...wireCase,
+          checks: [
+            { id: "other-check", grader: "example.other", configuration: {} },
+          ],
+        },
+      ],
+    },
+  });
+  await refusePreparedEvaluation(
+    options,
+    "case declares an unavailable extension grader",
+  );
+});
+
+test("preparation refuses an undeclared skill invocation placeholder before candidate admission or run allocation", async () => {
+  const options = await evaluation({ finalMessage: "ready", complete: true });
+  options.case.prompt = "Invoke {{sevro.skill_invocation}}.";
+  await refusePreparedEvaluation(
+    options,
+    "skill invocation placeholder requires a declaration",
+  );
+});
+
+function preparedArtifact(id: string, relativePath: string) {
+  const bytes = Buffer.from("prepared data\n");
+  return {
+    id,
+    relativePath,
+    contentBase64: bytes.toString("base64"),
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+  };
+}
+
+async function packagePreparationEvaluation(
+  preparation: Record<string, unknown>,
+  prompt = "Return ready.",
+): Promise<EvaluationOptions> {
+  const capabilities = [
+    "sevro.codex.plugin-marketplace",
+    "sevro.codex.explicit-invocation",
+    "sevro.claude.plugin-dirs",
+    "sevro.claude.explicit-invocation",
+  ];
+  const options = await evaluation({ finalMessage: "ready", complete: true });
+  const fixture = {
+    kind: "generated" as const,
+    commits: [{ message: "Baseline", files: { "README.md": "baseline\n" } }],
+  };
+  const sessionOptions = wireOptions({
+    describe: {
+      extension: { id: "example.extension", version: "1.0.0" },
+      protocols: ["sevro.extension.v1"],
+      requiredCapabilities: capabilities,
+      optionalCapabilities: [],
+      graders: ["example.extension"],
+      taskVerdictPolicies: [],
+    },
+    resolve: { cases: [{ ...wireCase, prompt, fixture }] },
+    prepare: {
+      artifacts: [],
+      requestedInstrumentation: [],
+      extensionData: {},
+      ...preparation,
+    },
+  });
+  sessionOptions.engineCapabilities = capabilities;
+  sessionOptions.hostCapabilities = capabilities;
+  options.host.hostCapabilities = capabilities;
+  const session = await openExtensionSession(sessionOptions);
+  const resolvedCase = defined(
+    (await session.resolve(pathToFileURL(options.projectRoot).href, {}))[0],
+  );
+  options.case = { ...resolvedCase, fixture };
+  options.extension = { session, resolvedCase };
+  return options;
+}
+
+const refusedPackagePreparations = [
+  {
+    name: "duplicate Claude package roots",
+    preparation: {
+      claudePluginDirs: { artifactRoots: ["plugins/a", "plugins/a"] },
+    },
+    diagnostic: "invalid Claude plugin directory declaration",
+    cause: "invalid plugin roots",
+  },
+  {
+    name: "nested Claude package roots",
+    preparation: {
+      claudePluginDirs: { artifactRoots: ["plugins/a", "plugins/a/nested"] },
+    },
+    diagnostic: "invalid Claude plugin directory declaration",
+    cause: "overlapping plugin roots",
+  },
+  {
+    name: "an invalid marketplace name",
+    preparation: {
+      codexMarketplace: {
+        artifactRoot: "package",
+        marketplaceName: "Bad Name",
+        pluginNames: ["probe"],
+      },
+    },
+    diagnostic: "invalid Codex marketplace declaration",
+    cause: "invalid marketplace or plugin name",
+  },
+  {
+    name: "duplicate marketplace plugin names",
+    preparation: {
+      codexMarketplace: {
+        artifactRoot: "package",
+        marketplaceName: "local",
+        pluginNames: ["probe", "probe"],
+      },
+    },
+    diagnostic: "invalid Codex marketplace declaration",
+    cause: "invalid marketplace or plugin name",
+  },
+];
+
+for (const refusal of refusedPackagePreparations) {
+  test(`package preparation refuses ${refusal.name} with contextual cause before candidate admission`, async () => {
+    const options = await packagePreparationEvaluation(refusal.preparation);
+    await refusePreparedEvaluation(options, refusal.diagnostic, refusal.cause);
+  });
+}
+
+const refusedPluginInvocations = [
+  {
+    name: "Codex invocation without its marketplace",
+    prompt: "Use {{sevro.skill_invocation}}.",
+    preparation: {
+      codexSkillInvocation: { pluginName: "probe", skillName: "probe" },
+    },
+    diagnostic: "invalid Codex skill invocation declaration",
+  },
+  {
+    name: "Codex invocation naming an unselected plugin",
+    prompt: "Use {{sevro.skill_invocation}}.",
+    preparation: {
+      codexMarketplace: {
+        artifactRoot: "package",
+        marketplaceName: "local",
+        pluginNames: ["probe"],
+      },
+      artifacts: [
+        {
+          ...preparedArtifact(
+            "example.manifest",
+            "package/.claude-plugin/marketplace.json",
+          ),
+          gitExclude: true,
+        },
+      ],
+      codexSkillInvocation: { pluginName: "other", skillName: "probe" },
+    },
+    diagnostic: "invalid Codex skill invocation declaration",
+  },
+  {
+    name: "Claude invocation using a Codex placeholder",
+    prompt: "Use {{sevro.codex.skill_invocation}}.",
+    preparation: {
+      claudePluginDirs: { artifactRoots: ["package"] },
+      artifacts: [
+        {
+          ...preparedArtifact(
+            "example.manifest",
+            "package/.claude-plugin/plugin.json",
+          ),
+          gitExclude: true,
+        },
+      ],
+      claudeSkillInvocation: { pluginName: "probe", skillName: "probe" },
+    },
+    diagnostic: "invalid Claude skill invocation declaration",
+  },
+  {
+    name: "Claude invocation without the declared packaged skill",
+    prompt: "Use {{sevro.skill_invocation}}.",
+    preparation: {
+      claudePluginDirs: { artifactRoots: ["package"] },
+      artifacts: [
+        {
+          ...preparedArtifact(
+            "example.manifest",
+            "package/.claude-plugin/plugin.json",
+          ),
+          gitExclude: true,
+        },
+      ],
+      claudeSkillInvocation: { pluginName: "probe", skillName: "missing" },
+    },
+    diagnostic: "invalid Claude skill invocation declaration",
+  },
+];
+
+for (const refusal of refusedPluginInvocations) {
+  test(`package preparation refuses ${refusal.name} before candidate admission`, async () => {
+    const options = await packagePreparationEvaluation(
+      refusal.preparation,
+      refusal.prompt,
+    );
+    await refusePreparedEvaluation(options, refusal.diagnostic);
+  });
+}
+
+test("ownership initialization failure removes separately allocated run and state directories before candidate admission", async () => {
+  const options = await evaluation({ finalMessage: "ready", complete: true });
+  const stateRoot = join(options.projectRoot, "state");
+  await mkdir(stateRoot);
+  await writeFile(join(stateRoot, "owners"), "preserved blocking file\n");
+  options.runStateRoot = stateRoot;
+  let candidateCalls = 0;
+  options.host.run = () => {
+    candidateCalls++;
+    return Promise.resolve({ finalMessage: "ready", complete: true });
+  };
+  const pending = runEvaluation(options);
+  expect(pending).rejects.toThrow();
+  await pending.catch(() => undefined);
+  expect(candidateCalls).toBe(0);
+  expect(await readdir(options.resultsRoot)).toEqual([]);
+  expect(await readdir(stateRoot)).toEqual(["locks", "owners"]);
+  expect(await readFile(join(stateRoot, "owners"), "utf8")).toBe(
+    "preserved blocking file\n",
+  );
+});
+
+test("preparation refuses an artifact using the semantic grader evidence ID before candidate admission or run allocation", async () => {
+  const options = await extensionEvaluation({
+    resolve: {
+      cases: [
+        {
+          ...wireCase,
+          checks: [
+            {
+              id: "meaning",
+              grader: "sevro.semantic",
+              configuration: {
+                proposition: "The response confirms readiness.",
+              },
+            },
+          ],
+        },
+      ],
+    },
+    prepare: {
+      artifacts: [preparedArtifact("sevro.semantic.verdicts", "data.txt")],
+      requestedInstrumentation: [],
+      extensionData: {},
+    },
+  });
+  requireSemantic(options, { finalMessage: "ready", complete: true });
+  await refusePreparedEvaluation(
+    options,
+    "preparation artifact uses a reserved semantic evidence ID",
+  );
+});
+
+test("preparation refuses an artifact targeting Git metadata before candidate admission or run allocation", async () => {
+  const options = await setupEvaluation([process.execPath], {
+    artifacts: [preparedArtifact("example.metadata", ".git/config")],
+  });
+  await refusePreparedEvaluation(
+    options,
+    "preparation artifacts cannot modify repository metadata",
+  );
+});
+
+for (const location of ["host configuration", "fixture contents"] as const) {
+  test(`preparation refuses unpaired Unicode in ${location} with identity context before candidate admission`, async () => {
+    const options = await evaluation({ finalMessage: "ready", complete: true });
+    if (location === "host configuration")
+      options.host.configuration = { label: "\udc00" };
+    else options.case.fixture = { files: { "README.md": "\udc00" } };
+    await refusePreparedEvaluation(
+      options,
+      "invalid evaluation identity inputs",
+    );
+  });
+}
+
+test("extension grading can assess complete host observations when the optional final message is absent", async () => {
+  const options = await extensionEvaluation();
+  options.host.run = () =>
+    Promise.resolve({
+      finalMessage: null,
+      complete: true,
+      observations: [observation("example.evidence")],
+    });
+  const { result } = await runEvaluation(options);
+  expect(result.execution.status).toBe("completed");
+  expect(result.grading.status).toBe("completed");
+  expect(result.task.verdict).toBe("passed");
+  expect(result.exitCode).toBe(0);
+  const evidence = parseRunEvidence(
+    await readFile(result.evidencePath, "utf8"),
+  );
+  expect(defined(evidence.trials[0]).rawResult.path).toBeNull();
+  expect(defined(evidence.trials[0]).observationCompleteness).toBe(
+    "unavailable",
+  );
+});
+
+test("extension grading retains a failed check without inventing detail or evidence", async () => {
+  const options = await extensionEvaluation({
+    evaluate: {
+      checks: [
+        {
+          id: "example.extension.ready",
+          status: "failed",
+          detail: "",
+          evidenceRefs: [],
+        },
+      ],
+      metrics: [],
+    },
+  });
+  const { result } = await runEvaluation(options);
+  expect(result.execution.status).toBe("completed");
+  expect(result.grading.status).toBe("completed");
+  expect(result.task.verdict).toBe("failed");
+  expect(result.exitCode).toBe(1);
+  expect(defined(defined(result.cases[0]).trials[0]).checks).toEqual([
+    {
+      id: "example.extension.ready",
+      grader: "example.extension",
+      status: "failed",
+      evidenceRefs: [],
+    },
+  ]);
+});
+
+async function semanticPairEvaluation(
+  entries: unknown[],
+): Promise<EvaluationOptions> {
+  const options = await evaluation({ finalMessage: "ready", complete: true });
+  options.case.checks = [
+    {
+      id: "first",
+      grader: "sevro.semantic",
+      configuration: { proposition: "The first criterion is met." },
+    },
+    {
+      id: "second",
+      grader: "sevro.semantic",
+      configuration: { proposition: "The second criterion is met." },
+    },
+  ];
+  options.semanticHost = {
+    id: "example.semantic",
+    model: "fixture",
+    effort: "none",
+    run: () =>
+      Promise.resolve({
+        finalMessage: JSON.stringify({ checks: entries }),
+        complete: true,
+      }),
+  };
+  return options;
+}
+
+async function pairedExtensionEvaluation(
+  entries: unknown[],
+): Promise<EvaluationOptions> {
+  return extensionEvaluation({
+    resolve: {
+      cases: [
+        {
+          ...wireCase,
+          checks: [
+            {
+              id: "example.extension.first",
+              grader: "example.extension",
+              configuration: {},
+            },
+            {
+              id: "example.extension.second",
+              grader: "example.extension",
+              configuration: {},
+            },
+          ],
+        },
+      ],
+    },
+    evaluate: { checks: entries, metrics: [] },
+  });
+}
+
+test("semantic grading associates two reversed verdicts with their declared criteria", async () => {
+  const entries = [
+    { id: "second", verdict: "fail", reason: "Second criterion unmet" },
+    { id: "first", verdict: "pass", reason: "First criterion met" },
+  ];
+  const options = await semanticPairEvaluation(entries);
+  const { result } = await runEvaluation(options);
+  expect(result.execution.status).toBe("completed");
+  expect(result.grading.status).toBe("completed");
+  expect(result.task.verdict).toBe("failed");
+  expect(result.exitCode).toBe(1);
+  expect(
+    defined(defined(result.cases[0]).trials[0]).checks.map(
+      ({ id, status, detail }) => ({ id, status, detail }),
+    ),
+  ).toEqual([
+    { id: "first", status: "passed", detail: "First criterion met" },
+    { id: "second", status: "failed", detail: "Second criterion unmet" },
+  ]);
+  const evidence = parseRunEvidence(
+    await readFile(result.evidencePath, "utf8"),
+  );
+  const artifact = defined(
+    defined(evidence.trials[0]).artifactRefs.find(
+      (item) => item.id === "sevro.semantic.verdicts",
+    ),
+  );
+  expect(parseRecord(await readFile(new URL(artifact.path), "utf8"))).toEqual({
+    checks: entries,
+  });
+});
+
+test("extension grading associates two reversed results with their declared criteria", async () => {
+  const options = await pairedExtensionEvaluation([
+    {
+      id: "example.extension.second",
+      status: "failed",
+      detail: "Second criterion unmet",
+      evidenceRefs: ["example.evidence"],
+    },
+    {
+      id: "example.extension.first",
+      status: "passed",
+      detail: "First criterion met",
+      evidenceRefs: ["example.evidence"],
+    },
+  ]);
+  const { result } = await runEvaluation(options);
+  expect(result.execution.status).toBe("completed");
+  expect(result.grading.status).toBe("completed");
+  expect(result.task.verdict).toBe("failed");
+  expect(result.exitCode).toBe(1);
+  expect(
+    defined(defined(result.cases[0]).trials[0]).checks.map(
+      ({ id, status, detail }) => ({ id, status, detail }),
+    ),
+  ).toEqual([
+    {
+      id: "example.extension.first",
+      status: "passed",
+      detail: "First criterion met",
+    },
+    {
+      id: "example.extension.second",
+      status: "failed",
+      detail: "Second criterion unmet",
+    },
+  ]);
+});
+
+for (const id of ["unknown", "first"] as const) {
+  test(`semantic grading refuses a valid prefix followed by ${id === "first" ? "a duplicate" : "an unknown"} ID without accepting the prefix`, async () => {
+    const entries = [
+      { id: "first", verdict: "pass", reason: "First criterion met" },
+      { id, verdict: "fail", reason: "Later invalid identifier" },
+    ];
+    const options = await semanticPairEvaluation(entries);
+    const { result } = await runEvaluation(options);
+    expect(result.execution.status).toBe("completed");
+    expect(result.grading.status).toBe("error");
+    expect(result.task.verdict).toBe("not_assessed");
+    expect(result.exitCode).toBe(3);
+    expect(defined(defined(result.cases[0]).trials[0]).checks).toEqual([]);
+    const evidence = parseRunEvidence(
+      await readFile(result.evidencePath, "utf8"),
+    );
+    expect(evidence.diagnostic).toEqual({
+      code: "sevro.grader.error",
+      message: "semantic grading did not complete",
+    });
+    expect(
+      defined(evidence.trials[0]).observations.filter(
+        (item) =>
+          item.source === "example.semantic" &&
+          Object.hasOwn(item.data, "verdict"),
+      ),
+    ).toEqual([]);
+    const artifact = defined(
+      defined(evidence.trials[0]).artifactRefs.find(
+        (item) => item.id === "sevro.semantic.verdicts",
+      ),
+    );
+    expect(parseRecord(await readFile(new URL(artifact.path), "utf8"))).toEqual(
+      { checks: entries },
+    );
+  });
+}
+
+for (const suffix of ["unknown", "first"] as const) {
+  test(`extension grading refuses a valid prefix followed by ${suffix === "first" ? "a duplicate" : "an undeclared"} ID without accepting the prefix`, async () => {
+    const options = await pairedExtensionEvaluation([
+      {
+        id: "example.extension.first",
+        status: "passed",
+        evidenceRefs: ["example.evidence"],
+      },
+      { id: `example.extension.${suffix}`, status: "failed", evidenceRefs: [] },
+    ]);
+    const { result } = await runEvaluation(options);
+    expect(result.execution.status).toBe("completed");
+    expect(result.grading.status).toBe("error");
+    expect(result.task.verdict).toBe("not_assessed");
+    expect(result.exitCode).toBe(3);
+    expect(defined(defined(result.cases[0]).trials[0]).checks).toEqual([]);
+    const evidence = parseRunEvidence(
+      await readFile(result.evidencePath, "utf8"),
+    );
+    expect(evidence.diagnostic).toEqual({
+      code: "sevro.grader.error",
+      message: "extension grading did not complete",
+    });
+    expect(defined(evidence.trials[0]).domainOutcomes).toEqual([]);
+  });
 }
 
 async function instrumentedEvaluation(): Promise<EvaluationOptions> {
@@ -179,6 +1120,12 @@ test("refuses applied instrumentation changed by an adapter from the prepared re
   expect(result.execution.status).toBe("failed");
   expect(result.exitCode).toBe(2);
   expect(result.task.verdict).toBe("not_assessed");
+  const evidence = parseRunEvidence(
+    await readFile(result.evidencePath, "utf8"),
+  );
+  expect(evidence.condition.requestedInstrumentation).toEqual([
+    { id: "example.instrumentation", configuration: { enabled: true } },
+  ]);
 });
 
 test("refuses a selected case that diverges from the extension-resolved declaration", async () => {

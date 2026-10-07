@@ -1,12 +1,21 @@
 import { expectUnknown } from "./fixtures/assertions";
 import { defined } from "./fixtures/assertions";
 import { afterEach, test, expect } from "bun:test";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   codexNativeCallObservation,
   codexNativeSessionLastOrdinal,
+  codexNativeSkillReadRecovery,
 } from "../src/hosts/codex-native-calls";
 const roots: string[] = [];
 afterEach(async () => {
@@ -880,4 +889,267 @@ test("native session traversal refuses links and oversized content", async () =>
   expect(await codexNativeCallObservation(root, "thread-1")).toMatchObject({
     completeness: "partial",
   });
+});
+
+test.each([null, 42, "[]", "null"])(
+  "native malformed serialized spawn arguments cannot establish acceptance: %s",
+  async (argumentsValue) => {
+    const root = await home();
+    await session(
+      root,
+      lines([{ ...spawn, arguments: argumentsValue }, started, result]),
+    );
+    const observed = await codexNativeCallObservation(root, "thread-1");
+    expect(observed.completeness).toBe("complete");
+    expect(observed.data.acceptedSpawns).toEqual([]);
+    expect(observed.data.toolCalls).toMatchObject([{ name: "spawn_agent" }]);
+  },
+);
+
+test("accepted spawn identity survives absent optional requested route fields", async () => {
+  const root = await home();
+  await session(root, lines([{ ...spawn, arguments: "{}" }, started, result]));
+  const observed = await codexNativeCallObservation(root, "thread-1");
+  expect(observed.data.acceptedSpawns).toHaveLength(1);
+  expect(defined(observed.data.acceptedSpawns[0])).toMatchObject({
+    agentRef: "/root/reviewer",
+    threadId: "thread-child",
+  });
+  expect(defined(observed.data.acceptedSpawns[0]).taskName).toBeUndefined();
+});
+
+test.each([
+  { name: "nonarray", content: null },
+  { name: "empty blocks", content: [] },
+  { name: "nonstring text", content: [{ type: "Text", text: 42 }] },
+  {
+    name: "nontext block",
+    content: [{ type: "Image", text: "private answer" }],
+  },
+])(
+  "child completion cannot bind malformed final content: %j",
+  async ({ content }) => {
+    const root = await home();
+    await session(root, lines([spawn, started, result]));
+    await session(
+      root,
+      lines([
+        {
+          type: "item_completed",
+          turn_id: "turn-child",
+          item: { type: "AgentMessage", phase: "final_answer", content },
+        },
+        {
+          type: "task_complete",
+          turn_id: "turn-child",
+          last_agent_message: "private answer",
+        },
+      ]),
+      "thread-child",
+    );
+    const observed = await codexNativeCallObservation(root, "thread-1");
+    expect(defined(observed.data.childSessions[0])).toMatchObject({
+      status: "available",
+      resultStatus: "unavailable",
+    });
+    expect(JSON.stringify(observed)).not.toContain("private answer");
+  },
+);
+
+test.each(["thread-1", "thread-child"])(
+  "nested spawn cannot use its root or parent session as reader evidence: %s",
+  async (threadId) => {
+    const root = await home();
+    await session(root, lines([spawn, started, result]));
+    await session(
+      root,
+      lines([
+        { ...spawn, call_id: "nested", arguments: "{}" },
+        {
+          ...started,
+          item: {
+            ...started.item,
+            id: "nested",
+            agent_path: "/root/reviewer/reader",
+            agent_thread_id: threadId,
+          },
+        },
+        {
+          ...result,
+          call_id: "nested",
+          output: JSON.stringify({ task_name: "/root/reviewer/reader" }),
+        },
+      ]),
+      "thread-child",
+    );
+    const observed = await codexNativeCallObservation(root, "thread-1");
+    expect(defined(observed.data.childSessions[0]).nestedSpawns).toMatchObject([
+      {
+        status: "accepted",
+        sessionStatus: "partial",
+        readerResultStatus: "unavailable",
+      },
+    ]);
+  },
+);
+
+test("a spawn pointing back to the root cannot establish an independent child session", async () => {
+  const root = await home();
+  await session(
+    root,
+    lines([
+      spawn,
+      { ...started, item: { ...started.item, agent_thread_id: "thread-1" } },
+      result,
+    ]),
+  );
+  expect(
+    (await codexNativeCallObservation(root, "thread-1")).data.childSessions,
+  ).toEqual([{ threadId: "thread-1", status: "partial" }]);
+});
+
+test("a nested invocation with malformed arguments records an unaccepted reader attempt", async () => {
+  const root = await home();
+  await session(root, lines([spawn, started, result]));
+  await session(
+    root,
+    lines([{ ...spawn, call_id: "nested", arguments: "[]" }]),
+    "thread-child",
+  );
+  const observed = await codexNativeCallObservation(root, "thread-1");
+  expect(defined(observed.data.childSessions[0]).nestedSpawns).toEqual([
+    {
+      requestedOrdinal: 0,
+      status: "unaccepted",
+      sessionStatus: "unavailable",
+      readerResultStatus: "unavailable",
+    },
+  ]);
+});
+
+test("invalid UTF-8 and oversized child bytes preserve partial evidence without a completion", async () => {
+  const root = await home();
+  await session(root, lines([spawn, started, result]));
+  const path = join(root, "sessions/2026/09/27/rollout-thread-child.jsonl");
+  for (const bytes of [
+    new Uint8Array([255, 254]),
+    Buffer.alloc(8 * 1024 * 1024 + 1, 32),
+  ]) {
+    await writeFile(path, bytes);
+    expect(
+      (await codexNativeCallObservation(root, "thread-1")).data.childSessions,
+    ).toEqual([{ threadId: "thread-child", status: "partial" }]);
+  }
+  await session(root, " ".repeat(8 * 1024 * 1024 + 1));
+  expect(await codexNativeSessionLastOrdinal(root, "thread-1")).toBeNull();
+  await writeFile(
+    join(root, "sessions/2026/09/27/rollout-thread-1.jsonl"),
+    new Uint8Array([255, 254]),
+  );
+  expect(
+    (await codexNativeCallObservation(root, "thread-1")).completeness,
+  ).toBe("partial");
+  expect(await codexNativeSessionLastOrdinal(root, "thread-1")).toBeNull();
+});
+
+function recoveryPayloads(command: unknown): Record<string, unknown>[] {
+  return [
+    {
+      type: "custom_tool_call",
+      name: "exec",
+      call_id: "read-call",
+      input:
+        'const result = await tools.exec_command({cmd:"cat .agents/skills/example/SKILL.md"}); text(result.output);',
+    },
+    {
+      type: "custom_tool_call_output",
+      call_id: "read-call",
+      output: {
+        session_id: 101,
+        chunk_id: "part",
+        wall_time_seconds: 0,
+        output: "private recovered bytes",
+      },
+    },
+    {
+      type: "item_completed",
+      item: {
+        id: "read",
+        type: "CommandExecution",
+        source: "unified_exec_startup",
+        process_id: "101",
+        command,
+        status: "completed",
+        exit_code: 0,
+      },
+    },
+    { type: "item_completed", item: { type: "AgentMessage" } },
+  ];
+}
+
+test("native recovery requires one validated shell command even with process-bound yielded output", async () => {
+  const root = await home();
+  await session(
+    root,
+    lines(
+      recoveryPayloads([
+        "/bin/sh",
+        "-c",
+        "cat .agents/skills/example/SKILL.md",
+      ]),
+    ),
+  );
+  const recovered = await codexNativeSkillReadRecovery(root, "thread-1");
+  expect(recovered.get("read")).toEqual({
+    command: "cat .agents/skills/example/SKILL.md",
+    output: "private recovered bytes",
+  });
+  for (const command of [
+    "cat .agents/skills/example/SKILL.md",
+    ["cat", "SKILL.md"],
+    ["/bin/sh", "-x", "cat SKILL.md"],
+    ["/bin/sh", "-c", 42],
+  ]) {
+    await session(root, lines(recoveryPayloads(command)));
+    expect((await codexNativeSkillReadRecovery(root, "thread-1")).size).toBe(0);
+  }
+  await session(root, "{broken\n");
+  expect((await codexNativeSkillReadRecovery(root, "thread-1")).size).toBe(0);
+  await session(root, " ".repeat(8 * 1024 * 1024 + 1));
+  expect((await codexNativeSkillReadRecovery(root, "thread-1")).size).toBe(0);
+});
+
+test("an unavailable skill context cannot make valid native calls complete", async () => {
+  const root = await home();
+  await session(root, lines([spawn, started, result]));
+  expect(
+    (
+      await codexNativeCallObservation(root, "thread-1", {
+        workspace: join(root, "missing-workspace"),
+        installedPluginRoots: [],
+      })
+    ).completeness,
+  ).toBe("partial");
+});
+
+test("an unreadable owned native session cannot supply recovered command output", async () => {
+  const root = await home();
+  await session(
+    root,
+    lines(
+      recoveryPayloads([
+        "/bin/sh",
+        "-c",
+        "cat .agents/skills/example/SKILL.md",
+      ]),
+    ),
+  );
+  const path = join(root, "sessions/2026/09/27/rollout-thread-1.jsonl");
+  await chmod(path, 0);
+  try {
+    expect(readFile(path)).rejects.toMatchObject({ code: "EACCES" });
+    expect((await codexNativeSkillReadRecovery(root, "thread-1")).size).toBe(0);
+  } finally {
+    await chmod(path, 0o600);
+  }
 });

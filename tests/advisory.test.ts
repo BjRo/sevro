@@ -19,6 +19,112 @@ const valid: AdvisoryAssessment = {
   summary: "The change meets the task.",
 };
 
+test.each([
+  {
+    label: "null root",
+    value: null,
+    diagnostic: "advisory assessment must be an object",
+  },
+  {
+    label: "array root",
+    value: [],
+    diagnostic: "advisory assessment must be an object",
+  },
+  {
+    label: "null dimensions",
+    value: { ...valid, dimensions: null },
+    diagnostic: "advisory assessment must be an object",
+  },
+  {
+    label: "array dimensions",
+    value: { ...valid, dimensions: [] },
+    diagnostic: "advisory assessment must be an object",
+  },
+  {
+    label: "unknown verdict",
+    value: { ...valid, verdict: "unavailable" },
+    diagnostic: "advisory verdict must be pass or fail",
+  },
+  {
+    label: "string score",
+    value: { ...valid, overallScore: "4" },
+    diagnostic: "advisory scores must be integers from 1 through 5",
+  },
+  {
+    label: "fractional score",
+    value: { ...valid, overallScore: 3.5 },
+    diagnostic: "advisory scores must be integers from 1 through 5",
+  },
+  {
+    label: "zero score",
+    value: { ...valid, overallScore: 0 },
+    diagnostic: "advisory scores must be integers from 1 through 5",
+  },
+  {
+    label: "score above five",
+    value: { ...valid, overallScore: 6 },
+    diagnostic: "advisory scores must be integers from 1 through 5",
+  },
+  {
+    label: "invalid dimension score",
+    value: {
+      ...valid,
+      dimensions: { ...valid.dimensions, correctness: false },
+    },
+    diagnostic: "advisory scores must be integers from 1 through 5",
+  },
+  {
+    label: "nonarray strengths",
+    value: { ...valid, strengths: "covered" },
+    diagnostic: "advisory assessment list is invalid",
+  },
+  {
+    label: "nonarray weaknesses",
+    value: { ...valid, weaknesses: {} },
+    diagnostic: "advisory assessment list is invalid",
+  },
+  {
+    label: "33 strengths",
+    value: { ...valid, strengths: Array.from({ length: 33 }, () => "covered") },
+    diagnostic: "advisory assessment list is invalid",
+  },
+  {
+    label: "33 weaknesses",
+    value: {
+      ...valid,
+      weaknesses: Array.from({ length: 33 }, () => "needs work"),
+    },
+    diagnostic: "advisory assessment list is invalid",
+  },
+])("advisory external JSON refuses $label", ({ value, diagnostic }) => {
+  expect(() => parseAdvisoryAssessment(JSON.stringify(value))).toThrow(
+    diagnostic,
+  );
+});
+
+test("advisory assessment accepts the exact list bound and retains a valid low-score failure", () => {
+  const assessment: AdvisoryAssessment = {
+    ...valid,
+    verdict: "fail",
+    overallScore: 1,
+    strengths: Array.from({ length: 32 }, () => "bounded strength"),
+    weaknesses: Array.from({ length: 32 }, () => "bounded weakness"),
+  };
+  expect(parseAdvisoryAssessment(JSON.stringify(assessment))).toEqual(
+    assessment,
+  );
+});
+
+test("advisory prompt records omitted check detail as unknown without inventing evidence", () => {
+  const prompt = advisoryPrompt("Review the change", [
+    { id: "missing", grader: "sevro.regex", status: "unavailable" },
+  ]);
+  expect(prompt).toContain(
+    '[{"id":"missing","status":"unavailable","detail":null}]',
+  );
+  expect(prompt).not.toContain('"detail":""');
+});
+
 test("advisory assessment accepts a structured independent review", () => {
   expect(parseAdvisoryAssessment(JSON.stringify(valid))).toEqual(valid);
   expect(

@@ -94,8 +94,14 @@ export function prepareInstrumentation(
       requestedCapability(item, supported, negotiated),
       condition,
     );
-  canonicalJson(requested);
-  return requested;
+  return snapshotInstrumentation(requested);
+}
+
+/** Own the canonical JSON parameters independently of adapter state. */
+export function snapshotInstrumentation(
+  requested: InstrumentationRequest[],
+): InstrumentationRequest[] {
+  return JSON.parse(canonicalJson(requested)) as InstrumentationRequest[];
 }
 
 /** A host must report exactly the instrumentation it applied. */
@@ -115,7 +121,7 @@ export function verifyAppliedInstrumentation(
     throw new InstrumentationEvidenceError(
       "host did not confirm the requested condition",
     );
-  return actual;
+  return snapshotInstrumentation(actual);
 }
 
 function requestArray(value: unknown): value is InstrumentationRequest[] {

@@ -470,10 +470,6 @@ function requireGoalObjective(objective: unknown): void {
     throw new Error("Invalid native goal readback");
 }
 
-export function codexAppServerArgv(): string[] {
-  return ["codex", "app-server", "--stdio"];
-}
-
 export interface AppServerRunOptions {
   request: HarnessRunRequest;
   argv: string[];

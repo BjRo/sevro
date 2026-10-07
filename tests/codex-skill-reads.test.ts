@@ -4,7 +4,10 @@ import { afterEach, test, expect } from "bun:test";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { codexSkillReadObservation } from "../src/hosts/codex-skill-reads";
+import {
+  codexNativeReadDiagnostic,
+  codexSkillReadObservation,
+} from "../src/hosts/codex-skill-reads";
 const roots: string[] = [];
 const body =
   "---\nname: example\ndescription: Example skill\n---\n\nDo the task.\n";
@@ -189,4 +192,192 @@ test("installed plugin reads count only from receipt-bound roots", async () => {
       observedSkills: ["example"],
     },
   });
+});
+
+test.each([
+  ["missing command", { command: null }],
+  [
+    "array command in exec JSON",
+    { command: ["cat", ".agents/skills/example/SKILL.md"] },
+  ],
+  ["failed command", { status: "failed" }],
+  ["unmeasured exit", { exit_code: null }],
+] as const)(
+  "Codex stream read remains partial for %s",
+  async (_name, changes) => {
+    const workspace = await fixture();
+    const event = read("cat .agents/skills/example/SKILL.md");
+    const observed = await codexSkillReadObservation(
+      stream([{ ...event, item: { ...event.item, ...changes } }]),
+      workspace,
+    );
+    expect(observed).toMatchObject({
+      completeness: "partial",
+      data: { primarySkill: null, observedSkills: [] },
+    });
+    expect(JSON.stringify(observed)).not.toContain(body);
+  },
+);
+
+test("Codex stream distinguishes unrelated commands and updates from completed mounted reads", async () => {
+  const workspace = await fixture();
+  const unrelated = read("printf ready", "ready");
+  const update = {
+    ...read("cat .agents/skills/example/SKILL.md"),
+    type: "item.updated",
+  };
+  const started = {
+    ...unrelated,
+    type: "item.started",
+    item: { ...unrelated.item, id: null },
+  };
+  expect(
+    await codexSkillReadObservation(
+      stream([unrelated, update, started]),
+      workspace,
+    ),
+  ).toMatchObject({
+    completeness: "complete",
+    data: { primarySkill: null, observedSkills: [] },
+  });
+  const completed = read("cat .agents/skills/example/SKILL.md");
+  const pending = { ...completed, type: "item.started" };
+  expect(
+    await codexSkillReadObservation(stream([pending, completed]), workspace),
+  ).toMatchObject({
+    completeness: "complete",
+    data: { primarySkill: "example" },
+  });
+  const unboundStart = { ...pending, item: { ...pending.item, id: null } };
+  expect(
+    (await codexSkillReadObservation(stream([unboundStart]), workspace))
+      .completeness,
+  ).toBe("partial");
+  const withoutId = { ...completed, item: { ...completed.item, id: null } };
+  expect(
+    (await codexSkillReadObservation(stream([withoutId]), workspace))
+      .completeness,
+  ).toBe("complete");
+});
+
+test.each([{ value: null }, { value: [] }])(
+  "Codex stream refuses nonobject serialized events: %s",
+  async ({ value }) => {
+    const workspace = await fixture();
+    expect(
+      codexSkillReadObservation(JSON.stringify(value), workspace),
+    ).rejects.toThrow("Invalid Codex skill-read event");
+  },
+);
+
+test("native argv and receipt-bound plugin roots verify exact file bytes", async () => {
+  const workspace = await fixture();
+  const installed = await mkdtemp(join(tmpdir(), "sevro-native-plugin-"));
+  roots.push(installed);
+  const directory = join(installed, "skills", "example");
+  await mkdir(directory, { recursive: true });
+  const path = join(directory, "SKILL.md");
+  await writeFile(path, body);
+  const entries = [
+    {
+      ordinal: 0,
+      payload: {
+        type: "item_completed",
+        item: {
+          type: "CommandExecution",
+          command: ["printf", "ready"],
+          status: "completed",
+          exit_code: 0,
+          aggregated_output: "ready",
+        },
+      },
+    },
+    {
+      ordinal: 1,
+      payload: {
+        type: "item_completed",
+        item: {
+          type: "CommandExecution",
+          command: ["cat", path],
+          status: "completed",
+          exit_code: 0,
+          aggregated_output: body,
+        },
+      },
+    },
+  ];
+  expect(
+    (await codexNativeReadDiagnostic(entries, workspace)).completeness,
+  ).toBe("partial");
+  const observed = await codexNativeReadDiagnostic(entries, workspace, [
+    installed,
+  ]);
+  expect(observed).toMatchObject({
+    completeness: "complete",
+    commandExecutions: 2,
+    readAttempts: 1,
+    completedReads: [{ skill: "example", ordinal: 1 }],
+  });
+  expect(JSON.stringify(observed)).not.toContain(body);
+  expect(JSON.stringify(observed)).not.toContain(path);
+});
+
+test("native sed receipts accumulate one whole mounted read across pages", async () => {
+  const workspace = await fixture();
+  const bodyLines = defined(body.match(/[^\n]*\n|[^\n]+$/g));
+  const entries = [
+    {
+      ordinal: 0,
+      payload: {
+        type: "item_completed",
+        item: {
+          type: "CommandExecution",
+          command: [
+            "/bin/sh",
+            "-c",
+            "sed -n '1,3p' .agents/skills/example/SKILL.md",
+          ],
+          status: "completed",
+          exit_code: 0,
+          aggregated_output: bodyLines.slice(0, 3).join(""),
+        },
+      },
+    },
+    {
+      ordinal: 1,
+      payload: {
+        type: "item_completed",
+        item: {
+          type: "CommandExecution",
+          command: [
+            "/bin/sh",
+            "-c",
+            "sed -n '4,20p' .agents/skills/example/SKILL.md",
+          ],
+          status: "completed",
+          exit_code: 0,
+          aggregated_output: bodyLines.slice(3).join(""),
+        },
+      },
+    },
+  ];
+  expect(
+    (await codexNativeReadDiagnostic(entries.slice(0, 1), workspace))
+      .completeness,
+  ).toBe("partial");
+  expect(await codexNativeReadDiagnostic(entries, workspace)).toMatchObject({
+    completeness: "complete",
+    readAttempts: 2,
+    completedReads: [{ skill: "example", ordinal: 1 }],
+  });
+});
+
+test("a directory at a mounted skill path cannot establish a file read", async () => {
+  const workspace = await fixture();
+  const path = join(workspace, ".agents/skills/example/SKILL.md");
+  await rm(path);
+  await mkdir(path);
+  expect(
+    await codexSkillReadObservation(stream([read(`cat ${path}`)]), workspace),
+  ).toMatchObject({ completeness: "partial", data: { observedSkills: [] } });
 });

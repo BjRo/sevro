@@ -12,7 +12,13 @@ import {
   materializeGeneratedFixture,
   prepareGeneratedFixture,
 } from "../src/generated-fixture";
-import { runEvaluation, type HostAdapter } from "../src/engine";
+import {
+  runEvaluation,
+  type EvaluationOptions,
+  type HostAdapter,
+} from "../src/engine";
+import { fixtureGit } from "./quality-fixtures/fixture-preparation-tools";
+import { gitHeadRevision, gitHeadState } from "../src/graders/git-head";
 const roots: string[] = [];
 const digest = "a".repeat(64);
 afterEach(async () => {
@@ -43,6 +49,151 @@ const fixture = {
   files: { "README.md": "staged\n", "notes.txt": "untracked\n" },
   staged: ["README.md"],
 };
+
+test("Git HEAD capture with a live cancellation signal retains the real revision and ancestry", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "sevro-git-head-signal-"));
+  roots.push(workspace);
+  await materializeGeneratedFixture(
+    prepareGeneratedFixture({ kind: "generated", commits: fixture.commits }),
+    workspace,
+  );
+  const revision = await git(workspace, "rev-parse", "HEAD");
+  const controller = new AbortController();
+  expect(await gitHeadRevision(workspace, controller.signal)).toBe(revision);
+  expect(await gitHeadState(workspace, revision, controller.signal)).toEqual({
+    currentRevision: revision,
+    baseAncestor: true,
+  });
+  expect(controller.signal.aborted).toBe(false);
+  expect(await git(workspace, "status", "--porcelain=v1")).toBe("");
+});
+
+test.each(["before capture", "during metadata preflight"])(
+  "Git HEAD capture honours cancellation %s without changing fixture history",
+  async (timing) => {
+    const workspace = await mkdtemp(join(tmpdir(), "sevro-git-head-cancel-"));
+    roots.push(workspace);
+    await materializeGeneratedFixture(
+      prepareGeneratedFixture({ kind: "generated", commits: fixture.commits }),
+      workspace,
+    );
+    const revision = await git(workspace, "rev-parse", "HEAD");
+    const controller = new AbortController();
+    if (timing === "before capture") controller.abort();
+    const pending = gitHeadRevision(workspace, controller.signal);
+    if (timing === "during metadata preflight") controller.abort();
+    expect(pending).rejects.toThrow("Git HEAD check cancelled");
+    await pending.catch(() => undefined);
+    expect(await git(workspace, "rev-parse", "HEAD")).toBe(revision);
+    expect(await git(workspace, "status", "--porcelain=v1")).toBe("");
+  },
+);
+
+test.each(["HEAD", "", "a".repeat(39), "g".repeat(40)])(
+  "Git HEAD state refuses nonimmutable base revision %j before reading the fixture",
+  (revision) => {
+    expect(gitHeadState("/does/not/exist/fixture", revision)).rejects.toThrow(
+      "invalid base revision",
+    );
+  },
+);
+
+function gitFailureOptions(
+  projectRoot: string,
+  host: HostAdapter,
+): EvaluationOptions {
+  return {
+    projectRoot,
+    resultsRoot: join(projectRoot, "results"),
+    case: {
+      id: "git-state-failure",
+      prompt: "Update the repository.",
+      fixture: { kind: "generated", commits: fixture.commits },
+      checks: [
+        {
+          id: "history",
+          grader: "sevro.git-head",
+          configuration: { kind: "base-ancestor" },
+        },
+      ],
+      requiredEvidence: ["sevro.observation.git-head"],
+    },
+    host,
+    runnerBuildDigest: digest,
+    projectDigest: digest,
+    condition: "passive",
+    trialCount: 1,
+    passThreshold: 1,
+  };
+}
+
+async function replaceCandidateHistory(workspace: string): Promise<void> {
+  await rm(join(workspace, ".git"), { recursive: true });
+  await fixtureGit(workspace, "init", "--quiet", "--initial-branch=main");
+  await fixtureGit(workspace, "add", "README.md");
+  await fixtureGit(workspace, "commit", "--quiet", "-m", "Replacement root");
+}
+
+const gitStateFailures = [
+  {
+    name: "metadata replaced by a regular file",
+    async change(workspace: string) {
+      await rm(join(workspace, ".git"), { recursive: true });
+      await writeFile(join(workspace, ".git"), "candidate-owned metadata\n");
+    },
+  },
+  {
+    name: "missing HEAD",
+    change: (workspace: string) => rm(join(workspace, ".git", "HEAD")),
+  },
+  {
+    name: "replacement history without the captured base",
+    change: replaceCandidateHistory,
+  },
+];
+
+for (const failure of gitStateFailures) {
+  test(`Git HEAD grading reports an error after candidate ${failure.name}`, async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), "sevro-git-state-error-"));
+    roots.push(projectRoot);
+    let candidateWorkspace: string | undefined;
+    const host: HostAdapter = {
+      id: "sevro.host.synthetic",
+      model: "synthetic-v1",
+      effort: "none",
+      async run({ workspace }) {
+        candidateWorkspace = workspace;
+        await failure.change(workspace);
+        return { finalMessage: "ready", complete: true };
+      },
+    };
+    const { result } = await runEvaluation(
+      gitFailureOptions(projectRoot, host),
+    );
+    expect(result.execution.status).toBe("completed");
+    expect(result.grading.status).toBe("error");
+    expect(result.task.verdict).toBe("not_assessed");
+    expect(result.exitCode).toBe(3);
+    const evidence = parseRunEvidence(
+      await readFile(result.evidencePath, "utf8"),
+    );
+    expect(evidence.diagnostic).toEqual({
+      code: "sevro.grader.error",
+      message: "Git HEAD grading did not complete",
+    });
+    expect(evidence.trials).toHaveLength(1);
+    expect(defined(evidence.trials[0]).observations).not.toContainEqual(
+      objectContaining({
+        id: "sevro.observation.git-head",
+        completeness: "complete",
+      }),
+    );
+    expect(
+      await Bun.file(join(defined(candidateWorkspace), "README.md")).exists(),
+    ).toBeFalse();
+  });
+}
+
 test("generated fixture builds stable history and a declared index state", async () => {
   const prepared = prepareGeneratedFixture(fixture);
   const first = await mkdtemp(join(tmpdir(), "sevro-generated-first-"));

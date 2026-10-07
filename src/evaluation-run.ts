@@ -32,6 +32,7 @@ import { fixtureBinDirectory } from "./fixture-bin";
 import { clearFixtureContents } from "./fixture-cleanup";
 import {
   InstrumentationEvidenceError,
+  snapshotInstrumentation,
   verifyAppliedInstrumentation,
   type InstrumentationRequest,
 } from "./instrumentation";
@@ -51,6 +52,7 @@ import { atomicWriteJson } from "./storage";
 import { checkpointRunOwner, startRunOwner } from "./run-owner";
 import { scheduleTrials } from "./trial-scheduler";
 import {
+  EvaluationConfigurationError,
   type HostResult,
   type HostAdapter,
   type ResolvedCase,
@@ -246,8 +248,28 @@ async function prepareTrialWorkspace(
     context.projectRoot,
     options.signal,
     reservation,
-  );
-  const fixtureBinDir = (await fixtureBinDirectory(workspace)) ?? undefined;
+  ).catch((error: unknown) => {
+    if (
+      !options.signal?.aborted ||
+      error instanceof EvaluationConfigurationError
+    )
+      throw error;
+    return null;
+  });
+  return trialWorkspaceDetails(options, context, reservation, workspace);
+}
+
+async function trialWorkspaceDetails(
+  options: EvaluationOptions,
+  context: EvaluationContext,
+  reservation: string,
+  preparedWorkspace: string | null,
+) {
+  const workspace = preparedWorkspace ?? reservation;
+  const fixtureBinDir =
+    preparedWorkspace === null
+      ? undefined
+      : ((await fixtureBinDirectory(workspace)) ?? undefined);
   const trialPrompt = renderTrialPrompt(
     options.case.prompt,
     workspace,
@@ -261,6 +283,7 @@ async function prepareTrialWorkspace(
   return {
     reservation,
     workspace,
+    preparationCancelled: preparedWorkspace === null,
     fixtureBinDir,
     trialPrompt,
     trialFollowUpPrompt,
@@ -517,6 +540,8 @@ class EvaluationTrial {
   }
   async run(): Promise<boolean> {
     try {
+      if (this.fixture.preparationCancelled)
+        return await this.cancelPreparation();
       await this.initializeGradingBases();
       await this.runCandidate();
       await this.retainCandidateArtifacts();
@@ -533,6 +558,13 @@ class EvaluationTrial {
     } finally {
       await this.cleanup();
     }
+  }
+  private async cancelPreparation(): Promise<boolean> {
+    this.failCandidate(undefined);
+    await this.retainCandidateArtifacts();
+    this.observeCandidate();
+    this.assess();
+    return this.persistTrial();
   }
   private async initializeGradingBases(): Promise<void> {
     this.gitHeadBase = this.context.preparedGitHead.length
@@ -551,7 +583,9 @@ class EvaluationTrial {
       workspace: this.fixture.workspace,
       condition: this.options.condition,
       fixtureBinDir: this.fixture.fixtureBinDir,
-      instrumentation: this.context.requestedInstrumentation,
+      instrumentation: snapshotInstrumentation(
+        this.context.requestedInstrumentation,
+      ),
       ...candidateMarketplaceRequest(this.context),
       ...candidatePluginDirectoriesRequest(this.context),
       ...candidateInvocationRequest(this.context),

@@ -89,6 +89,27 @@ const boundaryCases: Array<{
     valid: [0, 1],
     invalid: [-1, 0.5],
   },
+  {
+    name: "rich report",
+    path: ["rows", 0, "evaluationDigest"],
+    valid: [null, "a".repeat(64)],
+    invalid: ["A".repeat(64), "a".repeat(63), 42],
+  },
+  {
+    name: "rich report",
+    path: ["rows", 0, "candidateRoute"],
+    valid: [null, { host: "fixture", model: "model", effort: "none" }],
+    invalid: [
+      [],
+      { host: "fixture", model: "model", effort: "none", extra: true },
+    ],
+  },
+  ...["host", "model", "effort"].map((field) => ({
+    name: "rich report",
+    path: ["rows", 0, "candidateRoute", field],
+    valid: ["fixture"],
+    invalid: ["", 42],
+  })),
 ];
 
 function documentNamed(name: string): Document {

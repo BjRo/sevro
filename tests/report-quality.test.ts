@@ -203,6 +203,30 @@ test("reports retain failed verdicts and independent domain outcomes", async () 
   );
 });
 
+test("reports accept historical trials without domain outcomes while preserving their independent task verdict", async () => {
+  const fixture = await retained();
+  const selected = defined(fixture.result.cases[0]);
+  delete defined(selected.trials[0]).domainOutcomes;
+  delete defined(fixture.evidence.trials[0]).domainOutcomes;
+  await save(fixture);
+  expect(parseCliResult(await readFile(fixture.resultFile, "utf8"))).toEqual(
+    fixture.result,
+  );
+  expect(
+    parseRunEvidence(await readFile(fixture.evidenceFile, "utf8")),
+  ).toEqual(fixture.evidence);
+  const report = await createReport([fixture.resultFile]);
+  expect(defined(report.rows[0])).toMatchObject({
+    task: selected.task.verdict,
+    execution: selected.execution.status,
+    grading: selected.grading.status,
+    exitCode: fixture.result.exitCode,
+    domainOutcomes: [],
+  });
+  expect(report.summary.passed).toBe(1);
+  expect(renderReport(report)).not.toContain("## Domain outcomes");
+});
+
 test("report tables escape labels and render absent measurements explicitly", async () => {
   const fixture = await retained();
   await save(fixture);

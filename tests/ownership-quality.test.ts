@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import {
+  chmod,
   mkdir,
   mkdtemp,
   readFile,
@@ -198,3 +199,57 @@ test("keeps an owner active and removes temporary files when checkpoint persiste
   expect(await readdir(paths.evidenceDirectory)).toEqual(["checkpoint.json"]);
   expect(owner.claim.status).toBe("active");
 });
+
+test.each(["bad-digest", "A".repeat(64), "a".repeat(63)])(
+  "owner admission refuses an invalid evaluation digest before retaining state: %s",
+  async (evaluationDigest) => {
+    const paths = await ownership();
+    expect(() => startRunOwner({ ...paths, evaluationDigest })).toThrow(
+      "invalid evaluation identity for run ownership",
+    );
+    expect(await readdir(paths.stateRoot)).toEqual([]);
+  },
+);
+
+test.each(["directory", "unreadable"])(
+  "owner admission refuses a %s claim without replacing checkpoint evidence",
+  async (mode) => {
+    const paths = await ownership();
+    const owner = startRunOwner(paths);
+    const active = await readFile(paths.activeRunPath, "utf8");
+    const checkpoint = await readFile(paths.checkpointPath, "utf8");
+    if (mode === "directory") {
+      await rm(owner.claimPath);
+      await mkdir(owner.claimPath);
+    } else await chmod(owner.claimPath, 0);
+    try {
+      expect(() =>
+        startRunOwner({ ...paths, attemptId: randomUUID() }),
+      ).toThrow();
+      expect(await readFile(paths.activeRunPath, "utf8")).toBe(active);
+      expect(await readFile(paths.checkpointPath, "utf8")).toBe(checkpoint);
+    } finally {
+      if (mode === "unreadable") await chmod(owner.claimPath, 0o600);
+    }
+  },
+);
+
+test.each([null, { status: "unknown" }, { status: ["active"] }])(
+  "ordinary damaged claim JSON cannot establish owner authority: %j",
+  async (replacement) => {
+    const paths = await ownership();
+    const owner = startRunOwner(paths);
+    const original = parseRecord(await readFile(owner.claimPath, "utf8"));
+    const bytes = JSON.stringify(
+      replacement === null ? null : { ...original, ...replacement },
+    );
+    await writeFile(owner.claimPath, bytes);
+    expect(() => startRunOwner({ ...paths, attemptId: randomUUID() })).toThrow(
+      "unrecognized Sevro ownership record",
+    );
+    expect(await readFile(owner.claimPath, "utf8")).toBe(bytes);
+    expect(
+      parseRecord(await readFile(paths.activeRunPath, "utf8")).status,
+    ).toBe("active");
+  },
+);

@@ -51,10 +51,13 @@ bun run check:typescript
 It performs frozen installation, schema freshness, formatting, lint, typing,
 documentation and guide dry-run checks, tutorial examples, the real Bun suite,
 coverage integrity and thresholds, and installed-package validation. Statements
-and branches must each reach at least 95% using exact counts over the complete
-production inventory. Tests and fixtures remain linted and typed; they do not
-enter the production coverage denominator. Coverage exclusions need a concrete
-reviewed reason.
+and branches must each reach at least 95% using raw exact counts over the complete
+authored production inventory, including unimported files. The four explicitly
+inventoried generated AJV validators are excluded from coverage because this
+target measures authored runner behavior; their syntax, schema freshness, typed
+boundaries and runtime tests remain checked. Tests and fixtures remain linted and
+typed; they do not enter the production coverage denominator. New or changed
+source dispositions require review.
 
 Before committing, use `bun run check:typescript --fast` after installing the
 locked dependencies. This runs inventory, schema, formatting, lint, typing and

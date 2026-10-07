@@ -32,6 +32,49 @@ test("rejects malformed, oversized, and mismatched responses", () => {
       exchangeExtension(command(scenario), request),
     ).rejects.toBeInstanceOf(ExtensionProtocolError);
 });
+
+test.each(["wrong-protocol", "id-array", "result-array", "null-root"])(
+  "rejects ordinary JSON response with %s before returning a result",
+  async (scenario) => {
+    expect(await exchangeExtension(command(), request)).toHaveProperty(
+      "result",
+    );
+    expect(exchangeExtension(command(scenario), request)).rejects.toThrow(
+      "invalid extension response",
+    );
+  },
+);
+
+test("prepare transport accepts a maximum-length data key and refuses an overlong key", async () => {
+  const preparationRequest: ExtensionRequest = {
+    protocol: "sevro.extension.v1",
+    id: "request-1",
+    method: "prepare",
+    params: {
+      case: {
+        id: "case-1",
+        prompt: "Return ready",
+        fixture: { kind: "inline", files: {} },
+        checks: [],
+        requiredEvidence: [],
+        extensionData: {},
+      },
+      host: { id: "example.host", capabilities: [] },
+      condition: "passive",
+      configuration: {},
+    },
+  };
+  const response = await exchangeExtension(
+    command("prepare-key128"),
+    preparationRequest,
+  );
+  expectUnknown(response.result.extensionData).toEqual({
+    ["example." + "a".repeat(120)]: null,
+  });
+  expect(
+    exchangeExtension(command("prepare-key129"), preparationRequest),
+  ).rejects.toThrow("invalid extension response");
+});
 test("rejects a request envelope returned as an extension response", () => {
   const response = exchangeExtension(
     [process.execPath, "-e", "process.stdout.write(await Bun.stdin.text())"],

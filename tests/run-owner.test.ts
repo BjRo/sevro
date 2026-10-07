@@ -119,47 +119,79 @@ test("rejects nonstring retained ownership paths before checking liveness", asyn
     expect(await readFile(owner.claimPath, "utf8")).toBe(malformed);
   }
 });
-test("an abruptly killed owner can be reclaimed without losing its attempt record", async () => {
-  if (process.platform === "win32") return;
-  const paths = await fixture();
-  const ready = join(paths.stateRoot, "ready");
-  const childScript = join(paths.stateRoot, "child.ts");
-  await writeFile(
-    childScript,
-    `import { writeFileSync } from "node:fs";
+test.each(["retained", "null active record"])(
+  "an abruptly killed owner can be reclaimed without losing its attempt record: %s",
+  async (activeRecord) => {
+    if (process.platform === "win32") return;
+    const paths = await fixture();
+    const ready = join(paths.stateRoot, "ready");
+    const childScript = join(paths.stateRoot, "child.ts");
+    await writeFile(
+      childScript,
+      `import { writeFileSync } from "node:fs";
 import { startRunOwner } from ${JSON.stringify(join(import.meta.dir, "../src/run-owner.ts"))};
 startRunOwner(${JSON.stringify(paths)});
 writeFileSync(${JSON.stringify(ready)}, "ready");
 setInterval(() => {}, 1000);
 `,
-  );
-  const child = Bun.spawn([process.execPath, childScript], {
-    stdout: "ignore",
-    stderr: "pipe",
-  });
-  try {
-    const deadline = Date.now() + 5000;
-    while (!(await Bun.file(ready).exists())) {
-      if (Date.now() > deadline) throw new Error("child owner did not start");
-      await Bun.sleep(20);
+    );
+    const child = Bun.spawn([process.execPath, childScript], {
+      stdout: "ignore",
+      stderr: "pipe",
+    });
+    try {
+      const deadline = Date.now() + 5000;
+      while (!(await Bun.file(ready).exists())) {
+        if (Date.now() > deadline) throw new Error("child owner did not start");
+        await Bun.sleep(20);
+      }
+    } finally {
+      child.kill("SIGKILL");
+      await child.exited;
     }
-  } finally {
-    child.kill("SIGKILL");
-    await child.exited;
-  }
-  const nextId = randomUUID();
-  const next = startRunOwner({
-    ...paths,
-    attemptId: nextId,
-    activeRunPath: join(paths.stateRoot, "active", `${nextId}.json`),
-    checkpointPath: join(paths.stateRoot, nextId, "checkpoint.json"),
-    evidenceDirectory: join(paths.stateRoot, nextId),
-  });
-  expect(next.claim.attemptId).toBe(nextId);
-  expect(parseRecord(await readFile(paths.activeRunPath, "utf8")).status).toBe(
-    "interrupted",
-  );
-  expect(
-    await Bun.file(join(paths.evidenceDirectory, "run-owner.json")).exists(),
-  ).toBeTrue();
-});
+    if (activeRecord === "null active record")
+      await writeFile(paths.activeRunPath, "null");
+    const nextId = randomUUID();
+    const next = startRunOwner({
+      ...paths,
+      attemptId: nextId,
+      activeRunPath: join(paths.stateRoot, "active", `${nextId}.json`),
+      checkpointPath: join(paths.stateRoot, nextId, "checkpoint.json"),
+      evidenceDirectory: join(paths.stateRoot, nextId),
+    });
+    expect(next.claim.attemptId).toBe(nextId);
+    expect(
+      parseRecord(await readFile(paths.activeRunPath, "utf8")).status,
+    ).toBe("interrupted");
+    expect(
+      await Bun.file(join(paths.evidenceDirectory, "run-owner.json")).exists(),
+    ).toBeTrue();
+  },
+);
+
+test.each(["diagnostic", "interrupted"] as const)(
+  "a %s finalized owner permits a new attempt while retaining its own status",
+  async (status) => {
+    const paths = await fixture();
+    const prior = startRunOwner(paths);
+    checkpointRunOwner(prior, [], status);
+    const previous = await readFile(paths.activeRunPath, "utf8");
+    expect(parseRecord(previous)).toMatchObject({
+      runId: paths.attemptId,
+      status,
+      completedTrials: [],
+    });
+    expect(parseRecord(previous).finalizedAt).toBeString();
+    const attemptId = randomUUID();
+    const next = startRunOwner({
+      ...paths,
+      attemptId,
+      activeRunPath: join(paths.stateRoot, "active", `${attemptId}.json`),
+      checkpointPath: join(paths.stateRoot, attemptId, "checkpoint.json"),
+      evidenceDirectory: join(paths.stateRoot, attemptId),
+    });
+    expect(next.claim.attemptId).toBe(attemptId);
+    expect(next.claim.status).toBe("active");
+    expect(await readFile(paths.activeRunPath, "utf8")).toBe(previous);
+  },
+);

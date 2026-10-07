@@ -1,9 +1,17 @@
-import { appendFileSync } from "node:fs";
+import {
+  appendFileSync,
+  readFileSync,
+  renameSync,
+  watch,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 const mode = process.argv[2] ?? "success";
 let turnCount = 0;
 let historyReads = 0;
+let boundaryNativeComplete = false;
+const boundaryFiles = new Set<string>();
 const send = (value: unknown) => {
   process.stdout.write(JSON.stringify(value) + "\n");
 };
@@ -29,6 +37,7 @@ const badInitialize: Record<string, string> = {
     '{"id":"approval","method":"item/commandExecution/requestApproval","params":{}}',
 };
 function initialize(id: unknown): void {
+  diagnosticStderr();
   if (mode === "oversized-stream") {
     process.stdout.write("x".repeat(8 * 1024 * 1024 + 1) + "\n");
     return;
@@ -43,9 +52,23 @@ function initialize(id: unknown): void {
     process.exit(7);
   }
   process.stdout.write("\n");
+  initializeResponse(id);
+}
+function initializeResponse(id: unknown): void {
+  if (mode === "fail-after-initialize-response") {
+    process.stdout.write(
+      JSON.stringify({ id, result: {} }) +
+        "\n" +
+        JSON.stringify({ method: "turn/started", params: null }) +
+        "\n",
+    );
+    return;
+  }
   send({ id, result: {} });
 }
 function startThread(id: unknown): void {
+  if (mode === "exit-pending-thread-start") process.exit(7);
+  overloadNotifications();
   send({
     id,
     result: {
@@ -65,25 +88,50 @@ function retryErrors(): void {
     notify("error", {
       turnId: "first",
       willRetry: true,
-      error: {
+      error: retryErrorValue({
         message:
           "Authorization: Bearer PRIVATE_TOKEN\napi_key=sk-PRIVATE_KEY " +
           "z".repeat(2100),
         codexErrorInfo: { httpConnectionFailed: { httpStatusCode: 503 } },
-      },
+      }),
     });
 }
+function retryErrorValue(value: unknown): unknown {
+  const alternatives: Record<string, unknown> = {
+    "empty-error-errors": null,
+    "invalid-message-errors": {
+      message: 42,
+      codexErrorInfo: { httpConnectionFailed: null },
+    },
+    "invalid-http-errors": {
+      message: "Temporary failure",
+      codexErrorInfo: { httpConnectionFailed: { httpStatusCode: "503" } },
+    },
+  };
+  return Object.hasOwn(alternatives, mode) ? alternatives[mode] : value;
+}
 function goalNotifications(): void {
+  extraGoalNotifications();
   if (mode === "goal-disappeared")
     notify("thread/goal/updated", { goal: goal("active") });
   if (mode === "cleared-goal") notify("thread/goal/cleared", {});
   if (mode === "invalid-goal-notification")
     notify("thread/goal/updated", { goal: { ...goal(), objective: "" } });
 }
+function extraGoalNotifications(): void {
+  if (mode === "duplicate-goal") {
+    for (let index = 0; index < 3; index++)
+      notify("thread/goal/updated", { goal: goal(), turnId: "first" });
+  }
+  if (mode === "null-goal-notification")
+    notify("thread/goal/updated", { goal: null });
+}
 function startTurn(id: unknown): void {
   turnCount++;
   const turnId = turnCount === 1 ? "first" : "follow-up";
+  peerReceipt(`client-${turnId}`);
   send({ id, result: { turn: { id: turnId } } });
+  if (exitAfterTurnResponse()) return;
   send({ method: "account/private", params: "PRIVATE_ACCOUNT" });
   notify("error", {
     threadId: "foreign",
@@ -111,6 +159,16 @@ function startTurn(id: unknown): void {
   notify("item/completed", {
     item: { id: "reasoning", type: "reasoning", text: "PRIVATE_REASONING" },
   });
+  completeTurnNotification(turnId);
+}
+function exitAfterTurnResponse(): boolean {
+  if (mode !== "exit-after-turn-response") return false;
+  process.stdout.write("", () => {
+    process.exit(7);
+  });
+  return true;
+}
+function completeTurnNotification(turnId: string): void {
   notify("turn/completed", {
     turn: {
       id: turnId,
@@ -124,8 +182,8 @@ function commandItem() {
     id: "command",
     type: "commandExecution",
     command: "printf public",
-    status: "completed",
-    exitCode: 0,
+    status: mode === "failed-command-item" ? "failed" : "completed",
+    exitCode: mode === "failed-command-item" ? 1 : 0,
     aggregatedOutput: "public",
   };
 }
@@ -186,6 +244,11 @@ function retainedTurns(
   if (mode === "duplicate-turn") return [turn, turn];
   if (mode === "later-failed-history")
     return [turn, { id: "native-2", status: "failed" }];
+  return boundaryHistory(turn) ?? readbackRaceHistory(turn);
+}
+function readbackRaceHistory(
+  turn: Record<string, unknown>,
+): Record<string, unknown>[] {
   if (mode !== "native-read-race" || turnCount > 1) return [turn];
   return [turn, racedNativeTurn()];
 }
@@ -218,6 +281,9 @@ function afterRead(): void {
     "native-read-race": () => {
       announceNativeTurn();
     },
+    "settlement-foreign": () => {
+      notify("thread/goal/cleared", { threadId: "foreign" });
+    },
   };
   actions[mode]?.();
 }
@@ -240,6 +306,8 @@ function getGoal(id: unknown): void {
     "blocked-goal": goal("blocked"),
     "usageLimited-goal": goal("usageLimited"),
     "budgetLimited-goal": goal("budgetLimited"),
+    "duplicate-goal": goal(),
+    "boundary-goal-valid": goal(),
   };
   send({
     id,
@@ -284,4 +352,172 @@ createInterface({ input: process.stdin })
   })
   .on("close", () => {
     if (mode === "trailing-malformed-on-close") process.stdout.write("{broken");
+    boundaryWatcher?.close();
+    keepPeerAfterEof();
   });
+
+function diagnosticStderr(): void {
+  if (mode !== "large-stderr") return;
+  process.stderr.write(
+    "DISCARDED_DIAGNOSTIC_PREFIX" +
+      "x".repeat(20000) +
+      "RETAINED_DIAGNOSTIC_TAIL\n",
+  );
+}
+
+function overloadNotifications(): void {
+  if (mode !== "notification-backlog") return;
+  for (let index = 0; index < 1025; index++)
+    notify("thread/tokenUsage/updated", {
+      tokenUsage: { total: { inputTokens: index, outputTokens: 0 } },
+    });
+}
+
+function peerReceipt(event: string): void {
+  appendFileSync(
+    join(process.cwd(), ".git", "peer-events.jsonl"),
+    JSON.stringify({ event, pid: process.pid }) + "\n",
+  );
+}
+
+function keepPeerAfterEof(): void {
+  if (!mode.startsWith("ignore-eof")) return;
+  peerReceipt("stdin-eof");
+  setInterval(() => {}, 1000);
+}
+
+function peerTermination(): void {
+  peerReceipt("sigterm");
+  if (mode !== "ignore-eof-and-term") process.exit(0);
+}
+
+if (mode.startsWith("ignore-eof")) process.on("SIGTERM", peerTermination);
+
+function boundaryHistory(
+  turn: Record<string, unknown>,
+): Record<string, unknown>[] | undefined {
+  if (
+    mode !== "boundary-native-turn" ||
+    !boundaryNativeComplete ||
+    turnCount > 1
+  )
+    return undefined;
+  return [turn, { id: "native-2", status: "completed", items: finalItems() }];
+}
+
+function boundaryEvents(): unknown[] {
+  const params = { threadId: "root" };
+  const rootEvents: Record<string, unknown> = {
+    "boundary-fatal": {
+      method: "error",
+      params: {
+        ...params,
+        turnId: "first",
+        willRetry: false,
+        error: { message: "Authorization: Bearer boundary-credential" },
+      },
+    },
+    "boundary-cleared": { method: "thread/goal/cleared", params },
+    "boundary-native-turn": {
+      method: "turn/started",
+      params: { ...params, turn: { id: "native-2", status: "inProgress" } },
+    },
+    "boundary-goal-valid": {
+      method: "thread/goal/updated",
+      params: { ...params, goal: goal() },
+    },
+    "boundary-goal-invalid": {
+      method: "thread/goal/updated",
+      params: { ...params, goal: goal(["complete"]) },
+    },
+  };
+  return [
+    {
+      method: "turn/started",
+      params: {
+        threadId: "foreign",
+        turn: { id: "foreign-turn", status: "inProgress" },
+      },
+    },
+    rootEvents[mode],
+  ];
+}
+
+function boundaryTrace(event: string, details: Record<string, unknown>): void {
+  appendFileSync(
+    join(process.cwd(), ".git", "boundary-trace.jsonl"),
+    JSON.stringify({ at: Date.now(), pid: process.pid, event, ...details }) +
+      "\n",
+  );
+}
+
+function emitBoundaryReceipt(events: unknown[], receipt: string): void {
+  const payload = events.map((event) => JSON.stringify(event) + "\n").join("");
+  boundaryTrace("stdout-queued", { receipt, events });
+  process.stdout.write(payload, () => {
+    boundaryTrace("stdout-write-completed", { receipt });
+    peerReceipt(receipt);
+    const path = join(process.cwd(), ".git", receipt);
+    writeFileSync(path + ".pending", "emitted");
+    renameSync(path + ".pending", path);
+    boundaryTrace("receipt-committed", { receipt });
+  });
+}
+
+function boundaryFileChanged(name: string): void {
+  if (name === "capture-boundary") {
+    boundaryTrace("command-observed", { name });
+    emitBoundaryReceipt(boundaryEvents(), "boundary-emitted");
+  }
+  if (name === "release-native-turn") {
+    boundaryTrace("command-observed", { name });
+    boundaryNativeComplete = true;
+    emitBoundaryReceipt(
+      [
+        {
+          method: "turn/completed",
+          params: {
+            threadId: "root",
+            turn: { id: "native-2", status: "completed" },
+          },
+        },
+      ],
+      "native-completed",
+    );
+  }
+}
+
+function boundaryCommandReady(name: string): boolean {
+  try {
+    return readFileSync(join(process.cwd(), ".git", name), "utf8") === "emit";
+  } catch {
+    return false;
+  }
+}
+
+function inspectBoundaryCommands(): void {
+  for (const name of ["capture-boundary", "release-native-turn"]) {
+    if (boundaryFiles.has(name) || !boundaryCommandReady(name)) continue;
+    boundaryFiles.add(name);
+    boundaryFileChanged(name);
+  }
+}
+
+const boundaryWatcher = mode.startsWith("boundary-")
+  ? watch(join(process.cwd(), ".git"), () => {
+      inspectBoundaryCommands();
+    })
+  : undefined;
+if (boundaryWatcher) inspectBoundaryCommands();
+
+function processOutputFixture(): void {
+  if (!mode.startsWith("process-")) return;
+  peerReceipt("process-started");
+  const stream = mode === "process-stderr" ? process.stderr : process.stdout;
+  stream.write(Buffer.alloc(Number(process.argv[3]), "x"), () => {
+    peerReceipt("process-written");
+    if (process.argv[4] !== "stay-open") process.exit(0);
+  });
+  if (process.argv[4] === "stay-open") setInterval(() => {}, 1000);
+}
+processOutputFixture();

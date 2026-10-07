@@ -300,7 +300,7 @@ test("opaque extension data and configuration survive serialized JSON without cl
       );
       expect(validate(serialized)).toBe(true);
     }),
-    { seed: 20261008, numRuns: 120, endOnFailure: true },
+    { seed: 20261007, numRuns: 200, endOnFailure: true },
   );
 });
 
@@ -442,3 +442,31 @@ test("JSON extension envelopes refuse primitive and array roots", () => {
     expect(validate(value)).toBe(false);
   }
 });
+
+const extensionDataBoundaries: [string, Path][] = [
+  ["resolved inline", ["cases", 0, "extensionData"]],
+  ["prepare repository", ["case", "extensionData"]],
+  ["Codex marketplace", ["extensionData"]],
+  ["retained trial evaluation", ["extensionData"]],
+];
+
+test.each(extensionDataBoundaries)(
+  "%s bounds namespaced JSON data property names to 128 characters",
+  (name, path) => {
+    const document = named(name);
+    const maximum = { ["example." + "a".repeat(120)]: null };
+    const overlong = { ["example." + "a".repeat(121)]: null };
+    checkBody(
+      document,
+      replace(document.body, path, maximum),
+      true,
+      "128-character key",
+    );
+    checkBody(
+      document,
+      replace(document.body, path, overlong),
+      false,
+      "129-character key",
+    );
+  },
+);

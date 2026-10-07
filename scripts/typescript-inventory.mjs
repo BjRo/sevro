@@ -14,6 +14,12 @@ const rolePaths = {
   tests: /^tests\//,
   examples: /^examples\//,
 };
+const generatedFiles = [
+  "cli-result",
+  "extension",
+  "report",
+  "run-evidence",
+].map((name) => `src/generated/${name}.cjs`);
 
 /** @param {Record<string, string[]>} inventory */
 function checkRoles(inventory) {
@@ -24,6 +30,17 @@ function checkRoles(inventory) {
       if (!pattern.test(file))
         throw new Error(`Invalid ${kind} source disposition: ${file}`);
   }
+  checkGeneratedScope(inventory.generated);
+}
+
+/** @param {string[] | undefined} generated */
+function checkGeneratedScope(generated) {
+  if (
+    !generated ||
+    generated.length !== generatedFiles.length ||
+    !generatedFiles.every((file) => generated.includes(file))
+  )
+    throw new Error("Expected the four exact generated validators");
 }
 
 /** @param {string} root @param {Record<string, string[]>} inventory */
@@ -99,7 +116,15 @@ function readInventory(root) {
     if (!fileList(files)) throw new Error(`Invalid source inventory: ${kind}`);
     inventory[kind] = files;
   }
+  requireDispositions(inventory);
   return inventory;
+}
+
+/** @param {Record<string, string[]>} inventory */
+function requireDispositions(inventory) {
+  for (const kind of kinds)
+    if (!inventory[kind])
+      throw new Error(`Missing source disposition: ${kind}`);
 }
 
 /** @param {string} file */
@@ -160,7 +185,7 @@ function requireTyped(root, declared, files) {
 }
 
 /** @param {string} root */
-export async function checkInventory(root) {
+export function sourceInventory(root) {
   const inventory = readInventory(root);
   const declared = Object.values(inventory).flat();
   const found = [
@@ -168,6 +193,19 @@ export async function checkInventory(root) {
   ].filter(sourceFile);
   compareInventory(found, declared);
   checkRoles(inventory);
+  return inventory;
+}
+
+/** @param {string} root */
+export function productionSources(root) {
+  const files = sourceInventory(root).production;
+  if (!files) throw new Error("Missing production source inventory");
+  return files;
+}
+
+/** @param {string} root */
+export async function checkInventory(root) {
+  const inventory = sourceInventory(root);
   checkTypedDisposition(root, inventory);
   await checkLintDisposition(root, inventory);
   return inventory;

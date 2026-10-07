@@ -21,6 +21,114 @@ afterEach(async () => {
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
 });
+
+function nativeGoalFixtureScript() {
+  return `#!${process.execPath}
+import { mkdir, symlink, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+const config = process.env.CLAUDE_CONFIG_DIR;
+if (!config) throw new Error("Missing synthetic Claude config");
+const mode = process.argv[process.argv.indexOf("-p") + 1];
+const session = "00000000-0000-4000-8000-000000000001";
+const projects = join(config, "projects");
+const directory = join(projects, "fixture");
+await mkdir(directory, { recursive: true });
+const user = {type:"user",sessionId:session,message:{content:"Return ready."}};
+const sidechain = {type:"attachment",sessionId:session,isSidechain:true,attachment:{type:"goal_status",condition:"PRIVATE_CHILD_GOAL",met:true}};
+let transcript = JSON.stringify(user);
+if (mode === "sidechain-only") transcript += "\\n" + JSON.stringify(sidechain);
+if (mode === "empty-transcript") transcript = "";
+if (mode === "oversized-transcript") transcript = JSON.stringify({...user,message:{content:"PRIVATE_TRANSCRIPT_TEXT" + "x".repeat(8*1024*1024)}});
+await writeFile(join(directory, session + ".jsonl"), transcript);
+if (mode === "metadata-file") await writeFile(join(directory,"index.txt"),"retained session index");
+if (mode === "linked-tree") await symlink(directory, join(projects,"linked"));
+if (mode === "many-files") await Promise.all(Array.from({length:1025},(_,index)=>writeFile(join(directory,index+".txt"),"index")));
+const failed = mode === "failed-turn";
+for(const entry of [{type:"system",subtype:"init",session_id:session},{type:"result",subtype:failed?"error_during_execution":"success",is_error:failed,session_id:session,result:failed?"model unavailable":"ready"}]) process.stdout.write(JSON.stringify(entry)+"\\n");
+`;
+}
+
+async function nativeGoalHostFixture() {
+  const root = await mkdtemp(join(tmpdir(), "sevro-claude-goal-retention-"));
+  roots.push(root);
+  const workspace = join(root, "workspace");
+  const projectRoot = join(root, "source");
+  const resultsRoot = join(root, "results");
+  await Promise.all(
+    [workspace, projectRoot, resultsRoot].map((path) => mkdir(path)),
+  );
+  const credentialFile = join(root, "credential.json");
+  await writeFile(credentialFile, '{"test":"private-login"}');
+  const binary = join(root, "fake-claude");
+  await writeFile(binary, nativeGoalFixtureScript(), { mode: 0o755 });
+  const host = createClaudeHost({
+    binary,
+    model: "synthetic",
+    effort: "low",
+    projectRoot,
+    resultsRoot,
+    additionalProtectedRoots: [],
+    credentialFile,
+  });
+  return { host, workspace };
+}
+
+test.each(["no-goal", "sidechain-only", "metadata-file"])(
+  "Claude complete native session records bounded goal absence: %s",
+  async (mode) => {
+    if (process.platform !== "darwin") return;
+    const { host, workspace } = await nativeGoalHostFixture();
+    const result = await host.run({
+      prompt: mode,
+      workspace,
+      condition: "passive",
+    });
+    expect(result.complete).toBe(true);
+    expect(
+      result.observations?.find((item) => item.id === "sevro.host.native-goal"),
+    ).toMatchObject({
+      completeness: "complete",
+      data: {
+        method: "native_session",
+        threadId: "00000000-0000-4000-8000-000000000001",
+        goals: [],
+        goalStatus: null,
+      },
+    });
+    expect(JSON.stringify(result.observations)).not.toContain(
+      "PRIVATE_CHILD_GOAL",
+    );
+  },
+);
+
+test.each([
+  ["empty-transcript", "Original native session not retained"],
+  ["oversized-transcript", "Native transcript is unsafe or oversized"],
+  ["linked-tree", "Native transcript tree contains a symlink"],
+  ["many-files", "Native transcript tree exceeds limit"],
+  ["failed-turn", "Native session did not finish successfully"],
+])(
+  "Claude unavailable native goal evidence cannot establish absence: %s",
+  async (mode, failure) => {
+    if (process.platform !== "darwin") return;
+    const { host, workspace } = await nativeGoalHostFixture();
+    const result = await host.run({
+      prompt: mode,
+      workspace,
+      condition: "passive",
+    });
+    expect(result.complete).toBe(mode !== "failed-turn");
+    expect(
+      result.observations?.find((item) => item.id === "sevro.host.native-goal"),
+    ).toMatchObject({
+      completeness: "unavailable",
+      data: { method: "native_session", failure },
+    });
+    expect(JSON.stringify(result.observations)).not.toContain(
+      "PRIVATE_TRANSCRIPT_TEXT",
+    );
+  },
+);
 // eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("failed Claude execution retains private evidence without grading", async () => {
   if (process.platform !== "darwin") return;

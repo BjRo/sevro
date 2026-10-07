@@ -20,15 +20,16 @@ first. Quality dependencies are development dependencies pinned in `bun.lock`.
 TypeScript and JavaScript source. The guard refuses new, missing or duplicated
 files and declarations outside the configured TypeScript project. Changing a
 source disposition requires review; adding a glob is not a substitute for the
-inventory. Unsupported executable production extensions cannot be assigned to
-the production inventory: the current instrumenter supports authored `.ts` and
-the four exact generated `.cjs` files. New `.tsx`, `.mts`, `.cts` or JavaScript
+inventory. The coverage baseline includes exactly `inventory.production`, whose
+current instrumentation supports authored `.ts`. The four exact generated
+validators in `inventory.generated` are excluded from instrumentation and the
+coverage denominator. New `.tsx`, `.mts`, `.cts` or JavaScript
 production requires an explicit instrumentation and quality-policy change first.
 
 | Inventory      | Lint and typing                                                                                      | Test and coverage disposition                                                                                                                                                                        |
 | -------------- | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `production`   | Type-aware strict lint and strict compiler                                                           | All executable `src` statements and branch outcomes, including unimported files                                                                                                                      |
-| `generated`    | CommonJS syntax parsing, exact `schemas:check` freshness, and checked `.d.cts` boundary declarations | Real Bun schema tests and the complete production coverage denominator                                                                                                                               |
+| `production`   | Type-aware strict lint and strict compiler                                                           | All authored executable `src` statements and branch outcomes in the declared inventory, including unimported files                                                                                   |
+| `generated`    | CommonJS syntax parsing, exact `schemas:check` freshness, and checked `.d.cts` boundary declarations | Real Bun schema tests; the four declared generated validators are outside the coverage denominator                                                                                                   |
 | `declarations` | Type-aware lint and compiler                                                                         | Declaration-only files have no executable counters                                                                                                                                                   |
 | `tooling`      | Same type-aware lint and strict compiler; `.mjs`/`.cjs` use `checkJs` and explicit JSDoc contracts   | Durable public gate probes, schema freshness, release and installed-package tests; outside the runner-production denominator                                                                         |
 | `tests`        | Same type-aware lint and strict compiler, including fixtures                                         | Real Bun filesystem/process/protocol tests; outside the production denominator                                                                                                                       |
@@ -38,8 +39,11 @@ Generated AJV CommonJS is deliberately not rewritten to conform to authored-code
 rules. Applying ESLint's recommended JavaScript rules to the four exact generated
 files found 879 redeclarations, 281 useless assignments, 182 unused variables and
 108 unreachable-code findings. Those are generator emissions. Their syntax,
-generation freshness, typed public boundaries, runtime behavior and full coverage
-remain checked. This disposition does not apply to authored CommonJS, including
+generation freshness, typed public boundaries and runtime behavior remain checked.
+Generated compiler output is excluded from coverage because the coverage target
+measures authored runner behavior. This applies only to
+`src/generated/cli-result.cjs`, `extension.cjs`, `report.cjs` and `run-evidence.cjs`
+as explicitly declared in the inventory. This disposition does not apply to authored CommonJS, including
 the coverage capture hook.
 
 ## Types, functions and review
@@ -70,9 +74,11 @@ exception to keep one fixture/invocation/assertion story together. The independe
 `sevro/test-callback-lines` rule bounds every direct or chained Bun `test`/`it`
 callback at 200 lines; helpers remain at 80 and complexity remains five.
 [`typescript-test-callback-exceptions.json`](typescript-test-callback-exceptions.json)
-records the exact assessed scenarios. The synchronous CommonJS capture hook has
-one import-style exception because generated validators must retain normal CJS
-loading; the discovery interop counterexample is retained in the evidence.
+records the exact assessed scenarios. The maintained CommonJS capture hook has
+one import-style exception for its synchronous Node filesystem/path `require`
+calls. Instrumented authored modules import it to register process capture; the
+Bun test preload uses its exported handle to flush completion at teardown. The
+discovery interop counterexample remains historical evidence.
 
 Review meaningful domain names, cohesive module ownership, focused operations,
 validated external input, useful errors with retained causes, and assertions
@@ -105,50 +111,27 @@ cannot excuse a missing report. Missing checkpoints fail. No final counters are
 estimated: a lost tail can lower coverage and cannot increase it. This retains
 the real SIGKILL run-owner test and exempts no production file.
 
-Statements and branches must each reach 95% using the exact covered/total ratio.
-Rounded display percentages never determine success. Every generated file and
-reachable validation success/refusal path remains in scope. Compiler-counter
-copies require a locally initialized counter with no intervening write; array
-length provenance accepts actual local array literals, not helper-function
-`.errors` properties or array-method return values. Its source hashes, exact AST locations,
-proof reasons and complete analyzer identity are recorded in
-[`typescript-coverage-exemptions.json`](typescript-coverage-exemptions.json).
-The current conservative analyzer combines that copy proof with private primitive
-constant propagation: assignments invalidate facts, joins retain only identical
-facts, terminated arms cannot reach joins, and loops invalidate written locals.
-Lexical shadowing, captured-local closures, malformed syntax, dynamic evaluation
-and unsupported statement forms decline proofs. Safe nonnegative integer
-truthiness/increments and local non-null binding refinements are also checked;
-NaN, unknown, negative, infinite and overflowing domains decline proofs.
-It identifies 677 compiler-local
-guard outcomes; wholly contained dead arms add 26 branch outcomes and 194
-statements. The final deduplicated proposal covers 703 branch outcomes and 194
-statements. It assumes no immutability of input JSON or its properties.
-
-This exemption is proposed for independent Standards/Spec review; it is not
-accepted merely because the implementation applies it. Enforcement retains the
-raw Istanbul report and separately reports adjusted statement and branch denominators; it
-never rewrites counters. A stale source/layout/analyzer proof or
-an observed nonzero supposedly impossible outcome refuses the gate. An additional
-357 required-presence outcomes remain counted: their immutability assumptions
-have not received the required independent review. The reproducible analyzer is
-in `scripts/coverage/compiler-flow.ts`, `compiler-counter-copy.ts` and
-`compiler-exemptions.ts`. `bun scripts/coverage/generate-exemptions.ts` produces a
-review candidate explicitly; schema regeneration does not refresh exemptions.
-The gate rederives the exact sealed proof set, refuses a missing proof or nonzero
-exempt statement/outcome, and checks analyzer hashes plus the TypeScript version.
+Statements and branches must each reach 95% using the exact covered/total ratio
+over the complete declared authored production inventory. Rounded display
+percentages never determine success. The gate enforces raw counters without
+compiler exemptions, adjusted denominators or counter rewriting. It validates
+source classifications before preparing coverage, including direct `--coverage`
+runs, so unregistered authored TypeScript or CommonJS, missing sources and
+overlapping dispositions refuse the gate. Generated validators retain normal
+CommonJS loading, schema freshness checks and real schema/runtime tests.
 
 Artifacts under `.quality/coverage` include the exact merged counters, baseline,
 summary, process ledger, Bun test log, unmodified source snapshot, LCOV and HTML.
-`enforcement.json` preserves both raw and adjusted exact counts, the explicit
-guard/dead-arm reasons and the pending review status.
+`enforcement.json` records the authored production scope and raw exact counts.
 `--coverage [Bun test arguments]` is a diagnostic measurement; it still enforces
 both thresholds and writes `.quality/coverage-targeted`, keeping it distinct from
 the full-suite evidence. Sparse runs are expected to fail the full denominator.
 
-The durable public probes are `--probe snapshot`, `--probe branch`, `--probe missing-reports`,
-`--probe integrity`, `--probe source-map`, `--probe exemptions`, and
-`--probe compiler-flow`. Branch and missing-report controls
+The durable public probes are `--probe snapshot`, `--probe scope`, `--probe branch`,
+`--probe missing-reports`, `--probe integrity`, and `--probe source-map`.
+The scope probe records a zero-seeded baseline and merged real process report
+under `.quality/coverage-scope`; it verifies that ordinary generated CommonJS
+validation still runs. Branch and missing-report controls
 deliberately exit 1. A five-of-five statement, one-of-two branch sample must fail
 with `Below 95%: branches`. The integration suite retains real CLI/extension,
 graceful SIGINT/SIGTERM cancellation, filesystem isolation and owned-child paths.
@@ -172,8 +155,9 @@ or failed gate cannot turn that status green.
 one portable machine-readable summary of the discovery observations and the
 digest of the original external record. The maintained prototype-derived harness
 is in `scripts/coverage/`; fresh CI reports provide candidate-specific evidence.
-Original raw discovery evidence remains outside the repository. Its targeted
-feasibility results are not a full-suite baseline or 95% acceptance evidence.
+Original raw discovery evidence remains outside the repository. Discovery
+included generated validators; the current authored-only scope is defined above.
+Its targeted feasibility results are not a full-suite baseline or 95% acceptance evidence.
 
 References: [Darrow's Python quality contract](https://github.com/BjRo/darrow/blob/main/docs/specs/python-quality.md),
 [typescript-eslint presets](https://typescript-eslint.io/users/configs/),

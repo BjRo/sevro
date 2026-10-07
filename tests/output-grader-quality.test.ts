@@ -1,10 +1,82 @@
-import { expect, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  readSemanticArtifact,
+  validateArtifactPath,
+} from "../src/graders/artifact";
 import {
   gradeOutput,
   prepareOutputChecks,
   type OutputCheckDeclaration,
 } from "../src/graders/output";
 import { defined } from "./fixtures/assertions";
+
+const artifactRoots: string[] = [];
+afterEach(async () => {
+  await Promise.all(
+    artifactRoots
+      .splice(0)
+      .map((root) => rm(root, { recursive: true, force: true })),
+  );
+});
+
+test.each(
+  [
+    null,
+    false,
+    1,
+    [],
+    {},
+    "",
+    " ",
+    "/answer.md",
+    "../answer.md",
+    "docs/../answer.md",
+    ".git/answer.md",
+    "docs\\answer.md",
+    "doc*/answer.md",
+    "answer**.md",
+  ].map((path: unknown) => ({ path })),
+)(
+  "semantic artifact declarations refuse invalid ordinary value $path",
+  ({ path }) => {
+    expect(() => {
+      validateArtifactPath(path);
+    }).toThrow("semantic artifact path must be relative");
+  },
+);
+
+test("semantic artifact directory links stay contained and preserve external document bytes", async () => {
+  const root = await mkdtemp(join(tmpdir(), "sevro-artifact-containment-"));
+  artifactRoots.push(root);
+  const workspace = join(root, "workspace");
+  const external = join(root, "external");
+  await mkdir(join(workspace, "docs"), { recursive: true });
+  await mkdir(external);
+  await writeFile(join(workspace, "docs", "answer.md"), "contained answer");
+  await writeFile(join(external, "answer.md"), "external answer");
+  await symlink("docs", join(workspace, "contained"));
+  await symlink(external, join(workspace, "outside"));
+  expect(await readSemanticArtifact(workspace, "contained/*.md")).toEqual({
+    path: "docs/answer.md",
+    content: "contained answer",
+  });
+  expect(readSemanticArtifact(workspace, "outside/answer.md")).rejects.toThrow(
+    "semantic artifact directory escapes the fixture",
+  );
+  expect(await readFile(join(external, "answer.md"), "utf8")).toBe(
+    "external answer",
+  );
+});
 
 function outcome(
   grader: OutputCheckDeclaration["grader"],

@@ -194,3 +194,100 @@ test("excessive call metadata is truncated and cannot prove absence", () => {
   expect(observed.data.truncated).toBe(true);
   expect(observed.data.calls).toHaveLength(128);
 });
+
+test.each([
+  { type: "assistant", message: null },
+  { type: "assistant", message: { content: "private" } },
+  { type: "assistant", parent_tool_use_id: 42, message: { content: [] } },
+  { type: "assistant", parent_tool_use_id: "", message: { content: [] } },
+])(
+  "malformed assistant or actor context cannot prove Claude tool absence: %j",
+  (event) => {
+    expect(
+      claudeToolCallsObservation(JSON.stringify(event) + "\n" + result, 0),
+    ).toMatchObject({ completeness: "partial", data: { calls: [] } });
+  },
+);
+
+test("Claude tool ordinals include unrelated tool calls without retaining their input", () => {
+  const stream =
+    assistant([
+      { type: "text", text: "private text" },
+      {
+        type: "tool_use",
+        name: "Bash",
+        id: "shell",
+        input: { command: "private command" },
+      },
+      { type: "tool_use", name: "Skill", input: { skill: "example:read" } },
+    ]) +
+    "\n" +
+    result;
+  const observed = claudeToolCallsObservation(stream, 0);
+  expect(observed.completeness).toBe("complete");
+  expect(observed.data.calls).toMatchObject([
+    { ordinal: 2, name: "Skill", skill: "read" },
+  ]);
+  expect(observed.data.calls).toHaveLength(1);
+  expect(JSON.stringify(observed)).not.toContain("private");
+});
+
+test.each([{ input: [] }, { input: null }])(
+  "Claude nonobject Agent input cannot establish a dispatch receipt: %s",
+  ({ input }) => {
+    const observed = claudeToolCallsObservation(
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          content: [{ type: "tool_use", name: "Agent", id: "agent", input }],
+        },
+      }) +
+        "\n" +
+        result,
+      0,
+    );
+    expect(observed.completeness).toBe("partial");
+    expect(defined(observed.data.calls[0])).toMatchObject({
+      toolUseId: "agent",
+      subagentType: null,
+      runInBackground: null,
+      promptSha256: null,
+    });
+  },
+);
+
+test("Claude accepts the serialized camel-case agent route while bounding UTF-8 prompts", () => {
+  const call = {
+    type: "tool_use",
+    name: "Agent",
+    id: "agent",
+    input: {
+      subagentType: "reviewer",
+      run_in_background: false,
+      prompt: "Private request",
+    },
+  };
+  const observed = claudeToolCallsObservation(
+    assistant([call]) + "\n" + result,
+    0,
+  );
+  expect(observed.completeness).toBe("complete");
+  expect(defined(observed.data.calls[0])).toMatchObject({
+    subagentType: "reviewer",
+    runInBackground: false,
+  });
+  const excessive = {
+    ...call,
+    input: { ...call.input, prompt: "🙂".repeat(262145) },
+  };
+  const partial = claudeToolCallsObservation(
+    assistant([excessive]) + "\n" + result,
+    0,
+  );
+  expect(partial.completeness).toBe("partial");
+  expect(defined(partial.data.calls[0])).toMatchObject({
+    promptSha256: null,
+    promptFirstLineSha256: null,
+  });
+  expect(JSON.stringify(partial)).not.toContain("🙂");
+});

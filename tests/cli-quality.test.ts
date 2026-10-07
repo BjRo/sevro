@@ -1,10 +1,19 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, writeFile, rm, access } from "node:fs/promises";
+import { mkdtemp, writeFile, rm, access, readFile } from "node:fs/promises";
+import { watch } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import baseline from "../examples/basic/graded.json";
-import { parseCliResult } from "./fixtures/assertions";
+import {
+  defined,
+  number,
+  parseCliResult,
+  parseRecord,
+  parseRunEvidence,
+  string,
+} from "./fixtures/assertions";
 import { extensionFixtureCommand } from "./fixtures/extension-command";
+import { wireCase, wireOptions } from "./fixtures/quality-engine-session";
 
 const extensionCommand = extensionFixtureCommand();
 
@@ -169,6 +178,176 @@ function extensionArguments(root: string): string[] {
     "extension-case",
   ];
 }
+
+async function setupCancellationArguments(root: string): Promise<string[]> {
+  const setupCode = `
+    const fs = require("node:fs"), path = require("node:path");
+    const root = process.argv[1];
+    fs.writeFileSync(path.join(root, "setup-ready.tmp"), JSON.stringify({pid: process.pid, workspace: process.cwd(), home: process.env.HOME}));
+    fs.renameSync(path.join(root, "setup-ready.tmp"), path.join(root, "setup-ready.json"));
+    setInterval(() => {}, 1000);
+  `;
+  const configured = wireOptions({
+    describe: {
+      extension: { id: "example.extension", version: "1.0.0" },
+      protocols: ["sevro.extension.v1"],
+      requiredCapabilities: ["sevro.fixture.setup"],
+      optionalCapabilities: [],
+      graders: ["example.extension"],
+      taskVerdictPolicies: [],
+    },
+    resolve: {
+      cases: [
+        {
+          ...wireCase,
+          fixture: {
+            kind: "generated",
+            commits: [
+              {
+                message: "Setup baseline",
+                files: { "README.md": "baseline\n" },
+              },
+            ],
+          },
+        },
+      ],
+    },
+    prepare: {
+      artifacts: [],
+      requestedInstrumentation: [],
+      fixtureSetup: { command: [process.execPath, "-e", setupCode, root] },
+      extensionData: {},
+    },
+  });
+  await writeFile(
+    join(root, "command.json"),
+    JSON.stringify(configured.command),
+  );
+  const adapter = join(root, "adapter.ts");
+  await writeFile(
+    adapter,
+    `
+    import { writeFileSync } from "node:fs";
+    export default { id: "example.host", model: "fixture", effort: "none", run: async () => {
+      writeFileSync(${JSON.stringify(join(root, "candidate-called"))}, "called");
+      return { finalMessage: "ready", complete: true };
+    } };
+  `,
+  );
+  const args = extensionArguments(root);
+  args[args.indexOf("--adapter-module") + 1] = adapter;
+  args[args.indexOf("--extension-source-file") + 1] = resolve(
+    import.meta.dir,
+    "fixtures/quality-engine-extension.ts",
+  );
+  args[args.indexOf("--case-id") + 1] = wireCase.id;
+  return [
+    ...args,
+    "--runner-build-digest",
+    "a".repeat(64),
+    "--project-digest",
+    "b".repeat(64),
+  ];
+}
+
+async function interruptReadyCli(
+  root: string,
+  args: string[],
+  signal: "SIGINT" | "SIGTERM",
+) {
+  const ready = Promise.withResolvers<undefined>();
+  const observer = watch(root, (_event, name) => {
+    if (name === "setup-ready.json") ready.resolve(undefined);
+  });
+  const timer = setTimeout(() => {
+    ready.reject(new Error("Setup readiness was not published"));
+  }, 5000);
+  const child = Bun.spawn(
+    [process.execPath, resolve(import.meta.dir, "../src/cli.ts"), ...args],
+    { stdout: "pipe", stderr: "pipe" },
+  );
+  const stdout = new Response(child.stdout).text();
+  const stderr = new Response(child.stderr).text();
+  try {
+    await Promise.race([
+      ready.promise,
+      child.exited.then(() => {
+        throw new Error("CLI exited before setup readiness");
+      }),
+    ]);
+    const receipt = parseRecord(
+      await readFile(join(root, "setup-ready.json"), "utf8"),
+    );
+    child.kill(signal);
+    const [out, err, code] = await Promise.all([stdout, stderr, child.exited]);
+    return { result: parseCliResult(out), stderr: err, code, receipt };
+  } finally {
+    observer.close();
+    clearTimeout(timer);
+    if (child.exitCode === null) child.kill("SIGTERM");
+    await child.exited;
+  }
+}
+
+test.each([
+  ["SIGINT", 130],
+  ["SIGTERM", 143],
+] as const)(
+  "public CLI %s during trusted fixture setup retains a cancelled trial before candidate admission",
+  async (signal, exitCode) => {
+    const root = await mkdtemp(join(tmpdir(), "sevro-cli-setup-interrupt-"));
+    try {
+      const run = await interruptReadyCli(
+        root,
+        await setupCancellationArguments(root),
+        signal,
+      );
+      expect(run.code).toBe(exitCode);
+      expect(run.result.execution.status).toBe("cancelled");
+      expect(run.result.grading.status).toBe("not_requested");
+      expect(run.result.task.verdict).toBe("not_assessed");
+      expect(
+        await Bun.file(join(root, "candidate-called")).exists(),
+      ).toBeFalse();
+      expect(() => process.kill(number(run.receipt.pid), 0)).toThrow();
+      const evidence = parseRunEvidence(
+        await readFile(defined(run.result.evidencePath), "utf8"),
+      );
+      expect(evidence.result.exitCode).toBe(exitCode);
+      expect(evidence.trials).toHaveLength(1);
+      expect(
+        defined(defined(evidence.result.cases[0]).trials[0]).execution.status,
+      ).toBe("cancelled");
+      expect(
+        await Bun.file(
+          join(string(run.receipt.workspace), "README.md"),
+        ).exists(),
+      ).toBeFalse();
+      expect(
+        await access(string(run.receipt.home)).then(
+          () => true,
+          () => false,
+        ),
+      ).toBeFalse();
+      const checkpoint = parseRecord(
+        await readFile(
+          join(root, "results", defined(run.result.runId), "checkpoint.json"),
+          "utf8",
+        ),
+      );
+      expect(checkpoint.completedTrials).toHaveLength(1);
+      const active = parseRecord(
+        await readFile(
+          join(root, "results", "active", `${defined(run.result.runId)}.json`),
+          "utf8",
+        ),
+      );
+      expect(active.status).toBe("interrupted");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
 
 test.each([
   ["condition", "other", "invalid --condition"],

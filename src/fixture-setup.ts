@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, isAbsolute, join } from "node:path";
+import { isRecord } from "./value-guards";
 
 const MAX_COMMAND_BYTES = 64 * 1024;
 const MAX_ENV_BYTES = 16 * 1024;
@@ -24,9 +25,8 @@ export interface FixtureSetup extends FixtureSetupDeclaration {
 }
 
 function setupRecord(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value))
-    throw new Error("invalid fixture setup");
-  return value as Record<string, unknown>;
+  if (!isRecord(value)) throw new Error("invalid fixture setup");
+  return value;
 }
 
 function validArgument(value: unknown): value is string {
@@ -74,9 +74,8 @@ function validEnvironmentValue(value: unknown): value is string {
 }
 
 function environmentRecord(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value))
-    throw new Error("invalid fixture setup environment");
-  return value as Record<string, unknown>;
+  if (!isRecord(value)) throw new Error("invalid fixture setup environment");
+  return value;
 }
 
 function setupEnvironment(value: unknown): Record<string, string> {

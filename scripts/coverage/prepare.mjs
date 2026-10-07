@@ -13,6 +13,7 @@ import { createHash } from "node:crypto";
 import { createInstrumenter } from "istanbul-lib-instrument";
 import { transformSync } from "@babel/core";
 import transformTypescript from "@babel/plugin-transform-typescript";
+import { productionSources } from "../typescript-inventory.mjs";
 
 /** @param {string[]} command @param {string} cwd */
 function git(command, cwd) {
@@ -92,16 +93,14 @@ export function copySnapshot(repo, root) {
 function eraseTypes(instrumenter, code, path) {
   const input = instrumenter.lastSourceMap();
   const inputMap = inputSourceMap(input, path);
-  const result = path.endsWith(".ts")
-    ? transformSync(code, {
-        filename: path,
-        configFile: false,
-        babelrc: false,
-        plugins: [transformTypescript],
-        inputSourceMap: inputMap,
-        sourceMaps: true,
-      })
-    : { code, map: inputMap };
+  const result = transformSync(code, {
+    filename: path,
+    configFile: false,
+    babelrc: false,
+    plugins: [transformTypescript],
+    inputSourceMap: inputMap,
+    sourceMaps: true,
+  });
   if (!result?.map || !result.code)
     throw new Error(`Missing instrumentation map for ${path}`);
   return { code: result.code, map: result.map };
@@ -132,18 +131,15 @@ function markBun(code, mappings) {
 
 /** @param {string} path @param {string} target @param {string} capturePath */
 export function instrumentFile(path, target, capturePath) {
-  const esModules = path.endsWith(".ts");
   const instrumenter = createInstrumenter({
-    esModules,
+    esModules: true,
     parserPlugins: ["typescript"],
     produceSourceMap: true,
     compact: false,
   });
   const code = instrumenter.instrumentSync(readFileSync(path, "utf8"), path);
   const transformed = eraseTypes(instrumenter, code, path);
-  const marked = esModules
-    ? markBun(transformed.code, transformed.map.mappings)
-    : { code: transformed.code, mappings: transformed.map.mappings };
+  const marked = markBun(transformed.code, transformed.map.mappings);
   const map = {
     ...transformed.map,
     sources: [path],
@@ -151,9 +147,7 @@ export function instrumentFile(path, target, capturePath) {
     mappings: marked.mappings,
   };
   const capture = JSON.stringify(capturePath);
-  const hook = esModules
-    ? `\nimport ${capture};\n`
-    : `\nrequire(${capture});\n`;
+  const hook = `\nimport ${capture};\n`;
   writeFileSync(
     target,
     marked.code +
@@ -166,14 +160,11 @@ export function instrumentFile(path, target, capturePath) {
 
 /** @param {string} repo @param {string} root */
 export function prepare(repo, root) {
+  const files = productionSources(repo);
   const snapshot = copySnapshot(repo, root);
   /** @type {import('istanbul-lib-coverage').CoverageMapData} */
   const baseline = {};
-  for (const file of new Bun.Glob("src/**/*").scanSync({
-    cwd: repo,
-    onlyFiles: true,
-  })) {
-    if (!/\.(?:ts|cjs)$/.test(file) || /\.d\.[cm]?ts$/.test(file)) continue;
+  for (const file of files) {
     const path = join(snapshot.source, file);
     baseline[path] = instrumentFile(
       path,
