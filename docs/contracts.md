@@ -6,7 +6,7 @@ Read these human contracts and their schemas together:
 - [Results/evidence v1](results-v1.md): states, exits, identity, and retention.
 - [Report v1](report-v1.md): summaries and comparison limitations.
 - [Identity v1](identity-v1.md): versioned comparison dimensions and hashing.
-- [Built-in graders v1](builtin-graders-v1.md): bounded output assertions.
+- [Built-in graders v1](builtin-graders-v1.md): output, shell, Git HEAD, and semantic checks.
 - [Schemas](../schemas/): machine-readable public forms.
 
 [Guide specification](specs/repository-guide.md) governs the repository assistant.

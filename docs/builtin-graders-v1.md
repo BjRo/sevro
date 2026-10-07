@@ -1,20 +1,23 @@
 # Built-in graders v1
 
-The first built-in graders inspect a complete, bounded final-message
-observation. The engine compiles evaluator-owned check declarations before host
+Built-in graders assess candidate output, shell-check results, and Git fixture
+state. The engine compiles evaluator-owned check declarations before host
 execution. A missing or incomplete observation yields `unavailable` for every
 output check; it never passes. A failed assertion yields `failed` while grading
 itself remains `completed`.
 
 Each declaration has `{ "id", "grader", "configuration" }`. The supported
-output graders are:
+built-in graders are:
 
-| Grader         | Configuration                                                      | Assessment                                                  |
-| -------------- | ------------------------------------------------------------------ | ----------------------------------------------------------- |
-| `sevro.regex`  | `pattern` string; optional `negate` boolean and `flags` string     | Tests final-message text with multiline matching.           |
-| `sevro.json`   | Optional RFC 6901 `pointer`, `equals`, `contains`, `exactDocument` | Parses JSON, then checks selected value or an array member. |
-| `sevro.schema` | Inline `schema` object; optional `exactDocument`                   | Validates the parsed JSON with JSON Schema Draft 2020-12.   |
-| `sevro.output` | Optional text, JSON, and schema assertions in one declaration      | Retains one outcome for a combined final-message contract.  |
+| Grader           | Configuration                                                                 | Assessment                                                                                                |
+| ---------------- | ----------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `sevro.regex`    | `pattern` string; optional `negate` boolean and `flags` string                | Tests final-message text with multiline matching.                                                         |
+| `sevro.json`     | Optional RFC 6901 `pointer`, `equals`, `contains`, `exactDocument`            | Parses JSON, then checks selected value or an array member.                                               |
+| `sevro.schema`   | Inline `schema` object; optional `exactDocument`                              | Validates the parsed JSON with JSON Schema Draft 2020-12.                                                 |
+| `sevro.output`   | Optional text, JSON, and schema assertions in one declaration                 | Retains one outcome for a combined final-message contract.                                                |
+| `sevro.shell`    | `run` string; optional `expectedExitCode`, `timeoutMs`, and stdout assertions | Checks exit code and optional stdout assertions in an isolated shell.                                     |
+| `sevro.git-head` | `kind`: `"changed"`, `"unchanged"`, or `"base-ancestor"`                      | Compares fixture HEAD and ancestry with the captured base revision.                                       |
+| `sevro.semantic` | `proposition` string; optional `artifactPath`                                 | Judges a proposition against the final response or saved document through a separate semantic host route. |
 
 JSON may be raw or contained in one `json` code fence. `exactDocument` requires
 the whole trimmed message to be that JSON document or fence. `contains` selects
