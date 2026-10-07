@@ -12,7 +12,9 @@ its lockfile. Marketplace plugins do not depend on Sevro.
 Prepare one candidate from the intended release tag and package metadata. The
 tag must equal `v<package version>`. Package metadata must identify the public
 repository, registry, distribution tag, and an owner-selected license with its
-nonempty `LICENSE` file. Prereleases cannot use npm's `latest` distribution tag.
+nonempty `LICENSE` file. `latest` identifies the recommended default release,
+including a release candidate. Use `next` for a preview that should require an
+explicit opt-in. Preparation accepts either tag for prerelease and stable versions.
 
 Preparation creates a new absolute output directory and never replaces an
 existing directory. It packs with lifecycle scripts disabled, retains the npm
@@ -32,8 +34,9 @@ metadata in the installed package.
 
 1. Select the license, update `package.json` to the intended release version,
    and commit those changes. Preserve the existing public schemas and document
-   behavior changes. For the first candidate, use `0.1.0-rc.1` with npm tag
-   `next`; a prerelease does not establish full Darrow migration completion.
+   behavior changes. Set `publishConfig.tag` to `latest` for the recommended
+   default or `next` for an opt-in preview. A prerelease does not establish full
+   Darrow migration completion.
 2. Run frozen installation, typecheck, formatting, and the full test suite.
 3. Prepare and test the exact candidate:
 
@@ -68,7 +71,7 @@ publishing authorization. The initial reviewed tarball can be published
 manually with an authenticated npm account:
 
 ```sh
-npm publish /absolute/reviewed/bjoernrochel-sevro-0.1.0-rc.1.tgz --ignore-scripts --access public --tag next
+npm publish /absolute/reviewed/bjoernrochel-sevro-0.1.0-rc.1.tgz --ignore-scripts --access public --tag latest
 ```
 
 After the package exists, configure its trusted publisher for GitHub owner
@@ -80,7 +83,16 @@ The workflow checks the downloaded artifact's SHA-256 before publishing and
 retains its release record. Configuring an owner or workflow does not itself
 authorize this coding session to publish or push.
 
-The first local candidate is `0.1.0-rc.1`, using the owner-selected
+An existing published candidate can become the default without republishing:
+
+```sh
+npm dist-tag add @bjoernrochel/sevro@0.1.0-rc.2 latest
+npm view @bjoernrochel/sevro dist-tags --json
+```
+
+Promotion changes the registry tag; it does not update the published tarball.
+
+The first published candidate was `0.1.0-rc.1`, using the owner-selected
 `BUSL-1.1` license. Its `LICENSE` preserves Darrow's terms and parameters,
 changing only the Licensed Work name and description to Sevro. Neither local
 checks nor a workflow file claim a remote CI run or publication. Darrow's exact

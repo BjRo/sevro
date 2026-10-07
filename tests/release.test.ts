@@ -87,59 +87,64 @@ test("scoped package installation retains the sevro command and release provenan
   expect(checked.code, checked.stderr).toBe(0);
 }, 60_000);
 
-test("release preparation retains a real tarball, identity, inventory, and checksums", async () => {
-  const { source, command, output } = await fixture();
-  const run = await invoke(command, [
-    "--tag",
-    "v0.1.0-rc.1",
-    "--output",
-    output,
-  ]);
-  expect(run.code, run.stderr).toBe(0);
-  const release = JSON.parse(run.stdout);
-  const archive = join(output, "bjoernrochel-sevro-0.1.0-rc.1.tgz");
-  const bytes = await readFile(archive);
-  expect(release).toMatchObject({
-    format: "sevro.release.v1",
-    name: "@bjoernrochel/sevro",
-    version: "0.1.0-rc.1",
-    releaseTag: "v0.1.0-rc.1",
-    distTag: "next",
-    archive,
-    sha256: createHash("sha256").update(bytes).digest("hex"),
-    integrity: `sha512-${createHash("sha512").update(bytes).digest("base64")}`,
-  });
-  expect(release.runtimes.node).toMatch(/^v\d+\.\d+\.\d+$/);
-  expect(release.runtimes.npm).toMatch(/^\d+\.\d+\.\d+$/);
-  expect(
-    JSON.parse(await readFile(join(output, "release.json"), "utf8")),
-  ).toEqual(release);
-  expect(await readFile(join(output, "SHA256SUMS"), "utf8")).toBe(
-    `${release.sha256}  bjoernrochel-sevro-0.1.0-rc.1.tgz\n`,
-  );
-  expect(release.files.map((file: { path: string }) => file.path)).toContain(
-    "LICENSE",
-  );
-  expect(
-    release.files.map((file: { path: string }) => file.path),
-  ).not.toContain("tests/private.txt");
-  expect(existsSync(join(source, "UNEXPECTED"))).toBe(false);
-  expect(existsSync(join(source, ".git"))).toBe(false);
-  const repeated = await invoke(command, [
-    "--tag",
-    "v0.1.0-rc.1",
-    "--output",
-    output,
-  ]);
-  expect(repeated.code).toBe(1);
-  expect(await readFile(archive)).toEqual(bytes);
-});
+test.each(["next", "latest"])(
+  "release preparation retains a real tarball, identity, inventory, and checksums (%s)",
+  async (distTag) => {
+    const { source, command, output, manifest } = await fixture();
+    manifest.publishConfig.tag = distTag;
+    await writeFile(join(source, "package.json"), JSON.stringify(manifest));
+    const run = await invoke(command, [
+      "--tag",
+      "v0.1.0-rc.1",
+      "--output",
+      output,
+    ]);
+    expect(run.code, run.stderr).toBe(0);
+    const release = JSON.parse(run.stdout);
+    const archive = join(output, "bjoernrochel-sevro-0.1.0-rc.1.tgz");
+    const bytes = await readFile(archive);
+    expect(release).toMatchObject({
+      format: "sevro.release.v1",
+      name: "@bjoernrochel/sevro",
+      version: "0.1.0-rc.1",
+      releaseTag: "v0.1.0-rc.1",
+      distTag,
+      archive,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+      integrity: `sha512-${createHash("sha512").update(bytes).digest("base64")}`,
+    });
+    expect(release.runtimes.node).toMatch(/^v\d+\.\d+\.\d+$/);
+    expect(release.runtimes.npm).toMatch(/^\d+\.\d+\.\d+$/);
+    expect(
+      JSON.parse(await readFile(join(output, "release.json"), "utf8")),
+    ).toEqual(release);
+    expect(await readFile(join(output, "SHA256SUMS"), "utf8")).toBe(
+      `${release.sha256}  bjoernrochel-sevro-0.1.0-rc.1.tgz\n`,
+    );
+    expect(release.files.map((file: { path: string }) => file.path)).toContain(
+      "LICENSE",
+    );
+    expect(
+      release.files.map((file: { path: string }) => file.path),
+    ).not.toContain("tests/private.txt");
+    expect(existsSync(join(source, "UNEXPECTED"))).toBe(false);
+    expect(existsSync(join(source, ".git"))).toBe(false);
+    const repeated = await invoke(command, [
+      "--tag",
+      "v0.1.0-rc.1",
+      "--output",
+      output,
+    ]);
+    expect(repeated.code).toBe(1);
+    expect(await readFile(archive)).toEqual(bytes);
+  },
+);
 
 test.each([
   "development",
   "tag",
   "license",
-  "latest",
+  "distribution-tag",
   "repository",
   "relative",
 ])(
@@ -148,7 +153,7 @@ test.each([
     const { source, command, output, manifest } = await fixture();
     if (kind === "development") manifest.version = "0.1.0-dev.0";
     if (kind === "license") manifest.license = "UNLICENSED";
-    if (kind === "latest") manifest.publishConfig.tag = "latest";
+    if (kind === "distribution-tag") manifest.publishConfig.tag = "unsupported";
     if (kind === "repository")
       manifest.repository.url = "git+https://github.com/another/project.git";
     await writeFile(join(source, "package.json"), JSON.stringify(manifest));

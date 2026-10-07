@@ -58,8 +58,7 @@ async function prepare() {
     manifest.repository.url !== "git+https://github.com/BjRo/sevro.git" ||
     manifest.publishConfig?.registry !== "https://registry.npmjs.org/" ||
     manifest.publishConfig.access !== "public" ||
-    !["next", "latest"].includes(manifest.publishConfig.tag ?? "") ||
-    (manifest.version.includes("-") && manifest.publishConfig.tag === "latest")
+    !["next", "latest"].includes(manifest.publishConfig.tag ?? "")
   )
     throw new Error(
       "public repository, registry, and distribution tag are required",

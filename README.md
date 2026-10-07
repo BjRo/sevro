@@ -27,9 +27,10 @@ publication, trusted publishing, Darrow pinning, updates, and rollback.
 
 Sevro uses the owner-selected [Business Source License 1.1](LICENSE), preserving
 Darrow's terms and parameters with Sevro named as the Licensed Work. The first
-published candidate is `0.1.0-rc.1`. This checkout prepares `0.1.0-rc.2` with
-the concurrent Darrow runner updates; its publication and Darrow pin update
-remain separate steps.
+published candidate was `0.1.0-rc.1`; `0.1.0-rc.2` is also published. The
+`latest` distribution tag identifies the recommended default, including release
+candidates. This checkout includes subsequent improvements that require a new
+version before publication.
 
 [`extension-client.ts`](src/extension-client.ts) validates one request and
 response per extension process and negotiates the v1 protocol. It enforces
