@@ -1,159 +1,86 @@
-Business Source License 1.1
+Sevro Source Available License 1.0
 
-License text copyright (c) 2017 MariaDB Corporation Ab, All Rights Reserved.
-"Business Source License" is a trademark of MariaDB Corporation Ab.
+Copyright (c) 2026 Björn Rochel
 
------------------------------------------------------------------------------
+1. Definitions
 
-Parameters
+"Software" means Sevro source code, executable forms, documentation, and
+modifications or derivative works of those materials, except material
+explicitly identified as having separate terms. Logo/branding permissions
+are separate and stated in docs/assets/README.md. Third-party material
+retains its identified license.
 
-Licensor:             Björn Rochel <bjoern@bjro.de>
+"You" means the person or legal entity exercising these rights.
 
-Licensed Work:        Sevro — a standalone evaluation runner for coding agents.
-                      The Licensed Work is (c) 2026 Björn Rochel.
+2. Free use and modification
 
-Additional Use Grant: You may make production use of the Licensed Work only
-                      as follows:
+Subject to this license, you may use, copy, modify, and create derivative
+works of the Software without a license fee, for any purpose. This includes
+commercial and non-commercial work, paid education, research, evaluation,
+consulting, and organizational use.
 
-                        (a) use within your own organization, for any
-                            purpose, commercial or non-commercial, provided
-                            that such use is not Commercial Educational
-                            Production Use;
+3. Free redistribution and origin
 
-                        (b) use while performing professional, consulting,
-                            or contract services for your own clients,
-                            provided that those services do not include
-                            Commercial Educational Production Use;
+You may redistribute the Software in source or executable form, including
+modified versions, without charge and under this license. Include this
+license, retain applicable copyright/attribution/origin notices, identify
+Sevro as the source of covered code, and prominently identify modifications.
+Do not claim another person's contribution was authored by you or imply
+that a modified version is an official Sevro release.
 
-                        (c) use in preparing or delivering training,
-                            workshops, courses, talks, presentations, or
-                            other educational offerings, or in creating or
-                            publishing blog posts, articles, or other
-                            educational content, provided that such
-                            production use is not Commercial Educational
-                            Production Use;
+These conditions also apply to covered code in combined distributions.
+Independently authored material containing no covered Software may have
+separate terms that neither restrict these rights nor circumvent section 4.
 
-                        (d) use in research, evaluation, and personal
-                            projects, provided that such use is not
-                            Commercial Educational Production Use;
+4. No sale or paid hosted access under this public license
 
-                      provided that such production use does not include
-                      distributing, selling, sublicensing, hosting, or
-                      otherwise offering the Licensed Work, or a derivative
-                      work of the Licensed Work, to third parties as a
-                      product or service whose principal value is the
-                      functionality of the Licensed Work.
+You may not charge directly or indirectly for copies of the Software, a
+license to it, or access to its functionality as a hosted or managed service.
+This includes modified, derivative, renamed, and rebranded versions. Bundling
+or relabeling does not avoid this condition, including when the principal
+value of a paid offering is access to the Software's functionality.
 
-                      For purposes of this Additional Use Grant,
-                      "Commercial Educational Production Use" means
-                      production use of the Licensed Work in preparing,
-                      delivering, or publishing any educational offering or
-                      content where you or anyone acting on your behalf:
+You may charge for independent professional services, training, research,
+analysis, or other work performed using the Software, provided the payment
+is not for copies, licensing, or hosted access to its functionality. Calling
+a charge a hosting, subscription, service, or support fee does not permit
+charging for otherwise restricted access.
 
-                        (i) receives or expects to receive, directly or
-                            indirectly, a fee, compensation, sponsorship, or
-                            other consideration in connection with it;
+Restricted distribution or hosted access requires a separate license from
+the relevant rights holder. Contact Björn Rochel at bjoern@bjro.de for
+alternative terms. This public license grants no general right to relicense
+covered Software under other terms.
 
-                        (ii) supplies it as part of, or uses it to advertise
-                             or promote, a paid product, service, membership,
-                             or engagement; or
+5. Contributions and separate grants
 
-                        (iii) uses it to generate leads or obtain any other
-                              direct or indirect commercial benefit.
+Contributions intentionally submitted for inclusion are governed by the
+terms in CONTRIBUTING.md, including the additional copyright license to
+Björn Rochel. Contributors retain copyright. Additional/alternative grants
+apply only to their stated recipients and terms, not to every recipient.
 
-                      Reasonable reimbursement of expenses alone does not
-                      constitute Commercial Educational Production Use.
-                      Commercial Educational Production Use is not included
-                      in this Additional Use Grant.
+6. Independent inputs, outputs, and branding
 
-                      For clarity, nothing in this Additional Use Grant
-                      limits the non-production rights granted under the
-                      Terms below.
+This license does not by itself apply to independently authored cases,
+datasets, extensions, prompts, or outputs merely because Sevro processes
+them. Material copying or deriving from covered Software remains subject
+to its applicable terms. Other material/input licenses still apply.
 
-                      For clarity, contributing modifications back to the
-                      Licensed Work, and publishing forks that are
-                      themselves offered free of charge under this License,
-                      are permitted.
+This software license grants no trademark or logo rights. Separate project
+identification permissions appear in docs/assets/README.md.
 
-Change Date:          Two years from the date on which the applicable
-                      version of the Licensed Work is first made publicly
-                      available. The Change Date is determined separately
-                      for each released version.
+7. Termination
 
-Change License:       Mozilla Public License, version 2.0
+Your permissions terminate if you violate these conditions. Other recipients'
+compliant permissions are not terminated by your violation. The relevant
+rights holder may reinstate permissions.
 
-For information about alternative licensing arrangements for the Licensed Work,
-please contact: bjoern@bjro.de
+8. Disclaimer and liability
 
------------------------------------------------------------------------------
+To the fullest extent permitted by applicable law, the Software is provided
+"as is", without express or implied warranties, including merchantability,
+fitness for a particular purpose, title, or non-infringement. No author,
+contributor, or rights holder is liable for damages or other liability
+arising from the Software or its use, in contract, tort, or otherwise.
 
-Notice
-
-Business Source License 1.1
-
-Terms
-
-The Licensor hereby grants you the right to copy, modify, create derivative
-works, redistribute, and make non-production use of the Licensed Work. The
-Licensor may make an Additional Use Grant, above, permitting limited
-production use.
-
-Effective on the Change Date, or the fourth anniversary of the first publicly
-available distribution of a specific version of the Licensed Work under this
-License, whichever comes first, the Licensor hereby grants you rights under
-the terms of the Change License, and the rights granted in the paragraph
-above terminate.
-
-If your use of the Licensed Work does not comply with the requirements
-currently in effect as described in this License, you must purchase a
-commercial license from the Licensor, its affiliated entities, or authorized
-resellers, or you must refrain from using the Licensed Work.
-
-All copies of the original and modified Licensed Work, and derivative works
-of the Licensed Work, are subject to this License. This License applies
-separately for each version of the Licensed Work and the Change Date may vary
-for each version of the Licensed Work released by Licensor.
-
-You must conspicuously display this License on each original or modified copy
-of the Licensed Work. If you receive the Licensed Work in original or
-modified form from a third party, the terms and conditions set forth in this
-License apply to your use of that work.
-
-Any use of the Licensed Work in violation of this License will automatically
-terminate your rights under this License for the current and all other
-versions of the Licensed Work.
-
-This License does not grant you any right in any trademark or logo of
-Licensor or its affiliates (provided that you may use a trademark or logo of
-Licensor as expressly required by this License).
-
-TO THE EXTENT PERMITTED BY APPLICABLE LAW, THE LICENSED WORK IS PROVIDED ON
-AN "AS IS" BASIS. LICENSOR HEREBY DISCLAIMS ALL WARRANTIES AND CONDITIONS,
-EXPRESS OR IMPLIED, INCLUDING (WITHOUT LIMITATION) WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, NON-INFRINGEMENT, AND
-TITLE.
-
-MariaDB hereby grants you permission to use this License's text to license
-your works, and to refer to it using the trademark "Business Source License",
-as long as you comply with the Covenants of Licensor below.
-
-Covenants of Licensor
-
-In consideration of the right to use this License's text and the "Business
-Source License" name and trademark, Licensor covenants to MariaDB, and to all
-other recipients of the licensed work to be provided by Licensor:
-
-1. To specify as the Change License the GPL Version 2.0 or any later version,
-   or a license that is compatible with GPL Version 2.0 or a later version,
-   where "compatible" means that software provided under the Change License
-   can be included in a program with software provided under GPL Version 2.0
-   or a later version. Licensor may specify additional Change Licenses
-   without limitation.
-
-2. To either: (a) specify an additional grant of rights to use that does not
-   impose any additional restriction on the right granted in this License, as
-   the Additional Use Grant; or (b) insert the text "None".
-
-3. To specify a Change Date.
-
-4. Not to modify this License in any other way.
+This is a source-available license, not an OSI open-source license. It has
+no automatic change date. Earlier releases retain their original grants.

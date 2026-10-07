@@ -1,0 +1,101 @@
+# Contributing to Sevro
+
+Contributions are welcome: runner fixes, extension examples, tests, documentation,
+and useful bug reports. Agent guidance lives in `AGENTS.md` in a source checkout.
+The [public contracts](docs/contracts.md) define the behavior compatibility boundary.
+
+## Contribution licensing
+
+By intentionally submitting a contribution for inclusion, you confirm that you
+created it or have permission to license it, including employer-owned work.
+Identify third-party material and its license separately; do not grant rights
+you lack. You make your contribution available under [Sevro's public license](LICENSE).
+
+In addition, you grant Björn Rochel a worldwide, perpetual, non-exclusive,
+irrevocable, royalty-free copyright license to use, reproduce, modify, publicly
+display, publicly perform, distribute, and license or sublicense the contribution
+and its derivatives under other terms, including open-source and commercial
+licenses. You retain copyright. This grants permission, not ownership.
+
+Other recipients receive the public terms unless separately licensed. This is
+not an Apache-2.0 grant to every recipient. The additional grant lets the
+maintainer offer alternatives without obtaining new copyright permission from
+each contributor. If you cannot agree, raise that before submitting work for
+inclusion. Contributions are provided without warranties to the extent permitted
+by applicable law.
+
+## Set up development
+
+Use Bun 1.3.13, Git, Node 24, and npm. Full suite isolation needs macOS and
+`sandbox-exec`; Linux/Windows acceptance is unverified. From a fresh checkout:
+
+```sh
+bun install --frozen-lockfile
+bun run test:docs-examples
+```
+
+The second command checks the tutorial in fresh consumer/contributor directories.
+Native model trials need their own [credentials and prerequisites](docs/native-hosts.md).
+
+## Quality contract and checks
+
+[Issue #1](https://github.com/BjRo/sevro/issues/1) owns the TypeScript quality
+contract, including canonical/fast checks, linting, focused functions,
+properties, and coverage. Its implementation is not present in this checkout.
+Reference its accepted contract when it lands; do not copy draft policy here
+or claim its gate already passes.
+
+Current applicable checks are:
+
+```sh
+bun run schemas:check
+bun run typecheck
+bun run format:check
+bun run check:docs
+bun test --timeout 15000
+bun run test:package-install
+bun run test:docs-examples
+```
+
+Run `bun run check:docs:external` separately and [triage network failures](docs/documentation-quality.md#external-links).
+Guide changes also need [native evals](docs/guide-evaluation.md).
+Documentation checks supplement #1 rather than replacing its contract.
+
+## Tests, fixtures, and schemas
+
+Preserve real Bun filesystem/process integration tests and macOS isolation.
+Use deterministic fixtures under `tests/fixtures/`; keep evaluator-only inputs
+outside candidate workspaces. Keep credentials and raw trial evidence out of Git.
+Add meaningful regression coverage for reproducible bugs. Fixtures should
+establish observable behavior, not mirror implementation.
+
+After changing a schema, regenerate its checked-in validators:
+
+```sh
+bun run schemas:generate
+bun run schemas:check
+```
+
+Commit schemas and validators together. Public v1 schemas and extension
+capabilities are compatibility boundaries. Document changed meaning, validate
+external inputs, and keep missing evidence from becoming a pass.
+
+## Documentation and pull requests
+
+Give each page one reader need: tutorial, how-to, reference, or explanation.
+Maintain the [hub](docs/README.md), old destinations, prerequisites, expected
+results, and limitations. Preserve historical observations as evidence rather
+than rewriting them to describe current behavior.
+
+Use imperative Conventional Commit subjects without trailing periods. Do not
+add `Co-authored-by` or AI attribution trailers. Do not change author metadata
+without explicit instruction. A PR explains the problem, changed behavior,
+compatibility limits, and checks actually performed. Do not claim unexecuted
+native trials or remote CI results.
+
+## Maintainer releases
+
+Follow [releases](docs/releases.md): choose a new version, prepare and inspect
+the exact tarball, verify its license/provenance, and validate that artifact.
+Publication, tags, registry changes, and alternative licensing are separate
+maintainer actions; preparing a contribution does not authorize them.

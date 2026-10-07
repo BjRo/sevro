@@ -249,8 +249,9 @@ The runner provides built-in shell, regex, JSON/schema, combined output,
 semantic-output, and
 advisory quality graders. A run can use those without any extension. An
 extension's graders add checks and metrics by default. The run configuration
-must explicitly name each built-in grader it replaces, or explicitly select
-one advertised task-verdict policy. Unknown or duplicate replacement IDs are
+must explicitly name each built-in grader it replaces. Separately, a run may
+explicitly select one advertised task-verdict policy. Selecting a policy does
+not itself disable or replace built-in graders. Unknown or duplicate replacement IDs are
 errors. Retained evidence lists every active grader, its identity and route,
 and any replaced default.
 
