@@ -2,13 +2,16 @@ import ts from "typescript";
 import type { Range } from "istanbul-lib-coverage";
 
 export type Primitive = string | number | boolean | null;
-export type Facts = Map<string, Primitive>;
+const nonNull = Symbol("non-null local binding");
+type Fact = Primitive | typeof nonNull;
+type FactDescription = Primitive | { kind: "non-null-binding" };
+export type Facts = Map<string, Fact>;
 export type FlowProof = {
   location: Range;
   unreachableRange?: Range;
   outcome: number;
   guard: string;
-  facts: Record<string, Primitive>;
+  facts: Record<string, FactDescription>;
 };
 type Result = { facts: Facts; terminated: boolean };
 const unknown = Symbol("unknown compiler value");
@@ -42,20 +45,52 @@ function supportedFunction(node: ts.FunctionDeclaration): boolean {
   const bindings = new Map<string, boolean>();
   for (const parameter of node.parameters)
     registerParameter(parameter.name, bindings);
-  let supported = true;
+  const state = { supported: true };
   function inspect(child: ts.Node): void {
     if (nestedFunction(child, node)) {
-      supported = false;
+      state.supported = false;
       return;
     }
-    if (forbiddenSyntax(child)) supported = false;
+    if (forbiddenSyntax(child)) state.supported = false;
     if (ts.isVariableDeclaration(child)) {
-      if (!registerBinding(child, bindings)) supported = false;
+      if (!registerBinding(child, bindings)) state.supported = false;
     }
     ts.forEachChild(child, inspect);
   }
   inspect(node);
-  return supported;
+  return state.supported && privateBindings(node, bindings);
+}
+
+function privateBindings(
+  node: ts.Node,
+  bindings: Map<string, boolean>,
+): boolean {
+  const state = { safe: true };
+  function inspect(child: ts.Node): void {
+    if (!safePrivateReference(child, bindings)) state.safe = false;
+    ts.forEachChild(child, inspect);
+  }
+  inspect(node);
+  return state.safe;
+}
+
+function safePrivateReference(
+  node: ts.Node,
+  bindings: Map<string, boolean>,
+): boolean {
+  if (
+    !ts.isIdentifier(node) ||
+    !/^(?:errors|vErrors|_errs\d+|_?valid\d*)$/.test(node.text)
+  )
+    return true;
+  if (propertyName(node)) return true;
+  return bindings.has(node.text);
+}
+
+function propertyName(node: ts.Identifier): boolean {
+  const parent = node.parent;
+  if (ts.isPropertyAccessExpression(parent)) return parent.name === node;
+  return ts.isPropertyAssignment(parent) && parent.name === node;
 }
 
 function registerParameter(
@@ -139,7 +174,7 @@ const supportedStatements = new Set([
 function constant(
   node: ts.Expression | undefined,
   facts: Facts,
-): Primitive | typeof unknown {
+): Fact | typeof unknown {
   if (!node) return unknown;
   if (ts.isParenthesizedExpression(node))
     return constant(node.expression, facts);
@@ -148,16 +183,17 @@ function constant(
   return literal === unknown ? literalOrOperation(node, facts) : literal;
 }
 
-function literalValue(node: ts.Expression): Primitive | typeof unknown {
-  if (ts.isNumericLiteral(node)) return Number(node.text);
+function literalValue(node: ts.Expression): Fact | typeof unknown {
+  if (ts.isArrayLiteralExpression(node)) return nonNull;
+  if (ts.isNumericLiteral(node)) {
+    const value = Number(node.text);
+    return finiteCounter(value) ? value : unknown;
+  }
   if (ts.isStringLiteral(node)) return node.text;
   return unknown;
 }
 
-function identifierValue(
-  name: string,
-  facts: Facts,
-): Primitive | typeof unknown {
+function identifierValue(name: string, facts: Facts): Fact | typeof unknown {
   if (!facts.has(name)) return unknown;
   return facts.get(name) ?? null;
 }
@@ -165,7 +201,7 @@ function identifierValue(
 function literalOrOperation(
   node: ts.Expression,
   facts: Facts,
-): Primitive | typeof unknown {
+): Fact | typeof unknown {
   if (node.kind === ts.SyntaxKind.NullKeyword) return null;
   if (node.kind === ts.SyntaxKind.TrueKeyword) return true;
   if (node.kind === ts.SyntaxKind.FalseKeyword) return false;
@@ -173,23 +209,20 @@ function literalOrOperation(
   return negation(node, facts);
 }
 
-function negation(
-  node: ts.Expression,
-  facts: Facts,
-): Primitive | typeof unknown {
+function negation(node: ts.Expression, facts: Facts): Fact | typeof unknown {
   if (
     !ts.isPrefixUnaryExpression(node) ||
     node.operator !== ts.SyntaxKind.ExclamationToken
   )
     return unknown;
   const value = constant(node.operand, facts);
-  return value === unknown ? unknown : !value;
+  return value === unknown || value === nonNull ? unknown : !value;
 }
 
 function binary(
   node: ts.BinaryExpression,
   facts: Facts,
-): Primitive | typeof unknown {
+): Fact | typeof unknown {
   const left = constant(node.left, facts),
     right = constant(node.right, facts);
   switch (node.operatorToken.kind) {
@@ -207,26 +240,30 @@ function binary(
 }
 
 function equality(
-  left: Primitive | typeof unknown,
-  right: Primitive | typeof unknown,
+  left: Fact | typeof unknown,
+  right: Fact | typeof unknown,
   negate: boolean,
-): Primitive | typeof unknown {
+): Fact | typeof unknown {
+  if (left === nonNull || right === nonNull)
+    return nullEquality(left, right, negate);
   if (left === unknown || right === unknown) return unknown;
   return (left === right) !== negate;
 }
 
 function conjunction(
-  left: Primitive | typeof unknown,
-  right: Primitive | typeof unknown,
-): Primitive | typeof unknown {
+  left: Fact | typeof unknown,
+  right: Fact | typeof unknown,
+): Fact | typeof unknown {
+  if (left === nonNull) return unknown;
   if (left !== unknown) return left ? right : left;
   return unknown;
 }
 
 function disjunction(
-  left: Primitive | typeof unknown,
-  right: Primitive | typeof unknown,
-): Primitive | typeof unknown {
+  left: Fact | typeof unknown,
+  right: Fact | typeof unknown,
+): Fact | typeof unknown {
+  if (left === nonNull) return unknown;
   if (left !== unknown) return left ? left : right;
   return unknown;
 }
@@ -310,6 +347,7 @@ function assign(
 }
 
 function statementExpression(node: ts.Expression, facts: Facts): void {
+  if (advance(node, facts)) return;
   if (
     ts.isBinaryExpression(node) &&
     node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
@@ -360,18 +398,29 @@ function conditional(
 ): Result {
   const value = constant(node.expression, facts);
   invalidate(node.expression, facts);
-  if (typeof value === "boolean") {
-    recordProof(node, value, facts, source, proofs);
+  const truth = truthValue(value);
+  if (typeof truth === "boolean") {
+    recordProof(node, truth, facts, source, proofs);
     return visit(
-      value ? node.thenStatement : node.elseStatement,
+      truth ? node.thenStatement : node.elseStatement,
       facts,
       source,
       proofs,
     );
   }
   return join(
-    visit(node.thenStatement, facts, source, proofs),
-    visit(node.elseStatement, facts, source, proofs),
+    visit(
+      node.thenStatement,
+      refineNull(node.expression, facts, true),
+      source,
+      proofs,
+    ),
+    visit(
+      node.elseStatement,
+      refineNull(node.expression, facts, false),
+      source,
+      proofs,
+    ),
   );
 }
 
@@ -456,7 +505,7 @@ function recordProof(
     ...(dead ? { unreachableRange: range(dead, source) } : {}),
     outcome: value ? 1 : 0,
     guard: node.expression.getText(source),
-    facts: Object.fromEntries(facts),
+    facts: describeFacts(facts),
   });
 }
 
@@ -484,6 +533,95 @@ function compoundGuard(node: ts.Node): boolean {
     );
   if (!ts.isBinaryExpression(node)) return false;
   return compilerGuard(node.left) && compilerGuard(node.right);
+}
+
+function nullEquality(
+  left: Fact | typeof unknown,
+  right: Fact | typeof unknown,
+  negate: boolean,
+): Fact | typeof unknown {
+  return left === null || right === null ? negate : unknown;
+}
+
+function finiteCounter(
+  value: Fact | typeof unknown | undefined,
+): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function truthValue(value: Fact | typeof unknown): boolean | undefined {
+  if (typeof value === "boolean") return value;
+  if (value === null) return false;
+  if (finiteCounter(value)) return value !== 0;
+  return undefined;
+}
+
+function advance(node: ts.Expression, facts: Facts): boolean {
+  const name = updatedIdentifier(node);
+  if (!name) return false;
+  const current = facts.get(name);
+  const next = finiteCounter(current) ? current + updateDelta(node) : undefined;
+  if (finiteCounter(next)) facts.set(name, next);
+  else facts.delete(name);
+  return true;
+}
+
+function updateDelta(node: ts.Expression): number {
+  if (!ts.isPrefixUnaryExpression(node) && !ts.isPostfixUnaryExpression(node))
+    return 0;
+  return node.operator === ts.SyntaxKind.PlusPlusToken ? 1 : -1;
+}
+
+function refineNull(
+  node: ts.Expression,
+  incoming: Facts,
+  truth: boolean,
+): Facts {
+  const facts = new Map(incoming);
+  const compared = nullComparedName(node);
+  if (compared)
+    facts.set(compared.name, compared.equal === truth ? null : nonNull);
+  return facts;
+}
+
+function nullComparedName(
+  node: ts.Expression,
+): { name: string; equal: boolean } | undefined {
+  if (ts.isParenthesizedExpression(node))
+    return nullComparedName(node.expression);
+  if (!ts.isBinaryExpression(node)) return;
+  if (
+    !ts.isIdentifier(node.left) ||
+    node.right.kind !== ts.SyntaxKind.NullKeyword
+  )
+    return;
+  return nullComparison(node);
+}
+
+function nullComparison(
+  node: ts.BinaryExpression,
+): { name: string; equal: boolean } | undefined {
+  if (!ts.isIdentifier(node.left)) return;
+  if (
+    ![
+      ts.SyntaxKind.EqualsEqualsEqualsToken,
+      ts.SyntaxKind.ExclamationEqualsEqualsToken,
+    ].includes(node.operatorToken.kind)
+  )
+    return;
+  return {
+    name: node.left.text,
+    equal: node.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken,
+  };
+}
+
+function describeFacts(facts: Facts): Record<string, FactDescription> {
+  return Object.fromEntries(
+    [...facts].map(([name, value]): [string, FactDescription] => [
+      name,
+      value === nonNull ? { kind: "non-null-binding" } : value,
+    ]),
+  );
 }
 
 export function range(node: ts.Node, source: ts.SourceFile): Range {

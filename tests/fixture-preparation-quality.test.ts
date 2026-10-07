@@ -6,6 +6,7 @@ import {
   mkdir,
   readFile,
   readlink,
+  realpath,
   readdir,
   symlink,
   utimes,
@@ -303,6 +304,7 @@ test("blind advisory review copies contained untracked symlinks and nested files
     baseRevision: source.revision,
   });
   retainTemporaryFixture(view);
+  expect(await realpath(view)).toBe(view);
   expect(await readlink(join(view, "nested", "shortcut"))).toBe("../README.md");
   expect(await readFile(join(view, "nested", "shortcut"), "utf8")).toBe(
     "baseline\n",
@@ -353,6 +355,61 @@ test("blind advisory review requires an immutable base revision rather than a mo
     source.revision,
   );
 });
+
+test("blind advisory review refuses an absolute symlink back to the source checkout", async () => {
+  const source = await repositoryFixture();
+  const original = join(source.repository, "README.md");
+  await symlink(original, join(source.repository, "absolute-link"));
+  expect(
+    buildBlindAdvisoryFixture(source.repository, {
+      baseRevision: source.revision,
+    }),
+  ).rejects.toThrow("escaping symlink");
+  expect(await readlink(join(source.repository, "absolute-link"))).toBe(
+    original,
+  );
+  expect(await readFile(original, "utf8")).toBe("baseline\n");
+});
+
+const repositorySources = [
+  {
+    name: "non-file URL",
+    target: "https://example.invalid/repository",
+    diagnostic: "must be a file URL",
+  },
+  {
+    name: "missing repository",
+    target: "missing",
+    diagnostic: "source is unreadable",
+  },
+  {
+    name: "regular file",
+    target: "file.txt",
+    diagnostic: "source is unreadable",
+  },
+];
+for (const invalid of repositorySources) {
+  test(`repository source maps refuse a ${invalid.name}`, async () => {
+    const source = await repositoryFixture();
+    await writeFile(
+      join(source.root, "sources", "file.txt"),
+      "source record\n",
+    );
+    const target = invalid.target.startsWith("https:")
+      ? invalid.target
+      : pathToFileURL(join(source.root, "sources", invalid.target)).href;
+    const sources = {
+      root: join(source.root, "sources"),
+      refs: { source: target },
+    };
+    expect(resolveRepositorySource("source", sources)).rejects.toThrow(
+      invalid.diagnostic,
+    );
+    expect(await fixtureGit(source.repository, "rev-parse", "HEAD")).toBe(
+      source.revision,
+    );
+  });
+}
 
 test("repository source resolution refuses a nested directory instead of the declared repository root", async () => {
   const source = await repositoryFixture();
@@ -520,7 +577,7 @@ async function packagedFixture(reverse: boolean): Promise<string> {
     "src/first.ts",
     "src/second.ts",
   ];
-  for (const path of reverse ? paths.toReversed() : paths)
+  for (const path of reverse ? [...paths].reverse() : paths)
     await writeFile(join(root, path), `${path}\n`);
   return root;
 }

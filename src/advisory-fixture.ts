@@ -245,8 +245,9 @@ export async function buildBlindAdvisoryFixture(
   requireAdvisorySource(candidateWorkspace, options.baseRevision);
   const source = await realpath(candidateWorkspace);
   const exclusions = advisoryExclusions(options);
-  const destination = await mkdtemp(join(tmpdir(), "sevro-advisory-"));
+  const temporary = await mkdtemp(join(tmpdir(), "sevro-advisory-"));
   try {
+    const destination = await realpath(temporary);
     await initializeAdvisoryBaseline(
       source,
       destination,
@@ -261,7 +262,7 @@ export async function buildBlindAdvisoryFixture(
     );
     return destination;
   } catch (error) {
-    await rm(destination, { recursive: true, force: true });
+    await rm(temporary, { recursive: true, force: true });
     throw error;
   }
 }

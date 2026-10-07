@@ -121,7 +121,7 @@ function validatePackFiles(pack: Pack) {
   if (
     pack.files.some(
       ({ path }) =>
-        !/^(?:(?:package\.json|README\.md|LICENSE)$|(?:src|docs|schemas|examples)\/)/.test(
+        !/^(?:(?:package\.json|README\.md|CONTRIBUTING\.md|LICENSE)$|(?:src|docs|schemas|examples)\/)/.test(
           path,
         ),
     )

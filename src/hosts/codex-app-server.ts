@@ -181,6 +181,7 @@ class AppServerRpc {
         this.stderr = (this.stderr + String(chunk)).slice(-16000);
       });
       this.process.stderr.on("end", resolve);
+      this.process.stderr.on("close", resolve);
       this.process.stderr.on("error", (error) => {
         this.fail(error);
         resolve();
@@ -213,6 +214,9 @@ class AppServerRpc {
   private readLines(): Promise<void> {
     return new Promise((resolve) => {
       const lines = createInterface({ input: this.process.stdout });
+      this.process.stdout.on("close", () => {
+        lines.close();
+      });
       lines.on("line", (line) => {
         try {
           this.receivedBytes += Buffer.byteLength(line);

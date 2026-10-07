@@ -6,10 +6,7 @@ import {
   unknownAssignment,
 } from "./compiler-flow";
 import type { FlowProof } from "./compiler-flow";
-import {
-  ownsIntegerCounter,
-  ownedErrorHelpers,
-} from "./compiler-counter-ownership";
+import { ownsIntegerCounter } from "./compiler-counter-ownership";
 
 export function analyzeCounterCopies(text: string): FlowProof[] {
   const { source, functions } = compilerFunctions(text);
@@ -18,9 +15,8 @@ export function analyzeCounterCopies(text: string): FlowProof[] {
     if (ts.isBlock(node)) blockCopies(node, source, proofs);
     ts.forEachChild(node, walk);
   }
-  const helpers = ownedErrorHelpers(functions);
   for (const node of functions)
-    if (node.body && ownsIntegerCounter(node, helpers)) walk(node.body);
+    if (node.body && ownsIntegerCounter(node)) walk(node.body);
   return proofs;
 }
 

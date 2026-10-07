@@ -9,6 +9,7 @@ import { integrityProbes } from "./coverage/probes.mjs";
 import { sourceMapProbe } from "./coverage/source-map-probe.mjs";
 import { exemptionProbe } from "./coverage/exemptions";
 import { compilerFlowProbe } from "./coverage/compiler-flow-probes";
+import { snapshotProbe } from "./coverage/snapshot-probe";
 
 /** @param {string[]} command @param {string} root */
 function run(command, root) {
@@ -26,14 +27,26 @@ async function qualityGate(fast) {
   const root = resolve(import.meta.dir, "..");
   await checkInventory(root);
   if (!fast) run([process.execPath, "install", "--frozen-lockfile"], root);
-  for (const name of ["schemas:check", "format:check", "lint", "typecheck"]) {
+  for (const name of [
+    "schemas:check",
+    "check:docs",
+    "format:check",
+    "lint",
+    "typecheck",
+  ]) {
     run([process.execPath, "run", name], root);
   }
   if (fast) return;
+  run(
+    [process.execPath, "run", "eval:guide", "--host", "codex", "--dry"],
+    root,
+  );
+  run([process.execPath, "run", "test:docs-examples"], root);
   integrityProbes();
   sourceMapProbe();
   exemptionProbe(root);
   compilerFlowProbe();
+  snapshotProbe(root);
   runCoverage(root);
   run([process.execPath, "run", "test:package-install"], root);
 }
@@ -82,6 +95,8 @@ try {
     exemptionProbe(resolve(import.meta.dir, ".."));
   else if (process.argv.slice(2).join(" ") === "--probe compiler-flow")
     compilerFlowProbe();
+  else if (process.argv.slice(2).join(" ") === "--probe snapshot")
+    snapshotProbe(resolve(import.meta.dir, ".."));
   else if (process.argv.slice(2).join(" ") === "--probe missing-reports") {
     mergeChecked({}, [], [], { version: 1, runId: "probe", layout: "probe" });
   } else if (process.argv[2] === "--inventory") {

@@ -2,14 +2,15 @@
 
 `bun run check:typescript` is the local and CI acceptance command. It performs a
 frozen dependency installation, checks the complete source inventory, verifies
-generated schemas, formatting, type-aware lint and typing, exercises coverage
+generated schemas, documentation contracts, formatting, type-aware lint and typing,
+checks the Codex guide evaluation in dry mode and runs documentation examples, exercises coverage
 integrity controls, runs the deterministic Bun suite in an isolated instrumented
 copy, enforces statements and branches independently, and validates installation
 of the published package. Runtime dependencies and public evaluation semantics
 remain part of the existing package-install contract.
 
 Use `bun run check:typescript --fast` before committing. It checks inventory,
-schemas, formatting, lint and types without the full integration suite, coverage
+schemas, documentation contracts, formatting, lint and types without the full integration suite, coverage
 or package installation. Install dependencies with `bun install --frozen-lockfile`
 first. Quality dependencies are development dependencies pinned in `bun.lock`.
 
@@ -32,7 +33,6 @@ production requires an explicit instrumentation and quality-policy change first.
 | `tooling`      | Same type-aware lint and strict compiler; `.mjs`/`.cjs` use `checkJs` and explicit JSDoc contracts   | Durable public gate probes, schema freshness, release and installed-package tests; outside the runner-production denominator                                                                         |
 | `tests`        | Same type-aware lint and strict compiler, including fixtures                                         | Real Bun filesystem/process/protocol tests; outside the production denominator                                                                                                                       |
 | `examples`     | Same type-aware lint and strict compiler                                                             | Packaged demonstration host adapters are synthetic consumer fixtures, exercised by installed-package validation; they implement no runner behavior and are outside the runner-production denominator |
-| `historical`   | Byte-preserved prototype evidence, separately inventoried                                            | Archived discovery harness and observations, not active quality tooling or runner code                                                                                                               |
 
 Generated AJV CommonJS is deliberately not rewritten to conform to authored-code
 rules. Applying ESLint's recommended JavaScript rules to the four exact generated
@@ -107,22 +107,22 @@ the real SIGKILL run-owner test and exempts no production file.
 
 Statements and branches must each reach 95% using the exact covered/total ratio.
 Rounded display percentages never determine success. Every generated file and
-reachable validation success/refusal path remains in scope. The initial assessment in
-[`typescript-generated-scaffolding-assessment.json`](typescript-generated-scaffolding-assessment.json)
-identified 302 impossible false outcomes immediately after a compiler-local
-error-counter copy. The narrower compiler-counter proof inventory was expanded
-to 351 outcomes with no intervening counter write. Its source hashes and exact
-AST locations are recorded in
+reachable validation success/refusal path remains in scope. Compiler-counter
+copies require a locally initialized counter with no intervening write; array
+length provenance accepts actual local array literals, not helper-function
+`.errors` properties or array-method return values. Its source hashes, exact AST locations,
+proof reasons and complete analyzer identity are recorded in
 [`typescript-coverage-exemptions.json`](typescript-coverage-exemptions.json).
-[`typescript-generated-counter-proof.json`](typescript-generated-counter-proof.json)
-retains the corresponding same-block AST proof findings and zero observations.
 The current conservative analyzer combines that copy proof with private primitive
 constant propagation: assignments invalidate facts, joins retain only identical
 facts, terminated arms cannot reach joins, and loops invalidate written locals.
 Lexical shadowing, captured-local closures, malformed syntax, dynamic evaluation
-and unsupported statement forms decline proofs. It identifies 705 compiler-local
-guard outcomes; wholly contained dead arms add 26 branch outcomes and 134
-statements. The final deduplicated proposal covers 731 branch outcomes and 134
+and unsupported statement forms decline proofs. Safe nonnegative integer
+truthiness/increments and local non-null binding refinements are also checked;
+NaN, unknown, negative, infinite and overflowing domains decline proofs.
+It identifies 677 compiler-local
+guard outcomes; wholly contained dead arms add 26 branch outcomes and 194
+statements. The final deduplicated proposal covers 703 branch outcomes and 194
 statements. It assumes no immutability of input JSON or its properties.
 
 This exemption is proposed for independent Standards/Spec review; it is not
@@ -146,7 +146,7 @@ guard/dead-arm reasons and the pending review status.
 both thresholds and writes `.quality/coverage-targeted`, keeping it distinct from
 the full-suite evidence. Sparse runs are expected to fail the full denominator.
 
-The durable public probes are `--probe branch`, `--probe missing-reports`,
+The durable public probes are `--probe snapshot`, `--probe branch`, `--probe missing-reports`,
 `--probe integrity`, `--probe source-map`, `--probe exemptions`, and
 `--probe compiler-flow`. Branch and missing-report controls
 deliberately exit 1. A five-of-five statement, one-of-two branch sample must fail
@@ -169,9 +169,10 @@ publishes the stable aggregate `TypeScript quality` status. A cancelled, skipped
 or failed gate cannot turn that status green.
 
 [`typescript-coverage-discovery.json`](typescript-coverage-discovery.json) retains
-the original machine-readable discovery record and digests. The selected
-byte-preserved harness and observations are in `coverage-discovery/`; its retained
-full artifact directory is identified by the original record. Those targeted
+one portable machine-readable summary of the discovery observations and the
+digest of the original external record. The maintained prototype-derived harness
+is in `scripts/coverage/`; fresh CI reports provide candidate-specific evidence.
+Original raw discovery evidence remains outside the repository. Its targeted
 feasibility results are not a full-suite baseline or 95% acceptance evidence.
 
 References: [Darrow's Python quality contract](https://github.com/BjRo/darrow/blob/main/docs/specs/python-quality.md),

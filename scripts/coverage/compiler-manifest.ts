@@ -16,6 +16,7 @@ const analyzerFiles = [
   "compiler-flow.ts",
   "compiler-counter-copy.ts",
   "compiler-exemptions.ts",
+  "compiler-counter-ownership.ts",
 ];
 export function sourceDigest(text: string): string {
   return createHash("sha256").update(text).digest("hex");

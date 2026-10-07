@@ -203,10 +203,15 @@ An artifact may set `executable: true` to install its verified bytes with owner
 execute permission. The flag enters fixture identity and retained artifact
 references; absent or false leaves the file readable without execute permission.
 
-`evaluate` receives one completed or failed trial's bounded host observations,
-their source and completeness, built-in check results, artifact references,
-and the extension's namespaced case data. It returns namespaced checks and
-metrics. A check is `passed`, `failed`, or `unavailable`; it names the evidence
+For engine-driven trials, `evaluate` runs after host execution completes and
+built-in grading has no error. It receives bounded host observations, their
+source and completeness, built-in check results, artifact references, and the
+extension's namespaced case data. Failed or cancelled host execution and
+built-in grading errors skip `evaluate`; available evidence is still retained.
+A failed built-in assertion does not skip extension grading.
+
+It returns namespaced checks and metrics. A check is `passed`, `failed`, or
+`unavailable`; it names the evidence
 used. A missing required observation remains unavailable. The extension may
 return a task-verdict recommendation only when an explicitly configured
 task-verdict policy names that extension policy. In that case, `evaluate`
@@ -235,9 +240,10 @@ calls. Its caller declares the extension source-file closure; the client also
 includes the executable and hashes that closure before discovery and before
 and after later calls. The redacted configuration and command argv affect the
 configuration digest. Command argv must not contain credentials. A passing
-extension check must cite available, complete evidence. The engine now accepts
-inline and declared clean-repository cases with additive extension checks, runs `prepare` before the host,
-and persists check outcomes, evidence references, and metrics before fixture
+extension check must cite available, complete evidence. The engine accepts
+inline, generated Git, and declared clean-repository cases with additive
+extension checks, runs `prepare` before the host, and persists check outcomes,
+evidence references, and metrics before fixture
 cleanup. It applies and retains bounded inline preparation artifacts after
 checking their path and digest. Source references require a caller-declared
 ID-to-file-URL map under a case source root and receive the same checks.
@@ -245,12 +251,17 @@ The bundled Codex host currently advertises no instrumentation capabilities.
 
 ## Grading and replacement
 
-The runner provides built-in shell, regex, JSON/schema, combined output,
-semantic-output, and
-advisory quality graders. A run can use those without any extension. An
-extension's graders add checks and metrics by default. The run configuration
-must explicitly name each built-in grader it replaces, or explicitly select
-one advertised task-verdict policy. Unknown or duplicate replacement IDs are
+The runner provides [built-in task graders](builtin-graders-v1.md) for regex,
+JSON, JSON Schema, combined output, shell checks, Git HEAD, and semantic
+propositions. A run can use those without any extension. Optional
+[advisory quality review](advisory-fixture.md) uses a separate host route and
+retains an independent recommendation. It does not affect the task verdict
+and is outside built-in grader replacement.
+
+An extension's graders add checks and metrics by default. The run configuration
+must explicitly name each built-in grader it replaces. Separately, a run may
+explicitly select one advertised task-verdict policy. Selecting a policy does
+not itself disable or replace built-in graders. Unknown or duplicate replacement IDs are
 errors. Retained evidence lists every active grader, its identity and route,
 and any replaced default.
 

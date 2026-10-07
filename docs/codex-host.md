@@ -1,12 +1,21 @@
 # Codex host integration
 
-The Codex adapter consumes `codex exec --json` as one JSONL turn. The
+The default `exec` entrypoint consumes `codex exec --json` as one JSONL turn. The
 `summarizeCodexEvents` parser requires one thread start and a completed turn
 with a zero process exit before reporting completion. Malformed, ambiguous,
 and oversized streams are errors. Missing or invalid final usage remains
 incomplete and is never estimated. The last completed `agent_message` before
 turn completion supplies the bounded final response; missing text stays
 unavailable.
+
+The optional `app-server` entrypoint uses the stdio app-server transport and
+waits for the original root thread to complete its native turns. Its final
+response comes from the completing root turn; token usage remains unknown.
+Both entrypoints use the same isolated Codex home and permission-profile
+preflight. See [native goal trials](development-cli.md#native-goal-trials) for
+selection, native-goal observations, and follow-up behavior. The JSONL parser
+rules above apply to the `exec` entrypoint.
+
 The bounded JSONL stream is retained per trial as the private
 `sevro.codex.events` host artifact. Its file URL and digest appear in trial
 evidence and are available to extension grading; the stream bytes stay out of
@@ -103,7 +112,7 @@ that the token occurs once across the delivered turns. It uses the same
 completed-turn dispatch receipt without wrapping the skill as a plugin.
 
 `createCodexHost` copies file-based authentication into a private Codex home
-for one turn. It supplies only explicit environment variables to the parent
+for each trial. It supplies only explicit environment variables to the parent
 process and uses a runner-generated permission profile for candidate commands.
 When the extension declares a local Codex marketplace, the host verifies its
 manifest contains only the named plugins with local sources, rejects package

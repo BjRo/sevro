@@ -467,6 +467,44 @@ test.each(invalidChunks)(
     expect(observed.observedSkills).toEqual([]);
   },
 );
+
+test("app-server transport failure from an absent executable cannot complete", async () => {
+  const options = await serverOptions("success");
+  options.argv = [join(options.request.repoDir, "missing-executable")];
+  const result = await runCodexAppServer(options);
+  expect(result.code).toBe(1);
+  expect(result.evidence.failure).toMatch(/ENOENT/);
+  expect(result.out).toContain('"type":"turn.failed"');
+});
+test("app-server closing transport still refuses an unterminated malformed trailing message", async () => {
+  const result = await runCodexAppServer(
+    await serverOptions("trailing-malformed-on-close"),
+  );
+  expect(result.code).toBe(1);
+  expect(result.evidence.failure).toBe("Malformed app-server JSON message");
+  expect(result.out).toContain('"type":"turn.failed"');
+});
+test("app-server oversized transport input is refused before becoming a result", async () => {
+  const result = await runCodexAppServer(
+    await serverOptions("oversized-stream"),
+  );
+  expect(result.code).toBe(1);
+  expect(result.evidence.failure).toBe("App-server stream exceeds limit");
+  expect(result.evidence.clientTurns).toBe(0);
+});
+test("app-server declared feedback can enter a thread while its native goal is active", async () => {
+  const options = await serverOptions("feedback-active-goal");
+  options.request.control = {
+    followUpPrompt: "User feedback",
+    appServerTimeoutMs: 2000,
+  };
+  const result = await runCodexAppServer(options);
+  expect(result.code, result.evidence.failure).toBe(0);
+  expect(result.evidence.clientTurns).toBe(2);
+  expect(result.out).toContain('"native_goal_observed":true');
+  expect(result.out).toContain('"native_goal_status":"active"');
+  expect(result.evidence.goalStatus).toBe("complete");
+});
 test("native yielded recovery joins unique ordered chunks and refuses duplicate receipts", async () => {
   const { root, command } = await skillWorkspace();
   const chunks = [
@@ -1654,7 +1692,9 @@ test.each([
   const item = record(completion.payload.item);
   const changes: Record<string, () => void> = {
     "duplicate call": () => {
-      entries.push({ ordinal: 0, payload: { ...call.payload } });
+      completion.ordinal = 2;
+      result.ordinal = 3;
+      entries.push({ ordinal: 1, payload: { ...call.payload } });
     },
     "duplicate response": () => {
       entries.push({ ordinal: 3, payload: { ...result.payload } });
@@ -1681,6 +1721,7 @@ test.each([
     },
   };
   defined(changes[mode])();
+  entries.sort((left, right) => left.ordinal - right.ordinal);
   const observed = await codexNativeReadDiagnostic(entries, root);
   expect(observed.completeness).toBe("partial");
   expect(observed.observedSkills).toEqual([]);

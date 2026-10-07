@@ -21,6 +21,13 @@ import { participant, object } from "./records.mjs";
 export function runCoverage(repo, testArguments = []) {
   const root = mkdtempSync(join(tmpdir(), "sevro-typescript-quality-"));
   const prepared = prepare(repo, root);
+  console.log(
+    JSON.stringify({
+      snapshot: root,
+      content: prepared.content,
+      layout: prepared.layout,
+    }),
+  );
   const directory = join(root, "reports");
   mkdirSync(directory);
   const identity = { version: 1, runId: randomUUID(), layout: prepared.layout };
@@ -70,9 +77,7 @@ export function runCoverage(repo, testArguments = []) {
       2,
     ),
   );
-  cpSync(join(root, "baseline.json"), join(output, "baseline.json"));
-  cpSync(join(root, "tests.log"), join(output, "tests.log"));
-  cpSync(prepared.source, join(output, "source"), { recursive: true });
+  retainInputs(root, output, prepared.source);
   console.log(JSON.stringify(map.getCoverageSummary().toJSON()));
   if (child.exitCode !== 0)
     throw new Error(
@@ -90,6 +95,13 @@ export function runCoverage(repo, testArguments = []) {
   console.log(JSON.stringify(enforcement));
   enforceAdjusted(enforcement.adjusted);
   return map;
+}
+
+/** @param {string} root @param {string} output @param {string} source */
+function retainInputs(root, output, source) {
+  for (const file of ["baseline.json", "snapshot.json", "tests.log"])
+    cpSync(join(root, file), join(output, file));
+  cpSync(source, join(output, "source"), { recursive: true });
 }
 
 /** @param {string} project @param {NodeJS.ProcessEnv} env @param {string[]} testArguments @param {string} root */

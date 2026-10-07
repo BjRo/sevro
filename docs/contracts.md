@@ -1,0 +1,18 @@
+# Current contracts
+
+Read these human contracts and their schemas together:
+
+- [Extension protocol v1](extension-protocol-v1.md): transport and operations.
+- [Results/evidence v1](results-v1.md): states, exits, identity, and retention.
+- [Report v1](report-v1.md): summaries and comparison limitations.
+- [Identity v1](identity-v1.md): versioned comparison dimensions and hashing.
+- [Built-in graders v1](builtin-graders-v1.md): output, shell, Git HEAD, and semantic checks.
+- [Schemas](../schemas/): machine-readable public forms.
+
+[Guide specification](specs/repository-guide.md) governs the repository assistant.
+[LICENSE](../LICENSE) governs licensing. The
+[TypeScript quality contract](typescript-quality.md) defines source inventories,
+development checks, and coverage policy for [issue #1](https://github.com/BjRo/sevro/issues/1).
+There is no accepted Rust migration decision here.
+[Architecture](architecture.md) explains implementation context;
+[historical validation](evidence.md) records past observations. Return to the [hub](README.md).

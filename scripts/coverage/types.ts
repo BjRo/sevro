@@ -24,25 +24,6 @@ export interface Capture {
   writeRecord: (directory: string, name: string, record: unknown) => void;
 }
 
-export interface CounterExemption {
-  branchId: string;
-  outcome: number;
-  location: import("istanbul-lib-coverage").Range;
-  binding: string;
-  guard: string;
-}
-export interface FileExemptions {
-  file: string;
-  sha256: string;
-  proofs: CounterExemption[];
-}
-export interface ExemptionManifest {
-  version: number;
-  status: string;
-  reasonId: string;
-  instrumenter: string;
-  files: FileExemptions[];
-}
 declare global {
   var __coverage__: CoverageMapData | undefined;
   var __sevroQualityCapture: Capture | undefined;

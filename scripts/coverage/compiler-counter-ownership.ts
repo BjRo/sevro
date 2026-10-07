@@ -1,19 +1,63 @@
 import ts from "typescript";
 
-export function ownsIntegerCounter(
-  node: ts.FunctionDeclaration,
-  helpers: Set<string>,
-): boolean {
+export function ownsIntegerCounter(node: ts.FunctionDeclaration): boolean {
+  if (!initializesCounter(node)) return false;
   const aliases = counterAliases(node);
-  const state = { initialized: false, safe: true };
-  const privateArray = privateErrorsOwned(node, helpers);
+  const state = { safe: true };
+  const privateArray = privateErrorsOwned(node);
   function inspect(child: ts.Node): void {
-    if (counterDeclaration(child)) state.initialized = true;
     state.safe = counterNodeSafe(child, aliases, privateArray) && state.safe;
     ts.forEachChild(child, inspect);
   }
   inspect(node);
-  return state.initialized && state.safe;
+  return state.safe;
+}
+
+function initializesCounter(node: ts.FunctionDeclaration): boolean {
+  if (!node.body) return false;
+  for (const statement of node.body.statements) {
+    const result = statementInitialization(statement);
+    if (result !== undefined) return result;
+  }
+  return false;
+}
+
+function statementInitialization(statement: ts.Statement): boolean | undefined {
+  if (ts.isVariableStatement(statement))
+    return declarationInitialization(statement.declarationList.declarations);
+  if (mentionsCounter(statement)) return false;
+  return undefined;
+}
+
+function declarationInitialization(
+  declarations: readonly ts.VariableDeclaration[],
+): boolean | undefined {
+  for (const declaration of declarations) {
+    if (counterDeclaration(declaration)) return zero(declaration.initializer);
+    if (mentionsCounter(declaration)) return false;
+  }
+  return undefined;
+}
+
+function mentionsCounter(node: ts.Node): boolean {
+  const state = { found: false };
+  function inspect(child: ts.Node): void {
+    if (
+      ts.isIdentifier(child) &&
+      child.text === "errors" &&
+      !propertyName(child)
+    )
+      state.found = true;
+    ts.forEachChild(child, inspect);
+  }
+  inspect(node);
+  return state.found;
+}
+
+function propertyName(node: ts.Identifier): boolean {
+  if (ts.isPropertyAccessExpression(node.parent))
+    return node.parent.name === node;
+  return ts.isPropertyAssignment(node.parent) && node.parent.name === node;
 }
 
 function counterNodeSafe(
@@ -107,37 +151,11 @@ function ownedArrayLength(node: ts.Expression): boolean {
   return ts.isIdentifier(node.expression) && node.expression.text === "vErrors";
 }
 
-export function ownedErrorHelpers(
-  functions: ts.FunctionDeclaration[],
-): Set<string> {
-  const names = new Set(
-    functions.flatMap((node) => (node.name ? [node.name.text] : [])),
-  );
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const node of functions)
-      if (removeUnsafeHelper(node, names)) changed = true;
-  }
-  return names;
-}
-
-function removeUnsafeHelper(
-  node: ts.FunctionDeclaration,
-  names: Set<string>,
-): boolean {
-  if (!node.name || privateErrorsOwned(node, names)) return false;
-  return names.delete(node.name.text);
-}
-
-function privateErrorsOwned(
-  node: ts.FunctionDeclaration,
-  helpers: Set<string>,
-): boolean {
+function privateErrorsOwned(node: ts.FunctionDeclaration): boolean {
   const state = { initialized: false, safe: true };
   function inspect(child: ts.Node): void {
     if (errorDeclaration(child)) state.initialized = true;
-    state.safe = arrayNodeSafe(child, helpers) && state.safe;
+    state.safe = arrayNodeSafe(child) && state.safe;
     ts.forEachChild(child, inspect);
   }
   inspect(node);
@@ -148,74 +166,36 @@ function errorDeclaration(node: ts.Node): node is ts.VariableDeclaration {
   return ts.isVariableDeclaration(node) && named(node.name, "vErrors");
 }
 
-function arrayNodeSafe(node: ts.Node, helpers: Set<string>): boolean {
-  if (errorDeclaration(node))
-    return node.initializer?.kind === ts.SyntaxKind.NullKeyword;
+function arrayNodeSafe(node: ts.Node): boolean {
+  if (errorDeclaration(node)) return ownedArrayValue(node.initializer);
   if (!ts.isBinaryExpression(node)) return true;
-  return !errorArrayWrite(node, helpers) || ownedArrayAssignment(node, helpers);
+  if (!errorArrayWrite(node)) return true;
+  return (
+    node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+    ownedArrayValue(node.right)
+  );
+}
+
+function errorArrayWrite(node: ts.BinaryExpression): boolean {
+  return assignment(node) && named(node.left, "vErrors");
 }
 
 function named(node: ts.Node, name: string): boolean {
   return ts.isIdentifier(node) && node.text === name;
 }
 
-function errorArrayWrite(
-  node: ts.BinaryExpression,
-  helpers: Set<string>,
-): boolean {
-  if (!assignment(node)) return false;
-  if (named(node.left, "vErrors")) return true;
-  return helperErrors(node.left, helpers);
-}
-
-function helperErrors(node: ts.Expression, helpers: Set<string>): boolean {
-  if (!ts.isPropertyAccessExpression(node) || node.name.text !== "errors")
-    return false;
-  return ts.isIdentifier(node.expression) && helpers.has(node.expression.text);
-}
-
-function ownedArrayAssignment(
-  node: ts.BinaryExpression,
-  helpers: Set<string>,
-): boolean {
-  return (
-    node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
-    ownedArrayValue(node.right, helpers)
-  );
-}
-
-function ownedArrayValue(node: ts.Expression, helpers: Set<string>): boolean {
-  if (literalOrPrivateArray(node, helpers)) return true;
+function ownedArrayValue(node: ts.Expression | undefined): boolean {
+  if (!node) return false;
+  if (literalOrPrivateArray(node)) return true;
   if (ts.isConditionalExpression(node))
-    return (
-      ownedArrayValue(node.whenTrue, helpers) &&
-      ownedArrayValue(node.whenFalse, helpers)
-    );
-  return concatenatedArray(node, helpers);
+    return ownedArrayValue(node.whenTrue) && ownedArrayValue(node.whenFalse);
+  return false;
 }
 
-function literalOrPrivateArray(
-  node: ts.Expression,
-  helpers: Set<string>,
-): boolean {
+function literalOrPrivateArray(node: ts.Expression): boolean {
   return (
     node.kind === ts.SyntaxKind.NullKeyword ||
     ts.isArrayLiteralExpression(node) ||
-    named(node, "vErrors") ||
-    helperErrors(node, helpers)
+    named(node, "vErrors")
   );
-}
-
-function concatenatedArray(node: ts.Expression, helpers: Set<string>): boolean {
-  if (
-    !ts.isCallExpression(node) ||
-    !ts.isPropertyAccessExpression(node.expression)
-  )
-    return false;
-  if (
-    node.expression.name.text !== "concat" ||
-    !named(node.expression.expression, "vErrors")
-  )
-    return false;
-  return node.arguments.every((argument) => ownedArrayValue(argument, helpers));
 }

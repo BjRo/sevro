@@ -13,8 +13,6 @@ const rolePaths = {
   tooling: /^(?:scripts\/|eslint\.config\.mjs$)/,
   tests: /^tests\//,
   examples: /^examples\//,
-  historical:
-    /^docs\/coverage-discovery\/(?:capture\.(?:cjs|mjs)|(?:gate|preload|prepare|probes|run|test-preload)\.mjs)$/,
 };
 
 /** @param {Record<string, string[]>} inventory */
@@ -32,7 +30,6 @@ function checkRoles(inventory) {
 async function checkLintDisposition(root, inventory) {
   const linter = new ESLint({ cwd: root });
   for (const [kind, files] of Object.entries(inventory)) {
-    if (kind === "historical") continue;
     await requireLintedFiles(linter, root, files, kind);
   }
 }
@@ -78,7 +75,6 @@ const kinds = [
   "tooling",
   "tests",
   "examples",
-  "historical",
 ];
 
 /** @param {unknown} value @returns {value is string[]} */
@@ -150,7 +146,7 @@ function checkTypedDisposition(root, inventory) {
   if (!configuration) throw new Error("Cannot read TypeScript configuration");
   const files = new Set(configuration.fileNames.map((path) => resolve(path)));
   for (const [kind, declared] of Object.entries(inventory)) {
-    if (kind === "generated" || kind === "historical") continue;
+    if (kind === "generated") continue;
     requireTyped(root, declared, files);
   }
 }

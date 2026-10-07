@@ -59,6 +59,24 @@ function observation(id: string) {
   return { id, completeness: "complete" as const, data: { ready: true } };
 }
 
+test("retained host configuration digest stays coherent when an adapter updates its configuration during execution", async () => {
+  const options = await evaluation({ finalMessage: "ready", complete: true });
+  const configuration = { "example.setting": "before" };
+  options.host.configuration = configuration;
+  options.host.run = () => {
+    configuration["example.setting"] = "after";
+    return Promise.resolve({ finalMessage: "ready", complete: true });
+  };
+  const { result } = await runEvaluation(options);
+  expect(configuration["example.setting"]).toBe("after");
+  const evidence = parseRunEvidence(
+    await readFile(result.evidencePath, "utf8"),
+  );
+  expect(evidence.configuration.digest).toBe(
+    evidence.evaluationIdentity.dimensions.configurationDigest,
+  );
+});
+
 function requireSemantic(options: EvaluationOptions, result: HostResult): void {
   options.case.checks = [
     {
@@ -109,6 +127,59 @@ async function extensionEvaluation(
   options.extension = { session, resolvedCase: resolved };
   return options;
 }
+
+async function instrumentedEvaluation(): Promise<EvaluationOptions> {
+  const options = await evaluation({ finalMessage: "ready", complete: true });
+  const sessionOptions = wireOptions({
+    describe: {
+      extension: { id: "example.extension", version: "1.0.0" },
+      protocols: ["sevro.extension.v1"],
+      requiredCapabilities: [],
+      optionalCapabilities: ["example.instrumentation"],
+      graders: ["example.extension"],
+      taskVerdictPolicies: [],
+    },
+    prepare: {
+      artifacts: [],
+      requestedInstrumentation: [
+        { id: "example.instrumentation", configuration: { enabled: true } },
+      ],
+      extensionData: {},
+    },
+  });
+  sessionOptions.hostCapabilities = ["example.instrumentation"];
+  const session = await openExtensionSession(sessionOptions);
+  const resolved = defined(
+    (await session.resolve(pathToFileURL(options.projectRoot).href, {}))[0],
+  );
+  if (resolved.fixture.kind !== "inline")
+    throw new Error("Expected inline instrumentation fixture");
+  options.case = { ...resolved, fixture: { files: resolved.fixture.files } };
+  options.extension = { session, resolvedCase: resolved };
+  options.host.instrumentation = [
+    { id: "example.instrumentation", executionChanging: false },
+  ];
+  return options;
+}
+
+test("refuses applied instrumentation changed by an adapter from the prepared request", async () => {
+  const options = await instrumentedEvaluation();
+  options.host.run = (request) => {
+    const appliedInstrumentation = defined(request.instrumentation);
+    defined(appliedInstrumentation[0]).configuration.enabled = false;
+    return Promise.resolve({
+      finalMessage: "ready",
+      complete: true,
+      actualCondition: "passive",
+      appliedInstrumentation,
+      observations: [observation("example.evidence")],
+    });
+  };
+  const { result } = await runEvaluation(options);
+  expect(result.execution.status).toBe("failed");
+  expect(result.exitCode).toBe(2);
+  expect(result.task.verdict).toBe("not_assessed");
+});
 
 test("refuses a selected case that diverges from the extension-resolved declaration", async () => {
   const options = await extensionEvaluation();

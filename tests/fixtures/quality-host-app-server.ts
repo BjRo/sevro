@@ -29,6 +29,10 @@ const badInitialize: Record<string, string> = {
     '{"id":"approval","method":"item/commandExecution/requestApproval","params":{}}',
 };
 function initialize(id: unknown): void {
+  if (mode === "oversized-stream") {
+    process.stdout.write("x".repeat(8 * 1024 * 1024 + 1) + "\n");
+    return;
+  }
   const bad = badInitialize[mode];
   if (bad !== undefined) {
     process.stdout.write(bad + "\n");
@@ -237,7 +241,15 @@ function getGoal(id: unknown): void {
     "usageLimited-goal": goal("usageLimited"),
     "budgetLimited-goal": goal("budgetLimited"),
   };
-  send({ id, result: { goal: modes[mode] ?? null } });
+  send({
+    id,
+    result: {
+      goal:
+        mode === "feedback-active-goal"
+          ? goal(turnCount === 1 ? "active" : "complete")
+          : (modes[mode] ?? null),
+    },
+  });
 }
 function dispatch(message: Record<string, unknown>): void {
   const handlers: Record<string, () => void> = {
@@ -261,11 +273,15 @@ function dispatch(message: Record<string, unknown>): void {
     typeof message.method === "string" ? handlers[message.method] : undefined;
   handler?.();
 }
-createInterface({ input: process.stdin }).on("line", (line) => {
-  const message = parseMessage(line);
-  appendFileSync(
-    join(process.cwd(), ".git", "requests.jsonl"),
-    JSON.stringify(message) + "\n",
-  );
-  if (message.id !== undefined) dispatch(message);
-});
+createInterface({ input: process.stdin })
+  .on("line", (line) => {
+    const message = parseMessage(line);
+    appendFileSync(
+      join(process.cwd(), ".git", "requests.jsonl"),
+      JSON.stringify(message) + "\n",
+    );
+    if (message.id !== undefined) dispatch(message);
+  })
+  .on("close", () => {
+    if (mode === "trailing-malformed-on-close") process.stdout.write("{broken");
+  });

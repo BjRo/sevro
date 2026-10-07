@@ -3,6 +3,17 @@ import { resolve } from "node:path";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 
+test("the public TypeScript gate copies exact candidate inputs and deletions with independent Git", () => {
+  const child = Bun.spawnSync(
+    [process.execPath, "run", "check:typescript", "--probe", "snapshot"],
+    { cwd: resolve(import.meta.dir, ".."), stdout: "pipe", stderr: "pipe" },
+  );
+  expect(child.exitCode).toBe(0);
+  expect(child.stdout.toString()).toContain(
+    "candidate-snapshot: exact inputs, deletions and independent Git preserved",
+  );
+}, 30000);
+
 test("the public TypeScript gate rejects missed branches independently", () => {
   const child = Bun.spawnSync(
     [process.execPath, "run", "check:typescript", "--probe", "branch"],
@@ -78,9 +89,9 @@ test("the public TypeScript gate refuses stale or observed compiler-counter exem
     [process.execPath, "run", "check:typescript", "--probe", "exemptions"],
     { cwd: resolve(import.meta.dir, ".."), stdout: "pipe", stderr: "pipe" },
   );
-  expect(child.stdout.toString()).toContain("compiler-guard-proof:705");
-  expect(child.stdout.toString()).toContain("compiler-outcome-proof:731");
-  expect(child.stdout.toString()).toContain("compiler-statement-proof:134");
+  expect(child.stdout.toString()).toContain("compiler-guard-proof:677");
+  expect(child.stdout.toString()).toContain("compiler-outcome-proof:703");
+  expect(child.stdout.toString()).toContain("compiler-statement-proof:194");
   expect(child.stdout.toString()).toContain("stale-proof: refused");
   expect(child.stdout.toString()).toContain("observed-exempt-outcome: refused");
   expect(child.stdout.toString()).toContain(
@@ -109,9 +120,26 @@ test("the public TypeScript gate proves only conservative compiler-local flow", 
     [process.execPath, "run", "check:typescript", "--probe", "compiler-flow"],
     { cwd: resolve(import.meta.dir, ".."), stdout: "pipe", stderr: "pipe" },
   );
-  for (const label of ["constant-local", "identical-join", "terminated-arm"])
+  for (const label of [
+    "literal-array-length",
+    "constant-local",
+    "identical-join",
+    "terminated-arm",
+    "zero-counter-truth",
+    "increment-counter",
+    "local-array-binding",
+    "null-join",
+    "array-mutation",
+  ])
     expect(child.stdout.toString()).toContain(`${label}: proved`);
   for (const label of [
+    "infinite-literal-negation",
+    "overflow-literal-negation",
+    "fractional-counter",
+    "helper-error-property",
+    "array-method-result",
+    "conditional-counter-initialization",
+    "copy-before-initialization",
     "assignment",
     "different-join",
     "loop-write",
@@ -122,6 +150,16 @@ test("the public TypeScript gate proves only conservative compiler-local flow", 
     "malformed-syntax",
     "labeled-block",
     "short-circuit-primitive",
+    "global-counter-binding",
+    "foreign-counter-value",
+    "nan-counter",
+    "negative-counter",
+    "infinite-counter",
+    "counter-overflow",
+    "negative-decrement",
+    "array-reassignment",
+    "different-null-join",
+    "nonnull-truthiness",
   ])
     expect(child.stdout.toString()).toContain(`${label}: declined`);
   expect(child.exitCode).toBe(0);

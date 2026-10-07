@@ -4,7 +4,7 @@ import tseslint from "typescript-eslint";
 import { testCallbackLines } from "./scripts/eslint-test-callbacks.mjs";
 
 export default defineConfig(
-  { ignores: ["node_modules/**", ".quality/**", "docs/coverage-discovery/**"] },
+  { ignores: ["node_modules/**", ".quality/**"] },
   {
     files: ["src/generated/*.cjs"],
     languageOptions: { sourceType: "commonjs" },
