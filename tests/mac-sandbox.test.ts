@@ -1,4 +1,5 @@
-import { expect, test } from "bun:test";
+import { defined } from "./fixtures/assertions";
+import { test, expect } from "bun:test";
 import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,7 +8,6 @@ import {
   macSandboxProfile,
   prepareMacSandboxCommand,
 } from "../src/hosts/mac-sandbox";
-
 test("profile denies reads and writes of each protected root", () => {
   const profile = macSandboxProfile(["/private/source", "/private/evidence"]);
   expect(profile).toContain('(deny file-read* (subpath "/private/source"))');
@@ -18,7 +18,6 @@ test("profile denies reads and writes of each protected root", () => {
   expect(() => macSandboxProfile([])).toThrow(HostIsolationError);
   expect(() => macSandboxProfile(["/bad\npath"])).toThrow(/control character/);
 });
-
 test("outer sandbox permits the fixture but denies protected source", async () => {
   if (process.platform !== "darwin") return;
   const root = await mkdtemp(join(tmpdir(), "sevro-sandbox-test-"));
@@ -34,7 +33,7 @@ test("outer sandbox permits the fixture but denies protected source", async () =
       protectedRoots: [source],
       privateStateRoot: state,
     });
-    const profilePath = command.argv[2]!;
+    const profilePath = defined(defined(command.argv[2]));
     expect(await readFile(profilePath, "utf8")).toContain(source);
     const allowed = Bun.spawn(command.argv, { stdout: "pipe", stderr: "pipe" });
     expect(await new Response(allowed.stdout).text()).toBe("visible");
@@ -68,12 +67,11 @@ test("outer sandbox permits the fixture but denies protected source", async () =
     await rm(root, { recursive: true, force: true });
   }
 });
-
 test("workspace cannot overlap a protected root", async () => {
   if (process.platform !== "darwin") return;
   const root = await mkdtemp(join(tmpdir(), "sevro-sandbox-overlap-"));
   try {
-    await expect(
+    expect(
       prepareMacSandboxCommand({
         argv: ["/usr/bin/true"],
         workspace: root,
@@ -85,7 +83,6 @@ test("workspace cannot overlap a protected root", async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
-
 test("a verified peer path remains denied after its fixture is removed", async () => {
   if (process.platform !== "darwin") return;
   const root = await mkdtemp(join(tmpdir(), "sevro-sandbox-removed-peer-"));
@@ -96,7 +93,7 @@ test("a verified peer path remains denied after its fixture is removed", async (
     await Bun.write(join(peer, "temporary.txt"), "peer");
     const canonicalPeer = await realpath(peer);
     await rm(peer, { recursive: true });
-    await expect(
+    expect(
       prepareMacSandboxCommand({
         argv: ["/bin/true"],
         workspace,

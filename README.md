@@ -1,5 +1,10 @@
 # Sevro
 
+Contributors run `bun run check:typescript` for the complete quality gate and
+`bun run check:typescript --fast` before committing. See the
+[TypeScript quality contract](docs/typescript-quality.md) for source inventories,
+strict typing, property tests, coverage integrity and the supported environment.
+
 Sevro is a standalone evaluation runner for agentic coding capabilities. It is
 being extracted from [Darrow](https://github.com/BjRo/darrow/issues/95). This
 checkout runs locally and packs as an installable npm tarball.

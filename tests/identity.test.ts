@@ -1,10 +1,9 @@
-import { expect, test } from "bun:test";
+import { test, expect } from "bun:test";
 import {
   canonicalJson,
   createEvaluationIdentity,
   hashJson,
 } from "../src/identity";
-
 const digest = "a".repeat(64);
 const dimensions = {
   runnerBuildDigest: digest,
@@ -24,7 +23,6 @@ const dimensions = {
   trialCount: 2,
   passThreshold: 0.5,
 };
-
 test("canonical JSON is stable across object insertion order", () => {
   expect(canonicalJson({ b: [2, { z: true, a: "é" }], a: 1 })).toBe(
     '{"a":1,"b":[2,{"a":"é","z":true}]}',
@@ -32,7 +30,14 @@ test("canonical JSON is stable across object insertion order", () => {
   expect(hashJson({ b: 2, a: 1 })).toBe(hashJson({ a: 1, b: 2 }));
   expect(hashJson({ a: [1, 2] })).not.toBe(hashJson({ a: [2, 1] }));
 });
-
+function changedDimension(key: keyof typeof dimensions) {
+  const variants: Partial<Record<keyof typeof dimensions, unknown>> = {
+    condition: "enforced",
+    trialCount: 3,
+    passThreshold: 0.75,
+  };
+  return variants[key] ?? digest.replace(/^a/, "b");
+}
 test("identity changes with each comparison-critical dimension", () => {
   const baseline = createEvaluationIdentity(dimensions);
   expect(baseline.algorithm).toBe("sevro.identity.v1");
@@ -41,14 +46,7 @@ test("identity changes with each comparison-critical dimension", () => {
     if (key === "extensionDigest" || key === "extensionProtocol") continue;
     const changed = {
       ...dimensions,
-      [key]:
-        key === "condition"
-          ? "enforced"
-          : key === "trialCount"
-            ? 3
-            : key === "passThreshold"
-              ? 0.75
-              : digest.replace(/^a/, "b"),
+      [key]: changedDimension(key),
     };
     expect(createEvaluationIdentity(changed).digest).not.toBe(baseline.digest);
   }
@@ -60,7 +58,6 @@ test("identity changes with each comparison-critical dimension", () => {
     }).digest,
   ).not.toBe(baseline.digest);
 });
-
 test("identity rejects missing dimensions and non-JSON values", () => {
   const incomplete = { ...dimensions } as Record<string, unknown>;
   delete incomplete.configurationDigest;

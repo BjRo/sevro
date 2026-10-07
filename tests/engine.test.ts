@@ -1,4 +1,13 @@
-import { afterEach, expect, test } from "bun:test";
+import { expectUnknown } from "./fixtures/assertions";
+import {
+  arrayContaining,
+  checkoutRunner,
+  defined,
+  objectContaining,
+  parseCheckpoint,
+  parseRunEvidence,
+} from "./fixtures/assertions";
+import { afterEach, test, expect } from "bun:test";
 import { existsSync } from "node:fs";
 import {
   mkdir,
@@ -11,20 +20,17 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { runEvaluation, type HostAdapter } from "../src/engine";
-
 const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
 });
-
 async function rootsForRun() {
   const root = await mkdtemp(join(tmpdir(), "sevro-engine-test-"));
   roots.push(root);
   return { projectRoot: root, resultsRoot: join(root, "results") };
 }
-
 const digest = "a".repeat(64);
 const baseCase = {
   id: "answer",
@@ -39,7 +45,6 @@ const baseCase = {
   ],
   requiredEvidence: [],
 };
-
 test("runs trials, applies threshold, and retains evidence before fixture cleanup", async () => {
   const paths = await rootsForRun();
   const workspaces: string[] = [];
@@ -76,14 +81,14 @@ test("runs trials, applies threshold, and retains evidence before fixture cleanu
     task: { verdict: "passed" },
     exitCode: 0,
   });
-  expect(
-    outcome.result.cases[0]?.trials.map((trial) => trial.task.verdict),
+  expectUnknown(
+    defined(outcome.result.cases[0]).trials.map((trial) => trial.task.verdict),
   ).toEqual(["passed", "failed"]);
   for (const workspace of workspaces) expect(existsSync(workspace)).toBe(false);
-  for (const trial of outcome.result.cases[0]!.trials)
-    expect(existsSync(trial.artifactPath!)).toBe(true);
-  const evidence = JSON.parse(
-    await readFile(outcome.result.evidencePath!, "utf8"),
+  for (const trial of defined(defined(outcome.result.cases[0])).trials)
+    expect(existsSync(trial.artifactPath)).toBe(true);
+  const evidence = parseRunEvidence(
+    await readFile(outcome.result.evidencePath, "utf8"),
   );
   expect(evidence.format).toBe("sevro.run-evidence.v1");
   expect(evidence.trials).toHaveLength(2);
@@ -92,27 +97,25 @@ test("runs trials, applies threshold, and retains evidence before fixture cleanu
     source: "checkout",
     buildDigest: digest,
   });
-  expect(evidence.runner.root).toMatch(/^file:\/\//);
-  expect(evidence.runner.revision).toMatch(/^[a-f0-9]{40,64}$/);
+  expect(checkoutRunner(evidence.runner).root).toMatch(/^file:\/\//);
+  expect(checkoutRunner(evidence.runner).revision).toMatch(/^[a-f0-9]{40,64}$/);
   expect(
-    evidence.runner.dirtyPatchDigest === null ||
-      /^[a-f0-9]{64}$/.test(evidence.runner.dirtyPatchDigest),
+    checkoutRunner(evidence.runner).dirtyPatchDigest === null ||
+      /^[a-f0-9]{64}$/.test(
+        defined(checkoutRunner(evidence.runner).dirtyPatchDigest),
+      ),
   ).toBeTrue();
-  expect(evidence.trials[0].usage).toEqual({
+  expectUnknown(defined(evidence.trials[0]).usage).toEqual({
     inputTokens: null,
     outputTokens: null,
     costUsd: null,
     complete: false,
   });
   expect(
-    evidence.trials.every(
-      (trial: { candidateDurationMs: number }) =>
-        trial.candidateDurationMs >= 0,
-    ),
+    evidence.trials.every((trial) => defined(trial.candidateDurationMs) >= 0),
   ).toBeTrue();
-  expect(evidence.result).toEqual(outcome.result);
+  expectUnknown(evidence.result).toEqual(outcome.result);
 });
-
 test("renders the workspace token separately for each trial", async () => {
   const paths = await rootsForRun();
   const seen: string[] = [];
@@ -120,10 +123,10 @@ test("renders the workspace token separately for each trial", async () => {
     id: "sevro.host.synthetic",
     model: "synthetic-v1",
     effort: "none",
-    async run({ prompt, workspace }) {
+    run({ prompt, workspace }) {
       expect(prompt).toBe(`Inspect ${workspace} and ${workspace}`);
       seen.push(workspace);
-      return { finalMessage: "ready", complete: true };
+      return Promise.resolve({ finalMessage: "ready", complete: true });
     },
   };
   const outcome = await runEvaluation({
@@ -141,9 +144,8 @@ test("renders the workspace token separately for each trial", async () => {
   });
   expect(outcome.result.exitCode).toBe(0);
   expect(seen).toHaveLength(2);
-  expect(seen[0]).not.toBe(seen[1]);
+  expect(defined(seen[0])).not.toBe(defined(seen[1]));
 });
-
 test("routes a rendered continuation only to a capable host", async () => {
   const paths = await rootsForRun();
   const prompts: string[] = [];
@@ -152,11 +154,11 @@ test("routes a rendered continuation only to a capable host", async () => {
     hostCapabilities: ["sevro.host.continuation"],
     model: "synthetic-v1",
     effort: "none",
-    async run({ prompt, followUpPrompt, workspace }) {
+    run({ prompt, followUpPrompt, workspace }) {
       expect(prompt).toBe(`Inspect ${workspace}`);
       expect(followUpPrompt).toBe(`Continue in ${workspace}`);
-      prompts.push(followUpPrompt!);
-      return { finalMessage: "ready", complete: true };
+      prompts.push(defined(followUpPrompt));
+      return Promise.resolve({ finalMessage: "ready", complete: true });
     },
   };
   const selectedCase = {
@@ -176,7 +178,7 @@ test("routes a rendered continuation only to a capable host", async () => {
   });
   expect(result.result.exitCode).toBe(0);
   expect(prompts).toHaveLength(1);
-  await expect(
+  expect(
     runEvaluation({
       ...paths,
       case: selectedCase,
@@ -189,7 +191,6 @@ test("routes a rendered continuation only to a capable host", async () => {
     }),
   ).rejects.toThrow(/does not support continuation/);
 });
-
 test("dry preparation records every trial without executing the host", async () => {
   const paths = await rootsForRun();
   let hostCalls = 0;
@@ -197,9 +198,9 @@ test("dry preparation records every trial without executing the host", async () 
     id: "sevro.host.synthetic",
     model: "synthetic-v1",
     effort: "none",
-    async run() {
+    run() {
       hostCalls++;
-      return { finalMessage: "ready", complete: true };
+      return Promise.resolve({ finalMessage: "ready", complete: true });
     },
   };
   const options = {
@@ -220,33 +221,29 @@ test("dry preparation records every trial without executing the host", async () 
     task: { verdict: "not_assessed" },
     exitCode: 0,
   });
-  expect(dry.result.cases[0]?.trials).toHaveLength(2);
-  const dryEvidence = JSON.parse(
+  expect(defined(dry.result.cases[0]).trials).toHaveLength(2);
+  const dryEvidence = parseRunEvidence(
     await readFile(dry.result.evidencePath, "utf8"),
   );
-  expect(
+  expectUnknown(
     dryEvidence.trials.map(
       (trial: { executionMode: string }) => trial.executionMode,
     ),
   ).toEqual(["dry", "dry"]);
-  expect(
-    dryEvidence.trials.map(
-      (trial: { candidateDurationMs: number | null }) =>
-        trial.candidateDurationMs,
-    ),
+  expectUnknown(
+    dryEvidence.trials.map((trial) => trial.candidateDurationMs),
   ).toEqual([null, null]);
-  expect(dryEvidence.trials[0].rawResult.path).toBeNull();
-
+  expect(defined(dryEvidence.trials[0]).rawResult.path).toBeNull();
   const executed = await runEvaluation(options);
   expect(hostCalls).toBe(2);
-  const executedEvidence = JSON.parse(
+  const executedEvidence = parseRunEvidence(
     await readFile(executed.result.evidencePath, "utf8"),
   );
   expect(dryEvidence.evaluationIdentity.digest).not.toBe(
     executedEvidence.evaluationIdentity.digest,
   );
 });
-
+// eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("required host observations fail closed when missing or incomplete", async () => {
   const paths = await rootsForRun();
   const evalCase = {
@@ -257,8 +254,8 @@ test("required host observations fail closed when missing or incomplete", async 
     id: "sevro.host.synthetic",
     model: "synthetic-v1",
     effort: "none",
-    async run() {
-      return {
+    run() {
+      return Promise.resolve({
         finalMessage: "ready",
         complete: true,
         observations: [
@@ -268,7 +265,7 @@ test("required host observations fail closed when missing or incomplete", async 
             data: { selected: "darrow.tdd" },
           },
         ],
-      };
+      });
     },
   };
   const options = {
@@ -283,21 +280,20 @@ test("required host observations fail closed when missing or incomplete", async 
   };
   const passed = await runEvaluation(options);
   expect(passed.result.task.verdict).toBe("passed");
-  const evidence = JSON.parse(
+  const evidence = parseRunEvidence(
     await readFile(passed.result.evidencePath, "utf8"),
   );
-  expect(evidence.trials[0].observations[1]).toMatchObject({
+  expect(defined(defined(evidence.trials[0]).observations[1])).toMatchObject({
     id: "darrow.activation",
     source: host.id,
     completeness: "complete",
   });
-
   const missing = await runEvaluation({
     ...options,
     host: {
       ...host,
-      async run() {
-        return { finalMessage: "ready", complete: true };
+      run() {
+        return Promise.resolve({ finalMessage: "ready", complete: true });
       },
     },
   });
@@ -311,8 +307,8 @@ test("required host observations fail closed when missing or incomplete", async 
     ...options,
     host: {
       ...host,
-      async run() {
-        return {
+      run() {
+        return Promise.resolve({
           finalMessage: "ready",
           complete: true,
           observations: [
@@ -322,18 +318,17 @@ test("required host observations fail closed when missing or incomplete", async 
               data: {},
             },
           ],
-        };
+        });
       },
     },
   });
   expect(partial.result.exitCode).toBe(4);
-
   const invalid = await runEvaluation({
     ...options,
     host: {
       ...host,
-      async run() {
-        return {
+      run() {
+        return Promise.resolve({
           finalMessage: "ready",
           complete: true,
           observations: [
@@ -343,14 +338,13 @@ test("required host observations fail closed when missing or incomplete", async 
               data: {},
             },
           ],
-        };
+        });
       },
     },
   });
   expect(invalid.result.execution.status).toBe("failed");
   expect(invalid.result.task.verdict).toBe("not_assessed");
 });
-
 test("host artifacts are retained per trial and can satisfy required evidence", async () => {
   const paths = await rootsForRun();
   let call = 0;
@@ -358,9 +352,9 @@ test("host artifacts are retained per trial and can satisfy required evidence", 
     id: "sevro.host.synthetic",
     model: "synthetic-v1",
     effort: "none",
-    async run() {
+    run() {
       call++;
-      return {
+      return Promise.resolve({
         finalMessage: "ready",
         complete: true,
         artifacts: [
@@ -369,7 +363,7 @@ test("host artifacts are retained per trial and can satisfy required evidence", 
             bytes: Buffer.from(`trace ${call}\n`),
           },
         ],
-      };
+      });
     },
   };
   const options = {
@@ -385,46 +379,52 @@ test("host artifacts are retained per trial and can satisfy required evidence", 
   };
   const outcome = await runEvaluation(options);
   expect(outcome.result.task.verdict).toBe("passed");
-  const evidence = JSON.parse(
+  const evidence = parseRunEvidence(
     await readFile(outcome.result.evidencePath, "utf8"),
   );
   const refs = evidence.trials.map(
-    (trial: { artifactRefs: { id: string; path: string }[] }) =>
-      trial.artifactRefs.find((item) => item.id === "example.host.trace"),
+    (trial: {
+      artifactRefs: {
+        id: string;
+        path: string;
+      }[];
+    }) => trial.artifactRefs.find((item) => item.id === "example.host.trace"),
   );
-  expect(refs[0]?.path).not.toBe(refs[1]?.path);
-  expect(await readFile(new URL(refs[0].path), "utf8")).toBe("trace 1\n");
-  expect(await readFile(new URL(refs[1].path), "utf8")).toBe("trace 2\n");
-
+  expect(defined(refs[0]).path).not.toBe(defined(refs[1]).path);
+  expect(await readFile(new URL(defined(refs[0]).path), "utf8")).toBe(
+    "trace 1\n",
+  );
+  expect(await readFile(new URL(defined(refs[1]).path), "utf8")).toBe(
+    "trace 2\n",
+  );
   const missing = await runEvaluation({
     ...options,
     host: {
       ...host,
-      async run() {
-        return { finalMessage: "ready", complete: true };
+      run() {
+        return Promise.resolve({ finalMessage: "ready", complete: true });
       },
     },
   });
   expect(missing.result.grading.status).toBe("unavailable");
   expect(missing.result.exitCode).toBe(4);
-
   const invalid = await runEvaluation({
     ...options,
     host: {
       ...host,
-      async run() {
-        return {
+      run() {
+        return Promise.resolve({
           finalMessage: "ready",
           complete: true,
           artifacts: [{ id: "../outside", bytes: Buffer.from("bad") }],
-        };
+        });
       },
     },
   });
   expect(invalid.result.execution.status).toBe("failed");
   expect(invalid.result.task.verdict).toBe("not_assessed");
 });
-
+// eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("semantic checks use an isolated grader route and retain verdict evidence", async () => {
   const paths = await rootsForRun();
   const evalCase = {
@@ -442,8 +442,8 @@ test("semantic checks use an isolated grader route and retain verdict evidence",
     id: "sevro.host.synthetic",
     model: "candidate-v1",
     effort: "none",
-    async run() {
-      return { finalMessage: "ready", complete: true };
+    run() {
+      return Promise.resolve({ finalMessage: "ready", complete: true });
     },
   };
   let semanticCalls = 0;
@@ -482,54 +482,57 @@ test("semantic checks use an isolated grader route and retain verdict evidence",
   const passed = await runEvaluation(options);
   expect(semanticCalls).toBe(1);
   expect(passed.result.task.verdict).toBe("passed");
-  const evidence = JSON.parse(
+  const evidence = parseRunEvidence(
     await readFile(passed.result.evidencePath, "utf8"),
   );
-  expect(evidence.routes.map((route: { role: string }) => route.role)).toEqual([
-    "candidate",
-    "semantic",
-  ]);
-  expect(evidence.trials[0].observations).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({
+  expectUnknown(
+    evidence.routes.map((route: { role: string }) => route.role),
+  ).toEqual(["candidate", "semantic"]);
+  expectUnknown(defined(evidence.trials[0]).observations).toEqual(
+    arrayContaining([
+      objectContaining({
         source: semanticHost.id,
         data: { verdict: "pass", reason: "Ready is stated" },
       }),
     ]),
   );
-  const artifacts = evidence.trials[0].artifactRefs;
+  const artifacts = defined(evidence.trials[0]).artifactRefs;
   const raw = artifacts.find(
     (item: { id: string }) => item.id === "sevro.semantic.verdicts",
   );
   const trace = artifacts.find(
     (item: { id: string }) => item.id === "sevro.semantic.example.trace",
   );
-  expect(await readFile(new URL(raw.path), "utf8")).toContain('"id":"promise"');
-  expect(await readFile(new URL(trace.path), "utf8")).toBe("grader trace\n");
-
-  await expect(
+  expect(await readFile(new URL(defined(raw).path), "utf8")).toContain(
+    '"id":"promise"',
+  );
+  expect(await readFile(new URL(defined(trace).path), "utf8")).toBe(
+    "grader trace\n",
+  );
+  expect(
     runEvaluation({ ...options, semanticHost: undefined }),
   ).rejects.toThrow(/explicit semantic host/);
   const incomplete = await runEvaluation({
     ...options,
     host: {
       ...host,
-      async run() {
-        return { finalMessage: null, complete: false };
+      run() {
+        return Promise.resolve({ finalMessage: null, complete: false });
       },
     },
   });
   expect(semanticCalls).toBe(1);
   expect(incomplete.result.grading.status).toBe("unavailable");
-  expect(incomplete.result.cases[0]?.trials[0]?.checks[0]?.status).toBe(
-    "unavailable",
-  );
+  expect(
+    defined(defined(defined(incomplete.result.cases[0]).trials[0]).checks[0])
+      .status,
+  ).toBe("unavailable");
   const malformed = await runEvaluation({
     ...options,
     semanticHost: {
       ...semanticHost,
-      async run() {
-        return { finalMessage: "invalid", complete: true };
+      run() {
+        return Promise.resolve({ finalMessage: "invalid", complete: true });
       },
     },
   });
@@ -539,18 +542,18 @@ test("semantic checks use an isolated grader route and retain verdict evidence",
     ...options,
     semanticHost: {
       ...semanticHost,
-      async run() {
-        return {
+      run() {
+        return Promise.resolve({
           finalMessage:
             '{"checks":[{"id":"promise","verdict":"fail","reason":"No promise"}]}',
           complete: true,
-        };
+        });
       },
     },
   });
   expect(failed.result.task.verdict).toBe("failed");
 });
-
+// eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("advisory review inspects a blind change and cannot alter task grading", async () => {
   const paths = await rootsForRun();
   const evalCase = {
@@ -637,73 +640,77 @@ test("advisory review inspects a blind change and cannot alter task grading", as
   expect(reviewCalls).toBe(1);
   expect(passed.result.task.verdict).toBe("passed");
   expect(passed.result.exitCode).toBe(0);
-  const evidence = JSON.parse(
+  const evidence = parseRunEvidence(
     await readFile(passed.result.evidencePath, "utf8"),
   );
-  expect(evidence.routes.map((route: { role: string }) => route.role)).toEqual([
-    "candidate",
-    "advisory",
-  ]);
-  expect(evidence.trials[0].advisoryReview).toMatchObject({
+  expectUnknown(
+    evidence.routes.map((route: { role: string }) => route.role),
+  ).toEqual(["candidate", "advisory"]);
+  expect(defined(evidence.trials[0]).advisoryReview).toMatchObject({
     status: "completed",
     assessment: { verdict: "fail", overallScore: 2 },
     usage: { inputTokens: 40, outputTokens: 20, complete: true },
   });
-  const raw = evidence.trials[0].advisoryReview.rawResult;
-  expect(await readFile(new URL(raw.path), "utf8")).toContain(
+  const raw = defined(defined(evidence.trials[0]).advisoryReview).rawResult;
+  expect(await readFile(new URL(defined(raw.path)), "utf8")).toContain(
     '"verdict":"fail"',
   );
-  const trace = evidence.trials[0].artifactRefs.find(
+  const trace = defined(evidence.trials[0]).artifactRefs.find(
     (item: { id: string }) => item.id === "sevro.advisory.review.trace",
   );
-  expect(await readFile(new URL(trace.path), "utf8")).toBe("review trace\n");
-
+  expect(await readFile(new URL(defined(trace).path), "utf8")).toBe(
+    "review trace\n",
+  );
   const malformed = await runEvaluation({
     ...options,
     advisoryHost: {
       ...advisoryHost,
-      async run() {
-        return { finalMessage: "invalid", complete: true };
+      run() {
+        return Promise.resolve({ finalMessage: "invalid", complete: true });
       },
     },
   });
   expect(malformed.result.task.verdict).toBe("passed");
-  const failedEvidence = JSON.parse(
+  const failedEvidence = parseRunEvidence(
     await readFile(malformed.result.evidencePath, "utf8"),
   );
-  expect(failedEvidence.trials[0].advisoryReview.status).toBe("failed");
-  expect(failedEvidence.trials[0].advisoryReview.assessment).toBeNull();
-
+  expect(defined(defined(failedEvidence.trials[0]).advisoryReview).status).toBe(
+    "failed",
+  );
+  expect(
+    defined(defined(failedEvidence.trials[0]).advisoryReview).assessment,
+  ).toBeNull();
   const rejected = await runEvaluation({
     ...options,
     advisoryHost: {
       ...advisoryHost,
-      async run() {
-        throw new Error("private reviewer failure");
+      run() {
+        return Promise.reject(new Error("private reviewer failure"));
       },
     },
   });
   expect(rejected.result.task.verdict).toBe("passed");
-  const rejectedEvidence = JSON.parse(
+  const rejectedEvidence = parseRunEvidence(
     await readFile(rejected.result.evidencePath, "utf8"),
   );
-  expect(rejectedEvidence.trials[0].advisoryReview.status).toBe("failed");
-
+  expect(
+    defined(defined(rejectedEvidence.trials[0]).advisoryReview).status,
+  ).toBe("failed");
   const dry = await runEvaluation({ ...options, dry: true });
-  const dryEvidence = JSON.parse(
+  const dryEvidence = parseRunEvidence(
     await readFile(dry.result.evidencePath, "utf8"),
   );
-  expect(dryEvidence.trials[0].advisoryReview.status).toBe("not_run");
+  expect(defined(defined(dryEvidence.trials[0]).advisoryReview).status).toBe(
+    "not_run",
+  );
   expect(reviewCalls).toBe(1);
-
-  await expect(runEvaluation({ ...options, case: baseCase })).rejects.toThrow(
+  expect(runEvaluation({ ...options, case: baseCase })).rejects.toThrow(
     /Git fixture/,
   );
-  await expect(
+  expect(
     runEvaluation({ ...options, advisoryExcludedPaths: [".git/config"] }),
   ).rejects.toThrow(/advisory exclusion/);
 });
-
 test("host failure retains completed trials and reports execution failure", async () => {
   const paths = await rootsForRun();
   let call = 0;
@@ -711,10 +718,10 @@ test("host failure retains completed trials and reports execution failure", asyn
     id: "sevro.host.synthetic",
     model: "synthetic-v1",
     effort: "none",
-    async run() {
+    run() {
       call++;
-      if (call === 2) throw new Error("private host failure");
-      return { finalMessage: "ready", complete: true };
+      if (call === 2) return Promise.reject(new Error("private host failure"));
+      return Promise.resolve({ finalMessage: "ready", complete: true });
     },
   };
   const outcome = await runEvaluation({
@@ -732,21 +739,23 @@ test("host failure retains completed trials and reports execution failure", asyn
   expect(outcome.result.execution.status).toBe("failed");
   expect(outcome.result.task.verdict).toBe("not_assessed");
   expect(outcome.result.exitCode).toBe(2);
-  expect(outcome.result.cases[0]?.trials).toHaveLength(2);
-  expect(existsSync(outcome.result.cases[0]!.trials[0]!.artifactPath!)).toBe(
-    true,
+  expect(defined(outcome.result.cases[0]).trials).toHaveLength(2);
+  expect(
+    existsSync(
+      defined(defined(defined(defined(outcome.result.cases[0])).trials[0]))
+        .artifactPath,
+    ),
+  ).toBe(true);
+  const failedEvidence = parseRunEvidence(
+    await readFile(outcome.result.evidencePath, "utf8"),
   );
-  const failedEvidence = JSON.parse(
-    await readFile(outcome.result.evidencePath!, "utf8"),
-  );
-  expect(failedEvidence.trials[1].candidateDurationMs).toBeGreaterThanOrEqual(
-    0,
-  );
-  expect(await readFile(outcome.result.evidencePath!, "utf8")).not.toContain(
+  expect(
+    defined(failedEvidence.trials[1]).candidateDurationMs,
+  ).toBeGreaterThanOrEqual(0);
+  expect(await readFile(outcome.result.evidencePath, "utf8")).not.toContain(
     "private host failure",
   );
 });
-
 test("engine refuses an equivalent live run before a second host starts", async () => {
   const paths = await rootsForRun();
   let releaseHost: (() => void) | undefined;
@@ -787,7 +796,7 @@ test("engine refuses an equivalent live run before a second host starts", async 
         throw new Error("first host did not start");
       }),
     ]);
-    await expect(runEvaluation(options)).rejects.toThrow(
+    expect(runEvaluation(options)).rejects.toThrow(
       /equivalent Sevro run is active/,
     );
     expect(calls).toBe(1);
@@ -796,7 +805,6 @@ test("engine refuses an equivalent live run before a second host starts", async 
   }
   expect((await first).result.exitCode).toBe(0);
 });
-
 test("cancellation retains prior trial evidence and finalizes interruption", async () => {
   const paths = await rootsForRun();
   const controller = new AbortController();
@@ -816,7 +824,9 @@ test("cancellation retains prior trial evidence and finalizes interruption", asy
       return new Promise((_resolve, reject) => {
         signal?.addEventListener(
           "abort",
-          () => reject(new Error("cancelled")),
+          () => {
+            reject(new Error("cancelled"));
+          },
           { once: true },
         );
       });
@@ -844,9 +854,11 @@ test("cancellation retains prior trial evidence and finalizes interruption", asy
   const outcome = await running;
   expect(outcome.result.exitCode).toBe(143);
   expect(outcome.result.execution.status).toBe("cancelled");
-  expect(outcome.result.cases[0]?.trials).toHaveLength(2);
-  expect(outcome.result.cases[0]?.trials[0]?.task.verdict).toBe("passed");
-  const active = JSON.parse(
+  expect(defined(outcome.result.cases[0]).trials).toHaveLength(2);
+  expect(defined(defined(outcome.result.cases[0]).trials[0]).task.verdict).toBe(
+    "passed",
+  );
+  const active = parseCheckpoint(
     await readFile(
       join(paths.resultsRoot, "active", `${outcome.result.runId}.json`),
       "utf8",
@@ -855,10 +867,12 @@ test("cancellation retains prior trial evidence and finalizes interruption", asy
   expect(active.status).toBe("interrupted");
   expect(active.completedTrials).toHaveLength(2);
   expect(
-    existsSync(outcome.result.cases[0]!.trials[0]!.artifactPath),
+    existsSync(
+      defined(defined(defined(defined(outcome.result.cases[0])).trials[0]))
+        .artifactPath,
+    ),
   ).toBeTrue();
 });
-
 test("stores checkpoints apart from results and hides run state from shell checks", async () => {
   if (process.platform !== "darwin") return;
   const paths = await rootsForRun();
@@ -886,8 +900,8 @@ test("stores checkpoints apart from results and hides run state from shell check
       id: "sevro.host.synthetic",
       model: "synthetic-v1",
       effort: "none",
-      async run() {
-        return { finalMessage: "ready", complete: true };
+      run() {
+        return Promise.resolve({ finalMessage: "ready", complete: true });
       },
     },
     shellIsolation: { protectedRoots: [] },
@@ -898,13 +912,16 @@ test("stores checkpoints apart from results and hides run state from shell check
     passThreshold: 1,
   });
   expect(outcome.result.exitCode).toBe(0);
-  expect(outcome.result.cases[0]?.trials[0]?.checks[1]?.status).toBe("passed");
+  expect(
+    defined(defined(defined(outcome.result.cases[0]).trials[0]).checks[1])
+      .status,
+  ).toBe("passed");
   const activePath = join(
     runStateRoot,
     "active",
     `${outcome.result.runId}.json`,
   );
-  const active = JSON.parse(await readFile(activePath, "utf8"));
+  const active = parseCheckpoint(await readFile(activePath, "utf8"));
   expect(active).toMatchObject({
     format: "sevro.active-run.v1",
     status: "complete",
@@ -912,17 +929,20 @@ test("stores checkpoints apart from results and hides run state from shell check
     completedTrials: [
       {
         trial: 1,
-        artifactPath: outcome.result.cases[0]!.trials[0]!.artifactPath,
+        artifactPath: defined(
+          defined(defined(defined(outcome.result.cases[0])).trials[0]),
+        ).artifactPath,
       },
     ],
   });
-  const checkpoint = JSON.parse(await readFile(active.checkpointPath, "utf8"));
+  const checkpoint = parseCheckpoint(
+    await readFile(defined(active.checkpointPath), "utf8"),
+  );
   expect(checkpoint.format).toBe("sevro.run-checkpoint.v1");
-  expect(checkpoint.completedTrials).toEqual(active.completedTrials);
+  expectUnknown(checkpoint.completedTrials).toEqual(active.completedTrials);
   expect(existsSync(join(paths.resultsRoot, "active"))).toBeFalse();
   expect(await readFile(secret, "utf8")).toBe("hidden run state\n");
 });
-
 test("failed trial persistence retains its fixture and never returns success", async () => {
   const paths = await rootsForRun();
   let workspace = "";
@@ -935,12 +955,12 @@ test("failed trial persistence retains its fixture and never returns success", a
       const runId = (await readdir(paths.resultsRoot)).find((name) =>
         /^[a-f0-9]{8}-/.test(name),
       );
-      await mkdir(join(paths.resultsRoot, runId!, "trial-1.json"));
+      await mkdir(join(paths.resultsRoot, defined(runId), "trial-1.json"));
       return { finalMessage: "ready", complete: true };
     },
   };
   try {
-    await expect(
+    expect(
       runEvaluation({
         ...paths,
         case: baseCase,
@@ -954,26 +974,28 @@ test("failed trial persistence retains its fixture and never returns success", a
     ).rejects.toThrow(/trial persistence failed; fixture retained/);
     expect(existsSync(workspace)).toBe(true);
     const [activeName] = await readdir(join(paths.resultsRoot, "active"));
-    const active = JSON.parse(
-      await readFile(join(paths.resultsRoot, "active", activeName!), "utf8"),
+    const active = parseCheckpoint(
+      await readFile(
+        join(paths.resultsRoot, "active", defined(activeName)),
+        "utf8",
+      ),
     );
     expect(active.status).toBe("diagnostic");
   } finally {
     if (workspace) await rm(workspace, { recursive: true, force: true });
   }
 });
-
 test("rejects fixture paths that could escape their workspace", async () => {
   const paths = await rootsForRun();
   const host: HostAdapter = {
     id: "sevro.host.synthetic",
     model: "synthetic-v1",
     effort: "none",
-    async run() {
-      throw new Error("must not run");
+    run() {
+      return Promise.reject(new Error("must not run"));
     },
   };
-  await expect(
+  expect(
     runEvaluation({
       ...paths,
       case: { ...baseCase, fixture: { files: { "../outside": "unsafe" } } },
@@ -986,7 +1008,7 @@ test("rejects fixture paths that could escape their workspace", async () => {
     }),
   ).rejects.toThrow(/invalid fixture path/);
   expect(existsSync(join(paths.projectRoot, "outside"))).toBe(false);
-  await expect(
+  expect(
     runEvaluation({
       ...paths,
       case: { ...baseCase, requiredEvidence: ["invalid"] },
@@ -998,7 +1020,7 @@ test("rejects fixture paths that could escape their workspace", async () => {
       passThreshold: 1,
     }),
   ).rejects.toThrow(/invalid required evidence IDs/);
-  await expect(
+  expect(
     runEvaluation({
       ...paths,
       case: { ...baseCase, fixture: { sourceRef: "" } },
@@ -1011,7 +1033,6 @@ test("rejects fixture paths that could escape their workspace", async () => {
     }),
   ).rejects.toThrow(/invalid repository fixture/);
 });
-
 test("shell checks grade fixture effects and retain exit observations", async () => {
   if (process.platform !== "darwin") return;
   const paths = await rootsForRun();
@@ -1051,31 +1072,37 @@ test("shell checks grade fixture effects and retain exit observations", async ()
     passThreshold: 1,
   });
   expect(outcome.result.exitCode).toBe(0);
-  expect(outcome.result.cases[0]?.trials[0]?.checks[0]).toMatchObject({
+  expect(
+    defined(defined(defined(outcome.result.cases[0]).trials[0]).checks[0]),
+  ).toMatchObject({
     id: "file-created",
     status: "passed",
     evidenceRefs: ["sevro.observation.shell.file-created"],
   });
-  expect(
-    outcome.result.cases[0]?.trials[0]?.checks.map((check) => check.id),
+  expectUnknown(
+    defined(defined(outcome.result.cases[0]).trials[0]).checks.map(
+      (check) => check.id,
+    ),
   ).toEqual(["file-created", "response"]);
-  const evidence = JSON.parse(
+  const evidence = parseRunEvidence(
     await readFile(outcome.result.evidencePath, "utf8"),
   );
-  expect(evidence.trials[0].observations[1]).toMatchObject({
+  expect(defined(defined(evidence.trials[0]).observations[1])).toMatchObject({
     id: "sevro.observation.shell.file-created",
     completeness: "complete",
     data: { exitCode: 0, expectedExitCode: 0 },
   });
-  expect(evidence.trials[0].observations[1].data.stdoutSha256).toMatch(
-    /^[a-f0-9]{64}$/,
-  );
-  expect(evidence.trials[0].observations[1].data.stdoutByteLength).toBe(5);
+  expect(
+    defined(defined(evidence.trials[0]).observations[1]).data.stdoutSha256,
+  ).toMatch(/^[a-f0-9]{64}$/);
+  expect(
+    defined(defined(evidence.trials[0]).observations[1]).data.stdoutByteLength,
+  ).toBe(5);
   expect(
     evidence.graders.active.map((grader: { id: string }) => grader.id),
   ).toContain("sevro.shell");
 });
-
+// eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("shell failures and timeouts remain distinct from host completion", async () => {
   if (process.platform !== "darwin") return;
   const paths = await rootsForRun();
@@ -1083,8 +1110,8 @@ test("shell failures and timeouts remain distinct from host completion", async (
     id: "sevro.host.synthetic",
     model: "synthetic-v1",
     effort: "none",
-    async run() {
-      return { finalMessage: "ready", complete: true };
+    run() {
+      return Promise.resolve({ finalMessage: "ready", complete: true });
     },
   };
   const options = {
@@ -1150,7 +1177,7 @@ test("shell failures and timeouts remain distinct from host completion", async (
     task: { verdict: "not_assessed" },
     exitCode: 3,
   });
-  await expect(
+  expect(
     runEvaluation({
       ...options,
       shellIsolation: undefined,
@@ -1167,7 +1194,6 @@ test("shell failures and timeouts remain distinct from host completion", async (
     }),
   ).rejects.toThrow(/explicit protected source roots/);
 });
-
 test("engine shell isolation hides project sources and peer fixtures", async () => {
   if (process.platform !== "darwin") return;
   const paths = await rootsForRun();
@@ -1181,8 +1207,8 @@ test("engine shell isolation hides project sources and peer fixtures", async () 
     id: "sevro.host.synthetic",
     model: "synthetic-v1",
     effort: "none",
-    async run() {
-      return { finalMessage: "ready", complete: true };
+    run() {
+      return Promise.resolve({ finalMessage: "ready", complete: true });
     },
   };
   const outcome = await runEvaluation({
@@ -1207,7 +1233,9 @@ test("engine shell isolation hides project sources and peer fixtures", async () 
     passThreshold: 1,
   });
   expect(outcome.result.exitCode).toBe(0);
-  expect(
-    outcome.result.cases[0]?.trials[0]?.checks.map((check) => check.status),
+  expectUnknown(
+    defined(defined(outcome.result.cases[0]).trials[0]).checks.map(
+      (check) => check.status,
+    ),
   ).toEqual(["passed", "passed"]);
 });

@@ -1,4 +1,11 @@
-import { afterEach, expect, test } from "bun:test";
+import { expectUnknown } from "./fixtures/assertions";
+import {
+  arrayContaining,
+  defined,
+  objectContaining,
+  parseRunEvidence,
+} from "./fixtures/assertions";
+import { afterEach, test, expect } from "bun:test";
 import {
   mkdtemp,
   readFile,
@@ -14,7 +21,6 @@ import { runEvaluation, type HostAdapter } from "../src/engine";
 import { openExtensionSession } from "../src/extension-session";
 import instrumentedHost from "./fixtures/instrumented-adapter";
 import { extensionFixtureCommand } from "./fixtures/extension-command";
-
 const roots: string[] = [];
 const source = join(import.meta.dir, "fixtures", "extension.ts");
 const digest = "a".repeat(64);
@@ -24,45 +30,32 @@ afterEach(async () => {
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
 });
-
-async function runWithExtension(
-  scenario: string,
-  hostAction?: (workspace: string, resultsRoot: string) => Promise<void>,
-  replaceBuiltinGraders: string[] = [],
-  hostOverride?: HostAdapter,
-  condition: "passive" | "enforced" = "passive",
-) {
-  const projectRoot = await mkdtemp(join(tmpdir(), "sevro-extension-engine-"));
-  roots.push(projectRoot);
-  const sourcePath = join(projectRoot, "case-sources", "data.txt");
-  if (scenario === "lifecycle-source-artifact")
-    await Bun.write(sourcePath, "prepared data\n");
-  const session = await openExtensionSession({
-    command: extensionCommand(source, scenario),
-    sourceFiles: [source],
-    configuration: {},
-    redactedConfiguration: {},
-    engineCapabilities: ["sevro.host.exec", "sevro.fixture.setup"],
-    hostCapabilities: [
-      ...(hostOverride?.instrumentation ?? []).map((item) => item.id),
-      ...(hostOverride?.hostCapabilities ?? []),
-    ],
-    replaceBuiltinGraders,
-    ...(scenario.startsWith("lifecycle-policy")
-      ? { taskVerdictPolicy: "example.policy" }
-      : {}),
-  });
-  const [resolvedCase] = await session.resolve(
-    new URL(`file://${projectRoot}/`).href,
-    {},
-  );
+async function assertLifecycleArtifact(scenario: string, workspace: string) {
   if (
-    !resolvedCase ||
-    (resolvedCase.fixture.kind !== "inline" &&
-      resolvedCase.fixture.kind !== "generated")
+    [
+      "lifecycle-artifact",
+      "lifecycle-source-artifact",
+      "lifecycle-git-excluded-artifact",
+    ].includes(scenario)
   )
-    throw new Error("fixture mismatch");
-  const syntheticHost: HostAdapter = {
+    expect(
+      await readFile(
+        join(
+          workspace,
+          scenario === "lifecycle-git-excluded-artifact"
+            ? ".agents/skills/example/SKILL.md"
+            : "generated/data.txt",
+        ),
+        "utf8",
+      ),
+    ).toBe("prepared data\n");
+}
+function lifecycleHost(
+  scenario: string,
+  resultsRoot: string,
+  hostAction?: (workspace: string, resultsRoot: string) => Promise<void>,
+): HostAdapter {
+  return {
     id: "sevro.host.synthetic",
     model: "synthetic-v1",
     effort: "none",
@@ -70,23 +63,8 @@ async function runWithExtension(
       expect(await readFile(join(workspace, "README.md"), "utf8")).toBe(
         "fixture\n",
       );
-      if (
-        scenario === "lifecycle-artifact" ||
-        scenario === "lifecycle-source-artifact" ||
-        scenario === "lifecycle-git-excluded-artifact"
-      )
-        expect(
-          await readFile(
-            join(
-              workspace,
-              scenario === "lifecycle-git-excluded-artifact"
-                ? ".agents/skills/example/SKILL.md"
-                : "generated/data.txt",
-            ),
-            "utf8",
-          ),
-        ).toBe("prepared data\n");
-      await hostAction?.(workspace, join(projectRoot, "results"));
+      await assertLifecycleArtifact(scenario, workspace);
+      await hostAction?.(workspace, resultsRoot);
       return {
         finalMessage: "ready",
         complete: true,
@@ -115,32 +93,89 @@ async function runWithExtension(
       };
     },
   };
+}
+function extensionHostCapabilities(host?: HostAdapter) {
+  return [
+    ...(host?.instrumentation ?? []).map((item) => item.id),
+    ...(host?.hostCapabilities ?? []),
+  ];
+}
+function lifecyclePolicy(scenario: string) {
+  return scenario.startsWith("lifecycle-policy")
+    ? { taskVerdictPolicy: "example.policy" }
+    : {};
+}
+async function lifecycleSources(scenario: string, projectRoot: string) {
+  if (scenario !== "lifecycle-source-artifact") return {};
+  const sourcePath = join(projectRoot, "case-sources", "data.txt");
+  await Bun.write(sourcePath, "prepared data\n");
+  return {
+    preparationSources: {
+      root: join(projectRoot, "case-sources"),
+      refs: { "input-data": pathToFileURL(sourcePath).href },
+    },
+  };
+}
+async function lifecycleCase(
+  session: Awaited<ReturnType<typeof openExtensionSession>>,
+  projectRoot: string,
+) {
+  const [resolvedCase] = await session.resolve(
+    new URL(`file://${projectRoot}/`).href,
+    {},
+  );
+  if (
+    !resolvedCase ||
+    (resolvedCase.fixture.kind !== "inline" &&
+      resolvedCase.fixture.kind !== "generated")
+  )
+    throw new Error("fixture mismatch");
+  const caseData = {
+    id: resolvedCase.id,
+    prompt: resolvedCase.prompt,
+    followUpPrompt: resolvedCase.followUpPrompt,
+    fixture:
+      resolvedCase.fixture.kind === "generated"
+        ? resolvedCase.fixture
+        : { files: resolvedCase.fixture.files },
+    checks: resolvedCase.checks,
+    requiredEvidence: resolvedCase.requiredEvidence,
+  };
+  return { resolvedCase, caseData };
+}
+async function runWithExtension(
+  scenario: string,
+  hostAction?: (workspace: string, resultsRoot: string) => Promise<void>,
+  replaceBuiltinGraders: string[] = [],
+  hostOverride?: HostAdapter,
+  condition: "passive" | "enforced" = "passive",
+) {
+  const projectRoot = await mkdtemp(join(tmpdir(), "sevro-extension-engine-"));
+  roots.push(projectRoot);
+  const sources = await lifecycleSources(scenario, projectRoot);
+  const session = await openExtensionSession({
+    command: extensionCommand(source, scenario),
+    sourceFiles: [source],
+    configuration: {},
+    redactedConfiguration: {},
+    engineCapabilities: ["sevro.host.exec", "sevro.fixture.setup"],
+    hostCapabilities: extensionHostCapabilities(hostOverride),
+    replaceBuiltinGraders,
+    ...lifecyclePolicy(scenario),
+  });
+  const { resolvedCase, caseData } = await lifecycleCase(session, projectRoot);
+  const syntheticHost = lifecycleHost(
+    scenario,
+    join(projectRoot, "results"),
+    hostAction,
+  );
   const host = hostOverride ?? syntheticHost;
   const outcome = await runEvaluation({
     projectRoot,
     resultsRoot: join(projectRoot, "results"),
-    case: {
-      id: resolvedCase.id,
-      prompt: resolvedCase.prompt,
-      ...(resolvedCase.followUpPrompt !== undefined
-        ? { followUpPrompt: resolvedCase.followUpPrompt }
-        : {}),
-      fixture:
-        resolvedCase.fixture.kind === "generated"
-          ? resolvedCase.fixture
-          : { files: resolvedCase.fixture.files },
-      checks: resolvedCase.checks,
-      requiredEvidence: resolvedCase.requiredEvidence,
-    },
+    case: caseData,
     extension: { session, resolvedCase },
-    ...(scenario === "lifecycle-source-artifact"
-      ? {
-          preparationSources: {
-            root: join(projectRoot, "case-sources"),
-            refs: { "input-data": pathToFileURL(sourcePath).href },
-          },
-        }
-      : {}),
+    ...sources,
     host,
     runnerBuildDigest: digest,
     projectDigest: digest,
@@ -148,21 +183,23 @@ async function runWithExtension(
     trialCount: 1,
     passThreshold: 1,
   });
-  const evidence = JSON.parse(
+  const evidence = parseRunEvidence(
     await readFile(outcome.result.evidencePath, "utf8"),
   );
   return { outcome, evidence, session };
 }
-
 test("extension checks add to built-ins and retain negotiated provenance", async () => {
   const { outcome, evidence, session } = await runWithExtension("lifecycle");
   expect(outcome.result.exitCode).toBe(0);
-  expect(
-    outcome.result.cases[0]?.trials[0]?.checks.map((check) => check.id),
+  expectUnknown(
+    defined(defined(outcome.result.cases[0]).trials[0]).checks.map(
+      (check) => check.id,
+    ),
   ).toEqual(["ready", "example.extension.ready"]);
-  expect(outcome.result.cases[0]?.trials[0]?.checks[1]?.evidenceRefs).toEqual([
-    "sevro.observation.final-message",
-  ]);
+  expectUnknown(
+    defined(defined(defined(outcome.result.cases[0]).trials[0]).checks[1])
+      .evidenceRefs,
+  ).toEqual(["sevro.observation.final-message"]);
   expect(evidence.extension).toMatchObject({
     id: "example.extension",
     protocol: "sevro.extension.v1",
@@ -171,23 +208,22 @@ test("extension checks add to built-ins and retain negotiated provenance", async
   expect(evidence.evaluationIdentity.dimensions.extensionDigest).toBe(
     session.identity.sourceDigest,
   );
-  expect(evidence.trials[0].metrics).toEqual([
+  expectUnknown(defined(evidence.trials[0]).metrics).toEqual([
     { id: "example.extension.score", value: 1, unit: "ratio" },
   ]);
-  expect(
+  expectUnknown(
     evidence.graders.active.map((grader: { id: string }) => grader.id),
   ).toEqual(["sevro.regex", "example.extension"]);
 });
-
 test("domain outcomes remain separate from the task verdict", async () => {
   const { outcome, evidence } = await runWithExtension(
     "lifecycle-domain-outcome",
   );
   expect(outcome.result.task.verdict).toBe("passed");
-  expect(outcome.result.cases[0]?.trials[0]?.domainOutcomes).toEqual(
-    evidence.trials[0].domainOutcomes,
-  );
-  expect(evidence.trials[0].domainOutcomes).toEqual([
+  expectUnknown(
+    defined(defined(outcome.result.cases[0]).trials[0]).domainOutcomes,
+  ).toEqual(defined(evidence.trials[0]).domainOutcomes);
+  expectUnknown(defined(evidence.trials[0]).domainOutcomes).toEqual([
     {
       id: "example.extension.activation",
       status: "failed",
@@ -195,8 +231,10 @@ test("domain outcomes remain separate from the task verdict", async () => {
       data: { primarySkill: "other-skill" },
     },
   ]);
-  expect(
-    outcome.result.cases[0]?.trials[0]?.checks.map((check) => check.id),
+  expectUnknown(
+    defined(defined(outcome.result.cases[0]).trials[0]).checks.map(
+      (check) => check.id,
+    ),
   ).toEqual(["ready", "example.extension.ready"]);
   const invalid = await runWithExtension("lifecycle-domain-outcome-invalid");
   expect(invalid.outcome.result).toMatchObject({
@@ -204,24 +242,22 @@ test("domain outcomes remain separate from the task verdict", async () => {
     task: { verdict: "not_assessed" },
   });
 });
-
 test("explicit grader replacement removes only the selected built-in checks", async () => {
   const defaultRun = await runWithExtension("lifecycle-replace-regex");
   expect(defaultRun.outcome.result.task.verdict).toBe("failed");
-  expect(
-    defaultRun.outcome.result.cases[0]?.trials[0]?.checks.map(
+  expectUnknown(
+    defined(defined(defaultRun.outcome.result.cases[0]).trials[0]).checks.map(
       (check) => check.id,
     ),
   ).toEqual(["ready", "example.extension.ready"]);
-
   const selected = await runWithExtension(
     "lifecycle-replace-regex",
     undefined,
     ["sevro.regex"],
   );
   expect(selected.outcome.result.task.verdict).toBe("passed");
-  expect(
-    selected.outcome.result.cases[0]?.trials[0]?.checks.map(
+  expectUnknown(
+    defined(defined(selected.outcome.result.cases[0]).trials[0]).checks.map(
       (check) => check.id,
     ),
   ).toEqual(["example.extension.ready"]);
@@ -229,16 +265,16 @@ test("explicit grader replacement removes only the selected built-in checks", as
     active: [{ id: "example.extension", source: "extension" }],
     replacedDefaults: ["sevro.regex"],
   });
-  expect(selected.evidence.extension.replacements.graders).toEqual([
-    "sevro.regex",
-  ]);
+  expectUnknown(
+    defined(selected.evidence.extension).replacements.graders,
+  ).toEqual(["sevro.regex"]);
   expect(selected.evidence.evaluationIdentity.digest).not.toBe(
     defaultRun.evidence.evaluationIdentity.digest,
   );
-  await expect(
+  expect(
     runWithExtension("lifecycle-replace-regex", undefined, ["sevro.json"]),
   ).rejects.toThrow(/unknown or duplicate built-in grader replacement/);
-  await expect(
+  expect(
     runWithExtension("lifecycle-replace-no-extension", undefined, [
       "sevro.regex",
     ]),
@@ -247,10 +283,8 @@ test("explicit grader replacement removes only the selected built-in checks", as
     "sevro.shell",
   ]);
   expect(shell.outcome.result.task.verdict).toBe("passed");
-  expect(shell.evidence.trials[0].observations).not.toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({ source: "sevro.shell" }),
-    ]),
+  expect(defined(shell.evidence.trials[0]).observations).not.toEqual(
+    arrayContaining([objectContaining({ source: "sevro.shell" })]),
   );
   const semantic = await runWithExtension(
     "lifecycle-replace-semantic",
@@ -258,11 +292,10 @@ test("explicit grader replacement removes only the selected built-in checks", as
     ["sevro.semantic"],
   );
   expect(semantic.outcome.result.task.verdict).toBe("passed");
-  expect(
+  expectUnknown(
     semantic.evidence.routes.map((route: { role: string }) => route.role),
   ).toEqual(["candidate"]);
 });
-
 test("selected task policy may replace a failed check verdict and retains its decision", async () => {
   const { outcome, evidence } = await runWithExtension("lifecycle-policy");
   expect(outcome.result).toMatchObject({
@@ -271,11 +304,14 @@ test("selected task policy may replace a failed check verdict and retains its de
     task: { verdict: "passed" },
     exitCode: 0,
   });
-  expect(outcome.result.cases[0]?.trials[0]?.checks[0]?.status).toBe("failed");
-  expect(evidence.extension.replacements.taskVerdictPolicy).toBe(
+  expect(
+    defined(defined(defined(outcome.result.cases[0]).trials[0]).checks[0])
+      .status,
+  ).toBe("failed");
+  expect(defined(evidence.extension).replacements.taskVerdictPolicy).toBe(
     "example.policy",
   );
-  expect(evidence.trials[0].taskVerdictPolicy).toEqual({
+  expectUnknown(defined(evidence.trials[0]).taskVerdictPolicy).toEqual({
     id: "example.policy",
     recommendation: "passed",
   });
@@ -291,8 +327,8 @@ test("selected task policy may replace a failed check verdict and retains its de
     task: { verdict: "not_assessed" },
     exitCode: 4,
   });
-  const failedHost = await runWithExtension("lifecycle-policy", async () => {
-    throw new Error("host failed");
+  const failedHost = await runWithExtension("lifecycle-policy", () => {
+    return Promise.reject(new Error("host failed"));
   });
   expect(failedHost.outcome.result).toMatchObject({
     execution: { status: "failed" },
@@ -300,37 +336,38 @@ test("selected task policy may replace a failed check verdict and retains its de
     exitCode: 2,
   });
 });
-
 test("extension grading receives complete host observations", async () => {
   const { outcome, evidence } = await runWithExtension(
     "lifecycle-host-observation",
   );
   expect(outcome.result.task.verdict).toBe("passed");
-  expect(outcome.result.cases[0]?.trials[0]?.checks[1]?.evidenceRefs).toEqual([
-    "darrow.activation",
-  ]);
-  expect(evidence.trials[0].observations[1]).toMatchObject({
+  expectUnknown(
+    defined(defined(defined(outcome.result.cases[0]).trials[0]).checks[1])
+      .evidenceRefs,
+  ).toEqual(["darrow.activation"]);
+  expect(defined(defined(evidence.trials[0]).observations[1])).toMatchObject({
     id: "darrow.activation",
     completeness: "complete",
     data: { selected: "darrow.tdd" },
   });
 });
-
 test("extension grading receives retained host artifacts", async () => {
   const { outcome, evidence } = await runWithExtension(
     "lifecycle-host-artifact",
   );
   expect(outcome.result.task.verdict).toBe("passed");
-  expect(outcome.result.cases[0]?.trials[0]?.checks[1]?.evidenceRefs).toEqual([
-    "example.host.trace",
-  ]);
-  const artifact = evidence.trials[0].artifactRefs.find(
+  expectUnknown(
+    defined(defined(defined(outcome.result.cases[0]).trials[0]).checks[1])
+      .evidenceRefs,
+  ).toEqual(["example.host.trace"]);
+  const artifact = defined(evidence.trials[0]).artifactRefs.find(
     (item: { id: string }) => item.id === "example.host.trace",
   );
   expect(artifact).toBeDefined();
-  expect(await readFile(new URL(artifact.path), "utf8")).toBe("host trace\n");
+  expect(await readFile(new URL(defined(artifact).path), "utf8")).toBe(
+    "host trace\n",
+  );
 });
-
 test("extension grading error cannot become a passing task", async () => {
   const { outcome, evidence } = await runWithExtension(
     "lifecycle-empty-evidence",
@@ -341,10 +378,12 @@ test("extension grading error cannot become a passing task", async () => {
     task: { verdict: "not_assessed" },
     exitCode: 3,
   });
-  expect(evidence.diagnostic.code).toBe("sevro.grader.error");
-  expect(outcome.result.cases[0]?.trials[0]?.checks[0]?.status).toBe("passed");
+  expect(defined(evidence.diagnostic).code).toBe("sevro.grader.error");
+  expect(
+    defined(defined(defined(outcome.result.cases[0]).trials[0]).checks[0])
+      .status,
+  ).toBe("passed");
 });
-
 test("an omitted declared extension check leaves grading unavailable", async () => {
   const { outcome } = await runWithExtension("lifecycle-missing-check");
   expect(outcome.result).toMatchObject({
@@ -354,7 +393,6 @@ test("an omitted declared extension check leaves grading unavailable", async () 
     exitCode: 4,
   });
 });
-
 test("unsupported instrumentation stops before host execution", async () => {
   const projectRoot = await mkdtemp(join(tmpdir(), "sevro-extension-prepare-"));
   roots.push(projectRoot);
@@ -377,12 +415,12 @@ test("unsupported instrumentation stops before host execution", async () => {
     id: "sevro.host.synthetic",
     model: "synthetic-v1",
     effort: "none",
-    async run() {
+    run() {
       called = true;
-      return { finalMessage: "ready", complete: true };
+      return Promise.resolve({ finalMessage: "ready", complete: true });
     },
   };
-  await expect(
+  expect(
     runEvaluation({
       projectRoot,
       resultsRoot: join(projectRoot, "results"),
@@ -404,7 +442,7 @@ test("unsupported instrumentation stops before host execution", async () => {
   ).rejects.toThrow(/unsupported instrumentation/);
   expect(called).toBe(false);
 });
-
+// eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("negotiated instrumentation records host application and rejects condition drift", async () => {
   const supported = await runWithExtension(
     "lifecycle-instrumentation-supported",
@@ -424,13 +462,13 @@ test("negotiated instrumentation records host application and rejects condition 
       { id: "example.extension.guard", configuration: {} },
     ],
   });
-  expect(supported.evidence.trials[0].condition.appliedInstrumentation).toEqual(
-    supported.evidence.condition.requestedInstrumentation,
-  );
-  expect(supported.evidence.extension.capabilities).toContain(
+  expectUnknown(
+    defined(supported.evidence.trials[0]).condition.appliedInstrumentation,
+  ).toEqual(supported.evidence.condition.requestedInstrumentation);
+  expect(defined(supported.evidence.extension).capabilities).toContain(
     "example.extension.guard",
   );
-  await expect(
+  expect(
     runWithExtension(
       "lifecycle-instrumentation",
       undefined,
@@ -454,7 +492,7 @@ test("negotiated instrumentation records host application and rejects condition 
       { id: "example.extension.trace", configuration: {} },
     ],
   });
-  await expect(
+  expect(
     runWithExtension(
       "lifecycle-instrumentation-supported",
       undefined,
@@ -483,10 +521,10 @@ test("negotiated instrumentation records host application and rejects condition 
     task: { verdict: "not_assessed" },
     exitCode: 2,
   });
-  expect(mismatch.evidence.diagnostic.code).toBe(
+  expect(defined(mismatch.evidence.diagnostic).code).toBe(
     "sevro.instrumentation.mismatch",
   );
-  expect(mismatch.evidence.condition.appliedInstrumentation).toEqual([]);
+  expectUnknown(mismatch.evidence.condition.appliedInstrumentation).toEqual([]);
   const conditionDrift = await runWithExtension(
     "lifecycle-instrumentation-supported",
     undefined,
@@ -503,22 +541,20 @@ test("negotiated instrumentation records host application and rejects condition 
     "enforced",
   );
   expect(conditionDrift.outcome.result.exitCode).toBe(2);
-  expect(conditionDrift.evidence.diagnostic.code).toBe(
+  expect(defined(conditionDrift.evidence.diagnostic).code).toBe(
     "sevro.instrumentation.mismatch",
   );
 });
-
 test("prepared inline artifacts survive fixture cleanup with their digest", async () => {
   const { outcome, evidence } = await runWithExtension("lifecycle-artifact");
   expect(outcome.result.exitCode).toBe(0);
-  const [artifact] = evidence.trials[0].artifactRefs;
-  expect(artifact.id).toBe("generated-file");
-  expect(artifact.sha256).toMatch(/^[a-f0-9]{64}$/);
-  expect(await readFile(new URL(artifact.path), "utf8")).toBe(
+  const [artifact] = defined(evidence.trials[0]).artifactRefs;
+  expect(defined(artifact).id).toBe("generated-file");
+  expect(defined(artifact).sha256).toMatch(/^[a-f0-9]{64}$/);
+  expect(await readFile(new URL(defined(artifact).path), "utf8")).toBe(
     "prepared data\n",
   );
 });
-
 test("negotiated fixture setup runs before artifacts and enters comparison identity", async () => {
   const seen: string[] = [];
   const host: HostAdapter = {
@@ -538,8 +574,8 @@ test("negotiated fixture setup runs before artifacts and enters comparison ident
     host,
   );
   expect(outcome.result.exitCode, JSON.stringify(evidence.diagnostic)).toBe(0);
-  expect(seen[0]).toMatch(/\/cases\n$/);
-  expect(seen[1]).toBe("prepared data\n");
+  expect(defined(seen[0])).toMatch(/\/cases\n$/);
+  expect(defined(seen[1])).toBe("prepared data\n");
   expect(session.identity.capabilities).toContain("sevro.fixture.setup");
   expect(evidence.configuration.redacted.fixtureSetupDigest).toMatch(
     /^[a-f0-9]{64}$/,
@@ -547,24 +583,23 @@ test("negotiated fixture setup runs before artifacts and enters comparison ident
   expect(evidence.evaluationIdentity.dimensions.fixtureDigest).toMatch(
     /^[a-f0-9]{64}$/,
   );
-  expect(evidence.trials[0].artifactRefs[0].id).toBe("generated-file");
+  expect(defined(defined(evidence.trials[0]).artifactRefs[0]).id).toBe(
+    "generated-file",
+  );
 });
-
 test("fixture setup cannot redirect a preparation artifact outside the trial", async () => {
   const before = roots.length;
-  await expect(runWithExtension("lifecycle-setup-link")).rejects.toThrow(
+  expect(runWithExtension("lifecycle-setup-link")).rejects.toThrow(
     /preparation artifact traverses a non-directory/,
   );
-  const projectRoot = roots[before]!;
-  expect(await readdir(join(projectRoot, "outside"))).toEqual([]);
+  const projectRoot = defined(roots[before]);
+  expectUnknown(await readdir(join(projectRoot, "outside"))).toEqual([]);
 });
-
-test("fixture setup refuses an extension without its negotiated capability", async () => {
+test("fixture setup refuses an extension without its negotiated capability", () => {
   expect(runWithExtension("lifecycle-setup-unnegotiated")).rejects.toThrow(
     "fixture setup capability was not negotiated",
   );
 });
-
 test("prepared skill files stay outside Git status without hiding candidate edits", async () => {
   const statuses: string[] = [];
   const { outcome, evidence } = await runWithExtension(
@@ -589,9 +624,9 @@ test("prepared skill files stay outside Git status without hiding candidate edit
       statuses.push(status());
     },
   );
-  expect(statuses).toEqual(["", " M README.md\n"]);
+  expectUnknown(statuses).toEqual(["", " M README.md\n"]);
   expect(outcome.result.exitCode).toBe(0);
-  expect(evidence.trials[0].artifactRefs[0]).toMatchObject({
+  expect(defined(defined(evidence.trials[0]).artifactRefs[0])).toMatchObject({
     id: "generated-file",
     gitExclude: true,
   });
@@ -599,7 +634,6 @@ test("prepared skill files stay outside Git status without hiding candidate edit
     /^[a-f0-9]{64}$/,
   );
 });
-
 test("negotiated Codex marketplace reaches the host and binds fixture identity", async () => {
   let sawMarketplace = false;
   const host: HostAdapter = {
@@ -636,25 +670,24 @@ test("negotiated Codex marketplace reaches the host and binds fixture identity",
   );
   expect(outcome.result.exitCode).toBe(0);
   expect(sawMarketplace).toBe(true);
-  expect(evidence.configuration.redacted.codexMarketplace).toEqual({
+  expectUnknown(evidence.configuration.redacted.codexMarketplace).toEqual({
     artifactRoot: "marketplace",
     marketplaceName: "sevro-probe",
     pluginNames: ["probe"],
   });
-  expect(evidence.trials[0].artifactRefs).toHaveLength(4);
+  expect(defined(evidence.trials[0]).artifactRefs).toHaveLength(4);
 });
-
-test("Codex marketplace requires negotiation and a valid artifact root", async () => {
+test("Codex marketplace requires negotiation and a valid artifact root", () => {
   const host: HostAdapter = {
     id: "sevro.host.synthetic",
     model: "synthetic-v1",
     effort: "none",
     hostCapabilities: ["sevro.codex.plugin-marketplace"],
-    async run() {
-      throw new Error("host should not run");
+    run() {
+      return Promise.reject(new Error("host should not run"));
     },
   };
-  await expect(
+  expect(
     runWithExtension(
       "lifecycle-codex-marketplace-unnegotiated",
       undefined,
@@ -662,7 +695,7 @@ test("Codex marketplace requires negotiation and a valid artifact root", async (
       host,
     ),
   ).rejects.toThrow(/capability was not negotiated/);
-  await expect(
+  expect(
     runWithExtension(
       "lifecycle-codex-marketplace-bad-root",
       undefined,
@@ -671,7 +704,6 @@ test("Codex marketplace requires negotiation and a valid artifact root", async (
     ),
   ).rejects.toThrow(/invalid Codex marketplace declaration/);
 });
-
 test("negotiated Claude plugin directory reaches the host and binds fixture identity", async () => {
   const host: HostAdapter = {
     id: "sevro.host.synthetic",
@@ -679,7 +711,7 @@ test("negotiated Claude plugin directory reaches the host and binds fixture iden
     effort: "none",
     hostCapabilities: ["sevro.claude.plugin-dirs"],
     async run(request) {
-      expect(request.claudePluginDirs).toEqual({
+      expectUnknown(request.claudePluginDirs).toEqual({
         artifactRoots: ["marketplace/plugin"],
         artifactPaths: [
           "marketplace/plugin/.claude-plugin/plugin.json",
@@ -710,20 +742,19 @@ test("negotiated Claude plugin directory reaches the host and binds fixture iden
     host,
   );
   expect(outcome.result.exitCode).toBe(0);
-  expect(evidence.configuration.redacted.claudePluginDirs).toEqual({
+  expectUnknown(evidence.configuration.redacted.claudePluginDirs).toEqual({
     artifactRoots: ["marketplace/plugin"],
   });
-  expect(evidence.trials[0].artifactRefs).toHaveLength(4);
+  expect(defined(evidence.trials[0]).artifactRefs).toHaveLength(4);
 });
-
-test("Claude plugin directory rejects unnegotiated or unsafe packages", async () => {
+test("Claude plugin directory rejects unnegotiated or unsafe packages", () => {
   const host: HostAdapter = {
     id: "sevro.host.synthetic",
     model: "synthetic-v1",
     effort: "none",
     hostCapabilities: ["sevro.claude.plugin-dirs"],
-    async run() {
-      throw new Error("host should not run");
+    run() {
+      return Promise.reject(new Error("host should not run"));
     },
   };
   for (const scenario of [
@@ -732,12 +763,11 @@ test("Claude plugin directory rejects unnegotiated or unsafe packages", async ()
     "lifecycle-claude-plugin-no-manifest",
     "lifecycle-claude-plugin-not-excluded",
   ]) {
-    await expect(
-      runWithExtension(scenario, undefined, [], host),
-    ).rejects.toThrow(/Claude plugin directory/);
+    expect(runWithExtension(scenario, undefined, [], host)).rejects.toThrow(
+      /Claude plugin directory/,
+    );
   }
 });
-
 test("explicit Codex invocation renders once and reaches the selected host", async () => {
   let delivered = false;
   const host: HostAdapter = {
@@ -748,19 +778,19 @@ test("explicit Codex invocation renders once and reaches the selected host", asy
       "sevro.codex.plugin-marketplace",
       "sevro.codex.explicit-invocation",
     ],
-    async run(request) {
+    run(request) {
       expect(request.prompt).toBe("Use $probe:probe and return ready.");
-      expect(request.explicitSkillInvocation).toEqual({
+      expectUnknown(request.explicitSkillInvocation).toEqual({
         pluginName: "probe",
         skillName: "probe",
         token: "$probe:probe",
       });
       delivered = true;
-      return {
+      return Promise.resolve({
         finalMessage: "ready",
         complete: true,
         actualCondition: "passive",
-      };
+      });
     },
   };
   const { outcome, evidence } = await runWithExtension(
@@ -771,11 +801,11 @@ test("explicit Codex invocation renders once and reaches the selected host", asy
   );
   expect(outcome.result.exitCode).toBe(0);
   expect(delivered).toBe(true);
-  expect(evidence.configuration.redacted.codexSkillInvocation).toEqual({
+  expectUnknown(evidence.configuration.redacted.codexSkillInvocation).toEqual({
     pluginName: "probe",
     skillName: "probe",
   });
-  await expect(
+  expect(
     runWithExtension(
       "lifecycle-codex-marketplace-explicit-invocation-repeated",
       undefined,
@@ -783,7 +813,7 @@ test("explicit Codex invocation renders once and reaches the selected host", asy
       host,
     ),
   ).rejects.toThrow(/invalid Codex skill invocation declaration/);
-  await expect(
+  expect(
     runWithExtension(
       "lifecycle-codex-marketplace-explicit-invocation-unnegotiated",
       undefined,
@@ -792,7 +822,6 @@ test("explicit Codex invocation renders once and reaches the selected host", asy
     ),
   ).rejects.toThrow(/capability was not negotiated/);
 });
-
 test("explicit repository invocation preserves scope and retained identity", async () => {
   const host: HostAdapter = {
     id: "sevro.host.codex",
@@ -802,7 +831,7 @@ test("explicit repository invocation preserves scope and retained identity", asy
     async run(request) {
       expect(request.prompt).toBe("Use $probe and return ready.");
       expect(request.codexMarketplace).toBeUndefined();
-      expect(request.explicitSkillInvocation).toEqual({
+      expectUnknown(request.explicitSkillInvocation).toEqual({
         scope: "repository",
         skillName: "probe",
         token: "$probe",
@@ -826,12 +855,12 @@ test("explicit repository invocation preserves scope and retained identity", asy
     host,
   );
   expect(outcome.result.exitCode).toBe(0);
-  expect(
+  expectUnknown(
     evidence.configuration.redacted.codexRepositorySkillInvocation,
   ).toEqual({ skillName: "probe" });
   expect(evidence.configuration.redacted.codexSkillInvocation).toBeUndefined();
   for (const suffix of ["repeated", "missing-mount", "not-excluded"])
-    await expect(
+    expect(
       runWithExtension(
         `lifecycle-codex-repository-explicit-invocation-${suffix}`,
         undefined,
@@ -839,7 +868,7 @@ test("explicit repository invocation preserves scope and retained identity", asy
         host,
       ),
     ).rejects.toThrow(/invalid Codex repository skill invocation declaration/);
-  await expect(
+  expect(
     runWithExtension(
       "lifecycle-codex-repository-explicit-invocation-unnegotiated",
       undefined,
@@ -847,7 +876,7 @@ test("explicit repository invocation preserves scope and retained identity", asy
       host,
     ),
   ).rejects.toThrow(/capability was not negotiated/);
-  await expect(
+  expect(
     runWithExtension(
       "lifecycle-codex-repository-explicit-invocation",
       undefined,
@@ -855,7 +884,7 @@ test("explicit repository invocation preserves scope and retained identity", asy
       { ...host, hostCapabilities: [] },
     ),
   ).rejects.toThrow(/capability was not negotiated/);
-  await expect(
+  expect(
     runWithExtension(
       "lifecycle-codex-repository-explicit-invocation-conflicting",
       undefined,
@@ -864,7 +893,6 @@ test("explicit repository invocation preserves scope and retained identity", asy
     ),
   ).rejects.toThrow(/only one explicit skill invocation/);
 });
-
 test("explicit Codex invocation can occur in the continuation turn", async () => {
   const host: HostAdapter = {
     id: "sevro.host.codex",
@@ -875,14 +903,14 @@ test("explicit Codex invocation can occur in the continuation turn", async () =>
       "sevro.codex.plugin-marketplace",
       "sevro.codex.explicit-invocation",
     ],
-    async run(request) {
+    run(request) {
       expect(request.prompt).toBe("Wait for the next request.");
       expect(request.followUpPrompt).toBe("Use $probe:probe and return ready.");
-      return {
+      return Promise.resolve({
         finalMessage: "ready",
         complete: true,
         actualCondition: "passive",
-      };
+      });
     },
   };
   const { outcome } = await runWithExtension(
@@ -893,7 +921,6 @@ test("explicit Codex invocation can occur in the continuation turn", async () =>
   );
   expect(outcome.result.exitCode).toBe(0);
 });
-
 test("explicit Claude repository invocation renders a native project command", async () => {
   const host: HostAdapter = {
     id: "sevro.host.claude",
@@ -903,7 +930,7 @@ test("explicit Claude repository invocation renders a native project command", a
     async run(request) {
       expect(request.prompt).toBe("/probe Return ready.");
       expect(request.claudePluginDirs).toBeUndefined();
-      expect(request.explicitSkillInvocation).toEqual({
+      expectUnknown(request.explicitSkillInvocation).toEqual({
         scope: "repository",
         skillName: "probe",
         token: "/probe",
@@ -923,7 +950,7 @@ test("explicit Claude repository invocation renders a native project command", a
     host,
   );
   expect(outcome.result.exitCode).toBe(0);
-  expect(
+  expectUnknown(
     evidence.configuration.redacted.claudeRepositorySkillInvocation,
   ).toEqual({ skillName: "probe" });
   for (const suffix of [
@@ -932,7 +959,7 @@ test("explicit Claude repository invocation renders a native project command", a
     "not-excluded",
     "nonleading",
   ])
-    await expect(
+    expect(
       runWithExtension(
         `lifecycle-claude-repository-explicit-invocation-${suffix}`,
         undefined,
@@ -948,10 +975,10 @@ test("explicit Claude repository invocation renders a native project command", a
     ],
   ];
   for (const [scenario, candidate] of unsupported)
-    await expect(
+    expect(
       runWithExtension(scenario, undefined, [], candidate),
     ).rejects.toThrow(/capability was not negotiated/);
-  await expect(
+  expect(
     runWithExtension(
       "lifecycle-claude-repository-explicit-invocation-conflicting",
       undefined,
@@ -960,7 +987,6 @@ test("explicit Claude repository invocation renders a native project command", a
     ),
   ).rejects.toThrow(/only one explicit skill invocation/);
 });
-
 test("explicit Claude invocation renders a packaged slash token", async () => {
   const host: HostAdapter = {
     id: "sevro.host.claude",
@@ -970,18 +996,18 @@ test("explicit Claude invocation renders a packaged slash token", async () => {
       "sevro.claude.plugin-dirs",
       "sevro.claude.explicit-invocation",
     ],
-    async run(request) {
+    run(request) {
       expect(request.prompt).toBe("Use /probe:probe and return ready.");
-      expect(request.explicitSkillInvocation).toEqual({
+      expectUnknown(request.explicitSkillInvocation).toEqual({
         pluginName: "probe",
         skillName: "probe",
         token: "/probe:probe",
       });
-      return {
+      return Promise.resolve({
         finalMessage: "ready",
         complete: true,
         actualCondition: "passive",
-      };
+      });
     },
   };
   const { outcome, evidence } = await runWithExtension(
@@ -991,11 +1017,11 @@ test("explicit Claude invocation renders a packaged slash token", async () => {
     host,
   );
   expect(outcome.result.exitCode).toBe(0);
-  expect(evidence.configuration.redacted.claudeSkillInvocation).toEqual({
+  expectUnknown(evidence.configuration.redacted.claudeSkillInvocation).toEqual({
     pluginName: "probe",
     skillName: "probe",
   });
-  await expect(
+  expect(
     runWithExtension(
       "lifecycle-claude-plugin-explicit-invocation-repeated",
       undefined,
@@ -1003,7 +1029,7 @@ test("explicit Claude invocation renders a packaged slash token", async () => {
       host,
     ),
   ).rejects.toThrow(/invalid Claude skill invocation declaration/);
-  await expect(
+  expect(
     runWithExtension(
       "lifecycle-claude-plugin-explicit-invocation-unnegotiated",
       undefined,
@@ -1012,7 +1038,6 @@ test("explicit Claude invocation renders a packaged slash token", async () => {
     ),
   ).rejects.toThrow(/capability was not negotiated/);
 });
-
 test("prepared executable artifact runs from the fixture and retains its mode", async () => {
   const { outcome, evidence } = await runWithExtension(
     "lifecycle-executable-artifact",
@@ -1029,33 +1054,32 @@ test("prepared executable artifact runs from the fixture and retains its mode", 
     },
   );
   expect(outcome.result.exitCode).toBe(0);
-  expect(evidence.trials[0].artifactRefs[0]).toMatchObject({
+  expect(defined(defined(evidence.trials[0]).artifactRefs[0])).toMatchObject({
     id: "generated-file",
     executable: true,
   });
   if (process.platform !== "win32") {
-    const retained = new URL(evidence.trials[0].artifactRefs[0].path);
+    const retained = new URL(
+      defined(defined(evidence.trials[0]).artifactRefs[0]).path,
+    );
     expect((await stat(retained)).mode & 0o100).toBe(0o100);
   }
 });
-
-test("Git-excluded preparation artifacts require a Git fixture", async () => {
-  await expect(
+test("Git-excluded preparation artifacts require a Git fixture", () => {
+  expect(
     runWithExtension("lifecycle-git-excluded-inline-artifact"),
   ).rejects.toThrow(/require a Git fixture/);
 });
-
 test("declared source artifacts are retained and mounted with verified bytes", async () => {
   const { outcome, evidence } = await runWithExtension(
     "lifecycle-source-artifact",
   );
   expect(outcome.result.exitCode).toBe(0);
-  const [artifact] = evidence.trials[0].artifactRefs;
-  expect(await readFile(new URL(artifact.path), "utf8")).toBe(
+  const [artifact] = defined(evidence.trials[0]).artifactRefs;
+  expect(await readFile(new URL(defined(artifact).path), "utf8")).toBe(
     "prepared data\n",
   );
 });
-
 test("a wrong preparation digest fails before host execution", async () => {
   const projectRoot = await mkdtemp(
     join(tmpdir(), "sevro-extension-bad-artifact-"),
@@ -1080,12 +1104,12 @@ test("a wrong preparation digest fails before host execution", async () => {
     id: "sevro.host.synthetic",
     model: "synthetic-v1",
     effort: "none",
-    async run() {
+    run() {
       called = true;
-      return { finalMessage: "ready", complete: true };
+      return Promise.resolve({ finalMessage: "ready", complete: true });
     },
   };
-  await expect(
+  expect(
     runEvaluation({
       projectRoot,
       resultsRoot: join(projectRoot, "results"),
@@ -1107,18 +1131,17 @@ test("a wrong preparation digest fails before host execution", async () => {
   ).rejects.toThrow(/preparation artifact digest/);
   expect(called).toBe(false);
 });
-
 test("a changed retained artifact cannot support a successful result", async () => {
   let workspace = "";
   try {
-    await expect(
+    expect(
       runWithExtension("lifecycle-artifact", async (fixture, resultsRoot) => {
         workspace = fixture;
         const runId = (await readdir(resultsRoot)).find((name) =>
           /^[a-f0-9]{8}-/.test(name),
         );
         await writeFile(
-          join(resultsRoot, runId!, "prepared/generated/data.txt"),
+          join(resultsRoot, defined(runId), "prepared/generated/data.txt"),
           "tampered\n",
         );
       }),

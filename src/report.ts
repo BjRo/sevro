@@ -1,58 +1,14 @@
+import type { CliResultData, RunEvidenceData } from "./schema-types";
 import { readFile } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import { parseArgs } from "node:util";
 import { canonicalJson } from "./identity";
 import { assertCliResult, assertReport, assertRunEvidence } from "./schema";
 
-type State = { status: string };
-type Verdict = { verdict: string };
-type DomainOutcome = { id: string; status: string };
-type Trial = {
-  trial: number;
-  execution: State;
-  grading: State;
-  task: Verdict;
-  domainOutcomes?: DomainOutcome[];
-};
-type Case = {
-  caseId: string;
-  execution: State;
-  grading: State;
-  task: Verdict;
-  trials: Trial[];
-};
-type CliResult = {
-  format: string;
-  runId: string | null;
-  execution: State;
-  grading: State;
-  task: Verdict;
-  exitCode: number;
-  evidencePath: string | null;
-  cases: Case[];
-};
-type Usage = {
-  inputTokens: number | null;
-  outputTokens: number | null;
-  costUsd: number | null;
-  complete: boolean;
-};
-type TrialEvidence = {
-  caseId: string;
-  trial: number;
-  executionMode: string;
-  candidateDurationMs?: number | null;
-  usage: Usage;
-};
-type Evidence = {
-  runId: string;
-  result: CliResult;
-  runner: { buildDigest: string };
-  evaluationIdentity: { digest: string };
-  condition: { requested: string; actual: string };
-  routes: Array<{ role: string; host: string; model: string; effort: string }>;
-  trials: TrialEvidence[];
-};
+type CliResult = CliResultData;
+type Evidence = RunEvidenceData;
+type Case = CliResult["cases"][number];
+type Trial = Case["trials"][number];
 
 export type ReportRow = {
   resultFile: string;
@@ -80,7 +36,7 @@ export type ReportRow = {
 
 function sumKnown(values: Array<number | null | undefined>): number | null {
   return values.length && values.every((value) => value != null)
-    ? values.reduce<number>((total, value) => total + value!, 0)
+    ? values.reduce<number>((total, value) => total + value, 0)
     : null;
 }
 
@@ -104,12 +60,26 @@ function passRate(trials: Trial[]): number | null {
 async function loadResult(path: string) {
   if (!isAbsolute(path))
     throw new Error("report result paths must be absolute");
-  const result = JSON.parse(await readFile(path, "utf8")) as unknown;
+  const result: unknown = JSON.parse(await readFile(path, "utf8"));
   assertCliResult(result);
-  return result as CliResult;
+  return result;
 }
 
 async function loadEvidence(result: CliResult): Promise<Evidence | null> {
+  const path = retainedEvidencePath(result);
+  if (path === null) return null;
+  const value: unknown = JSON.parse(await readFile(path, "utf8"));
+  assertRunEvidence(value);
+  const evidence = value;
+  if (
+    evidence.runId !== result.runId ||
+    canonicalJson(evidence.result) !== canonicalJson(result)
+  )
+    throw new Error("retained evidence differs from report result");
+  return evidence;
+}
+
+function retainedEvidencePath(result: CliResult): string | null {
   if (!result.evidencePath) {
     if (result.cases.length || result.exitCode === 0)
       throw new Error("completed result has no retained evidence");
@@ -117,17 +87,7 @@ async function loadEvidence(result: CliResult): Promise<Evidence | null> {
   }
   if (!isAbsolute(result.evidencePath))
     throw new Error("evidence path must be absolute");
-  const value = JSON.parse(
-    await readFile(result.evidencePath, "utf8"),
-  ) as unknown;
-  assertRunEvidence(value);
-  const evidence = value as Evidence;
-  if (
-    evidence.runId !== result.runId ||
-    canonicalJson(evidence.result) !== canonicalJson(result)
-  )
-    throw new Error("retained evidence differs from report result");
-  return evidence;
+  return result.evidencePath;
 }
 
 function trialEvidence(
@@ -155,13 +115,8 @@ function reportRow(
   evidence: Evidence | null,
 ): ReportRow {
   const retained = trialEvidence(selected.caseId, selected.trials, evidence);
-  const candidateRoutes =
-    evidence?.routes.filter((route) => route.role === "candidate") ?? [];
-  if (evidence && candidateRoutes.length !== 1)
-    throw new Error("retained candidate route is ambiguous");
-  const completeUsage =
-    retained.length > 0 && retained.every((trial) => trial.usage.complete);
-  const route = candidateRoutes[0];
+  const candidateRoute = retainedCandidateRoute(evidence);
+  const usage = retainedUsage(retained);
   return {
     resultFile: path,
     evidencePath: result.evidencePath,
@@ -176,23 +131,9 @@ function reportRow(
     candidateDurationMs: sumKnown(
       retained.map((trial) => trial.candidateDurationMs),
     ),
-    inputTokens: completeUsage
-      ? sumKnown(retained.map((trial) => trial.usage.inputTokens))
-      : null,
-    outputTokens: completeUsage
-      ? sumKnown(retained.map((trial) => trial.usage.outputTokens))
-      : null,
-    costUsd: completeUsage
-      ? sumKnown(retained.map((trial) => trial.usage.costUsd))
-      : null,
-    runnerBuildDigest: evidence?.runner.buildDigest ?? null,
-    evaluationDigest: evidence?.evaluationIdentity.digest ?? null,
-    requestedCondition: evidence?.condition.requested ?? null,
-    actualCondition: evidence?.condition.actual ?? null,
-    candidateRoute: route
-      ? { host: route.host, model: route.model, effort: route.effort }
-      : null,
-    routes: evidence?.routes ?? [],
+    ...usage,
+    ...retainedIdentity(evidence),
+    candidateRoute,
     domainOutcomes: selected.trials.flatMap((trial) =>
       (trial.domainOutcomes ?? []).map((outcome) => ({
         trial: trial.trial,
@@ -200,6 +141,49 @@ function reportRow(
         status: outcome.status,
       })),
     ),
+  };
+}
+
+function retainedCandidateRoute(
+  evidence: Evidence | null,
+): ReportRow["candidateRoute"] {
+  if (!evidence) return null;
+  const routes = evidence.routes.filter((route) => route.role === "candidate"),
+    [route] = routes;
+  if (routes.length !== 1 || route === undefined)
+    throw new Error("retained candidate route is ambiguous");
+  return { host: route.host, model: route.model, effort: route.effort };
+}
+function retainedUsage(retained: Evidence["trials"]) {
+  const complete =
+    retained.length > 0 && retained.every((trial) => trial.usage.complete);
+  return {
+    inputTokens: complete
+      ? sumKnown(retained.map((trial) => trial.usage.inputTokens))
+      : null,
+    outputTokens: complete
+      ? sumKnown(retained.map((trial) => trial.usage.outputTokens))
+      : null,
+    costUsd: complete
+      ? sumKnown(retained.map((trial) => trial.usage.costUsd))
+      : null,
+  };
+}
+function retainedIdentity(evidence: Evidence | null) {
+  if (!evidence)
+    return {
+      runnerBuildDigest: null,
+      evaluationDigest: null,
+      requestedCondition: null,
+      actualCondition: null,
+      routes: [],
+    };
+  return {
+    runnerBuildDigest: evidence.runner.buildDigest,
+    evaluationDigest: evidence.evaluationIdentity.digest,
+    requestedCondition: evidence.condition.requested,
+    actualCondition: evidence.condition.actual,
+    routes: evidence.routes,
   };
 }
 
@@ -279,10 +263,7 @@ export function renderReport(
     "",
     "| Case | Task | Execution | Grading | Pass rate | Candidate time | Candidate tokens | Candidate cost | Condition | Candidate route |",
     "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- |",
-    ...report.rows.map(
-      (row) =>
-        `| ${cell(row.caseId)} | ${row.task} | ${row.execution} | ${row.grading} | ${row.taskPassRate === null ? "unknown" : `${(row.taskPassRate * 100).toFixed(0)}%`} | ${seconds(row.candidateDurationMs)} | ${measured(row.inputTokens)} / ${measured(row.outputTokens)} | ${row.costUsd === null ? "unknown" : `$${row.costUsd.toFixed(4)}`} | ${row.requestedCondition ?? "unknown"} / ${row.actualCondition ?? "unknown"} | ${row.candidateRoute ? cell(`${row.candidateRoute.host}/${row.candidateRoute.model}@${row.candidateRoute.effort}`) : "unknown"} |`,
-    ),
+    ...report.rows.map(caseOutcomeLine),
     "",
     "## Retained evidence",
     "",
@@ -324,28 +305,52 @@ export function renderReport(
   return lines.join("\n");
 }
 
+function passRateCell(rate: number | null): string {
+  return rate === null ? "unknown" : `${(rate * 100).toFixed(0)}%`;
+}
+function costCell(cost: number | null): string {
+  return cost === null ? "unknown" : `$${cost.toFixed(4)}`;
+}
+function routeCell(route: ReportRow["candidateRoute"]): string {
+  return route
+    ? cell(`${route.host}/${route.model}@${route.effort}`)
+    : "unknown";
+}
+function conditionCell(row: ReportRow): string {
+  return `${row.requestedCondition ?? "unknown"} / ${row.actualCondition ?? "unknown"}`;
+}
+function caseOutcomeLine(row: ReportRow): string {
+  return `| ${cell(row.caseId)} | ${row.task} | ${row.execution} | ${row.grading} | ${passRateCell(row.taskPassRate)} | ${seconds(row.candidateDurationMs)} | ${measured(row.inputTokens)} / ${measured(row.outputTokens)} | ${costCell(row.costUsd)} | ${conditionCell(row)} | ${routeCell(row.candidateRoute)} |`;
+}
+
 export async function reportCommand(argv: string[]): Promise<number> {
   try {
-    const { values, positionals } = parseArgs({
-      args: argv,
-      allowPositionals: true,
-      strict: true,
-      options: {
-        json: { type: "boolean" },
-        "result-file": { type: "string", multiple: true },
-      },
-    });
-    if (positionals.length !== 1 || positionals[0] !== "report")
-      throw new Error("expected the report command");
+    const values = reportInvocation(argv);
     const report = await createReport(values["result-file"] ?? []);
     process.stdout.write(
       values.json ? `${JSON.stringify(report)}\n` : renderReport(report),
     );
     return 0;
   } catch (error) {
-    process.stderr.write(
-      `${error instanceof Error ? error.message : "invalid report input"}\n`,
-    );
+    process.stderr.write(`${reportErrorMessage(error)}\n`);
     return 64;
   }
+}
+
+function reportInvocation(argv: string[]) {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    strict: true,
+    options: {
+      json: { type: "boolean" },
+      "result-file": { type: "string", multiple: true },
+    },
+  });
+  if (positionals.length !== 1 || positionals[0] !== "report")
+    throw new Error("expected the report command");
+  return values;
+}
+function reportErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "invalid report input";
 }

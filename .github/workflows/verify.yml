@@ -10,20 +10,36 @@ permissions:
 
 jobs:
   verify:
-    runs-on: macos-latest
+    name: TypeScript gate (macOS arm64)
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          node-version: "24.13.0"
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.13
       - name: Install deterministic sandbox prerequisite
         run: bun scripts/setup-ci-codex.ts
       - run: bun install --frozen-lockfile
-      - run: bun run schemas:check
-      - run: bun run typecheck
-      - run: bun run format:check
-      - run: bun test --timeout 15000
-      - run: bun run test:package-install
+      - name: Canonical TypeScript quality gate
+        run: bun run check:typescript
+      - name: Retain quality evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: typescript-quality-${{ github.sha }}
+          path: .quality/
+          include-hidden-files: true
+          if-no-files-found: warn
+  typescript-quality:
+    name: TypeScript quality
+    needs: verify
+    if: always()
+    runs-on: macos-26
+    steps:
+      - name: Require the complete gate
+        env:
+          QUALITY_RESULT: ${{ needs.verify.result }}
+        run: test "$QUALITY_RESULT" = success

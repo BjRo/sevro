@@ -1,16 +1,23 @@
-import { afterEach, expect, test } from "bun:test";
+import { expectUnknown } from "./fixtures/assertions";
+import {
+  defined,
+  objectContaining,
+  parseCliResult,
+  parseRunEvidence,
+  record,
+} from "./fixtures/assertions";
+import { afterEach, test, expect } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chmod, cp } from "node:fs/promises";
-
 const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
 });
-
+// eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("public CLI records goal absence at the actual user feedback boundary", async () => {
   const root = await mkdtemp(join(tmpdir(), "sevro-main-sync-feedback-"));
   const binRoot = await mkdtemp(join(tmpdir(), "sevro-main-sync-bin-"));
@@ -76,27 +83,29 @@ test("public CLI records goal absence at the actual user feedback boundary", asy
     new Response(child.stderr).text(),
     child.exited,
   ]);
-  const result = JSON.parse(out);
+  const result = parseCliResult(out);
   expect(code, out + err).toBe(0);
-  const evidence = JSON.parse(await readFile(result.evidencePath, "utf8"));
-  expect(evidence.trials[0].observations).toContainEqual(
-    expect.objectContaining({
+  const evidence = parseRunEvidence(
+    await readFile(defined(result.evidencePath), "utf8"),
+  );
+  expectUnknown(defined(evidence.trials[0]).observations).toContainEqual(
+    objectContaining({
       id: "sevro.codex.continuation",
       completeness: "complete",
-      data: expect.objectContaining({
+      data: objectContaining({
         nativeGoalObserved: false,
         nativeGoalStatus: null,
       }),
     }),
   );
-  expect(evidence.trials[0].observations).toContainEqual(
-    expect.objectContaining({
+  expectUnknown(defined(evidence.trials[0]).observations).toContainEqual(
+    objectContaining({
       id: "sevro.host.native-goal",
-      data: expect.objectContaining({ clientTurns: 2, goalStatus: "complete" }),
+      data: objectContaining({ clientTurns: 2, goalStatus: "complete" }),
     }),
   );
 });
-
+// eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("public CLI retains failed app-server evidence without passing the task", async () => {
   const root = await mkdtemp(join(tmpdir(), "sevro-main-sync-failure-"));
   const binRoot = await mkdtemp(join(tmpdir(), "sevro-main-sync-bin-"));
@@ -161,25 +170,27 @@ test("public CLI retains failed app-server evidence without passing the task", a
     new Response(child.stderr).text(),
     child.exited,
   ]);
-  const result = JSON.parse(out);
+  const result = parseCliResult(out);
   expect(code, out + err).toBe(2);
   expect(result).toMatchObject({
     execution: { status: "failed" },
     task: { verdict: "not_assessed" },
   });
-  const evidence = JSON.parse(await readFile(result.evidencePath, "utf8"));
-  expect(evidence.trials[0].observations).toContainEqual(
-    expect.objectContaining({
+  const evidence = parseRunEvidence(
+    await readFile(defined(result.evidencePath), "utf8"),
+  );
+  expectUnknown(defined(evidence.trials[0]).observations).toContainEqual(
+    objectContaining({
       id: "sevro.host.native-goal",
       completeness: "partial",
-      data: expect.objectContaining({
+      data: objectContaining({
         failure: "App-server reported a fatal turn error",
-        errors: [expect.objectContaining({ code: "unauthorized" })],
+        errors: [objectContaining({ code: "unauthorized" })],
       }),
     }),
   );
 });
-
+// eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("public CLI recovers exact mounted skill reads from bound early output", async () => {
   const root = await mkdtemp(join(tmpdir(), "sevro-main-sync-read-"));
   const binRoot = await mkdtemp(join(tmpdir(), "sevro-main-sync-bin-"));
@@ -250,11 +261,13 @@ test("public CLI recovers exact mounted skill reads from bound early output", as
     new Response(child.stderr).text(),
     child.exited,
   ]);
-  const result = JSON.parse(out);
+  const result = parseCliResult(out);
   expect(code, out + err).toBe(0);
-  const evidence = JSON.parse(await readFile(result.evidencePath, "utf8"));
-  expect(evidence.trials[0].observations).toContainEqual(
-    expect.objectContaining({
+  const evidence = parseRunEvidence(
+    await readFile(defined(result.evidencePath), "utf8"),
+  );
+  expectUnknown(defined(evidence.trials[0]).observations).toContainEqual(
+    objectContaining({
       id: "sevro.codex.skill-reads",
       completeness: "complete",
       data: {
@@ -264,11 +277,11 @@ test("public CLI recovers exact mounted skill reads from bound early output", as
       },
     }),
   );
-  expect(JSON.stringify(evidence.trials[0].observations)).not.toContain(
-    "PRIVATE_SKILL_BODY",
-  );
+  expect(
+    JSON.stringify(defined(evidence.trials[0]).observations),
+  ).not.toContain("PRIVATE_SKILL_BODY");
 });
-
+// eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("public CLI observes Codex native continuation without sending extra turns", async () => {
   const root = await mkdtemp(join(tmpdir(), "sevro-main-sync-server-"));
   const binRoot = await mkdtemp(join(tmpdir(), "sevro-main-sync-bin-"));
@@ -333,14 +346,16 @@ test("public CLI observes Codex native continuation without sending extra turns"
     new Response(child.stderr).text(),
     child.exited,
   ]);
-  const result = JSON.parse(out);
+  const result = parseCliResult(out);
   expect(code, out + err).toBe(0);
-  const evidence = JSON.parse(await readFile(result.evidencePath, "utf8"));
-  expect(evidence.trials[0].observations).toContainEqual(
-    expect.objectContaining({
+  const evidence = parseRunEvidence(
+    await readFile(defined(result.evidencePath), "utf8"),
+  );
+  expectUnknown(defined(evidence.trials[0]).observations).toContainEqual(
+    objectContaining({
       id: "sevro.host.native-goal",
       completeness: "complete",
-      data: expect.objectContaining({
+      data: objectContaining({
         threadId: "root",
         goalStatus: "complete",
         finalTurnId: "native-2",
@@ -349,13 +364,13 @@ test("public CLI observes Codex native continuation without sending extra turns"
     }),
   );
   expect(
-    evidence.configuration.redacted.hostConfiguration.candidate[
+    record(record(evidence.configuration.redacted.hostConfiguration).candidate)[
       "sevro.codex.entrypoint"
     ],
   ).toBe("app-server");
   expect(JSON.stringify(evidence)).not.toContain("PRIVATE_GOAL_OBJECTIVE");
 });
-
+// eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("public CLI retains Claude native goal facts without the objective", async () => {
   const root = await mkdtemp(join(tmpdir(), "sevro-main-sync-claude-"));
   roots.push(root);
@@ -428,10 +443,12 @@ console.log(JSON.stringify({type:"result",subtype:"success",is_error:false,sessi
     new Response(child.stderr).text(),
     child.exited,
   ]);
-  const result = JSON.parse(out);
-  const evidence = JSON.parse(await readFile(result.evidencePath, "utf8"));
+  const result = parseCliResult(out);
+  const evidence = parseRunEvidence(
+    await readFile(defined(result.evidencePath), "utf8"),
+  );
   expect(code, out + err + JSON.stringify(evidence.diagnostic)).toBe(0);
-  const observation = evidence.trials[0].observations.find(
+  const observation = defined(evidence.trials[0]).observations.find(
     (row: { id: string }) => row.id === "sevro.host.native-goal",
   );
   expect(observation).toMatchObject({
@@ -445,7 +462,7 @@ console.log(JSON.stringify({type:"result",subtype:"success",is_error:false,sessi
   });
   expect(JSON.stringify(evidence)).not.toContain("PRIVATE_GOAL_OBJECTIVE");
 });
-
+// eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("public CLI grades a saved artifact independently of the final response", async () => {
   const root = await mkdtemp(join(tmpdir(), "sevro-main-sync-"));
   roots.push(root);
@@ -516,24 +533,26 @@ test("public CLI grades a saved artifact independently of the final response", a
     new Response(child.stderr).text(),
     child.exited,
   ]);
-  const result = JSON.parse(out);
+  const result = parseCliResult(out);
   expect(code, out + err).toBe(1);
   expect(result).toMatchObject({
     execution: { status: "completed" },
     grading: { status: "completed" },
     task: { verdict: "failed" },
   });
-  expect(result.cases[0].trials[0].checks).toContainEqual(
-    expect.objectContaining({ id: "response", status: "passed" }),
+  expectUnknown(
+    defined(defined(result.cases[0]).trials[0]).checks,
+  ).toContainEqual(objectContaining({ id: "response", status: "passed" }));
+  expectUnknown(
+    defined(defined(result.cases[0]).trials[0]).checks,
+  ).toContainEqual(objectContaining({ id: "artifact", status: "failed" }));
+  const evidence = parseRunEvidence(
+    await readFile(defined(result.evidencePath), "utf8"),
   );
-  expect(result.cases[0].trials[0].checks).toContainEqual(
-    expect.objectContaining({ id: "artifact", status: "failed" }),
-  );
-  const evidence = JSON.parse(await readFile(result.evidencePath, "utf8"));
-  expect(evidence.trials[0].observations).toContainEqual(
-    expect.objectContaining({
-      data: expect.objectContaining({
-        source: expect.objectContaining({
+  expectUnknown(defined(evidence.trials[0]).observations).toContainEqual(
+    objectContaining({
+      data: objectContaining({
+        source: objectContaining({
           kind: "artifact",
           path: "notes/final-123.md",
         }),

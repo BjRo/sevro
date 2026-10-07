@@ -1,0 +1,765 @@
+{
+  "title": "TypeScript coverage backend discovery",
+  "issue": "https://github.com/BjRo/sevro/issues/1",
+  "date": "2026-10-07",
+  "status": "prototype-complete",
+  "conclusion": "The required parser and spawned CLI prototype demonstrates a viable Istanbul backend around real Bun tests. Proceed with this backend for implementation; the production quality gate and its 95% coverage remediation remain implementation work.",
+  "recommendedBackend": "Istanbul instrumentation in an isolated source copy, with real Bun execution and validated per-process report merging",
+  "environment": {
+    "bun": "1.3.13",
+    "platform": "darwin",
+    "arch": "arm64",
+    "sourceRevision": "76c7f5d73f7d42f311e7b94bc0892742dbb6fe6b",
+    "productionFiles": 54,
+    "node": "v24.13.0",
+    "tools": {
+      "@babel/core": "8.0.6",
+      "@babel/plugin-transform-typescript": "8.0.6",
+      "istanbul-lib-instrument": "6.0.3",
+      "istanbul-lib-coverage": "3.2.2",
+      "istanbul-lib-report": "3.0.1",
+      "istanbul-reports": "3.2.0",
+      "istanbul-lib-source-maps": "5.0.6",
+      "vitest": "5.0.3",
+      "@vitest/coverage-istanbul": "5.0.3",
+      "@vitest/coverage-v8": "5.0.3"
+    }
+  },
+  "method": [
+    "Copy the checkout into a separate working directory and retain an unmodified source snapshot.",
+    "Inventory all executable .ts and .cjs files under src; exclude declaration-only .d.cts files and keep tests and fixtures out of the production denominator.",
+    "Instrument the original TypeScript AST with Istanbul before Babel removes TypeScript syntax. Keep generated CommonJS validators on the normal CommonJS loading path.",
+    "Compose source maps to the absolute original TypeScript path. Mark transpiled JavaScript with // @bun, preserve CLI shebang placement, and retain inline maps.",
+    "Register one capture hook per process through instrumented source imports so collection does not depend on the child working directory. Use Bun afterAll for the test runner and process exit for CLI children.",
+    "Seed reports with zero-count coverage metadata for every inventoried production file. Validate report layouts, statement and branch data, counter values, and completion reports for registered processes before merging.",
+    "Produce Istanbul JSON, JSON summaries, LCOV, and HTML reports. Enforce statements and branches independently using exact covered/total ratios rather than rounded displayed percentages."
+  ],
+  "productionScope": {
+    "root": "src",
+    "inventory": [
+      {
+        "extension": "ts",
+        "files": 50,
+        "statements": 4725,
+        "branches": 4761
+      },
+      {
+        "extension": "cjs",
+        "files": 4,
+        "statements": 10361,
+        "branches": 9375
+      }
+    ],
+    "exclusions": [
+      "Declaration-only src/generated/*.d.cts contain no executable production statements.",
+      "Tests, test fixtures, scripts, and examples are outside this prototype runner-production denominator. Their final lint and type scopes still need explicit inventory in implementation."
+    ],
+    "generatedValidatorsIncluded": true
+  },
+  "runtimeTests": {
+    "counts": {
+      "parser": 4,
+      "integration": 1,
+      "extension": 1,
+      "isolation": 4,
+      "cancellation": 2
+    },
+    "totalPassed": 12,
+    "details": {
+      "parser": {
+        "exitCode": 0,
+        "reportCount": 1,
+        "cliProcessCount": 0,
+        "parser": {
+          "lines": {
+            "total": 42,
+            "covered": 39,
+            "skipped": 0,
+            "pct": 92.85
+          },
+          "functions": {
+            "total": 4,
+            "covered": 4,
+            "skipped": 0,
+            "pct": 100
+          },
+          "statements": {
+            "total": 45,
+            "covered": 41,
+            "skipped": 0,
+            "pct": 91.11
+          },
+          "branches": {
+            "total": 60,
+            "covered": 55,
+            "skipped": 0,
+            "pct": 91.66
+          }
+        },
+        "cli": {
+          "lines": {
+            "total": 225,
+            "covered": 0,
+            "skipped": 0,
+            "pct": 0
+          },
+          "functions": {
+            "total": 31,
+            "covered": 0,
+            "skipped": 0,
+            "pct": 0
+          },
+          "statements": {
+            "total": 237,
+            "covered": 0,
+            "skipped": 0,
+            "pct": 0
+          },
+          "branches": {
+            "total": 359,
+            "covered": 0,
+            "skipped": 0,
+            "pct": 0
+          }
+        }
+      },
+      "integration": {
+        "exitCode": 0,
+        "reportCount": 6,
+        "cliProcessCount": 5,
+        "parser": {
+          "lines": {
+            "total": 42,
+            "covered": 1,
+            "skipped": 0,
+            "pct": 2.38
+          },
+          "functions": {
+            "total": 4,
+            "covered": 0,
+            "skipped": 0,
+            "pct": 0
+          },
+          "statements": {
+            "total": 45,
+            "covered": 1,
+            "skipped": 0,
+            "pct": 2.22
+          },
+          "branches": {
+            "total": 60,
+            "covered": 0,
+            "skipped": 0,
+            "pct": 0
+          }
+        },
+        "cli": {
+          "lines": {
+            "total": 225,
+            "covered": 117,
+            "skipped": 0,
+            "pct": 52
+          },
+          "functions": {
+            "total": 31,
+            "covered": 15,
+            "skipped": 0,
+            "pct": 48.38
+          },
+          "statements": {
+            "total": 237,
+            "covered": 119,
+            "skipped": 0,
+            "pct": 50.21
+          },
+          "branches": {
+            "total": 359,
+            "covered": 185,
+            "skipped": 0,
+            "pct": 51.53
+          }
+        }
+      },
+      "extension": {
+        "exitCode": 0,
+        "reportCount": 10,
+        "cliProcessCount": 3,
+        "parser": {
+          "lines": {
+            "total": 42,
+            "covered": 1,
+            "skipped": 0,
+            "pct": 2.38
+          },
+          "functions": {
+            "total": 4,
+            "covered": 0,
+            "skipped": 0,
+            "pct": 0
+          },
+          "statements": {
+            "total": 45,
+            "covered": 1,
+            "skipped": 0,
+            "pct": 2.22
+          },
+          "branches": {
+            "total": 60,
+            "covered": 0,
+            "skipped": 0,
+            "pct": 0
+          }
+        },
+        "cli": {
+          "lines": {
+            "total": 225,
+            "covered": 150,
+            "skipped": 0,
+            "pct": 66.66
+          },
+          "functions": {
+            "total": 31,
+            "covered": 21,
+            "skipped": 0,
+            "pct": 67.74
+          },
+          "statements": {
+            "total": 237,
+            "covered": 153,
+            "skipped": 0,
+            "pct": 64.55
+          },
+          "branches": {
+            "total": 359,
+            "covered": 206,
+            "skipped": 0,
+            "pct": 57.38
+          }
+        }
+      },
+      "isolation": {
+        "exitCode": 0,
+        "reportCount": 1,
+        "cliProcessCount": 0,
+        "parser": {
+          "lines": {
+            "total": 42,
+            "covered": 0,
+            "skipped": 0,
+            "pct": 0
+          },
+          "functions": {
+            "total": 4,
+            "covered": 0,
+            "skipped": 0,
+            "pct": 0
+          },
+          "statements": {
+            "total": 45,
+            "covered": 0,
+            "skipped": 0,
+            "pct": 0
+          },
+          "branches": {
+            "total": 60,
+            "covered": 0,
+            "skipped": 0,
+            "pct": 0
+          }
+        },
+        "cli": {
+          "lines": {
+            "total": 225,
+            "covered": 0,
+            "skipped": 0,
+            "pct": 0
+          },
+          "functions": {
+            "total": 31,
+            "covered": 0,
+            "skipped": 0,
+            "pct": 0
+          },
+          "statements": {
+            "total": 237,
+            "covered": 0,
+            "skipped": 0,
+            "pct": 0
+          },
+          "branches": {
+            "total": 359,
+            "covered": 0,
+            "skipped": 0,
+            "pct": 0
+          }
+        }
+      },
+      "cancellation": {
+        "exitCode": 0,
+        "reportCount": 3,
+        "cliProcessCount": 2,
+        "parser": {
+          "lines": {
+            "total": 42,
+            "covered": 1,
+            "skipped": 0,
+            "pct": 2.38
+          },
+          "functions": {
+            "total": 4,
+            "covered": 0,
+            "skipped": 0,
+            "pct": 0
+          },
+          "statements": {
+            "total": 45,
+            "covered": 1,
+            "skipped": 0,
+            "pct": 2.22
+          },
+          "branches": {
+            "total": 60,
+            "covered": 0,
+            "skipped": 0,
+            "pct": 0
+          }
+        },
+        "cli": {
+          "lines": {
+            "total": 225,
+            "covered": 116,
+            "skipped": 0,
+            "pct": 51.55
+          },
+          "functions": {
+            "total": 31,
+            "covered": 17,
+            "skipped": 0,
+            "pct": 54.83
+          },
+          "statements": {
+            "total": 237,
+            "covered": 120,
+            "skipped": 0,
+            "pct": 50.63
+          },
+          "branches": {
+            "total": 359,
+            "covered": 183,
+            "skipped": 0,
+            "pct": 50.97
+          }
+        }
+      }
+    }
+  },
+  "proofs": {
+    "separateThresholds": {
+      "expected": "Five of five statements covered and one of two branches covered must fail the branch gate.",
+      "observed": {
+        "summary": {
+          "lines": {
+            "total": 4,
+            "covered": 4,
+            "skipped": 0,
+            "pct": 100
+          },
+          "statements": {
+            "total": 5,
+            "covered": 5,
+            "skipped": 0,
+            "pct": 100
+          },
+          "functions": {
+            "total": 1,
+            "covered": 1,
+            "skipped": 0,
+            "pct": 100
+          },
+          "branches": {
+            "total": 2,
+            "covered": 1,
+            "skipped": 0,
+            "pct": 50
+          },
+          "branchesTrue": {
+            "total": 0,
+            "covered": 0,
+            "skipped": 0,
+            "pct": "Unknown"
+          }
+        },
+        "passed": true,
+        "message": "Below 95%: branches"
+      }
+    },
+    "missingReports": {
+      "passed": true,
+      "message": "Missing coverage reports"
+    },
+    "missingBranchData": {
+      "passed": true,
+      "message": "Missing branch data for /Users/bjro/.codex/artifacts/sevro-issue-1-coverage-discovery-20261007/probe-source/branch.ts"
+    },
+    "missingChildReport": {
+      "passed": true,
+      "message": "Missing coverage report for started process 19214"
+    },
+    "unimportedProduction": {
+      "passed": true,
+      "path": "/Users/bjro/.codex/artifacts/sevro-issue-1-coverage-discovery-20261007/source/src/cli.ts",
+      "statements": {
+        "total": 237,
+        "covered": 0,
+        "skipped": 0,
+        "pct": 0
+      }
+    },
+    "originalTypescriptLocations": {
+      "passed": true,
+      "expectedStackLocation": "/Users/bjro/.codex/artifacts/sevro-issue-1-coverage-discovery-20261007/probe-source/source-map.ts:6:",
+      "runtimeStackRemapped": true,
+      "actualStack": "1 | export interface Shape {\n2 |   value: number;\n3 | }\n4 | \n5 | export function fail(input: Shape): never {\n6 |   throw new Error('source-map-probe');\n            ^\nerror: source-map-probe\n      at fail (/Users/bjro/.codex/artifacts/sevro-issue-1-coverage-discovery-20261007/probe-source/source-map.ts:6:9)\n      at /Users/bjro/.codex/artifacts/sevro-issue-1-coverage-discovery-20261007/probe-source/source-map.ts:9:5\n      at loadAndEvaluateModule (2:1)\n\nBun v1.3.13 (macOS arm64)\n",
+      "statementLocation": {
+        "start": {
+          "line": 6,
+          "column": 2
+        },
+        "end": {
+          "line": 6,
+          "column": 38
+        }
+      },
+      "sourceLine": "  throw new Error('source-map-probe');"
+    },
+    "foreignWorkingDirectory": {
+      "passed": true,
+      "exitCode": 64,
+      "reportCount": 1
+    },
+    "extensionLifecycle": {
+      "passed": true,
+      "cliProcessCount": 3,
+      "fixtureProcessesExcluded": true,
+      "productionFiles": {
+        "/Users/bjro/.codex/artifacts/sevro-issue-1-coverage-discovery-20261007/source/src/extension-client.ts": {
+          "lines": {
+            "total": 95,
+            "covered": 67,
+            "skipped": 0,
+            "pct": 70.52
+          },
+          "functions": {
+            "total": 13,
+            "covered": 9,
+            "skipped": 0,
+            "pct": 69.23
+          },
+          "statements": {
+            "total": 103,
+            "covered": 72,
+            "skipped": 0,
+            "pct": 69.9
+          },
+          "branches": {
+            "total": 61,
+            "covered": 37,
+            "skipped": 0,
+            "pct": 60.65
+          }
+        },
+        "/Users/bjro/.codex/artifacts/sevro-issue-1-coverage-discovery-20261007/source/src/extension-session.ts": {
+          "lines": {
+            "total": 76,
+            "covered": 61,
+            "skipped": 0,
+            "pct": 80.26
+          },
+          "functions": {
+            "total": 16,
+            "covered": 15,
+            "skipped": 0,
+            "pct": 93.75
+          },
+          "statements": {
+            "total": 80,
+            "covered": 64,
+            "skipped": 0,
+            "pct": 80
+          },
+          "branches": {
+            "total": 59,
+            "covered": 38,
+            "skipped": 0,
+            "pct": 64.4
+          }
+        }
+      }
+    }
+  },
+  "alternatives": {
+    "vitestIstanbulOnNode": {
+      "passedTests": 5,
+      "exitCode": 0,
+      "parserCoverage": {
+        "lines": {
+          "total": 42,
+          "covered": 39,
+          "skipped": 0,
+          "pct": 92.85
+        },
+        "functions": {
+          "total": 4,
+          "covered": 4,
+          "skipped": 0,
+          "pct": 100
+        },
+        "statements": {
+          "total": 45,
+          "covered": 41,
+          "skipped": 0,
+          "pct": 91.11
+        },
+        "branches": {
+          "total": 60,
+          "covered": 55,
+          "skipped": 0,
+          "pct": 91.66
+        }
+      },
+      "spawnedBunCliCoverage": {
+        "lines": {
+          "total": 225,
+          "covered": 0,
+          "skipped": 0,
+          "pct": 0
+        },
+        "functions": {
+          "total": 31,
+          "covered": 0,
+          "skipped": 0,
+          "pct": 0
+        },
+        "statements": {
+          "total": 237,
+          "covered": 0,
+          "skipped": 0,
+          "pct": 0
+        },
+        "branches": {
+          "total": 359,
+          "covered": 0,
+          "skipped": 0,
+          "pct": 0
+        }
+      },
+      "conclusion": "The parser coverage matches Istanbul around Bun, but a successful real Bun CLI invocation contributes zero CLI coverage. This option still requires separate Bun subprocess instrumentation and adapters for existing bun:test and Bun APIs."
+    },
+    "vitestV8OnBun": {
+      "exitCode": 1,
+      "error": "Coverage APIs are not supported",
+      "conclusion": "The prototype confirms that the V8 provider cannot collect coverage under Bun 1.3.13."
+    },
+    "bunNative": {
+      "exitCode": 0,
+      "passedTests": 4,
+      "lcovSourceFiles": 1,
+      "lcovBranchRecords": 0,
+      "conclusion": "The LCOV report contains only the loaded parser and no branch records. It does not satisfy the complete-scope, separate statement/branch contract."
+    }
+  },
+  "limitations": [
+    "These are targeted prototype runs, not a full deterministic-suite coverage baseline. The partial percentages must not be presented as current repository-wide coverage.",
+    "The conservative prototype inventory includes four generated CommonJS validators, which contribute 10361 of 15086 statements and 9375 of 14136 branch outcomes. Any eventual exclusion needs the concrete reviewed reason required by the ticket.",
+    "Only Bun 1.3.13 on macOS arm64 with Node 24.13.0 was evaluated. Other Bun versions and operating systems need evidence before expanding the support contract.",
+    "Graceful CLI SIGINT and SIGTERM collection passed. An uncatchable termination cannot flush a final report; the process ledger must reject missing reports rather than silently accept incomplete coverage. Conservative collection for any intentionally force-killed production child must be addressed when exercising the full suite.",
+    "The prototype does not implement the canonical command, lint/type rules, property-test additions, inventory guard, CI status/artifacts, or final coverage exclusions."
+  ],
+  "reproduce": {
+    "directory": "/Users/bjro/.codex/artifacts/sevro-issue-1-coverage-discovery-20261007",
+    "repositoryVariable": "SEVRO_DISCOVERY_REPO",
+    "sourceRevision": "76c7f5d73f7d42f311e7b94bc0892742dbb6fe6b",
+    "prerequisites": "Use the recorded source revision, Bun 1.3.13, and Node 24.13.0. The saved prototype package and bun.lock pin the experiment dependencies.",
+    "commands": [
+      "bun install --frozen-lockfile",
+      "bun prepare.mjs",
+      "bun setup-compare.mjs",
+      "bun run.mjs",
+      "bun compare.mjs",
+      "bun probes.mjs"
+    ],
+    "artifacts": "Prototype sources, raw per-process reports, process-start ledgers, machine-readable coverage, HTML reports, and test logs are retained in this directory."
+  },
+  "references": [
+    "https://bun.com/docs/test/code-coverage",
+    "https://vitest.dev/guide/coverage.html",
+    "https://istanbul.js.org/docs/advanced/instrument/",
+    "https://babeljs.io/docs/babel-plugin-transform-typescript"
+  ],
+  "evidence": [
+    {
+      "path": "environment.json",
+      "sha256": "b894554e56470dc9920dc3212533c45ed2888692f7c710907d5b5862cd39eb51"
+    },
+    {
+      "path": "package.json",
+      "sha256": "1506aaf26073400ee4c14cd6a570c77a26fdcef0f90ae6b4f9baf0f0f28f0233"
+    },
+    {
+      "path": "bun.lock",
+      "sha256": "eebf25577dce0d5136762325daad3451991377bed7c625d3b23376ebf5969432"
+    },
+    {
+      "path": "prepare.mjs",
+      "sha256": "3306d7795ae05c5db37a9ffd97070e2c4ccd24fbb153d1090709f95a8ee336e0"
+    },
+    {
+      "path": "run.mjs",
+      "sha256": "eab7cab8d52d3076e4e9888cad0311ce916eaa9ee95c189e04a8741944d20805"
+    },
+    {
+      "path": "capture.cjs",
+      "sha256": "ae8aaf449c68c008fd7a3f4db64793548d6ad7814aed729c1e2bb6f74777e5fe"
+    },
+    {
+      "path": "capture.mjs",
+      "sha256": "506c26df27021f2e80ca9326ad32c88a786813c26daf818e276e3e1bed7f858b"
+    },
+    {
+      "path": "preload.mjs",
+      "sha256": "6b67451c16568974525c456ffdb188948a42cf74cc7a64a00ab4a30171653276"
+    },
+    {
+      "path": "test-preload.mjs",
+      "sha256": "577cd328be5de24170116753df0c65b475d673b9f02497f59094d003c032ef3f"
+    },
+    {
+      "path": "gate.mjs",
+      "sha256": "31cff2c32946f7bee31a337d26fca3037fdc9aab95c39d83751883855b565753"
+    },
+    {
+      "path": "probes.mjs",
+      "sha256": "96308e1d8d429994d17d65aa341e72976563ef5961b8b2930d33267541011c1a"
+    },
+    {
+      "path": "setup-compare.mjs",
+      "sha256": "5c89c7e84868131596cb60b48c6026a3cc970b9f124e663a9d10c38c876c8eb8"
+    },
+    {
+      "path": "compare.mjs",
+      "sha256": "1ea511a84e093706a4668a25b5cd72ab8c42372b7a08e9d604f271655a5b621b"
+    },
+    {
+      "path": "vitest.config.mjs",
+      "sha256": "fcdb079518b51f8c60338013663ef5db34938ca4718b6233852b6e7ce699f065"
+    },
+    {
+      "path": "probe-observations.json",
+      "sha256": "2a3a066b5a3d3f09a6047757ac383693c3f478fb89fbb1952b48caa18988be4c"
+    },
+    {
+      "path": "comparison.json",
+      "sha256": "9e700a496411ee7acaebc9134fdc62af3f5fa43c85bb6c09ffb6fa46f36d49fb"
+    },
+    {
+      "path": "parser.log",
+      "sha256": "055080e778f08fcaca1ab947e2cfb11ab28d5cdf49d11085ed99dc990b0e695c"
+    },
+    {
+      "path": "parser-observation.json",
+      "sha256": "8247c95db4a771c47e814032bc84620c3d7224d19680fed328a7b1864f245d74"
+    },
+    {
+      "path": "coverage/parser/coverage-final.json",
+      "sha256": "10a599f871f10a78740df77f94f0bda23fb87445010c003b8b45f6f27866098b"
+    },
+    {
+      "path": "coverage/parser/coverage-summary.json",
+      "sha256": "67db9910f85a28006ffb208a823ef6533110a2ad86abdcc7e75d2e2d5137648b"
+    },
+    {
+      "path": "coverage/parser/lcov.info",
+      "sha256": "d82b0af9f414a6f07bf3898bee64f3800b65b3b3c86e661e749da5d7da41eee1"
+    },
+    {
+      "path": "integration.log",
+      "sha256": "69d4dc6113e6be2c3e0a8d1e20dfc95637a0cc2e3e83f818a6e469814580324c"
+    },
+    {
+      "path": "integration-observation.json",
+      "sha256": "2211c6d7e509868fa8db136be5f5a9436d4e7421699630f0c8b50db4acfd24da"
+    },
+    {
+      "path": "coverage/integration/coverage-final.json",
+      "sha256": "d4b723f47220512d5256d864c70805b275f6e4578ea0af80fea6fc97d1a8c421"
+    },
+    {
+      "path": "coverage/integration/coverage-summary.json",
+      "sha256": "18f33c46491e28a5fd0b0b86308cdeaa0d950cc08acd2801523d6266f8fdd4e1"
+    },
+    {
+      "path": "coverage/integration/lcov.info",
+      "sha256": "ed4e0be1956f1712c4ca7db62cadb5cba81061e74f45e270298fbce221b73651"
+    },
+    {
+      "path": "extension.log",
+      "sha256": "c0fd3e45a1c35d634ce61712d34f1ace6a1b173532032dba063b2d82d3e26740"
+    },
+    {
+      "path": "extension-observation.json",
+      "sha256": "98a1a7cb73e426720d9ff61acb9a9eef957630fdf982dc958d28810ed37065ea"
+    },
+    {
+      "path": "coverage/extension/coverage-final.json",
+      "sha256": "8d36b5ad7580c8186fb15b061ac0a94ba98353d237904e933ca03aa8dc4a7179"
+    },
+    {
+      "path": "coverage/extension/coverage-summary.json",
+      "sha256": "903c93f0d6bfa518666095e324b52c1309689fe47acaec07c80d882476d73732"
+    },
+    {
+      "path": "coverage/extension/lcov.info",
+      "sha256": "529bf8f06849cb43e9a8eaad893587e8561e8d890aadef96b30ff902f3c7546b"
+    },
+    {
+      "path": "isolation.log",
+      "sha256": "3622c42f7ad9133518387df1f3f10c8f57507683fbfea2fe45ebde1889d74379"
+    },
+    {
+      "path": "isolation-observation.json",
+      "sha256": "6d38924444c5024cfb7625a009ee078f5d2100c59d488ae6b101648f9375d505"
+    },
+    {
+      "path": "coverage/isolation/coverage-final.json",
+      "sha256": "9dc30809608953c4db6778362b41bbe996e5d4085a152896b433237596fa6b6a"
+    },
+    {
+      "path": "coverage/isolation/coverage-summary.json",
+      "sha256": "c446cc554801955f4e38b8f9a647ed70d9607b6e3facb59bdead54803267b1dc"
+    },
+    {
+      "path": "coverage/isolation/lcov.info",
+      "sha256": "4e77f2b59bce7910676fc09612b2c7d15b25f018041450449e6a50ac2f3fa4e9"
+    },
+    {
+      "path": "cancellation.log",
+      "sha256": "11c3984ffab183f137f2d171d4166e0485fee8b44fde3f30d39e547936893658"
+    },
+    {
+      "path": "cancellation-observation.json",
+      "sha256": "b2fe1f4420012aaf4ae44c63b9601a9821f640ad758694eb17b26b8ec002cfa0"
+    },
+    {
+      "path": "coverage/cancellation/coverage-final.json",
+      "sha256": "18faa9919063035134161459a9065bbc15d3201b2ec557aeeaefdbfff30a9666"
+    },
+    {
+      "path": "coverage/cancellation/coverage-summary.json",
+      "sha256": "c5073c744f46f788381366b426086229233d4e7bd2942d0893fab3a0d6b031b1"
+    },
+    {
+      "path": "coverage/cancellation/lcov.info",
+      "sha256": "940e23d753bff79ca00084b89067c90a4e0492de919530b7720d948a9c64f8c3"
+    }
+  ]
+}

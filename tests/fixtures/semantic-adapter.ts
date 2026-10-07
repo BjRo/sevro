@@ -1,14 +1,15 @@
 import type { HostAdapter } from "../../src/engine";
-
 const host: HostAdapter = {
   id: "sevro.host.semantic-synthetic",
   model: "semantic-v1",
   effort: "low",
-  async run({ prompt }) {
+  run({ prompt }) {
     if (!prompt.includes("response promises readiness"))
-      throw new Error("semantic prompt omitted the proposition");
+      return Promise.reject(
+        new Error("semantic prompt omitted the proposition"),
+      );
     const scenario = process.env.SEVRO_TEST_SCENARIO;
-    return {
+    return Promise.resolve({
       finalMessage:
         scenario === "semantic-malformed"
           ? "invalid"
@@ -22,8 +23,7 @@ const host: HostAdapter = {
               ],
             }),
       complete: true,
-    };
+    });
   },
 };
-
 export default host;

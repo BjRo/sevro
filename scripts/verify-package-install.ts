@@ -265,7 +265,7 @@ try {
       claudeEvidence.runner.source !== "package" ||
       claudeEvidence.runner.version !== manifest.version ||
       claudeEvidence.routes[0]?.host !== "sevro.host.claude" ||
-      claudeEvidence.routes[0]?.model !== "synthetic-claude"
+      claudeEvidence.routes[0].model !== "synthetic-claude"
     )
       throw new Error("installed Claude host route did not complete");
   }

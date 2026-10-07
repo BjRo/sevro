@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import validExchange from "./generated/extension.cjs";
+import { isRecord, isStringArray } from "./value-guards";
 
 const MAX_MESSAGE_BYTES = 8 * 1024 * 1024;
 const MAX_DIAGNOSTIC_BYTES = 64 * 1024;
@@ -7,8 +8,8 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 const PROTOCOL = "sevro.extension.v1";
 
 export class ExtensionProtocolError extends Error {
-  constructor(message: string) {
-    super(message);
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
     this.name = "ExtensionProtocolError";
   }
 }
@@ -34,6 +35,17 @@ export interface ExchangeOptions {
   signal?: AbortSignal;
 }
 
+function boundedChunk(
+  value: Uint8Array,
+  size: number,
+  limit: number,
+  truncate: boolean,
+): Uint8Array {
+  if (!truncate && size + value.byteLength > limit)
+    throw new ExtensionProtocolError("extension message exceeds 8 MiB");
+  return value.subarray(0, Math.max(0, limit - size));
+}
+
 async function readBounded(
   stream: ReadableStream<Uint8Array>,
   limit: number,
@@ -42,15 +54,17 @@ async function readBounded(
   const reader = stream.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
-  while (true) {
+  for (;;) {
     const { value, done } = await reader.read();
     if (done) break;
-    if (!truncate && size + value.byteLength > limit)
-      throw new ExtensionProtocolError("extension message exceeds 8 MiB");
-    const kept = value.subarray(0, Math.max(0, limit - size));
+    const kept = boundedChunk(value, size, limit, truncate);
     if (kept.byteLength) chunks.push(kept);
     size += kept.byteLength;
   }
+  return concatenateChunks(chunks, size);
+}
+
+function concatenateChunks(chunks: Uint8Array[], size: number): Uint8Array {
   const result = new Uint8Array(size);
   let offset = 0;
   for (const chunk of chunks) {
@@ -76,119 +90,228 @@ function terminate(proc: Bun.Subprocess): void {
   }
 }
 
-/** Run exactly one request in a fresh extension process. */
-export async function exchangeExtension(
-  command: string[],
-  request: ExtensionRequest,
-  options: ExchangeOptions = {},
-): Promise<ExtensionResponse> {
+interface SuccessfulExtensionResponse extends ExtensionResponse {
+  result: Record<string, unknown>;
+  error?: never;
+}
+
+function validateExtensionCommand(command: string[]): void {
   if (!command.length || command.some((part) => !part))
     throw new ExtensionProtocolError(
       "extension command must be a nonempty argv array",
     );
-  if (!validExchange(request))
-    throw new ExtensionProtocolError("invalid extension request");
-  if (options.signal?.aborted)
-    throw new ExtensionProtocolError("extension request cancelled");
-  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0)
+}
+
+function extensionTimeout(value: number | undefined): number {
+  const timeout = value ?? DEFAULT_TIMEOUT_MS;
+  if (!Number.isSafeInteger(timeout) || timeout <= 0)
     throw new ExtensionProtocolError(
       "extension timeout must be a positive integer",
     );
+  return timeout;
+}
+
+function extensionPayload(request: ExtensionRequest): Uint8Array {
   const payload = new TextEncoder().encode(JSON.stringify(request));
   if (payload.byteLength > MAX_MESSAGE_BYTES)
     throw new ExtensionProtocolError("extension request exceeds 8 MiB");
+  return payload;
+}
 
-  let proc: Bun.Subprocess;
+function spawnExtension(
+  command: string[],
+  options: ExchangeOptions,
+): Bun.Subprocess {
   try {
-    proc = Bun.spawn(command, {
+    return Bun.spawn(command, {
       cwd: options.cwd,
       stdin: "pipe",
       stdout: "pipe",
       stderr: "pipe",
       detached: process.platform !== "win32",
     });
-  } catch {
-    throw new ExtensionProtocolError("could not start extension process");
+  } catch (cause) {
+    throw new ExtensionProtocolError("could not start extension process", {
+      cause,
+    });
+  }
+}
+
+function extensionWriter(proc: Bun.Subprocess) {
+  const stdin = proc.stdin;
+  if (!stdin || typeof stdin === "number")
+    throw new ExtensionProtocolError("extension pipes are unavailable");
+  return stdin;
+}
+
+function extensionReaders(proc: Bun.Subprocess) {
+  const { stdout, stderr } = proc;
+  if (
+    !stdout ||
+    typeof stdout === "number" ||
+    !stderr ||
+    typeof stderr === "number"
+  )
+    throw new ExtensionProtocolError("extension pipes are unavailable");
+  return { stdout, stderr };
+}
+
+async function writeExtensionRequest(
+  stdin: ReturnType<typeof extensionWriter>,
+  payload: Uint8Array,
+): Promise<void> {
+  await stdin.write(payload);
+  await stdin.end();
+}
+
+function hasResponseBody(value: Record<string, unknown>): boolean {
+  return Object.hasOwn(value, "result") || Object.hasOwn(value, "error");
+}
+
+function assertExtensionResponse(
+  value: unknown,
+): asserts value is ExtensionResponse {
+  if (!validExchange(value) || !isRecord(value) || !hasResponseBody(value))
+    throw new ExtensionProtocolError("invalid extension response");
+}
+
+function parseExtensionResponse(bytes: Uint8Array): ExtensionResponse {
+  let response: unknown;
+  try {
+    response = JSON.parse(
+      new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+    );
+  } catch (cause) {
+    throw new ExtensionProtocolError(
+      "extension did not return one UTF-8 JSON response",
+      { cause },
+    );
+  }
+  assertExtensionResponse(response);
+  return response;
+}
+
+function validateResponseIdentity(
+  response: ExtensionResponse,
+  request: ExtensionRequest,
+): void {
+  if (
+    response.id !== request.id ||
+    response.protocol !== request.protocol ||
+    response.method !== request.method
+  )
+    throw new ExtensionProtocolError(
+      "extension response does not match request",
+    );
+}
+
+function assertSuccessfulResponse(
+  response: ExtensionResponse,
+): asserts response is SuccessfulExtensionResponse {
+  if (response.error)
+    throw new ExtensionProtocolError(
+      `extension reported ${response.error.code}`,
+    );
+  if (response.result === undefined)
+    throw new ExtensionProtocolError("invalid extension response");
+}
+
+class ExtensionExchange {
+  private timer: ReturnType<typeof setTimeout> | undefined;
+  private cancel: (() => void) | undefined;
+  constructor(
+    private readonly proc: Bun.Subprocess,
+    private readonly options: ExchangeOptions,
+    private readonly timeoutMs: number,
+  ) {}
+
+  private async output(
+    request: ExtensionRequest,
+    payload: Uint8Array,
+  ): Promise<SuccessfulExtensionResponse> {
+    const stdin = extensionWriter(this.proc);
+    const { stdout, stderr } = extensionReaders(this.proc);
+    const write = writeExtensionRequest(stdin, payload);
+    const [bytes, , exitCode] = await Promise.all([
+      readBounded(stdout, MAX_MESSAGE_BYTES, false),
+      readBounded(stderr, MAX_DIAGNOSTIC_BYTES, true),
+      this.proc.exited,
+      write,
+    ]);
+    if (exitCode !== 0)
+      throw new ExtensionProtocolError(
+        `extension exited with code ${exitCode}`,
+      );
+    const response = parseExtensionResponse(bytes);
+    validateResponseIdentity(response, request);
+    assertSuccessfulResponse(response);
+    return response;
   }
 
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let cancel: (() => void) | undefined;
-  try {
-    const { stdin, stdout, stderr } = proc;
-    if (
-      !stdin ||
-      typeof stdin === "number" ||
-      !stdout ||
-      typeof stdout === "number" ||
-      !stderr ||
-      typeof stderr === "number"
-    )
-      throw new ExtensionProtocolError("extension pipes are unavailable");
-    const write = (async () => {
-      await stdin.write(payload);
-      await stdin.end();
-    })();
-    const output = (async () => {
-      const [responseBytes, _diagnostic, exitCode] = await Promise.all([
-        readBounded(stdout, MAX_MESSAGE_BYTES, false),
-        readBounded(stderr, MAX_DIAGNOSTIC_BYTES, true),
-        proc.exited,
-        write,
-      ]);
-      if (exitCode !== 0)
-        throw new ExtensionProtocolError(
-          `extension exited with code ${exitCode}`,
-        );
-      let response: unknown;
-      try {
-        response = JSON.parse(
-          new TextDecoder("utf-8", { fatal: true }).decode(responseBytes),
-        );
-      } catch {
-        throw new ExtensionProtocolError(
-          "extension did not return one UTF-8 JSON response",
-        );
-      }
-      if (!validExchange(response))
-        throw new ExtensionProtocolError("invalid extension response");
-      const envelope = response as unknown as ExtensionResponse;
-      if (
-        envelope.id !== request.id ||
-        envelope.protocol !== request.protocol ||
-        envelope.method !== request.method
-      )
-        throw new ExtensionProtocolError(
-          "extension response does not match request",
-        );
-      if (envelope.error)
-        throw new ExtensionProtocolError(
-          `extension reported ${envelope.error.code}`,
-        );
-      return envelope;
-    })();
-    const timeout = new Promise<never>((_resolve, reject) => {
-      timer = setTimeout(
-        () => reject(new ExtensionProtocolError("extension timed out")),
-        timeoutMs,
-      );
+  private timeout(): Promise<never> {
+    return new Promise((_resolve, reject) => {
+      this.timer = setTimeout(() => {
+        reject(new ExtensionProtocolError("extension timed out"));
+      }, this.timeoutMs);
     });
-    const aborted = new Promise<never>((_resolve, reject) => {
-      if (!options.signal) return;
-      cancel = () =>
-        reject(new ExtensionProtocolError("extension request cancelled"));
-      if (options.signal.aborted) cancel();
-      else options.signal.addEventListener("abort", cancel, { once: true });
-    });
-    return await Promise.race([output, timeout, aborted]);
-  } catch (error) {
-    terminate(proc);
-    if (error instanceof ExtensionProtocolError) throw error;
-    throw new ExtensionProtocolError("extension transport failed");
-  } finally {
-    if (timer) clearTimeout(timer);
-    if (cancel) options.signal?.removeEventListener("abort", cancel);
   }
+
+  private aborted(): Promise<never> {
+    return new Promise((_resolve, reject) => {
+      const signal = this.options.signal;
+      if (!signal) return;
+      this.cancel = () => {
+        reject(new ExtensionProtocolError("extension request cancelled"));
+      };
+      if (signal.aborted) this.cancel();
+      else signal.addEventListener("abort", this.cancel, { once: true });
+    });
+  }
+
+  private dispose(): void {
+    if (this.timer) clearTimeout(this.timer);
+    if (this.cancel)
+      this.options.signal?.removeEventListener("abort", this.cancel);
+  }
+
+  async run(
+    request: ExtensionRequest,
+    payload: Uint8Array,
+  ): Promise<SuccessfulExtensionResponse> {
+    try {
+      return await Promise.race([
+        this.output(request, payload),
+        this.timeout(),
+        this.aborted(),
+      ]);
+    } catch (cause) {
+      terminate(this.proc);
+      if (cause instanceof ExtensionProtocolError) throw cause;
+      throw new ExtensionProtocolError("extension transport failed", { cause });
+    } finally {
+      this.dispose();
+    }
+  }
+}
+
+/** Run exactly one request in a fresh extension process. */
+export async function exchangeExtension(
+  command: string[],
+  request: ExtensionRequest,
+  options: ExchangeOptions = {},
+): Promise<SuccessfulExtensionResponse> {
+  validateExtensionCommand(command);
+  if (!validExchange(request))
+    throw new ExtensionProtocolError("invalid extension request");
+  if (options.signal?.aborted)
+    throw new ExtensionProtocolError("extension request cancelled");
+  const timeout = extensionTimeout(options.timeoutMs);
+  const payload = extensionPayload(request);
+  return new ExtensionExchange(
+    spawnExtension(command, options),
+    options,
+    timeout,
+  ).run(request, payload);
 }
 
 export interface NegotiatedExtension {
@@ -198,6 +321,33 @@ export interface NegotiatedExtension {
   capabilities: string[];
   graders: string[];
   taskVerdictPolicies: string[];
+}
+
+function descriptionStrings(value: unknown): string[] {
+  if (!isStringArray(value))
+    throw new ExtensionProtocolError("invalid extension response");
+  return value;
+}
+
+function describedIdentity(value: unknown): { id: string; version: string } {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== "string" ||
+    typeof value.version !== "string"
+  )
+    throw new ExtensionProtocolError("invalid extension response");
+  return { id: value.id, version: value.version };
+}
+
+function descriptionResult(value: Record<string, unknown>) {
+  return {
+    protocols: descriptionStrings(value.protocols),
+    requiredCapabilities: descriptionStrings(value.requiredCapabilities),
+    optionalCapabilities: descriptionStrings(value.optionalCapabilities),
+    extension: describedIdentity(value.extension),
+    graders: descriptionStrings(value.graders),
+    taskVerdictPolicies: descriptionStrings(value.taskVerdictPolicies),
+  };
 }
 
 /** Discover an extension and select the v1 protocol and available capabilities. */
@@ -220,30 +370,30 @@ export async function negotiateExtension(
     },
     options,
   );
-  const result = response.result!;
-  const offered = result.protocols as string[];
+  const result = descriptionResult(response.result);
+  const offered = result.protocols;
   if (!offered.includes(PROTOCOL))
     throw new ExtensionProtocolError("extension has no compatible protocol");
   const supported = new Set([
     ...available.engineCapabilities,
     ...available.hostCapabilities,
   ]);
-  const required = result.requiredCapabilities as string[];
+  const required = result.requiredCapabilities;
   for (const capability of required)
     if (!supported.has(capability))
       throw new ExtensionProtocolError(
         `unsupported required capability: ${capability}`,
       );
-  const optional = (result.optionalCapabilities as string[]).filter((item) =>
+  const optional = result.optionalCapabilities.filter((item) =>
     supported.has(item),
   );
-  const extension = result.extension as { id: string; version: string };
+  const extension = result.extension;
   return {
     id: extension.id,
     version: extension.version,
     protocol: PROTOCOL,
     capabilities: [...new Set([...required, ...optional])],
-    graders: result.graders as string[],
-    taskVerdictPolicies: result.taskVerdictPolicies as string[],
+    graders: result.graders,
+    taskVerdictPolicies: result.taskVerdictPolicies,
   };
 }

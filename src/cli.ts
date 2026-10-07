@@ -1,8 +1,9 @@
 #!/usr/bin/env bun
+import { resolvedFixture } from "./resolved-case";
+import { isStringArray } from "./value-guards";
 import { readFile } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { parseArgs } from "node:util";
 import {
   EvaluationConfigurationError,
   runEvaluation,
@@ -27,501 +28,133 @@ import {
   projectProvenance,
 } from "./provenance";
 
-class InvocationError extends Error {}
+import { InvocationError, parseInvocation } from "./cli-invocation";
 
 function record(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
-function requiredOption(value: string | undefined, name: string): string {
-  if (!value) throw new InvocationError(`missing ${name}`);
-  return value;
+function validGeneratedFixture(value: Record<string, unknown>): boolean {
+  try {
+    prepareGeneratedFixture(value);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
-function absoluteOption(value: string | undefined, name: string): string {
-  const path = requiredOption(value, name);
-  if (!isAbsolute(path)) throw new InvocationError(`${name} must be absolute`);
-  return path;
+function validRepositoryFixture(value: Record<string, unknown>): boolean {
+  try {
+    prepareRepositoryFixture({ kind: "repository", ...value });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
-function optionalDigest(value: string | undefined, name: string) {
-  if (value !== undefined && !/^[a-f0-9]{64}$/.test(value))
-    throw new InvocationError(`${name} must be a 64-character SHA-256 digest`);
-  return value;
+function validInlineFixture(value: Record<string, unknown>): boolean {
+  return (
+    !Object.hasOwn(value, "sourceRef") &&
+    record(value.files) &&
+    Object.values(value.files).every((content) => typeof content === "string")
+  );
+}
+
+function fixtureFields(value: Record<string, unknown>): boolean {
+  if (Object.hasOwn(value, "sourceRef")) return validRepositoryFixture(value);
+  return Object.hasOwn(value, "files") && validInlineFixture(value);
 }
 
 function validFixture(value: unknown): boolean {
   if (!record(value)) return false;
-  if (value.kind === "generated") {
-    try {
-      prepareGeneratedFixture(value);
-      return true;
-    } catch {
-      return false;
-    }
-  }
+  if (value.kind === "generated") return validGeneratedFixture(value);
   if (value.kind !== undefined) return false;
-  if (Object.hasOwn(value, "sourceRef")) {
-    try {
-      prepareRepositoryFixture({ kind: "repository", ...value });
-      return true;
-    } catch {
-      return false;
-    }
-  }
-  if (Object.hasOwn(value, "files"))
-    return (
-      !Object.hasOwn(value, "sourceRef") &&
-      record(value.files) &&
-      Object.values(value.files).every((content) => typeof content === "string")
-    );
-  return false;
+  return fixtureFields(value);
+}
+
+function nonemptyString(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0;
+}
+
+function followUpPrompt(value: unknown): boolean {
+  return (
+    value === undefined || (typeof value === "string" && Boolean(value.trim()))
+  );
+}
+
+function validCaseDetails(value: Record<string, unknown>): boolean {
+  return (
+    nonemptyString(value.id) &&
+    nonemptyString(value.prompt) &&
+    followUpPrompt(value.followUpPrompt) &&
+    validFixture(value.fixture)
+  );
+}
+
+function validCheck(value: unknown): boolean {
+  return (
+    record(value) &&
+    typeof value.id === "string" &&
+    typeof value.grader === "string" &&
+    record(value.configuration)
+  );
+}
+
+function validChecks(value: unknown): boolean {
+  return Array.isArray(value) && value.every(validCheck);
 }
 
 function parseCase(value: unknown): ResolvedCase {
   if (
     !record(value) ||
-    typeof value.id !== "string" ||
-    !value.id ||
-    typeof value.prompt !== "string" ||
-    !value.prompt ||
-    (value.followUpPrompt !== undefined &&
-      (typeof value.followUpPrompt !== "string" ||
-        !value.followUpPrompt.trim())) ||
-    !validFixture(value.fixture) ||
-    !Array.isArray(value.checks) ||
-    !value.checks.every(
-      (check) =>
-        record(check) &&
-        typeof check.id === "string" &&
-        typeof check.grader === "string" &&
-        record(check.configuration),
-    ) ||
-    !Array.isArray(value.requiredEvidence) ||
-    !value.requiredEvidence.every((item) => typeof item === "string")
+    !validCaseDetails(value) ||
+    !validChecks(value.checks) ||
+    !isStringArray(value.requiredEvidence)
   )
     throw new InvocationError("invalid resolved case file");
   return value as unknown as ResolvedCase;
 }
 
-function parseInvocation(argv: string[]) {
-  const parsed = (() => {
-    try {
-      return parseArgs({
-        args: argv,
-        allowPositionals: true,
-        strict: true,
-        options: {
-          json: { type: "boolean" },
-          dry: { type: "boolean" },
-          "case-file": { type: "string" },
-          "case-id": { type: "string" },
-          "extension-command-file": { type: "string" },
-          "extension-source-file": { type: "string", multiple: true },
-          "extension-configuration-file": { type: "string" },
-          "extension-redacted-configuration-file": { type: "string" },
-          "task-verdict-policy": { type: "string" },
-          "replace-builtin-grader": { type: "string", multiple: true },
-          "case-source-root": { type: "string" },
-          "case-source-map-file": { type: "string" },
-          "adapter-module": { type: "string" },
-          "semantic-adapter-module": { type: "string" },
-          "semantic-host": { type: "string" },
-          "semantic-model": { type: "string" },
-          "semantic-effort": { type: "string" },
-          "advisory-adapter-module": { type: "string" },
-          "advisory-host": { type: "string" },
-          "advisory-model": { type: "string" },
-          "advisory-effort": { type: "string" },
-          "advisory-exclude": { type: "string", multiple: true },
-          host: { type: "string" },
-          "codex-bin": { type: "string" },
-          "codex-entrypoint": { type: "string" },
-          "codex-auth-file": { type: "string" },
-          "claude-bin": { type: "string" },
-          "claude-credential-file": { type: "string" },
-          "claude-uv-cache-dir": { type: "string" },
-          "claude-project-settings": { type: "boolean" },
-          "toolchain-bin-dir": { type: "string" },
-          model: { type: "string" },
-          effort: { type: "string" },
-          "shell-isolation": { type: "boolean" },
-          "protected-root": { type: "string", multiple: true },
-          "project-root": { type: "string" },
-          "config-root": { type: "string" },
-          "results-root": { type: "string" },
-          "run-state-root": { type: "string" },
-          "runner-build-digest": { type: "string" },
-          "runner-checkout-root": { type: "string" },
-          "project-digest": { type: "string" },
-          condition: { type: "string" },
-          trials: { type: "string" },
-          jobs: { type: "string", default: "3" },
-          threshold: { type: "string" },
-        },
-      } as const);
-    } catch {
-      throw new InvocationError("invalid CLI arguments");
-    }
-  })();
-  if (parsed.positionals.length !== 1 || parsed.positionals[0] !== "run")
-    throw new InvocationError("expected the run command");
-  const values = parsed.values;
-  const condition = requiredOption(values.condition, "--condition");
-  if (condition !== "passive" && condition !== "enforced")
-    throw new InvocationError("invalid --condition");
-  const trialCount = Number(requiredOption(values.trials, "--trials"));
-  const jobs = Number(requiredOption(values.jobs, "--jobs"));
-  const passThreshold = Number(requiredOption(values.threshold, "--threshold"));
-  if (!Number.isSafeInteger(trialCount) || trialCount < 1)
-    throw new InvocationError("invalid --trials");
-  if (!Number.isSafeInteger(jobs) || jobs < 1)
-    throw new InvocationError("invalid --jobs");
-  if (
-    !Number.isFinite(passThreshold) ||
-    passThreshold <= 0 ||
-    passThreshold > 1
-  )
-    throw new InvocationError("invalid --threshold");
-  const protectedRoots = values["protected-root"] ?? [];
-  if (protectedRoots.some((path) => !isAbsolute(path)))
-    throw new InvocationError("--protected-root must be absolute");
-  const toolchainBinDir = values["toolchain-bin-dir"]
-    ? absoluteOption(values["toolchain-bin-dir"], "--toolchain-bin-dir")
-    : undefined;
-  const codex = values.host === "codex";
-  if (
-    values["codex-entrypoint"] !== undefined &&
-    (!codex || !["exec", "app-server"].includes(values["codex-entrypoint"]))
-  )
-    throw new InvocationError(
-      "--codex-entrypoint requires --host codex and exec or app-server",
-    );
-  const claude = values.host === "claude";
-  const builtinHost = codex || claude;
-  const semanticCodex = values["semantic-host"] === "codex";
-  const advisoryCodex = values["advisory-host"] === "codex";
-  if (values.host && !builtinHost)
-    throw new InvocationError("unsupported --host");
-  if (values["semantic-host"] && !semanticCodex)
-    throw new InvocationError("unsupported --semantic-host");
-  if (values["advisory-host"] && !advisoryCodex)
-    throw new InvocationError("unsupported --advisory-host");
-  if (semanticCodex && values["semantic-adapter-module"])
-    throw new InvocationError(
-      "--semantic-host and --semantic-adapter-module are exclusive",
-    );
-  if (advisoryCodex && values["advisory-adapter-module"])
-    throw new InvocationError(
-      "--advisory-host and --advisory-adapter-module are exclusive",
-    );
-  if (builtinHost && values["adapter-module"])
-    throw new InvocationError("--host and --adapter-module are exclusive");
-  if (!builtinHost && !values["adapter-module"])
-    throw new InvocationError("missing --adapter-module or --host");
-  if (!builtinHost && (values.model || values.effort))
-    throw new InvocationError("--model and --effort require a built-in host");
-  if (!semanticCodex && (values["semantic-model"] || values["semantic-effort"]))
-    throw new InvocationError(
-      "semantic model options require --semantic-host codex",
-    );
-  if (!advisoryCodex && (values["advisory-model"] || values["advisory-effort"]))
-    throw new InvocationError(
-      "advisory model options require --advisory-host codex",
-    );
-  if (
-    values["advisory-exclude"]?.length &&
-    !advisoryCodex &&
-    !values["advisory-adapter-module"]
-  )
-    throw new InvocationError("--advisory-exclude requires an advisory route");
-  if (
-    !codex &&
-    !semanticCodex &&
-    !advisoryCodex &&
-    (values["codex-bin"] || values["codex-auth-file"])
-  )
-    throw new InvocationError("Codex options require a Codex host route");
-  if (
-    !claude &&
-    (values["claude-bin"] ||
-      values["claude-credential-file"] ||
-      values["claude-uv-cache-dir"] ||
-      values["claude-project-settings"])
-  )
-    throw new InvocationError("Claude options require --host claude");
-  if (
-    protectedRoots.length &&
-    !values["shell-isolation"] &&
-    !builtinHost &&
-    !semanticCodex &&
-    !advisoryCodex
-  )
-    throw new InvocationError("--protected-root requires isolation");
-  const projectRoot = absoluteOption(values["project-root"], "--project-root");
-  const configRoot =
-    values["config-root"] !== undefined
-      ? absoluteOption(values["config-root"], "--config-root")
-      : projectRoot;
-  const resultsRoot = absoluteOption(values["results-root"], "--results-root");
-  const runStateRoot = values["run-state-root"]
-    ? absoluteOption(values["run-state-root"], "--run-state-root")
-    : resultsRoot;
-  const extensionCommandFile = values["extension-command-file"];
-  const taskVerdictPolicy = values["task-verdict-policy"];
-  const replaceBuiltinGraders = values["replace-builtin-grader"] ?? [];
-  if (
-    taskVerdictPolicy !== undefined &&
-    !/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$/.test(taskVerdictPolicy)
-  )
-    throw new InvocationError("invalid --task-verdict-policy");
-  if (
-    new Set(replaceBuiltinGraders).size !== replaceBuiltinGraders.length ||
-    replaceBuiltinGraders.some(
-      (id) => !/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$/.test(id),
-    )
-  )
-    throw new InvocationError("invalid --replace-builtin-grader");
-  if (Boolean(values["case-file"]) === Boolean(extensionCommandFile))
-    throw new InvocationError(
-      "select exactly one of --case-file or --extension-command-file",
-    );
-  if (extensionCommandFile) {
-    if (!values["case-id"]) throw new InvocationError("missing --case-id");
-    if (!values["extension-source-file"]?.length)
-      throw new InvocationError("missing --extension-source-file");
-    if (values["extension-source-file"].some((path) => !isAbsolute(path)))
-      throw new InvocationError("--extension-source-file must be absolute");
-  } else if (
-    values["case-id"] ||
-    values["extension-source-file"] ||
-    values["extension-configuration-file"] ||
-    values["extension-redacted-configuration-file"] ||
-    taskVerdictPolicy !== undefined ||
-    replaceBuiltinGraders.length > 0
-  )
-    throw new InvocationError(
-      "extension options require --extension-command-file",
-    );
-  if (
-    Boolean(values["extension-configuration-file"]) !==
-    Boolean(values["extension-redacted-configuration-file"])
-  )
-    throw new InvocationError(
-      "extension configuration requires a redacted file",
-    );
-  if (
-    Boolean(values["case-source-root"]) !==
-    Boolean(values["case-source-map-file"])
-  )
-    throw new InvocationError("case sources require a root and map file");
-  const privateRoots = [
-    configRoot,
-    ...protectedRoots,
-    ...(values["claude-credential-file"]
-      ? [values["claude-credential-file"]]
-      : []),
-    ...(values["case-file"] ? [values["case-file"]] : []),
-    ...(extensionCommandFile ? [extensionCommandFile] : []),
-    ...(values["extension-source-file"] ?? []),
-    ...(values["extension-configuration-file"]
-      ? [values["extension-configuration-file"]]
-      : []),
-    ...(values["extension-redacted-configuration-file"]
-      ? [values["extension-redacted-configuration-file"]]
-      : []),
-    ...(values["case-source-root"] ? [values["case-source-root"]] : []),
-    ...(values["case-source-map-file"] ? [values["case-source-map-file"]] : []),
-    ...(values["semantic-adapter-module"]
-      ? [values["semantic-adapter-module"]]
-      : []),
-    ...(values["advisory-adapter-module"]
-      ? [values["advisory-adapter-module"]]
-      : []),
-  ];
-  const codexCommon =
-    codex || semanticCodex || advisoryCodex
-      ? {
-          binary: absoluteOption(values["codex-bin"], "--codex-bin"),
-          authFile: absoluteOption(
-            values["codex-auth-file"],
-            "--codex-auth-file",
-          ),
-          projectRoot,
-          resultsRoot,
-          additionalProtectedRoots: [...privateRoots, runStateRoot],
-        }
-      : undefined;
-  const claudeOptions = claude
-    ? {
-        binary: absoluteOption(values["claude-bin"], "--claude-bin"),
-        ...(values["claude-credential-file"]
-          ? {
-              credentialFile: absoluteOption(
-                values["claude-credential-file"],
-                "--claude-credential-file",
-              ),
-            }
-          : {}),
-        ...(values["claude-uv-cache-dir"]
-          ? {
-              uvCacheDir: absoluteOption(
-                values["claude-uv-cache-dir"],
-                "--claude-uv-cache-dir",
-              ),
-            }
-          : {}),
-        model: requiredOption(values.model, "--model"),
-        effort: requiredOption(values.effort, "--effort"),
-        toolchainBinDir,
-        projectSettings: values["claude-project-settings"] ?? false,
-        projectRoot,
-        resultsRoot,
-        additionalProtectedRoots: [...privateRoots, runStateRoot],
-      }
-    : undefined;
-  return {
-    json: values.json ?? false,
-    dry: values.dry ?? false,
-    caseFile: values["case-file"]
-      ? absoluteOption(values["case-file"], "--case-file")
-      : undefined,
-    extension: extensionCommandFile
-      ? {
-          commandFile: absoluteOption(
-            extensionCommandFile,
-            "--extension-command-file",
-          ),
-          sourceFiles: values["extension-source-file"]!,
-          caseId: values["case-id"]!,
-          configurationFile: values["extension-configuration-file"]
-            ? absoluteOption(
-                values["extension-configuration-file"],
-                "--extension-configuration-file",
-              )
-            : undefined,
-          redactedConfigurationFile: values[
-            "extension-redacted-configuration-file"
-          ]
-            ? absoluteOption(
-                values["extension-redacted-configuration-file"],
-                "--extension-redacted-configuration-file",
-              )
-            : undefined,
-          taskVerdictPolicy,
-          replaceBuiltinGraders,
-        }
-      : undefined,
-    caseSourceRoot: values["case-source-root"]
-      ? absoluteOption(values["case-source-root"], "--case-source-root")
-      : undefined,
-    caseSourceMapFile: values["case-source-map-file"]
-      ? absoluteOption(values["case-source-map-file"], "--case-source-map-file")
-      : undefined,
-    adapterModule: builtinHost
-      ? undefined
-      : absoluteOption(values["adapter-module"], "--adapter-module"),
-    semanticAdapterModule: values["semantic-adapter-module"]
-      ? absoluteOption(
-          values["semantic-adapter-module"],
-          "--semantic-adapter-module",
-        )
-      : undefined,
-    semanticCodex: semanticCodex
-      ? {
-          ...codexCommon!,
-          model: requiredOption(values["semantic-model"], "--semantic-model"),
-          effort: requiredOption(
-            values["semantic-effort"],
-            "--semantic-effort",
-          ),
-        }
-      : undefined,
-    advisoryAdapterModule: values["advisory-adapter-module"]
-      ? absoluteOption(
-          values["advisory-adapter-module"],
-          "--advisory-adapter-module",
-        )
-      : undefined,
-    advisoryCodex: advisoryCodex
-      ? {
-          ...codexCommon!,
-          model: requiredOption(values["advisory-model"], "--advisory-model"),
-          effort: requiredOption(
-            values["advisory-effort"],
-            "--advisory-effort",
-          ),
-        }
-      : undefined,
-    advisoryExcludedPaths: values["advisory-exclude"] ?? [],
-    codex: codex
-      ? {
-          entrypoint: values["codex-entrypoint"] as
-            "exec" | "app-server" | undefined,
-          ...codexCommon!,
-          model: requiredOption(values.model, "--model"),
-          effort: requiredOption(values.effort, "--effort"),
-        }
-      : undefined,
-    claude: claudeOptions,
-    shellIsolation: values["shell-isolation"]
-      ? {
-          protectedRoots: privateRoots,
-          toolchainBinDir,
-          uvRuntimeCache: !!values["claude-uv-cache-dir"],
-        }
-      : undefined,
-    projectRoot,
-    configRoot,
-    resultsRoot,
-    runStateRoot,
-    runnerBuildDigest: optionalDigest(
-      values["runner-build-digest"],
-      "--runner-build-digest",
-    ),
-    runnerCheckoutRoot: values["runner-checkout-root"]
-      ? absoluteOption(values["runner-checkout-root"], "--runner-checkout-root")
-      : undefined,
-    projectDigest: optionalDigest(values["project-digest"], "--project-digest"),
-    condition: condition as "passive" | "enforced",
-    trialCount,
-    jobs,
-    passThreshold,
-  };
-}
-
 async function loadCase(path: string): Promise<ResolvedCase> {
   try {
     return parseCase(JSON.parse(await readFile(path, "utf8")));
-  } catch {
-    throw new InvocationError("resolved case file is unreadable or invalid");
+  } catch (cause) {
+    throw new InvocationError("resolved case file is unreadable or invalid", {
+      cause,
+    });
   }
 }
 
 async function loadJson(path: string, label: string): Promise<unknown> {
   try {
     return JSON.parse(await readFile(path, "utf8"));
-  } catch {
-    throw new InvocationError(`${label} is unreadable or invalid`);
+  } catch (cause) {
+    throw new InvocationError(`${label} is unreadable or invalid`, { cause });
   }
+}
+
+function validExtensionCommand(value: unknown): value is string[] {
+  return (
+    isStringArray(value) &&
+    value.length > 0 &&
+    value.every((part) => part.length > 0) &&
+    isAbsolute(value[0] ?? "")
+  );
+}
+
+async function loadExtensionCommand(path: string): Promise<string[]> {
+  const command = await loadJson(path, "extension command file");
+  if (!validExtensionCommand(command))
+    throw new InvocationError(
+      "extension command must be an absolute argv array",
+    );
+  return command;
 }
 
 async function loadExtensionOptions(
   selected: NonNullable<ReturnType<typeof parseInvocation>["extension"]>,
 ) {
-  const command = await loadJson(
-    selected.commandFile,
-    "extension command file",
-  );
-  if (
-    !Array.isArray(command) ||
-    !command.length ||
-    !command.every((part) => typeof part === "string" && part.length) ||
-    !isAbsolute(command[0])
-  )
-    throw new InvocationError(
-      "extension command must be an absolute argv array",
-    );
+  const command = await loadExtensionCommand(selected.commandFile);
   const configuration = selected.configurationFile
     ? await loadJson(selected.configurationFile, "extension configuration file")
     : {};
@@ -533,7 +166,7 @@ async function loadExtensionOptions(
     : {};
   if (!record(configuration) || !record(redactedConfiguration))
     throw new InvocationError("extension configuration must be JSON objects");
-  return { command: command as string[], configuration, redactedConfiguration };
+  return { command, configuration, redactedConfiguration };
 }
 
 async function loadPreparationSources(
@@ -566,74 +199,66 @@ function selectExtensionCase(
     throw new InvocationError("extension did not resolve the selected case");
   const caseData = parseCase({
     ...resolvedCase,
-    fixture:
-      resolvedCase.fixture.kind === "inline"
-        ? { files: resolvedCase.fixture.files }
-        : resolvedCase.fixture.kind === "repository"
-          ? {
-              sourceRef: resolvedCase.fixture.sourceRef,
-              ...(resolvedCase.fixture.files
-                ? { files: resolvedCase.fixture.files }
-                : {}),
-              ...(resolvedCase.fixture.staged
-                ? { staged: resolvedCase.fixture.staged }
-                : {}),
-              ...(resolvedCase.fixture.commitFiles
-                ? { commitFiles: true }
-                : {}),
-              ...(resolvedCase.fixture.hooks
-                ? { hooks: resolvedCase.fixture.hooks }
-                : {}),
-              ...(resolvedCase.fixture.bin
-                ? { bin: resolvedCase.fixture.bin }
-                : {}),
-            }
-          : resolvedCase.fixture,
+    fixture: resolvedFixture(resolvedCase.fixture),
   });
   return { caseData, resolvedCase };
 }
 
-async function loadHost(path: string): Promise<HostAdapter> {
-  let module: unknown;
+async function adapterModule(path: string): Promise<unknown> {
   try {
-    module = await import(pathToFileURL(path).href);
-  } catch {
-    throw new InvocationError("host adapter module could not be loaded");
+    return await import(pathToFileURL(path).href);
+  } catch (cause) {
+    throw new InvocationError("host adapter module could not be loaded", {
+      cause,
+    });
   }
+}
+
+async function loadHost(path: string): Promise<HostAdapter> {
+  const module = await adapterModule(path);
   const host = record(module) ? module.default : null;
-  if (
-    !record(host) ||
-    typeof host.id !== "string" ||
-    typeof host.model !== "string" ||
-    typeof host.effort !== "string" ||
-    typeof host.run !== "function"
-  )
+  if (!validHostAdapter(host))
     throw new InvocationError(
       "host adapter module has no valid default adapter",
     );
+  validateHostInstrumentation(host);
+  validateHostCapabilities(host.hostCapabilities);
+  return host as unknown as HostAdapter;
+}
+
+function validateHostInstrumentation(host: Record<string, unknown>): void {
   try {
     prepareInstrumentation(
       [],
-      (host as unknown as HostAdapter).instrumentation ?? [],
+      (host.instrumentation as HostAdapter["instrumentation"]) ?? [],
       [],
       "passive",
     );
-  } catch {
-    throw new InvocationError("host adapter instrumentation is invalid");
+  } catch (cause) {
+    throw new InvocationError("host adapter instrumentation is invalid", {
+      cause,
+    });
   }
+}
+
+function validHostAdapter(value: unknown): value is Record<string, unknown> {
+  return (
+    record(value) &&
+    typeof value.id === "string" &&
+    typeof value.model === "string" &&
+    typeof value.effort === "string" &&
+    typeof value.run === "function"
+  );
+}
+
+function validateHostCapabilities(value: unknown): void {
+  if (value === undefined) return;
   if (
-    (host as unknown as HostAdapter).hostCapabilities !== undefined &&
-    (!Array.isArray((host as unknown as HostAdapter).hostCapabilities) ||
-      (host as unknown as HostAdapter).hostCapabilities!.some(
-        (id) =>
-          typeof id !== "string" ||
-          !/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$/.test(id),
-      ) ||
-      new Set((host as unknown as HostAdapter).hostCapabilities).size !==
-        (host as unknown as HostAdapter).hostCapabilities!.length)
+    !isStringArray(value) ||
+    value.some((id) => !/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$/.test(id)) ||
+    new Set(value).size !== value.length
   )
     throw new InvocationError("host adapter capabilities are invalid");
-  return host as unknown as HostAdapter;
 }
 
 function failure(code: 64 | 70, message: string) {
@@ -676,172 +301,287 @@ function display(value: unknown, json: boolean): void {
   process.stdout.write(
     `execution=${result.execution.status} grading=${result.grading.status} task=${result.task.verdict}\n`,
   );
-  for (const selected of result.cases)
+  displayDomainOutcomes(result.cases);
+  if (result.evidencePath)
+    process.stdout.write(`evidence=${result.evidencePath}\n`);
+}
+
+function displayDomainOutcomes(
+  cases: Array<{
+    caseId: string;
+    trials: Array<{
+      trial: number;
+      domainOutcomes: Array<{ id: string; status: string }>;
+    }>;
+  }>,
+): void {
+  for (const selected of cases)
     for (const trial of selected.trials)
       for (const outcome of trial.domainOutcomes)
         process.stdout.write(
           `domain case=${selected.caseId} trial=${trial.trial} outcome=${outcome.id} status=${outcome.status}\n`,
         );
-  if (result.evidencePath)
-    process.stdout.write(`evidence=${result.evidencePath}\n`);
+}
+
+type Invocation = ReturnType<typeof parseInvocation>;
+type PreparationSources = Awaited<ReturnType<typeof loadPreparationSources>>;
+
+function protectMappedSources(
+  invocation: Invocation,
+  preparationSources: PreparationSources,
+): void {
+  const sourceRoots = mappedSourceRoots(preparationSources);
+  for (const native of [
+    invocation.codex,
+    invocation.claude,
+    invocation.semanticCodex,
+    invocation.advisoryCodex,
+  ]) {
+    if (native)
+      native.additionalProtectedRoots = [
+        ...native.additionalProtectedRoots,
+        ...sourceRoots,
+      ];
+  }
+  invocation.shellIsolation?.protectedRoots.push(...sourceRoots);
+}
+
+async function selectedConcurrency(
+  invocation: Invocation,
+  configRoot: string,
+): Promise<number | null> {
+  return [
+    invocation.codex,
+    invocation.semanticCodex,
+    invocation.advisoryCodex,
+  ].some(Boolean)
+    ? codexAgentConcurrency(configRoot)
+    : null;
+}
+
+async function candidateHost(
+  invocation: Invocation,
+  agentConcurrencyLimit: number | null,
+): Promise<HostAdapter> {
+  if (invocation.codex)
+    return createCodexHost({ ...invocation.codex, agentConcurrencyLimit });
+  if (invocation.claude) return createClaudeHost(invocation.claude);
+  if (!invocation.adapterModule)
+    throw new InvocationError("missing --adapter-module or --host");
+  return loadHost(invocation.adapterModule);
+}
+
+async function secondaryHost(
+  module: string | undefined,
+  codex: Invocation["semanticCodex"],
+  agentConcurrencyLimit: number | null,
+): Promise<HostAdapter | undefined> {
+  if (module) return loadHost(module);
+  if (codex) return createCodexHost({ ...codex, agentConcurrencyLimit });
+  return undefined;
+}
+
+async function prepareRunInvocation(argv: string[]) {
+  const invocation = parseInvocation(argv);
+  const preparationSources = await loadPreparationSources(invocation);
+  protectMappedSources(invocation, preparationSources);
+  const configRoot = await configurationRoot(invocation.configRoot);
+  const agentConcurrencyLimit = await selectedConcurrency(
+    invocation,
+    configRoot,
+  );
+  const caseData = invocation.caseFile
+    ? await loadCase(invocation.caseFile)
+    : undefined;
+  const host = await candidateHost(invocation, agentConcurrencyLimit);
+  const semanticHost = await secondaryHost(
+    invocation.semanticAdapterModule,
+    invocation.semanticCodex,
+    agentConcurrencyLimit,
+  );
+  const advisoryHost = await secondaryHost(
+    invocation.advisoryAdapterModule,
+    invocation.advisoryCodex,
+    agentConcurrencyLimit,
+  );
+  return {
+    invocation,
+    preparationSources,
+    caseData,
+    host,
+    semanticHost,
+    advisoryHost,
+  };
+}
+
+type PreparedInvocation = Awaited<ReturnType<typeof prepareRunInvocation>>;
+
+async function resolveSelectedExtension(
+  prepared: PreparedInvocation,
+  selected: NonNullable<Invocation["extension"]>,
+  signal: AbortSignal,
+) {
+  const { invocation, host } = prepared;
+  const options = await loadExtensionOptions(selected);
+  const hostCapabilities = [
+    ...(host.instrumentation ?? []).map((item) => item.id),
+    ...(host.hostCapabilities ?? []),
+  ];
+  const session = await openExtensionSession({
+    ...options,
+    sourceFiles: selected.sourceFiles,
+    engineCapabilities: [
+      "sevro.host.exec",
+      "sevro.fixture.setup",
+      "sevro.case.host-route",
+    ],
+    hostCapabilities,
+    taskVerdictPolicy: selected.taskVerdictPolicy,
+    replaceBuiltinGraders: selected.replaceBuiltinGraders,
+    signal,
+  });
+  const chosen = selectExtensionCase(
+    await session.resolve(
+      pathToFileURL(invocation.projectRoot).href,
+      { caseIds: [selected.caseId] },
+      {
+        id: host.id,
+        model: host.model,
+        effort: host.effort,
+        capabilities: hostCapabilities,
+      },
+    ),
+    selected.caseId,
+  );
+  return {
+    caseData: chosen.caseData,
+    extension: { session, resolvedCase: chosen.resolvedCase },
+  };
+}
+
+async function selectedCase(prepared: PreparedInvocation, signal: AbortSignal) {
+  if (prepared.invocation.extension)
+    return resolveSelectedExtension(
+      prepared,
+      prepared.invocation.extension,
+      signal,
+    );
+  if (!prepared.caseData)
+    throw new InvocationError("invalid resolved case file");
+  return { caseData: prepared.caseData, extension: undefined };
+}
+
+async function evaluateInvocation(
+  prepared: PreparedInvocation,
+  signal: AbortSignal,
+) {
+  const { invocation, preparationSources, host, semanticHost, advisoryHost } =
+    prepared;
+  const { caseData, extension } = await selectedCase(prepared, signal);
+  return runEvaluation({
+    projectRoot: invocation.projectRoot,
+    resultsRoot: invocation.resultsRoot,
+    runStateRoot: invocation.runStateRoot,
+    case: caseData,
+    extension,
+    preparationSources,
+    host,
+    semanticHost,
+    advisoryHost,
+    advisoryExcludedPaths: invocation.advisoryExcludedPaths,
+    shellIsolation: invocation.shellIsolation,
+    runnerBuildDigest:
+      invocation.runnerBuildDigest ?? (await packageBuildDigest()),
+    runnerCheckoutRoot: invocation.runnerCheckoutRoot,
+    projectDigest:
+      invocation.projectDigest ??
+      (await projectIdentityDigest(
+        invocation.projectRoot,
+        await projectProvenance(invocation.projectRoot),
+        [invocation.resultsRoot, invocation.runStateRoot],
+      )),
+    condition: invocation.condition,
+    trialCount: invocation.trialCount,
+    jobs: invocation.jobs,
+    passThreshold: invocation.passThreshold,
+    dry: invocation.dry,
+    signal,
+  });
+}
+
+class CommandCancellation {
+  private readonly controller = new AbortController();
+  private readonly interrupt = () => {
+    this.controller.abort("SIGINT");
+  };
+  private readonly terminate = () => {
+    this.controller.abort("SIGTERM");
+  };
+  get signal(): AbortSignal {
+    return this.controller.signal;
+  }
+  constructor() {
+    process.on("SIGINT", this.interrupt);
+    process.on("SIGTERM", this.terminate);
+  }
+  dispose(): void {
+    process.off("SIGINT", this.interrupt);
+    process.off("SIGTERM", this.terminate);
+  }
+}
+
+function runnerFailureCategory(error: unknown): 64 | 70 {
+  return error instanceof EvaluationConfigurationError ||
+    error instanceof InvocationError
+    ? 64
+    : 70;
+}
+
+function displayFailure(
+  error: unknown,
+  json: boolean,
+  code: 64 | 70,
+  fallback: string,
+): void {
+  display(
+    failure(code, error instanceof Error ? error.message : fallback),
+    json,
+  );
+  process.exitCode = code;
 }
 
 async function main(argv: string[]): Promise<void> {
   const json = argv.includes("--json");
-  let invocation: ReturnType<typeof parseInvocation>;
-  let caseData: ResolvedCase | undefined;
-  let host: HostAdapter;
-  let semanticHost: HostAdapter | undefined;
-  let advisoryHost: HostAdapter | undefined;
-  let preparationSources: Awaited<ReturnType<typeof loadPreparationSources>>;
+  let prepared: PreparedInvocation;
   try {
-    invocation = parseInvocation(argv);
-    preparationSources = await loadPreparationSources(invocation);
-    const sourceRoots = Object.values(preparationSources?.refs ?? {}).map(
-      (url) => fileURLToPath(url),
-    );
-    for (const native of [
-      invocation.codex,
-      invocation.claude,
-      invocation.semanticCodex,
-      invocation.advisoryCodex,
-    ]) {
-      if (native)
-        native.additionalProtectedRoots = [
-          ...native.additionalProtectedRoots,
-          ...sourceRoots,
-        ];
-    }
-    invocation.shellIsolation?.protectedRoots.push(...sourceRoots);
-    const configRoot = await configurationRoot(invocation.configRoot);
-    const agentConcurrencyLimit =
-      invocation.codex || invocation.semanticCodex || invocation.advisoryCodex
-        ? await codexAgentConcurrency(configRoot)
-        : null;
-    if (invocation.caseFile) caseData = await loadCase(invocation.caseFile);
-    host = invocation.codex
-      ? createCodexHost({ ...invocation.codex, agentConcurrencyLimit })
-      : invocation.claude
-        ? createClaudeHost(invocation.claude)
-        : await loadHost(invocation.adapterModule!);
-    if (invocation.semanticAdapterModule)
-      semanticHost = await loadHost(invocation.semanticAdapterModule);
-    else if (invocation.semanticCodex)
-      semanticHost = createCodexHost({
-        ...invocation.semanticCodex,
-        agentConcurrencyLimit,
-      });
-    if (invocation.advisoryAdapterModule)
-      advisoryHost = await loadHost(invocation.advisoryAdapterModule);
-    else if (invocation.advisoryCodex)
-      advisoryHost = createCodexHost({
-        ...invocation.advisoryCodex,
-        agentConcurrencyLimit,
-      });
+    prepared = await prepareRunInvocation(argv);
   } catch (error) {
-    const result = failure(
-      64,
-      error instanceof Error ? error.message : "invalid invocation",
-    );
-    display(result, json);
-    process.exitCode = 64;
+    displayFailure(error, json, 64, "invalid invocation");
     return;
   }
-  const cancellation = new AbortController();
-  const interrupt = () => cancellation.abort("SIGINT");
-  const terminate = () => cancellation.abort("SIGTERM");
-  process.on("SIGINT", interrupt);
-  process.on("SIGTERM", terminate);
+  const cancellation = new CommandCancellation();
   try {
-    let extension:
-      | {
-          session: Awaited<ReturnType<typeof openExtensionSession>>;
-          resolvedCase: ExtensionCase;
-        }
-      | undefined;
-    if (invocation.extension) {
-      const selected = invocation.extension;
-      const options = await loadExtensionOptions(selected);
-      const hostCapabilities = [
-        ...(host.instrumentation ?? []).map((item) => item.id),
-        ...(host.hostCapabilities ?? []),
-      ];
-      const session = await openExtensionSession({
-        ...options,
-        sourceFiles: selected.sourceFiles,
-        engineCapabilities: [
-          "sevro.host.exec",
-          "sevro.fixture.setup",
-          "sevro.case.host-route",
-        ],
-        hostCapabilities,
-        taskVerdictPolicy: selected.taskVerdictPolicy,
-        replaceBuiltinGraders: selected.replaceBuiltinGraders,
-        signal: cancellation.signal,
-      });
-      const chosen = selectExtensionCase(
-        await session.resolve(
-          pathToFileURL(invocation.projectRoot).href,
-          { caseIds: [selected.caseId] },
-          {
-            id: host.id,
-            model: host.model,
-            effort: host.effort,
-            capabilities: hostCapabilities,
-          },
-        ),
-        selected.caseId,
-      );
-      caseData = chosen.caseData;
-      extension = { session, resolvedCase: chosen.resolvedCase };
-    }
-    const { result } = await runEvaluation({
-      projectRoot: invocation.projectRoot,
-      resultsRoot: invocation.resultsRoot,
-      runStateRoot: invocation.runStateRoot,
-      case: caseData!,
-      extension,
-      preparationSources,
-      host,
-      semanticHost,
-      advisoryHost,
-      advisoryExcludedPaths: invocation.advisoryExcludedPaths,
-      shellIsolation: invocation.shellIsolation,
-      runnerBuildDigest:
-        invocation.runnerBuildDigest ?? (await packageBuildDigest()),
-      runnerCheckoutRoot: invocation.runnerCheckoutRoot,
-      projectDigest:
-        invocation.projectDigest ??
-        (await projectIdentityDigest(
-          invocation.projectRoot,
-          await projectProvenance(invocation.projectRoot),
-          [invocation.resultsRoot, invocation.runStateRoot],
-        )),
-      condition: invocation.condition,
-      trialCount: invocation.trialCount,
-      jobs: invocation.jobs,
-      passThreshold: invocation.passThreshold,
-      dry: invocation.dry,
-      signal: cancellation.signal,
-    });
-    display(result, invocation.json);
+    const { result } = await evaluateInvocation(prepared, cancellation.signal);
+    display(result, prepared.invocation.json);
     process.exitCode = result.exitCode;
   } catch (error) {
-    const code =
-      error instanceof EvaluationConfigurationError ||
-      error instanceof InvocationError
-        ? 64
-        : 70;
-    const message = error instanceof Error ? error.message : "runner failure";
-    const result = failure(code, message);
-    display(result, invocation.json);
-    process.exitCode = code;
+    displayFailure(
+      error,
+      prepared.invocation.json,
+      runnerFailureCategory(error),
+      "runner failure",
+    );
   } finally {
-    process.off("SIGINT", interrupt);
-    process.off("SIGTERM", terminate);
+    cancellation.dispose();
   }
 }
 
 if (process.argv[2] === "report")
   process.exitCode = await reportCommand(process.argv.slice(2));
 else await main(process.argv.slice(2));
+
+function mappedSourceRoots(preparationSources: PreparationSources): string[] {
+  return Object.values(preparationSources?.refs ?? {}).map((url) =>
+    fileURLToPath(url),
+  );
+}

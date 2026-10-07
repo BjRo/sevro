@@ -1,16 +1,15 @@
-import { afterEach, expect, test } from "bun:test";
+import { defined } from "./fixtures/assertions";
+import { afterEach, test, expect } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { prepareFixtureSetup, runFixtureSetup } from "../src/fixture-setup";
-
 const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
 });
-
 test("fixture setup resolves symbolic roots and runs only the declared argv", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "sevro-setup-workspace-"));
   const projectRoot = await mkdtemp(join(tmpdir(), "sevro-setup-project-"));
@@ -27,7 +26,7 @@ test("fixture setup resolves symbolic roots and runs only the declared argv", as
     },
   });
   expect(setup).not.toBeNull();
-  await runFixtureSetup(setup!, { workspace, projectRoot });
+  await runFixtureSetup(defined(setup), { workspace, projectRoot });
   expect(await readFile(join(workspace, "setup.txt"), "utf8")).toBe(
     `${projectRoot}/cases|${workspace}`,
   );
@@ -41,13 +40,14 @@ test("fixture setup resolves symbolic roots and runs only the declared argv", as
     }),
   ).toThrow(/invalid fixture setup environment/);
 });
-
 test("fixture setup failure and cancellation never report success", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "sevro-setup-failure-"));
   roots.push(workspace);
-  const failed = prepareFixtureSetup({
-    command: [process.execPath, "-e", "process.exit(17)"],
-  })!;
+  const failed = defined(
+    prepareFixtureSetup({
+      command: [process.execPath, "-e", "process.exit(17)"],
+    }),
+  );
   expect(
     runFixtureSetup(failed, { workspace, projectRoot: workspace }),
   ).rejects.toThrow("fixture setup failed (17)");

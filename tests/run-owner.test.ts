@@ -1,10 +1,10 @@
-import { afterEach, expect, test } from "bun:test";
+import { parseOwner, parseRecord } from "./fixtures/assertions";
+import { afterEach, test, expect } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { checkpointRunOwner, startRunOwner } from "../src/run-owner";
-
 const roots: string[] = [];
 const digest = "a".repeat(64);
 afterEach(async () => {
@@ -12,7 +12,6 @@ afterEach(async () => {
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
 });
-
 async function fixture() {
   const stateRoot = await mkdtemp(join(tmpdir(), "sevro-owner-"));
   roots.push(stateRoot);
@@ -27,7 +26,6 @@ async function fixture() {
     artifactPath: join(stateRoot, "results", attemptId, "run.json"),
   };
 }
-
 test("a live owner blocks an equivalent run until finalization", async () => {
   if (process.platform === "win32") return;
   const paths = await fixture();
@@ -49,17 +47,16 @@ test("a live owner blocks an equivalent run until finalization", async () => {
     evidenceDirectory: join(paths.stateRoot, secondId),
   });
   expect(second.claim.attemptId).toBe(secondId);
-  expect(JSON.parse(await readFile(paths.activeRunPath, "utf8")).status).toBe(
+  expect(parseRecord(await readFile(paths.activeRunPath, "utf8")).status).toBe(
     "complete",
   );
 });
-
 test("an unverifiable owner is refused and a changed process start can be reclaimed", async () => {
   if (process.platform === "win32") return;
   const paths = await fixture();
   const first = startRunOwner(paths);
   const ownerPath = first.claimPath;
-  const claim = JSON.parse(await readFile(ownerPath, "utf8"));
+  const claim = parseOwner(await readFile(ownerPath, "utf8"));
   await writeFile(ownerPath, JSON.stringify({ ...claim, owner: null }));
   expect(() => startRunOwner({ ...paths, attemptId: randomUUID() })).toThrow(
     /unverifiable/,
@@ -80,16 +77,48 @@ test("an unverifiable owner is refused and a changed process start can be reclai
     evidenceDirectory: join(paths.stateRoot, nextId),
   });
   expect(next.claim.attemptId).toBe(nextId);
-  expect(JSON.parse(await readFile(paths.activeRunPath, "utf8")).status).toBe(
+  expect(parseRecord(await readFile(paths.activeRunPath, "utf8")).status).toBe(
     "interrupted",
   );
   expect(
-    JSON.parse(
+    parseRecord(
       await readFile(join(paths.evidenceDirectory, "run-owner.json"), "utf8"),
     ).status,
   ).toBe("interrupted");
 });
+test("refuses a malformed process start time without replacing ownership evidence", async () => {
+  if (process.platform === "win32") return;
+  const paths = await fixture();
+  const owner = startRunOwner(paths);
+  const claim = parseOwner(await readFile(owner.claimPath, "utf8"));
+  const malformed = JSON.stringify({
+    ...claim,
+    owner: { ...claim.owner, startedAt: 42 },
+  });
+  await writeFile(owner.claimPath, malformed);
 
+  expect(() => startRunOwner({ ...paths, attemptId: randomUUID() })).toThrow(
+    /unverifiable/,
+  );
+  expect(await readFile(owner.claimPath, "utf8")).toBe(malformed);
+  expect(parseRecord(await readFile(paths.activeRunPath, "utf8")).status).toBe(
+    "active",
+  );
+});
+test("rejects nonstring retained ownership paths before checking liveness", async () => {
+  if (process.platform === "win32") return;
+  const paths = await fixture();
+  const owner = startRunOwner(paths);
+  const claim = parseOwner(await readFile(owner.claimPath, "utf8"));
+  for (const field of ["activeRunPath", "evidenceDirectory", "artifactPath"]) {
+    const malformed = JSON.stringify({ ...claim, [field]: 42 });
+    await writeFile(owner.claimPath, malformed);
+    expect(() => startRunOwner({ ...paths, attemptId: randomUUID() })).toThrow(
+      /unrecognized Sevro ownership record/,
+    );
+    expect(await readFile(owner.claimPath, "utf8")).toBe(malformed);
+  }
+});
 test("an abruptly killed owner can be reclaimed without losing its attempt record", async () => {
   if (process.platform === "win32") return;
   const paths = await fixture();
@@ -127,7 +156,7 @@ setInterval(() => {}, 1000);
     evidenceDirectory: join(paths.stateRoot, nextId),
   });
   expect(next.claim.attemptId).toBe(nextId);
-  expect(JSON.parse(await readFile(paths.activeRunPath, "utf8")).status).toBe(
+  expect(parseRecord(await readFile(paths.activeRunPath, "utf8")).status).toBe(
     "interrupted",
   );
   expect(

@@ -1,4 +1,5 @@
-import { afterEach, expect, test } from "bun:test";
+import { parseRecord } from "./fixtures/assertions";
+import { afterEach, test, expect } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -8,14 +9,12 @@ import {
   projectProvenance,
   runnerProvenance,
 } from "../src/provenance";
-
 const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
 });
-
 function git(root: string, ...args: string[]): void {
   const result = Bun.spawnSync(["git", "-C", root, ...args], {
     stdout: "ignore",
@@ -24,7 +23,6 @@ function git(root: string, ...args: string[]): void {
   if (result.exitCode !== 0)
     throw new Error(new TextDecoder().decode(result.stderr));
 }
-
 test("project provenance stays unknown without a Git revision", async () => {
   const root = await mkdtemp(join(tmpdir(), "sevro-no-git-"));
   roots.push(root);
@@ -33,7 +31,6 @@ test("project provenance stays unknown without a Git revision", async () => {
     dirtyPatchDigest: null,
   });
 });
-
 test("package build digest tracks packed runtime files without Git metadata", async () => {
   const root = await mkdtemp(join(tmpdir(), "sevro-package-digest-"));
   roots.push(root);
@@ -57,7 +54,6 @@ test("package build digest tracks packed runtime files without Git metadata", as
   await writeFile(join(root, "examples/basic.json"), "changed\n");
   expect(await packageBuildDigest(root)).not.toBe(sourceChanged);
 });
-
 test("project identity snapshots non-Git content but excludes result storage", async () => {
   const root = await mkdtemp(join(tmpdir(), "sevro-project-digest-"));
   roots.push(root);
@@ -73,10 +69,9 @@ test("project identity snapshots non-Git content but excludes result storage", a
     first,
   );
 });
-
 test("runner provenance uses package identity unless the running checkout is explicit", async () => {
   const digest = "a".repeat(64);
-  const { version } = JSON.parse(
+  const { version } = parseRecord(
     await readFile(resolve(import.meta.dir, "../package.json"), "utf8"),
   );
   expect(await runnerProvenance(digest)).toMatchObject({
@@ -89,14 +84,16 @@ test("runner provenance uses package identity unless the running checkout is exp
     digest,
     resolve(import.meta.dir, ".."),
   );
-  expect(checkout).toMatchObject({ source: "checkout", buildDigest: digest });
+  expect(checkout).toMatchObject({
+    source: "checkout",
+    buildDigest: digest,
+  });
   const unrelated = await mkdtemp(join(tmpdir(), "sevro-other-checkout-"));
   roots.push(unrelated);
   expect(runnerProvenance(digest, unrelated)).rejects.toThrow(
     "does not match the running package",
   );
 });
-
 test("project provenance distinguishes revision, tracked edits, and untracked files", async () => {
   const root = await mkdtemp(join(tmpdir(), "sevro-project-git-"));
   roots.push(root);

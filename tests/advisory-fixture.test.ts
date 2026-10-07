@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, test, expect } from "bun:test";
 import {
   lstat,
   mkdir,
@@ -11,14 +11,12 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildBlindAdvisoryFixture } from "../src/advisory-fixture";
-
 const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
 });
-
 async function git(workspace: string, ...args: string[]): Promise<string> {
   const proc = Bun.spawn(["git", ...args], {
     cwd: workspace,
@@ -42,7 +40,6 @@ async function git(workspace: string, ...args: string[]): Promise<string> {
   if (code !== 0) throw new Error(error);
   return out.trim();
 }
-
 test("advisory fixture shows the full candidate change without condition files or source history", async () => {
   const source = await mkdtemp(join(tmpdir(), "sevro-advisory-source-"));
   roots.push(source);
@@ -57,7 +54,6 @@ test("advisory fixture shows the full candidate change without condition files o
   await git(source, "add", "-A");
   await git(source, "commit", "-m", "base fixture");
   const baseRevision = await git(source, "rev-parse", "HEAD");
-
   await writeFile(join(source, "app.ts"), "export const value = 2;\n");
   await writeFile(
     join(source, ".agents", "condition.txt"),
@@ -71,7 +67,6 @@ test("advisory fixture shows the full candidate change without condition files o
   await mkdir(join(source, ".claude"));
   await writeFile(join(source, ".claude", "instructions.md"), "secret\n");
   await writeFile(join(source, "private.txt"), "hidden\n");
-
   const view = await buildBlindAdvisoryFixture(source, {
     baseRevision,
     excludedPaths: ["private.txt"],
@@ -91,7 +86,6 @@ test("advisory fixture shows the full candidate change without condition files o
   expect(diff).toContain("-obsolete");
   expect(diff).not.toContain("secret condition");
 });
-
 test("advisory fixture rejects escaping untracked symlinks", async () => {
   if (process.platform === "win32") return;
   const source = await mkdtemp(join(tmpdir(), "sevro-advisory-symlink-"));
@@ -102,12 +96,11 @@ test("advisory fixture rejects escaping untracked symlinks", async () => {
   await git(source, "commit", "-m", "base fixture");
   const baseRevision = await git(source, "rev-parse", "HEAD");
   await symlink("../../outside", join(source, "escape"));
-  await expect(
-    buildBlindAdvisoryFixture(source, { baseRevision }),
-  ).rejects.toThrow(/escaping symlink/);
+  expect(buildBlindAdvisoryFixture(source, { baseRevision })).rejects.toThrow(
+    /escaping symlink/,
+  );
   expect((await lstat(join(source, "escape"))).isSymbolicLink()).toBeTrue();
 });
-
 test("advisory fixture rejects a tracked symlink chain that escapes", async () => {
   if (process.platform === "win32") return;
   const source = await mkdtemp(join(tmpdir(), "sevro-advisory-chain-"));
@@ -118,7 +111,7 @@ test("advisory fixture rejects a tracked symlink chain that escapes", async () =
   await git(source, "add", "-A");
   await git(source, "commit", "-m", "base fixture");
   const baseRevision = await git(source, "rev-parse", "HEAD");
-  await expect(
-    buildBlindAdvisoryFixture(source, { baseRevision }),
-  ).rejects.toThrow(/symlink/);
+  expect(buildBlindAdvisoryFixture(source, { baseRevision })).rejects.toThrow(
+    /symlink/,
+  );
 });

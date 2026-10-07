@@ -1,4 +1,10 @@
-import { afterEach, expect, test } from "bun:test";
+import { expectUnknown } from "./fixtures/assertions";
+import {
+  defined,
+  objectContaining,
+  parseRunEvidence,
+} from "./fixtures/assertions";
+import { afterEach, test, expect } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,7 +13,6 @@ import {
   prepareGeneratedFixture,
 } from "../src/generated-fixture";
 import { runEvaluation, type HostAdapter } from "../src/engine";
-
 const roots: string[] = [];
 const digest = "a".repeat(64);
 afterEach(async () => {
@@ -15,7 +20,6 @@ afterEach(async () => {
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
 });
-
 async function git(workspace: string, ...args: string[]): Promise<string> {
   const proc = Bun.spawn(["git", ...args], {
     cwd: workspace,
@@ -30,7 +34,6 @@ async function git(workspace: string, ...args: string[]): Promise<string> {
   if (code !== 0) throw new Error(error);
   return out.trim();
 }
-
 const fixture = {
   kind: "generated" as const,
   commits: [
@@ -40,7 +43,6 @@ const fixture = {
   files: { "README.md": "staged\n", "notes.txt": "untracked\n" },
   staged: ["README.md"],
 };
-
 test("generated fixture builds stable history and a declared index state", async () => {
   const prepared = prepareGeneratedFixture(fixture);
   const first = await mkdtemp(join(tmpdir(), "sevro-generated-first-"));
@@ -76,7 +78,6 @@ test("generated fixture builds stable history and a declared index state", async
   expect(() =>
     prepareGeneratedFixture({ ...fixture, staged: ["other.txt"] }),
   ).toThrow(/staging/);
-
   const scaffold = await mkdtemp(join(tmpdir(), "sevro-generated-scaffold-"));
   roots.push(scaffold);
   await materializeGeneratedFixture(
@@ -93,7 +94,7 @@ test("generated fixture builds stable history and a declared index state", async
   );
   expect(await git(scaffold, "status", "--porcelain=v1")).toBe("");
 });
-
+// eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("Git HEAD grading binds the base revision outside candidate control", async () => {
   const projectRoot = await mkdtemp(join(tmpdir(), "sevro-git-head-test-"));
   roots.push(projectRoot);
@@ -155,40 +156,43 @@ test("Git HEAD grading binds the base revision outside candidate control", async
       trialCount: 1,
       passThreshold: 1,
     });
-    const evidence = JSON.parse(
+    const evidence = parseRunEvidence(
       await readFile(outcome.result.evidencePath, "utf8"),
     );
     return { outcome, evidence };
   };
   const advanced = await run("advance");
   expect(advanced.outcome.result.exitCode).toBe(0);
-  expect(
-    advanced.outcome.result.cases[0]?.trials[0]?.checks.map(
+  expectUnknown(
+    defined(defined(advanced.outcome.result.cases[0]).trials[0]).checks.map(
       (check) => check.status,
     ),
   ).toEqual(["passed", "passed"]);
-  expect(advanced.evidence.trials[0].observations).toContainEqual(
-    expect.objectContaining({
+  expectUnknown(
+    defined(advanced.evidence.trials[0]).observations,
+  ).toContainEqual(
+    objectContaining({
       id: "sevro.observation.git-head",
       source: "sevro.git-head",
       completeness: "complete",
-      data: expect.objectContaining({ baseAncestor: true }),
+      data: objectContaining({ baseAncestor: true }),
     }),
   );
   const rewound = await run("rewind");
-  expect(
-    rewound.outcome.result.cases[0]?.trials[0]?.checks.map(
+  expectUnknown(
+    defined(defined(rewound.outcome.result.cases[0]).trials[0]).checks.map(
       (check) => check.status,
     ),
   ).toEqual(["passed", "failed"]);
   expect(rewound.outcome.result.task.verdict).toBe("failed");
   const unchanged = await run("unchanged");
   expect(unchanged.outcome.result.exitCode).toBe(0);
-  expect(unchanged.outcome.result.cases[0]?.trials[0]?.checks[0]?.status).toBe(
-    "passed",
-  );
+  expect(
+    defined(
+      defined(defined(unchanged.outcome.result.cases[0]).trials[0]).checks[0],
+    ).status,
+  ).toBe("passed");
 });
-
 test("Git HEAD checks reject invalid configuration and non-Git fixtures", async () => {
   const projectRoot = await mkdtemp(join(tmpdir(), "sevro-git-head-invalid-"));
   roots.push(projectRoot);
@@ -196,8 +200,8 @@ test("Git HEAD checks reject invalid configuration and non-Git fixtures", async 
     id: "sevro.host.synthetic",
     model: "synthetic-v1",
     effort: "none",
-    async run() {
-      throw new Error("host must not run");
+    run() {
+      return Promise.reject(new Error("host must not run"));
     },
   };
   const options = {
@@ -210,7 +214,7 @@ test("Git HEAD checks reject invalid configuration and non-Git fixtures", async 
     trialCount: 1,
     passThreshold: 1,
   };
-  await expect(
+  expect(
     runEvaluation({
       ...options,
       case: {
@@ -228,7 +232,7 @@ test("Git HEAD checks reject invalid configuration and non-Git fixtures", async 
       },
     }),
   ).rejects.toThrow(/require a Git fixture/);
-  await expect(
+  expect(
     runEvaluation({
       ...options,
       case: {
@@ -247,7 +251,6 @@ test("Git HEAD checks reject invalid configuration and non-Git fixtures", async 
     }),
   ).rejects.toThrow(/invalid Git HEAD check declaration/);
 });
-
 test("generated Git hooks run for host commits after fixture preparation", async () => {
   const projectRoot = await mkdtemp(join(tmpdir(), "sevro-hook-test-"));
   roots.push(projectRoot);
@@ -323,7 +326,6 @@ test("generated Git hooks run for host commits after fixture preparation", async
     }),
   ).toThrow(/invalid fixture hooks/);
 });
-
 test("fixture binaries reach the host and isolated shell checks", async () => {
   if (process.platform !== "darwin") return;
   const projectRoot = await mkdtemp(join(tmpdir(), "sevro-bin-test-"));
@@ -388,7 +390,6 @@ test("fixture binaries reach the host and isolated shell checks", async () => {
     }),
   ).toThrow(/invalid fixture binaries/);
 });
-
 test("engine gives each generated trial the same history and a fresh working tree", async () => {
   const projectRoot = await mkdtemp(join(tmpdir(), "sevro-generated-engine-"));
   roots.push(projectRoot);
@@ -434,5 +435,5 @@ test("engine gives each generated trial the same history and a fresh working tre
   });
   expect(result.exitCode).toBe(0);
   expect(revisions).toHaveLength(2);
-  expect(revisions[0]).toBe(revisions[1]);
+  expect(defined(revisions[0])).toBe(defined(revisions[1]));
 });

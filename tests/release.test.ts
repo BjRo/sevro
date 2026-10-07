@@ -1,4 +1,6 @@
-import { afterEach, expect, test } from "bun:test";
+import { expectUnknown } from "./fixtures/assertions";
+import { parseRecord, parseRelease, record } from "./fixtures/assertions";
+import { afterEach, test, expect } from "bun:test";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import {
@@ -11,14 +13,12 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-
 const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
 });
-
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "sevro-release-test-"));
   roots.push(root);
@@ -65,7 +65,6 @@ async function fixture() {
   }
   return { root, source, command, output, manifest };
 }
-
 async function invoke(command: string, args: string[]) {
   const child = Bun.spawn([process.execPath, command, ...args], {
     stdout: "pipe",
@@ -78,15 +77,13 @@ async function invoke(command: string, args: string[]) {
   ]);
   return { stdout, stderr, code };
 }
-
 test("scoped package installation retains the sevro command and release provenance", async () => {
   const checked = await invoke(
     resolve(import.meta.dir, "../scripts/verify-package-install.ts"),
     [],
   );
   expect(checked.code, checked.stderr).toBe(0);
-}, 60_000);
-
+}, 60000);
 test.each(["next", "latest"])(
   "release preparation retains a real tarball, identity, inventory, and checksums (%s)",
   async (distTag) => {
@@ -100,7 +97,7 @@ test.each(["next", "latest"])(
       output,
     ]);
     expect(run.code, run.stderr).toBe(0);
-    const release = JSON.parse(run.stdout);
+    const release = parseRelease(run.stdout);
     const archive = join(output, "bjoernrochel-sevro-0.1.0-rc.1.tgz");
     const bytes = await readFile(archive);
     expect(release).toMatchObject({
@@ -113,10 +110,10 @@ test.each(["next", "latest"])(
       sha256: createHash("sha256").update(bytes).digest("hex"),
       integrity: `sha512-${createHash("sha512").update(bytes).digest("base64")}`,
     });
-    expect(release.runtimes.node).toMatch(/^v\d+\.\d+\.\d+$/);
-    expect(release.runtimes.npm).toMatch(/^\d+\.\d+\.\d+$/);
-    expect(
-      JSON.parse(await readFile(join(output, "release.json"), "utf8")),
+    expect(record(release.runtimes).node).toMatch(/^v\d+\.\d+\.\d+$/);
+    expect(record(release.runtimes).npm).toMatch(/^\d+\.\d+\.\d+$/);
+    expectUnknown(
+      parseRecord(await readFile(join(output, "release.json"), "utf8")),
     ).toEqual(release);
     expect(await readFile(join(output, "SHA256SUMS"), "utf8")).toBe(
       `${release.sha256}  bjoernrochel-sevro-0.1.0-rc.1.tgz\n`,
@@ -136,10 +133,29 @@ test.each(["next", "latest"])(
       output,
     ]);
     expect(repeated.code).toBe(1);
-    expect(await readFile(archive)).toEqual(bytes);
+    expectUnknown(await readFile(archive)).toEqual(bytes);
   },
 );
-
+function invalidateReleaseManifest(
+  manifest: Awaited<ReturnType<typeof fixture>>["manifest"],
+  kind: string,
+) {
+  const changes: Record<string, () => void> = {
+    development: () => {
+      manifest.version = "0.1.0-dev.0";
+    },
+    license: () => {
+      manifest.license = "UNLICENSED";
+    },
+    "distribution-tag": () => {
+      manifest.publishConfig.tag = "unsupported";
+    },
+    repository: () => {
+      manifest.repository.url = "git+https://github.com/another/project.git";
+    },
+  };
+  changes[kind]?.();
+}
 test.each([
   "development",
   "tag",
@@ -151,11 +167,7 @@ test.each([
   "release preparation refuses invalid %s configuration before producing artifacts",
   async (kind) => {
     const { source, command, output, manifest } = await fixture();
-    if (kind === "development") manifest.version = "0.1.0-dev.0";
-    if (kind === "license") manifest.license = "UNLICENSED";
-    if (kind === "distribution-tag") manifest.publishConfig.tag = "unsupported";
-    if (kind === "repository")
-      manifest.repository.url = "git+https://github.com/another/project.git";
+    invalidateReleaseManifest(manifest, kind);
     await writeFile(join(source, "package.json"), JSON.stringify(manifest));
     const run = await invoke(command, [
       "--tag",
@@ -168,7 +180,6 @@ test.each([
     expect(existsSync(output)).toBe(false);
   },
 );
-
 test("release preparation refuses missing runtime assets without leaving a candidate", async () => {
   const { source, command, output } = await fixture();
   await rm(join(source, "schemas/report-v1.schema.json"));
@@ -184,7 +195,6 @@ test("release preparation refuses missing runtime assets without leaving a candi
   );
   expect(existsSync(output)).toBe(false);
 });
-
 test("release preparation refuses unexpected root files despite a permitted prefix", async () => {
   const { source, command, output, manifest } = await fixture();
   manifest.files.push("LICENSE.extra");
@@ -200,7 +210,6 @@ test("release preparation refuses unexpected root files despite a permitted pref
   expect(run.stderr).toContain("files outside the package contract");
   expect(existsSync(output)).toBe(false);
 });
-
 test("the package installation gate rejects a different candidate version", async () => {
   const { source, command, output, manifest } = await fixture();
   manifest.version = "9.8.7-rc.1";
@@ -222,5 +231,5 @@ test("the package installation gate rejects a different candidate version", asyn
   expect(checked.stderr).toContain(
     "installed package identity differs from source metadata",
   );
-  expect(await readFile(archive)).toEqual(original);
+  expectUnknown(await readFile(archive)).toEqual(original);
 });

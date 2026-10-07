@@ -1,3 +1,5 @@
+import validExchange from "./generated/extension.cjs";
+import { isRecord } from "./value-guards";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { isAbsolute } from "node:path";
@@ -130,19 +132,27 @@ export interface ExtensionIdentity extends NegotiatedExtension {
   replacedBuiltinGraders: string[];
 }
 
+async function digestSource(path: string): Promise<string> {
+  try {
+    const hash = createHash("sha256");
+    for await (const value of createReadStream(path)) {
+      const chunk: unknown = value;
+      if (!(chunk instanceof Uint8Array))
+        throw new Error("invalid extension source stream");
+      hash.update(chunk);
+    }
+    return hash.digest("hex");
+  } catch (cause) {
+    throw new ExtensionProtocolError(
+      "declared extension source is unreadable",
+      { cause },
+    );
+  }
+}
+
 async function digestSources(paths: string[]): Promise<string> {
   const hashes: string[] = [];
-  for (const path of paths) {
-    try {
-      const hash = createHash("sha256");
-      for await (const chunk of createReadStream(path)) hash.update(chunk);
-      hashes.push(hash.digest("hex"));
-    } catch {
-      throw new ExtensionProtocolError(
-        "declared extension source is unreadable",
-      );
-    }
-  }
+  for (const path of paths) hashes.push(await digestSource(path));
   return hashJson(hashes);
 }
 
@@ -150,11 +160,37 @@ function jsonCopy<T>(value: T): T {
   return JSON.parse(canonicalJson(value)) as T;
 }
 
-/** Bind a stateless extension command to a negotiated identity and source snapshot. */
-export async function openExtensionSession(options: ExtensionSessionOptions) {
+function absoluteSessionCommand(
+  command: string[],
+): command is [string, ...string[]] {
+  const executable = command[0];
+  return executable !== undefined && isAbsolute(executable);
+}
+
+function uniqueAbsoluteSources(sources: string[]): boolean {
+  return (
+    sources.length > 0 &&
+    sources.every((path) => isAbsolute(path)) &&
+    new Set(sources).size === sources.length
+  );
+}
+
+function sessionSourceClosure(command: string[], sources: string[]): string[] {
+  if (!absoluteSessionCommand(command) || !uniqueAbsoluteSources(sources))
+    throw new ExtensionProtocolError(
+      "extension source files must be unique absolute paths",
+    );
+  return [...new Set([command[0], ...sources])];
+}
+
+function validateGraderReplacements(graders: string[]): void {
+  if (new Set(graders).size !== graders.length)
+    throw new ExtensionProtocolError("duplicate built-in grader replacement");
+}
+
+function sessionConfiguration(options: ExtensionSessionOptions) {
   const command = [...options.command];
   const sourceFiles = [...options.sourceFiles];
-  const sourceClosure = [...new Set([command[0], ...sourceFiles])];
   const taskVerdictPolicy = options.taskVerdictPolicy;
   const replacedBuiltinGraders = [
     ...(options.replaceBuiltinGraders ?? []),
@@ -164,172 +200,284 @@ export async function openExtensionSession(options: ExtensionSessionOptions) {
     timeoutMs: options.timeoutMs,
     signal: options.signal,
   };
-  if (
-    !command.length ||
-    !isAbsolute(command[0] ?? "") ||
-    !sourceFiles.length ||
-    sourceFiles.some((path) => !isAbsolute(path)) ||
-    new Set(sourceFiles).size !== sourceFiles.length
-  )
-    throw new ExtensionProtocolError(
-      "extension source files must be unique absolute paths",
-    );
-  if (new Set(replacedBuiltinGraders).size !== replacedBuiltinGraders.length)
-    throw new ExtensionProtocolError("duplicate built-in grader replacement");
+  const sourceClosure = sessionSourceClosure(command, sourceFiles);
+  validateGraderReplacements(replacedBuiltinGraders);
   const configuration = jsonCopy(options.configuration);
   const redactedConfiguration = jsonCopy(options.redactedConfiguration);
-  const sourceDigest = await digestSources(sourceClosure);
-  const negotiated = await negotiateExtension(
+  return {
     command,
-    {
-      engineCapabilities: options.engineCapabilities,
-      hostCapabilities: options.hostCapabilities,
-    },
+    sourceFiles,
+    taskVerdictPolicy,
+    replacedBuiltinGraders,
     exchangeOptions,
-  );
-  if ((await digestSources(sourceClosure)) !== sourceDigest)
-    throw new ExtensionProtocolError(
-      "extension source changed during discovery",
-    );
-  if (
-    taskVerdictPolicy &&
-    !negotiated.taskVerdictPolicies.includes(taskVerdictPolicy)
-  )
-    throw new ExtensionProtocolError(
-      "extension did not advertise the selected task policy",
-    );
+    sourceClosure,
+    configuration,
+    redactedConfiguration,
+  };
+}
+
+type SessionConfiguration = ReturnType<typeof sessionConfiguration>;
+
+function sessionIdentity(
+  context: SessionConfiguration,
+  negotiated: NegotiatedExtension,
+  sourceDigest: string,
+): ExtensionIdentity {
   const identity: ExtensionIdentity = {
     ...negotiated,
     sourceDigest,
     configurationDigest: hashJson({
-      command,
-      configuration: redactedConfiguration,
-      taskVerdictPolicy: taskVerdictPolicy ?? null,
-      replacedBuiltinGraders,
+      command: context.command,
+      configuration: context.redactedConfiguration,
+      taskVerdictPolicy: context.taskVerdictPolicy ?? null,
+      replacedBuiltinGraders: context.replacedBuiltinGraders,
     }),
-    selectedTaskVerdictPolicy: taskVerdictPolicy ?? null,
-    replacedBuiltinGraders,
+    selectedTaskVerdictPolicy: context.taskVerdictPolicy ?? null,
+    replacedBuiltinGraders: context.replacedBuiltinGraders,
   };
   Object.freeze(identity.capabilities);
   Object.freeze(identity.graders);
   Object.freeze(identity.taskVerdictPolicies);
   Object.freeze(identity.replacedBuiltinGraders);
   Object.freeze(identity);
+  return identity;
+}
 
-  async function call(
-    method: "resolve" | "prepare" | "evaluate",
-    params: object,
-  ) {
-    if ((await digestSources(sourceClosure)) !== sourceDigest)
-      throw new ExtensionProtocolError("extension source changed during run");
-    const response = await exchangeExtension(
-      command,
-      {
-        protocol: PROTOCOL,
-        id: randomUUID(),
-        method,
-        params: { ...params, configuration },
-      },
-      exchangeOptions,
-    );
-    if ((await digestSources(sourceClosure)) !== sourceDigest)
-      throw new ExtensionProtocolError("extension source changed during run");
-    return response.result!;
-  }
-
-  return {
-    identity,
-    get redactedConfiguration() {
-      return jsonCopy(redactedConfiguration);
+async function discoverSession(
+  configuration: SessionConfiguration,
+  options: ExtensionSessionOptions,
+) {
+  const sourceDigest = await digestSources(configuration.sourceClosure);
+  const negotiated = await negotiateExtension(
+    configuration.command,
+    {
+      engineCapabilities: options.engineCapabilities,
+      hostCapabilities: options.hostCapabilities,
     },
-    async resolve(
+    configuration.exchangeOptions,
+  );
+  if ((await digestSources(configuration.sourceClosure)) !== sourceDigest)
+    throw new ExtensionProtocolError(
+      "extension source changed during discovery",
+    );
+  if (
+    configuration.taskVerdictPolicy &&
+    !negotiated.taskVerdictPolicies.includes(configuration.taskVerdictPolicy)
+  )
+    throw new ExtensionProtocolError(
+      "extension did not advertise the selected task policy",
+    );
+  return {
+    ...configuration,
+    sourceDigest,
+    identity: sessionIdentity(configuration, negotiated, sourceDigest),
+  };
+}
+
+type SessionContext = Awaited<ReturnType<typeof discoverSession>>;
+interface SessionResults {
+  resolve: { cases: ExtensionCase[] };
+  prepare: PreparationResult;
+  evaluate: EvaluationResult;
+}
+
+function sessionResponse<M extends keyof SessionResults>(
+  value: unknown,
+  method: M,
+): value is { method: M; result: SessionResults[M] } {
+  return (
+    validExchange(value) &&
+    isRecord(value) &&
+    value.method === method &&
+    Object.hasOwn(value, "result")
+  );
+}
+
+async function verifySessionSources(context: SessionContext): Promise<void> {
+  if ((await digestSources(context.sourceClosure)) !== context.sourceDigest)
+    throw new ExtensionProtocolError("extension source changed during run");
+}
+
+async function callSession<M extends keyof SessionResults>(
+  context: SessionContext,
+  method: M,
+  params: object,
+): Promise<SessionResults[M]> {
+  await verifySessionSources(context);
+  const response = await exchangeExtension(
+    context.command,
+    {
+      protocol: PROTOCOL,
+      id: randomUUID(),
+      method,
+      params: { ...params, configuration: context.configuration },
+    },
+    context.exchangeOptions,
+  );
+  await verifySessionSources(context);
+  if (!sessionResponse(response, method))
+    throw new ExtensionProtocolError("invalid extension response");
+  return response.result;
+}
+
+interface ResolvedHostRoute {
+  id: string;
+  model: string;
+  effort: string;
+  capabilities: string[];
+}
+
+async function resolveSession(
+  context: SessionContext,
+  projectRoot: string,
+  selectors: Record<string, unknown>,
+  host: ResolvedHostRoute | undefined,
+): Promise<ExtensionCase[]> {
+  const result = await callSession(context, "resolve", {
+    projectRoot,
+    selectors,
+    ...(host ? { host } : {}),
+  });
+  const ids = result.cases.map((item) => item.id);
+  if (new Set(ids).size !== ids.length)
+    throw new ExtensionProtocolError("extension resolved duplicate case IDs");
+  return result.cases;
+}
+
+async function prepareSession(
+  context: SessionContext,
+  resolvedCase: ExtensionCase,
+  host: { id: string; capabilities: string[] },
+  condition: "passive" | "enforced",
+): Promise<PreparationResult> {
+  return callSession(context, "prepare", {
+    case: resolvedCase,
+    host,
+    condition,
+  });
+}
+
+function validateEvaluationIds(
+  result: EvaluationResult,
+  outcomes: NonNullable<EvaluationResult["domainOutcomes"]>,
+  extensionId: string,
+): void {
+  const ids = [
+    ...result.checks.map((check) => check.id),
+    ...outcomes.map((outcome) => outcome.id),
+  ];
+  if (
+    new Set(ids).size !== ids.length ||
+    ids.some((id) => !id.startsWith(`${extensionId}.`))
+  )
+    throw new ExtensionProtocolError(
+      "extension returned duplicate or foreign result IDs",
+    );
+}
+
+function validateSelectedTaskPolicy(
+  result: EvaluationResult,
+  policy: string | undefined,
+): void {
+  if (result.taskVerdictRecommendation && !policy)
+    throw new ExtensionProtocolError("extension task policy was not selected");
+  if (policy && !result.taskVerdictRecommendation)
+    throw new ExtensionProtocolError(
+      "extension omitted the selected task policy recommendation",
+    );
+}
+
+function availableEvidence(request: EvaluationRequest): Map<string, string> {
+  const available = new Map<string, string>(
+    request.observations.map((item) => [item.id, item.completeness]),
+  );
+  for (const item of request.artifacts) available.set(item.id, "complete");
+  for (const item of request.builtinChecks)
+    available.set(
+      item.id,
+      item.status === "unavailable" ? "unavailable" : "complete",
+    );
+  return available;
+}
+
+type EvidenceOutcome = EvaluationResult["checks"][number];
+function passedWithoutEvidence(item: EvidenceOutcome): boolean {
+  return item.status === "passed" && item.evidenceRefs.length === 0;
+}
+function passedWithIncompleteEvidence(
+  item: EvidenceOutcome,
+  available: Map<string, string>,
+): boolean {
+  return (
+    item.status === "passed" &&
+    item.evidenceRefs.some((id) => available.get(id) !== "complete")
+  );
+}
+
+function validateResultEvidence(
+  item: EvidenceOutcome,
+  available: Map<string, string>,
+): void {
+  if (passedWithoutEvidence(item))
+    throw new ExtensionProtocolError(
+      "extension passed a result without evidence",
+    );
+  if (item.evidenceRefs.some((id) => !available.has(id)))
+    throw new ExtensionProtocolError("extension result cites unknown evidence");
+  if (passedWithIncompleteEvidence(item, available))
+    throw new ExtensionProtocolError(
+      "extension passed a result with incomplete evidence",
+    );
+}
+
+async function evaluateSession(
+  context: SessionContext,
+  request: EvaluationRequest,
+): Promise<EvaluationResult> {
+  const result = await callSession(context, "evaluate", {
+    ...request,
+    ...(context.taskVerdictPolicy
+      ? { selectedTaskVerdictPolicy: context.taskVerdictPolicy }
+      : {}),
+  });
+  const outcomes = result.domainOutcomes ?? [];
+  validateEvaluationIds(result, outcomes, context.identity.id);
+  validateSelectedTaskPolicy(result, context.taskVerdictPolicy);
+  const available = availableEvidence(request);
+  for (const item of [...result.checks, ...outcomes])
+    validateResultEvidence(item, available);
+  return result;
+}
+
+function extensionSession(context: SessionContext) {
+  return {
+    identity: context.identity,
+    get redactedConfiguration() {
+      return jsonCopy(context.redactedConfiguration);
+    },
+    resolve(
       projectRoot: string,
       selectors: Record<string, unknown>,
-      host?: {
-        id: string;
-        model: string;
-        effort: string;
-        capabilities: string[];
-      },
+      host?: ResolvedHostRoute,
     ): Promise<ExtensionCase[]> {
-      const result = await call("resolve", {
-        projectRoot,
-        selectors,
-        ...(host ? { host } : {}),
-      });
-      const cases = result.cases as ExtensionCase[];
-      const ids = cases.map((item) => item.id);
-      if (new Set(ids).size !== ids.length)
-        throw new ExtensionProtocolError(
-          "extension resolved duplicate case IDs",
-        );
-      return cases;
+      return resolveSession(context, projectRoot, selectors, host);
     },
-    async prepare(
+    prepare(
       resolvedCase: ExtensionCase,
       host: { id: string; capabilities: string[] },
       condition: "passive" | "enforced",
     ): Promise<PreparationResult> {
-      return (await call("prepare", {
-        case: resolvedCase,
-        host,
-        condition,
-      })) as unknown as PreparationResult;
+      return prepareSession(context, resolvedCase, host, condition);
     },
-    async evaluate(request: EvaluationRequest): Promise<EvaluationResult> {
-      const result = (await call("evaluate", {
-        ...request,
-        ...(taskVerdictPolicy
-          ? { selectedTaskVerdictPolicy: taskVerdictPolicy }
-          : {}),
-      })) as unknown as EvaluationResult;
-      const outcomes = result.domainOutcomes ?? [];
-      const ids = [
-        ...result.checks.map((check) => check.id),
-        ...outcomes.map((outcome) => outcome.id),
-      ];
-      if (
-        new Set(ids).size !== ids.length ||
-        ids.some((id) => !id.startsWith(`${identity.id}.`))
-      )
-        throw new ExtensionProtocolError(
-          "extension returned duplicate or foreign result IDs",
-        );
-      if (result.taskVerdictRecommendation && !taskVerdictPolicy)
-        throw new ExtensionProtocolError(
-          "extension task policy was not selected",
-        );
-      if (taskVerdictPolicy && !result.taskVerdictRecommendation)
-        throw new ExtensionProtocolError(
-          "extension omitted the selected task policy recommendation",
-        );
-      const available = new Map(
-        request.observations.map((item) => [item.id, item.completeness]),
-      );
-      for (const item of request.artifacts) available.set(item.id, "complete");
-      for (const item of request.builtinChecks)
-        available.set(
-          item.id,
-          item.status === "unavailable" ? "unavailable" : "complete",
-        );
-      for (const item of [...result.checks, ...outcomes]) {
-        if (item.status === "passed" && item.evidenceRefs.length === 0)
-          throw new ExtensionProtocolError(
-            "extension passed a result without evidence",
-          );
-        if (item.evidenceRefs.some((id) => !available.has(id)))
-          throw new ExtensionProtocolError(
-            "extension result cites unknown evidence",
-          );
-        if (
-          item.status === "passed" &&
-          item.evidenceRefs.some((id) => available.get(id) !== "complete")
-        )
-          throw new ExtensionProtocolError(
-            "extension passed a result with incomplete evidence",
-          );
-      }
-      return result;
+    evaluate(request: EvaluationRequest): Promise<EvaluationResult> {
+      return evaluateSession(context, request);
     },
   };
+}
+
+/** Bind a stateless extension command to a negotiated identity and source snapshot. */
+export async function openExtensionSession(options: ExtensionSessionOptions) {
+  return extensionSession(
+    await discoverSession(sessionConfiguration(options), options),
+  );
 }

@@ -1,4 +1,20 @@
-import { afterEach, expect, test } from "bun:test";
+import { expectUnknown } from "./fixtures/assertions";
+import {
+  arrayContaining,
+  checkoutRunner,
+  defined,
+  fixtureCase,
+  objectContaining,
+  parseCheckpoint,
+  parseCliResult,
+  parseJson,
+  parseRecord,
+  parseRunEvidence,
+  parseTrial,
+  record,
+  string,
+} from "./fixtures/assertions";
+import { afterEach, test, expect } from "bun:test";
 import { existsSync } from "node:fs";
 import {
   chmod,
@@ -14,7 +30,6 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { extensionFixtureCommand } from "./fixtures/extension-command";
-
 const roots: string[] = [];
 const cli = join(import.meta.dir, "..", "src", "cli.ts");
 const adapter = join(import.meta.dir, "fixtures", "host-adapter.ts");
@@ -36,34 +51,17 @@ const advisoryAdapter = join(
 const extensionSource = join(import.meta.dir, "fixtures", "extension.ts");
 const digest = "a".repeat(64);
 const fixtureExtensionCommand = extensionFixtureCommand();
-
 afterEach(async () => {
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
 });
-
 async function fixture() {
   const projectRoot = await mkdtemp(join(tmpdir(), "sevro-cli-test-"));
   roots.push(projectRoot);
   const caseFile = join(projectRoot, "case.json");
   const resultsRoot = join(projectRoot, "results");
-  await writeFile(
-    caseFile,
-    JSON.stringify({
-      id: "answer",
-      prompt: "Return ready.",
-      fixture: { files: { "README.md": "fixture\n" } },
-      checks: [
-        {
-          id: "ready",
-          grader: "sevro.regex",
-          configuration: { pattern: "^ready$" },
-        },
-      ],
-      requiredEvidence: [],
-    }),
-  );
+  await writeFile(caseFile, JSON.stringify(fixtureCase()));
   const args = [
     process.execPath,
     cli,
@@ -90,7 +88,6 @@ async function fixture() {
   ];
   return { args, caseFile };
 }
-
 async function invoke(
   args: string[],
   scenario = "pass",
@@ -106,9 +103,8 @@ async function invoke(
     new Response(proc.stderr).text(),
     proc.exited,
   ]);
-  return { stdout, stderr, code, result: JSON.parse(stdout) };
+  return { stdout, stderr, code, result: parseCliResult(stdout) };
 }
-
 async function git(root: string, ...args: string[]) {
   const proc = Bun.spawn(["git", "-C", root, ...args], {
     stdout: "pipe",
@@ -120,7 +116,6 @@ async function git(root: string, ...args: string[]) {
   ]);
   if (code !== 0) throw new Error(error);
 }
-
 test("CLI emits one JSON result and uses the task exit category", async () => {
   const { args } = await fixture();
   const passed = await invoke(args);
@@ -128,10 +123,11 @@ test("CLI emits one JSON result and uses the task exit category", async () => {
   expect(passed.result.task.verdict).toBe("passed");
   expect(passed.result.exitCode).toBe(0);
   expect(passed.stderr).toBe("");
-  expect(
-    JSON.parse(await readFile(passed.result.evidencePath, "utf8")).result,
+  expectUnknown(
+    parseRunEvidence(
+      await readFile(defined(passed.result.evidencePath), "utf8"),
+    ).result,
   ).toEqual(passed.result);
-
   const failed = await invoke(args, "fail");
   expect(failed.code, JSON.stringify(failed.result.diagnostic)).toBe(1);
   expect(failed.result).toMatchObject({
@@ -141,7 +137,6 @@ test("CLI emits one JSON result and uses the task exit category", async () => {
     exitCode: 1,
   });
 });
-
 test("CLI supplies a canonical candidate workspace", async () => {
   const { args, caseFile } = await fixture();
   const host = join(caseFile, "..", "canonical-host.ts");
@@ -162,14 +157,37 @@ export default {
   const run = await invoke(args);
   expect(run.code, run.stderr).toBe(0);
   expect(run.result.execution.status).toBe("completed");
-  const evidence = JSON.parse(await readFile(run.result.evidencePath, "utf8"));
-  const observation = evidence.trials[0].observations.find(
+  const evidence = parseRunEvidence(
+    await readFile(defined(run.result.evidencePath), "utf8"),
+  );
+  const observation = defined(evidence.trials[0]).observations.find(
     (item: { id: string }) => item.id === "sevro.test.workspace",
   );
-  expect(observation.data.path).toBeString();
-  expect(observation.data.path).toBe(observation.data.canonicalPath);
+  expect(defined(observation).data.path).toBeString();
+  expect(defined(observation).data.path).toBe(
+    defined(observation).data.canonicalPath,
+  );
 });
-
+function lockedFixturePath(location: string) {
+  return location === "child" ? 'join(workspace, "locked")' : "workspace";
+}
+function lockedFixtureMode(location: string) {
+  return location === "readable root" ? "0o500" : "0o000";
+}
+function availableNativeCodex() {
+  return process.platform === "darwin" ? Bun.which("codex") : null;
+}
+function expectedContinuationState(scenario: string) {
+  return {
+    completeness: scenario === "unmeasured-worktree" ? "partial" : "complete",
+    data: {
+      preFollowUpWorktreeUnchanged:
+        scenario === "unmeasured-worktree"
+          ? null
+          : scenario !== "changed-worktree",
+    },
+  };
+}
 test.each(["child", "root", "readable root"])(
   "CLI removes a permission-locked candidate directory (%s)",
   async (location) => {
@@ -190,11 +208,11 @@ import { join } from "node:path";
 export default {
   id: "sevro.host.synthetic", model: "synthetic-v1", effort: "none",
   async run({ workspace }) {
-    const locked = ${location === "child" ? 'join(workspace, "locked")' : "workspace"};
+    const locked = ${lockedFixturePath(location)};
     if (locked !== workspace) await mkdir(locked);
     await writeFile(join(locked, "value.txt"), "candidate output\\n");
     await symlink(${JSON.stringify(external)}, join(locked, "external"), "junction");
-    await chmod(locked, ${location === "readable root" ? "0o500" : "0o000"});
+    await chmod(locked, ${lockedFixtureMode(location)});
     return {
       finalMessage: "ready", complete: true,
       observations: [{ id: "sevro.test.workspace", source: "sevro.host.synthetic", completeness: "complete", data: { path: workspace } }],
@@ -207,13 +225,17 @@ export default {
     try {
       const run = await invoke(args);
       expect(run.code, run.stderr).toBe(0);
-      const evidence = JSON.parse(
-        await readFile(run.result.evidencePath, "utf8"),
+      const evidence = parseRunEvidence(
+        await readFile(defined(run.result.evidencePath), "utf8"),
       );
-      expect(evidence.result).toEqual(run.result);
-      workspace = evidence.trials[0].observations.find(
-        (item: { id: string }) => item.id === "sevro.test.workspace",
-      ).data.path;
+      expectUnknown(evidence.result).toEqual(run.result);
+      workspace = string(
+        defined(
+          defined(evidence.trials[0]).observations.find(
+            (item: { id: string }) => item.id === "sevro.test.workspace",
+          ),
+        ).data.path,
+      );
       expect(workspace).toBeString();
       expect(workspace.length).toBeGreaterThan(0);
       expect(existsSync(workspace)).toBe(false);
@@ -232,7 +254,6 @@ export default {
     }
   },
 );
-
 test("CLI derives stable build and project digests without caller inputs", async () => {
   const { args } = await fixture();
   const automatic = args.filter(
@@ -246,11 +267,11 @@ test("CLI derives stable build and project digests without caller inputs", async
   const second = await invoke(automatic);
   expect(first.code, first.stderr).toBe(0);
   expect(second.code, second.stderr).toBe(0);
-  const firstEvidence = JSON.parse(
-    await readFile(first.result.evidencePath, "utf8"),
+  const firstEvidence = parseRunEvidence(
+    await readFile(defined(first.result.evidencePath), "utf8"),
   );
-  const secondEvidence = JSON.parse(
-    await readFile(second.result.evidencePath, "utf8"),
+  const secondEvidence = parseRunEvidence(
+    await readFile(defined(second.result.evidencePath), "utf8"),
   );
   const dimensions = firstEvidence.evaluationIdentity.dimensions;
   expect(dimensions.runnerBuildDigest).toMatch(/^[a-f0-9]{64}$/);
@@ -262,34 +283,35 @@ test("CLI derives stable build and project digests without caller inputs", async
   const invalid = await invoke([...automatic, "--project-digest", "bad"]);
   expect(invalid.code).toBe(64);
 });
-
 test("CLI records an explicitly selected local runner checkout", async () => {
   const { args } = await fixture();
   const checkout = resolve(import.meta.dir, "..");
   const run = await invoke([...args, "--runner-checkout-root", checkout]);
   expect(run.code, run.stderr).toBe(0);
-  const evidence = JSON.parse(await readFile(run.result.evidencePath, "utf8"));
+  const evidence = parseRunEvidence(
+    await readFile(defined(run.result.evidencePath), "utf8"),
+  );
   expect(evidence.runner).toMatchObject({
     source: "checkout",
     buildDigest: digest,
   });
-  expect(evidence.runner.revision).toMatch(/^[a-f0-9]{40,64}$/);
+  expect(checkoutRunner(evidence.runner).revision).toMatch(/^[a-f0-9]{40,64}$/);
   expect(
-    evidence.runner.dirtyPatchDigest === null ||
-      /^[a-f0-9]{64}$/.test(evidence.runner.dirtyPatchDigest),
+    checkoutRunner(evidence.runner).dirtyPatchDigest === null ||
+      /^[a-f0-9]{64}$/.test(
+        defined(checkoutRunner(evidence.runner).dirtyPatchDigest),
+      ),
   ).toBeTrue();
-
   const invalid = await invoke([
     ...args,
     "--runner-checkout-root",
     join(checkout, "src"),
   ]);
   expect(invalid.code).toBe(64);
-  expect(invalid.result.diagnostic.message).toMatch(
+  expect(defined(invalid.result.diagnostic).message).toMatch(
     /does not match the running package/,
   );
 });
-
 test("CLI dry run retains preparation without calling the host", async () => {
   const { args, caseFile } = await fixture();
   const commandFile = join(caseFile, "..", "extension-command.json");
@@ -319,19 +341,22 @@ test("CLI dry run retains preparation without calling the host", async () => {
     grading: { status: "not_requested" },
     task: { verdict: "not_assessed" },
   });
-  expect(run.result.cases[0].trials[0].checks).toEqual([]);
-  const evidence = JSON.parse(await readFile(run.result.evidencePath, "utf8"));
-  expect(evidence.trials[0].executionMode).toBe("dry");
-  expect(evidence.trials[0].metrics).toEqual([]);
-  const [artifact] = evidence.trials[0].artifactRefs;
-  expect(await readFile(new URL(artifact.path), "utf8")).toBe(
+  expectUnknown(defined(defined(run.result.cases[0]).trials[0]).checks).toEqual(
+    [],
+  );
+  const evidence = parseRunEvidence(
+    await readFile(defined(run.result.evidencePath), "utf8"),
+  );
+  expect(defined(evidence.trials[0]).executionMode).toBe("dry");
+  expectUnknown(defined(evidence.trials[0]).metrics).toEqual([]);
+  const [artifact] = defined(evidence.trials[0]).artifactRefs;
+  expect(await readFile(new URL(defined(artifact).path), "utf8")).toBe(
     "prepared data\n",
   );
 });
-
 test("CLI reports unavailable required host evidence", async () => {
   const { args, caseFile } = await fixture();
-  const definition = JSON.parse(await readFile(caseFile, "utf8"));
+  const definition = fixtureCase();
   definition.requiredEvidence = ["darrow.activation"];
   await writeFile(caseFile, JSON.stringify(definition));
   const missing = await invoke(args);
@@ -343,19 +368,18 @@ test("CLI reports unavailable required host evidence", async () => {
   });
   const complete = await invoke(args, "observation");
   expect(complete.code).toBe(0);
-  const evidence = JSON.parse(
-    await readFile(complete.result.evidencePath, "utf8"),
+  const evidence = parseRunEvidence(
+    await readFile(defined(complete.result.evidencePath), "utf8"),
   );
-  expect(evidence.trials[0].observations[1]).toMatchObject({
+  expect(defined(defined(evidence.trials[0]).observations[1])).toMatchObject({
     id: "darrow.activation",
     source: "sevro.host.synthetic",
     completeness: "complete",
   });
 });
-
 test("CLI runs semantic checks through an explicit grader route", async () => {
   const { args, caseFile } = await fixture();
-  const definition = JSON.parse(await readFile(caseFile, "utf8"));
+  const definition = fixtureCase();
   definition.checks.push({
     id: "semantic-ready",
     grader: "sevro.semantic",
@@ -364,18 +388,21 @@ test("CLI runs semantic checks through an explicit grader route", async () => {
   await writeFile(caseFile, JSON.stringify(definition));
   const missing = await invoke(args);
   expect(missing.code).toBe(64);
-  expect(missing.result.diagnostic.message).toMatch(/explicit semantic host/);
+  expect(defined(missing.result.diagnostic).message).toMatch(
+    /explicit semantic host/,
+  );
   const command = [...args, "--semantic-adapter-module", semanticAdapter];
   const passed = await invoke(command);
   expect(passed.code).toBe(0);
-  const evidence = JSON.parse(
-    await readFile(passed.result.evidencePath, "utf8"),
+  const evidence = parseRunEvidence(
+    await readFile(defined(passed.result.evidencePath), "utf8"),
   );
-  expect(evidence.routes.map((route: { role: string }) => route.role)).toEqual([
-    "candidate",
-    "semantic",
-  ]);
-  expect(passed.result.cases[0].trials[0].checks[1]).toMatchObject({
+  expectUnknown(
+    evidence.routes.map((route: { role: string }) => route.role),
+  ).toEqual(["candidate", "semantic"]);
+  expect(
+    defined(defined(defined(passed.result.cases[0]).trials[0]).checks[1]),
+  ).toMatchObject({
     id: "semantic-ready",
     status: "passed",
   });
@@ -384,10 +411,9 @@ test("CLI runs semantic checks through an explicit grader route", async () => {
   const malformed = await invoke(command, "semantic-malformed");
   expect(malformed.code).toBe(3);
 });
-
 test("CLI selects an advisory route and retains its independent assessment", async () => {
   const { args, caseFile } = await fixture();
-  const definition = JSON.parse(await readFile(caseFile, "utf8"));
+  const definition = fixtureCase();
   definition.fixture = {
     kind: "generated",
     commits: [
@@ -407,20 +433,20 @@ test("CLI selects an advisory route and retains its independent assessment", asy
   const passed = await invoke(command);
   expect(passed.code).toBe(0);
   expect(passed.result.task.verdict).toBe("passed");
-  const evidence = JSON.parse(
-    await readFile(passed.result.evidencePath, "utf8"),
+  const evidence = parseRunEvidence(
+    await readFile(defined(passed.result.evidencePath), "utf8"),
   );
-  expect(evidence.routes[1]).toMatchObject({
+  expect(defined(evidence.routes[1])).toMatchObject({
     role: "advisory",
     host: "sevro.host.advisory-synthetic",
   });
-  expect(evidence.trials[0].advisoryReview).toMatchObject({
+  expect(defined(evidence.trials[0]).advisoryReview).toMatchObject({
     status: "completed",
     assessment: { verdict: "fail", overallScore: 2 },
   });
   const plain = await invoke(args);
-  const plainEvidence = JSON.parse(
-    await readFile(plain.result.evidencePath, "utf8"),
+  const plainEvidence = parseRunEvidence(
+    await readFile(defined(plain.result.evidencePath), "utf8"),
   );
   expect(evidence.evaluationIdentity.digest).not.toBe(
     plainEvidence.evaluationIdentity.digest,
@@ -430,7 +456,6 @@ test("CLI selects an advisory route and retains its independent assessment", asy
   const invalid = await invoke([...args, "--advisory-exclude", "private.txt"]);
   expect(invalid.code).toBe(64);
 });
-
 test("CLI resolves an explicit extension case and retains extension evidence", async () => {
   const { args, caseFile } = await fixture();
   const commandFile = join(caseFile, "..", "extension-command.json");
@@ -452,27 +477,27 @@ test("CLI resolves an explicit extension case and retains extension evidence", a
   );
   const run = await invoke(command);
   expect(run.code).toBe(0);
-  expect(
-    run.result.cases[0].trials[0].checks.map(
+  expectUnknown(
+    defined(defined(run.result.cases[0]).trials[0]).checks.map(
       (check: { id: string }) => check.id,
     ),
   ).toEqual(["ready", "example.extension.ready"]);
-  const evidence = JSON.parse(await readFile(run.result.evidencePath, "utf8"));
+  const evidence = parseRunEvidence(
+    await readFile(defined(run.result.evidencePath), "utf8"),
+  );
   expect(evidence.extension).toMatchObject({
     id: "example.extension",
     protocol: "sevro.extension.v1",
   });
-  expect(evidence.trials[0].metrics).toEqual([
+  expectUnknown(defined(evidence.trials[0]).metrics).toEqual([
     { id: "example.extension.score", value: 1, unit: "ratio" },
   ]);
-
   const missing = await invoke([...command.slice(0, -1), "missing-case"]);
   expect(missing.code).toBe(64);
   expect(missing.result.evidencePath).toBeNull();
   const ambiguous = await invoke([...command, "--case-file", caseFile]);
   expect(ambiguous.code).toBe(64);
 });
-
 test("CLI supplies the selected candidate route during extension resolution", async () => {
   const { args, caseFile } = await fixture();
   const commandFile = join(caseFile, "..", "extension-command.json");
@@ -497,20 +522,23 @@ test("CLI supplies the selected candidate route during extension resolution", as
   const run = await invoke(command, "echo-prompt");
   expect(run.code, run.stdout + run.stderr).toBe(0);
   expect(run.result.task.verdict).toBe("passed");
-  const evidence = JSON.parse(await readFile(run.result.evidencePath, "utf8"));
+  const evidence = parseRunEvidence(
+    await readFile(defined(run.result.evidencePath), "utf8"),
+  );
   const response = await readFile(
-    new URL(evidence.trials[0].rawResult.path),
+    new URL(defined(defined(evidence.trials[0]).rawResult.path)),
     "utf8",
   );
-  expect(JSON.parse(response)).toEqual({
+  expectUnknown(parseJson(response)).toEqual({
     id: "sevro.host.synthetic",
     model: "synthetic-v1",
     effort: "none",
     capabilities: [],
   });
-  expect(evidence.extension.capabilities).toContain("sevro.case.host-route");
+  expect(defined(evidence.extension).capabilities).toContain(
+    "sevro.case.host-route",
+  );
 });
-
 test("CLI retains redacted extension configuration with its identity", async () => {
   const { args, caseFile } = await fixture();
   const commandFile = join(caseFile, "..", "extension-command.json");
@@ -549,18 +577,19 @@ test("CLI retains redacted extension configuration with its identity", async () 
   );
   const run = await invoke(command);
   expect(run.code, run.stdout + run.stderr).toBe(0);
-  const text = await readFile(run.result.evidencePath, "utf8");
-  const evidence = JSON.parse(text);
-  expect(evidence.configuration.redacted.extensionConfiguration).toEqual({
-    label: "condition",
-    secretPresent: true,
-  });
+  const text = await readFile(defined(run.result.evidencePath), "utf8");
+  const evidence = parseRunEvidence(text);
+  expectUnknown(evidence.configuration.redacted.extensionConfiguration).toEqual(
+    {
+      label: "condition",
+      secretPresent: true,
+    },
+  );
   expect(evidence.configuration.redacted.extensionConfigurationDigest).toBe(
-    evidence.extension.configurationDigest,
+    defined(evidence.extension).configurationDigest,
   );
   expect(text).not.toContain("private-configuration-marker");
 });
-
 test("CLI text output names domain outcomes apart from the task verdict", async () => {
   const { args, caseFile } = await fixture();
   const commandFile = join(caseFile, "..", "extension-command.json");
@@ -598,7 +627,6 @@ test("CLI text output names domain outcomes apart from the task verdict", async 
     "domain case=extension-case trial=1 outcome=example.extension.activation status=failed\n",
   );
 });
-
 test("CLI selects an advertised extension task policy explicitly", async () => {
   const { args, caseFile } = await fixture();
   const commandFile = join(caseFile, "..", "extension-command.json");
@@ -628,20 +656,25 @@ test("CLI selects an advertised extension task policy explicitly", async () => {
     "example.policy",
   ]);
   expect(selected.code).toBe(0);
-  expect(selected.result.cases[0].trials[0].checks[0].status).toBe("failed");
-  const evidence = JSON.parse(
-    await readFile(selected.result.evidencePath, "utf8"),
+  expect(
+    defined(defined(defined(selected.result.cases[0]).trials[0]).checks[0])
+      .status,
+  ).toBe("failed");
+  const evidence = parseRunEvidence(
+    await readFile(defined(selected.result.evidencePath), "utf8"),
   );
-  const defaultEvidence = JSON.parse(
-    await readFile(defaultRun.result.evidencePath, "utf8"),
+  const defaultEvidence = parseRunEvidence(
+    await readFile(defined(defaultRun.result.evidencePath), "utf8"),
   );
   expect(evidence.evaluationIdentity.digest).not.toBe(
     defaultEvidence.evaluationIdentity.digest,
   );
-  expect(evidence.extension.replacements.taskVerdictPolicy).toBe(
+  expect(defined(evidence.extension).replacements.taskVerdictPolicy).toBe(
     "example.policy",
   );
-  expect(evidence.trials[0].taskVerdictPolicy.recommendation).toBe("passed");
+  expect(
+    defined(defined(evidence.trials[0]).taskVerdictPolicy).recommendation,
+  ).toBe("passed");
   const rejected = await invoke([
     ...args,
     "--task-verdict-policy",
@@ -649,7 +682,6 @@ test("CLI selects an advertised extension task policy explicitly", async () => {
   ]);
   expect(rejected.code).toBe(64);
 });
-
 test("CLI replaces a selected built-in grader through the extension", async () => {
   const { args, caseFile } = await fixture();
   const commandFile = join(caseFile, "..", "extension-command.json");
@@ -678,16 +710,18 @@ test("CLI replaces a selected built-in grader through the extension", async () =
     "sevro.regex",
   ]);
   expect(selected.code).toBe(0);
-  expect(selected.result.cases[0].trials[0].checks).toEqual([
-    expect.objectContaining({
+  expectUnknown(
+    defined(defined(selected.result.cases[0]).trials[0]).checks,
+  ).toEqual([
+    objectContaining({
       id: "example.extension.ready",
       status: "passed",
     }),
   ]);
-  const evidence = JSON.parse(
-    await readFile(selected.result.evidencePath, "utf8"),
+  const evidence = parseRunEvidence(
+    await readFile(defined(selected.result.evidencePath), "utf8"),
   );
-  expect(evidence.graders.replacedDefaults).toEqual(["sevro.regex"]);
+  expectUnknown(evidence.graders.replacedDefaults).toEqual(["sevro.regex"]);
   expect(
     (await invoke([...command, "--replace-builtin-grader", "sevro.schema"]))
       .code,
@@ -704,7 +738,6 @@ test("CLI replaces a selected built-in grader through the extension", async () =
     ).code,
   ).toBe(64);
 });
-
 test("CLI negotiates and records enforced host instrumentation", async () => {
   const { args, caseFile } = await fixture();
   const commandFile = join(caseFile, "..", "extension-command.json");
@@ -733,8 +766,8 @@ test("CLI negotiates and records enforced host instrumentation", async () => {
   );
   const enforced = await invoke(command);
   expect(enforced.code).toBe(0);
-  const evidence = JSON.parse(
-    await readFile(enforced.result.evidencePath, "utf8"),
+  const evidence = parseRunEvidence(
+    await readFile(defined(enforced.result.evidencePath), "utf8"),
   );
   expect(evidence.condition).toMatchObject({
     requested: "enforced",
@@ -752,7 +785,6 @@ test("CLI negotiates and records enforced host instrumentation", async () => {
   expect(rejected.code).toBe(64);
   expect(rejected.result.evidencePath).toBeNull();
 });
-
 test("CLI mounts only declared preparation source files", async () => {
   const { args, caseFile } = await fixture();
   const projectRoot = join(caseFile, "..");
@@ -789,12 +821,13 @@ test("CLI mounts only declared preparation source files", async () => {
   );
   const run = await invoke(command);
   expect(run.code).toBe(0);
-  const evidence = JSON.parse(await readFile(run.result.evidencePath, "utf8"));
-  const [artifact] = evidence.trials[0].artifactRefs;
-  expect(await readFile(new URL(artifact.path), "utf8")).toBe(
+  const evidence = parseRunEvidence(
+    await readFile(defined(run.result.evidencePath), "utf8"),
+  );
+  const [artifact] = defined(evidence.trials[0]).artifactRefs;
+  expect(await readFile(new URL(defined(artifact).path), "utf8")).toBe(
     "prepared data\n",
   );
-
   await writeFile(
     mapFile,
     JSON.stringify({ "input-data": pathToFileURL(commandFile).href }),
@@ -802,11 +835,11 @@ test("CLI mounts only declared preparation source files", async () => {
   const escaped = await invoke(command);
   expect(escaped.code).toBe(64);
   expect(escaped.result.evidencePath).toBeNull();
-  expect(escaped.result.diagnostic.message).toMatch(
+  expect(defined(escaped.result.diagnostic).message).toMatch(
     /escapes its declared root/,
   );
 });
-
+// eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("CLI executes a declared repository fixture", async () => {
   const { args, caseFile } = await fixture();
   const projectRoot = join(caseFile, "..");
@@ -858,7 +891,6 @@ test("CLI executes a declared repository fixture", async () => {
   expect(run.result.task.verdict).toBe("passed");
   const missingMap = await invoke(args);
   expect(missingMap.code).toBe(64);
-
   const commandFile = join(projectRoot, "extension-command.json");
   await writeFile(
     commandFile,
@@ -885,17 +917,17 @@ test("CLI executes a declared repository fixture", async () => {
     "--shell-isolation",
   ]);
   expect(extended.code).toBe(0);
-  expect(
-    extended.result.cases[0].trials[0].checks.map(
+  expectUnknown(
+    defined(defined(extended.result.cases[0]).trials[0]).checks.map(
       (check: { id: string }) => check.id,
     ),
   ).toEqual(["ready", "repository-overlay", "example.extension.ready"]);
 });
-
 for (const route of ["shell", "native"] as const) {
+  // eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
   test(`CLI isolates mapped repository worktrees for ${route} execution`, async () => {
-    const installedCodex = Bun.which("codex");
-    if (process.platform !== "darwin" || !installedCodex) return;
+    const installedCodex = availableNativeCodex();
+    if (!installedCodex) return;
     const { args, caseFile } = await fixture();
     const projectRoot = join(caseFile, "..");
     const primary = await mkdtemp(join(tmpdir(), "sevro-source-primary-"));
@@ -921,7 +953,7 @@ for (const route of ["shell", "native"] as const) {
     );
     await git(primary, "worktree", "add", "-q", "--detach", mapped);
     await git(primary, "worktree", "add", "-q", "--detach", sibling);
-    const definition = JSON.parse(await readFile(caseFile, "utf8"));
+    const definition = fixtureCase();
     definition.fixture = { sourceRef: "fixture-repo" };
     definition.checks.push(
       {
@@ -1044,21 +1076,21 @@ printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_token
     }
     await writeFile(caseFile, JSON.stringify(definition));
     const run = await invoke(selectedArgs);
-    const retained = JSON.parse(
-      await readFile(run.result.evidencePath, "utf8"),
+    const retained = parseRunEvidence(
+      await readFile(defined(run.result.evidencePath), "utf8"),
     );
     expect(run.code, JSON.stringify(retained.trials[0])).toBe(0);
     expect(run.result.task.verdict).toBe("passed");
-    expect(
-      run.result.cases[0].trials[0].checks.map(
+    expectUnknown(
+      defined(defined(run.result.cases[0]).trials[0]).checks.map(
         (check: { status: string }) => check.status,
       ),
     ).toEqual(definition.checks.map(() => "passed"));
     if (route === "native") {
-      const evidence = JSON.parse(
-        await readFile(run.result.evidencePath, "utf8"),
+      const evidence = parseRunEvidence(
+        await readFile(defined(run.result.evidencePath), "utf8"),
       );
-      expect(evidence.trials[0].advisoryReview).toMatchObject({
+      expect(defined(evidence.trials[0]).advisoryReview).toMatchObject({
         status: "completed",
         assessment: { verdict: "pass" },
       });
@@ -1070,10 +1102,9 @@ printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_token
     }
   });
 }
-
 test("CLI accepts generated Git history from a case or extension", async () => {
   const { args, caseFile } = await fixture();
-  const definition = JSON.parse(await readFile(caseFile, "utf8"));
+  const definition = fixtureCase();
   definition.fixture = {
     kind: "generated",
     commits: [
@@ -1084,7 +1115,6 @@ test("CLI accepts generated Git history from a case or extension", async () => {
   };
   await writeFile(caseFile, JSON.stringify(definition));
   expect((await invoke(args)).code).toBe(0);
-
   const commandFile = join(caseFile, "..", "extension-command.json");
   await writeFile(
     commandFile,
@@ -1105,14 +1135,12 @@ test("CLI accepts generated Git history from a case or extension", async () => {
     "extension-case",
   );
   expect((await invoke(extensionCommand)).code).toBe(0);
-
-  definition.fixture.commits[0].files = { ".git/config": "escape" };
+  defined(definition.fixture.commits[0]).files = { ".git/config": "escape" };
   await writeFile(caseFile, JSON.stringify(definition));
   const invalid = await invoke(args);
   expect(invalid.code).toBe(64);
   expect(invalid.result.evidencePath).toBeNull();
 });
-
 test("CLI reports invalid invocation as versioned JSON without a run", async () => {
   const { args, caseFile } = await fixture();
   const invalid = await invoke(
@@ -1134,7 +1162,6 @@ test("CLI reports invalid invocation as versioned JSON without a run", async () 
   expect(badDigest.code).toBe(64);
   expect(badDigest.result.evidencePath).toBeNull();
 });
-
 test("CLI runs shell checks only with explicit isolation roots", async () => {
   if (process.platform !== "darwin") return;
   const { args, caseFile } = await fixture();
@@ -1156,7 +1183,7 @@ test("CLI runs shell checks only with explicit isolation roots", async () => {
   );
   const missingIsolation = await invoke(args);
   expect(missingIsolation.code).toBe(64);
-  expect(missingIsolation.result.diagnostic.message).toMatch(
+  expect(defined(missingIsolation.result.diagnostic).message).toMatch(
     /protected source roots/,
   );
   const isolated = await invoke([
@@ -1166,7 +1193,9 @@ test("CLI runs shell checks only with explicit isolation roots", async () => {
     join(caseFile, ".."),
   ]);
   expect(isolated.code).toBe(0);
-  expect(isolated.result.cases[0].trials[0].checks[0]).toMatchObject({
+  expect(
+    defined(defined(defined(isolated.result.cases[0]).trials[0]).checks[0]),
+  ).toMatchObject({
     id: "fixture-file",
     status: "passed",
   });
@@ -1178,25 +1207,23 @@ test("CLI runs shell checks only with explicit isolation roots", async () => {
   ]);
   expect(relativeRoot.code).toBe(64);
 });
-
 test("CLI accepts an independent run-state root", async () => {
   const { args } = await fixture();
   const runStateRoot = await mkdtemp(join(tmpdir(), "sevro-cli-state-"));
   roots.push(runStateRoot);
   const run = await invoke([...args, "--run-state-root", runStateRoot]);
   expect(run.code).toBe(0);
-  const active = JSON.parse(
+  const active = parseCheckpoint(
     await readFile(
       join(runStateRoot, "active", `${run.result.runId}.json`),
       "utf8",
     ),
   );
   expect(active.status).toBe("complete");
-  expect(active.artifactPath).toBe(run.result.evidencePath);
+  expect(active.artifactPath).toBe(defined(run.result.evidencePath));
   const invalid = await invoke([...args, "--run-state-root", "relative"]);
   expect(invalid.code).toBe(64);
 });
-
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   test(`CLI ${signal} cancels host work and retains interruption evidence`, async () => {
     const { args, caseFile } = await fixture();
@@ -1240,24 +1267,24 @@ export default {
         proc.exited,
       ]);
       expect(code).toBe(signal === "SIGINT" ? 130 : 143);
-      const result = JSON.parse(stdout);
+      const result = parseCliResult(stdout);
       expect(result.execution.status).toBe("cancelled");
       expect(result.exitCode).toBe(signal === "SIGINT" ? 130 : 143);
-      const active = JSON.parse(
+      const active = parseCheckpoint(
         await readFile(
           join(projectRoot, "results", "active", `${result.runId}.json`),
           "utf8",
         ),
       );
       expect(active.status).toBe("interrupted");
-      expect(await Bun.file(result.evidencePath).exists()).toBeTrue();
+      expect(await Bun.file(defined(result.evidencePath)).exists()).toBeTrue();
     } finally {
       proc.kill("SIGKILL");
       await proc.exited;
     }
   });
 }
-
+// eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("CLI imports only the Codex limit from its separate configuration root", async () => {
   const installedCodex = Bun.which("codex");
   if (process.platform !== "darwin" || !installedCodex) return;
@@ -1316,8 +1343,10 @@ printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_token
   const run = await invoke(selectedArgs);
   expect(run.code, JSON.stringify(run.result.diagnostic)).toBe(0);
   expect(run.result.task.verdict).toBe("passed");
-  const evidence = JSON.parse(await readFile(run.result.evidencePath, "utf8"));
-  expect(evidence.configuration.redacted.hostConfiguration).toEqual({
+  const evidence = parseRunEvidence(
+    await readFile(defined(run.result.evidencePath), "utf8"),
+  );
+  expectUnknown(evidence.configuration.redacted.hostConfiguration).toEqual({
     candidate: { "sevro.codex.agent-concurrency-limit": 7 },
   });
   expect(JSON.stringify(evidence)).not.toContain("unrelated-config-marker");
@@ -1327,10 +1356,12 @@ printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_token
   );
   const changed = await invoke([...selectedArgs, "--dry"]);
   expect(changed.code).toBe(0);
-  const changedEvidence = JSON.parse(
-    await readFile(changed.result.evidencePath, "utf8"),
+  const changedEvidence = parseRunEvidence(
+    await readFile(defined(changed.result.evidencePath), "utf8"),
   );
-  expect(changedEvidence.configuration.redacted.hostConfiguration).toEqual({
+  expectUnknown(
+    changedEvidence.configuration.redacted.hostConfiguration,
+  ).toEqual({
     candidate: { "sevro.codex.agent-concurrency-limit": 9 },
   });
   await writeFile(
@@ -1339,14 +1370,13 @@ printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_token
   );
   const restored = await invoke([...selectedArgs, "--dry"]);
   expect(restored.code).toBe(0);
-  const restoredEvidence = JSON.parse(
-    await readFile(restored.result.evidencePath, "utf8"),
+  const restoredEvidence = parseRunEvidence(
+    await readFile(defined(restored.result.evidencePath), "utf8"),
   );
   expect(restoredEvidence.evaluationIdentity.digest).not.toBe(
     changedEvidence.evaluationIdentity.digest,
   );
 });
-
 test("CLI isolates a separate configuration repository and its linked worktree", async () => {
   if (process.platform !== "darwin" || !Bun.which("codex")) return;
   const { args, caseFile } = await fixture();
@@ -1375,7 +1405,7 @@ test("CLI isolates a separate configuration repository and its linked worktree",
     "chore: initialize configuration",
   );
   await git(configRoot, "worktree", "add", "-qb", "linked", linked);
-  const definition = JSON.parse(await readFile(caseFile, "utf8"));
+  const definition = fixtureCase();
   definition.checks.push(
     ...[configRoot, linked].map((root, index) => ({
       id: `configuration-private-${index}`,
@@ -1392,15 +1422,14 @@ test("CLI isolates a separate configuration repository and its linked worktree",
   ]);
   expect(run.code, JSON.stringify(run.result)).toBe(0);
   expect(run.result.task.verdict).toBe("passed");
-  expect(
-    run.result.cases[0].trials[0].checks
-      .filter((check: { id: string }) =>
+  expectUnknown(
+    defined(defined(run.result.cases[0]).trials[0])
+      .checks.filter((check: { id: string }) =>
         check.id.startsWith("configuration-private-"),
       )
       .map((check: { status: string }) => check.status),
   ).toEqual(["passed", "passed"]);
 });
-
 test("CLI refuses a dangling Codex configuration link before execution", async () => {
   const { args, caseFile } = await fixture();
   const configRoot = join(caseFile, "..");
@@ -1429,11 +1458,10 @@ test("CLI refuses a dangling Codex configuration link before execution", async (
   ]);
   expect(run.code).toBe(64);
   expect(run.result.execution.status).toBe("not_run");
-  expect(run.result.diagnostic.message).toContain(
+  expect(defined(run.result.diagnostic).message).toContain(
     "Cannot read Codex configuration",
   );
 });
-
 test("CLI distinguishes absent Codex configuration from a dangling directory link", async () => {
   const { args, caseFile } = await fixture();
   const projectRoot = join(caseFile, "..");
@@ -1460,23 +1488,22 @@ test("CLI distinguishes absent Codex configuration from a dangling directory lin
     if (emptyDirectory) await mkdir(directory);
     const run = await invoke(selectedArgs);
     expect(run.code).toBe(0);
-    const evidence = JSON.parse(
-      await readFile(run.result.evidencePath, "utf8"),
+    const evidence = parseRunEvidence(
+      await readFile(defined(run.result.evidencePath), "utf8"),
     );
-    expect(evidence.configuration.redacted.hostConfiguration.candidate).toEqual(
-      { "sevro.codex.agent-concurrency-limit": null },
-    );
+    expectUnknown(
+      record(evidence.configuration.redacted.hostConfiguration).candidate,
+    ).toEqual({ "sevro.codex.agent-concurrency-limit": null });
   }
   await rm(directory, { recursive: true });
   await symlink(join(projectRoot, "missing-directory"), directory);
   const run = await invoke(selectedArgs);
   expect(run.code).toBe(64);
   expect(run.result.execution.status).toBe("not_run");
-  expect(run.result.diagnostic.message).toContain(
+  expect(defined(run.result.diagnostic).message).toContain(
     join(directory, "config.toml"),
   );
 });
-
 test("CLI rejects an explicitly empty configuration root", async () => {
   const { args } = await fixture();
   for (const supplied of [["--config-root", ""], ["--config-root="]]) {
@@ -1485,11 +1512,10 @@ test("CLI rejects an explicitly empty configuration root", async () => {
     expect(run.result.execution.status).toBe("not_run");
   }
 });
-
 test("CLI retains Codex defaults and the configured limit for every role", async () => {
   const { args, caseFile } = await fixture();
   const projectRoot = join(caseFile, "..");
-  const definition = JSON.parse(await readFile(caseFile, "utf8"));
+  const definition = fixtureCase();
   definition.fixture = {
     kind: "generated",
     commits: [
@@ -1546,18 +1572,17 @@ test("CLI retains Codex defaults and the configured limit for every role", async
     expect(run.code, JSON.stringify(run.result.diagnostic)).toBe(0);
     expect(run.result.execution.status).toBe("not_run");
     expect(run.result.task.verdict).toBe("not_assessed");
-    const evidence = JSON.parse(
-      await readFile(run.result.evidencePath, "utf8"),
+    const evidence = parseRunEvidence(
+      await readFile(defined(run.result.evidencePath), "utf8"),
     );
     const limit = source?.includes("= 8") ? 8 : null;
-    expect(evidence.configuration.redacted.hostConfiguration).toEqual({
+    expectUnknown(evidence.configuration.redacted.hostConfiguration).toEqual({
       candidate: { "sevro.codex.agent-concurrency-limit": limit },
       semantic: { "sevro.codex.agent-concurrency-limit": limit },
       advisory: { "sevro.codex.agent-concurrency-limit": limit },
     });
   }
 });
-
 test("CLI rejects malformed Codex settings and unusable configuration roots", async () => {
   const { args, caseFile } = await fixture();
   const projectRoot = join(caseFile, "..");
@@ -1593,13 +1618,13 @@ test("CLI rejects malformed Codex settings and unusable configuration roots", as
     const run = await invoke(selectedArgs);
     expect(run.code).toBe(64);
     expect(run.result.execution.status).toBe("not_run");
-    expect(run.result.diagnostic.message).toContain(configFile);
+    expect(defined(run.result.diagnostic).message).toContain(configFile);
   }
   await rm(configFile);
   await mkdir(configFile);
   const unreadable = await invoke(selectedArgs);
   expect(unreadable.code).toBe(64);
-  expect(unreadable.result.diagnostic.message).toContain(
+  expect(defined(unreadable.result.diagnostic).message).toContain(
     "Cannot read Codex configuration",
   );
   for (const root of ["relative", caseFile, join(projectRoot, "absent")]) {
@@ -1608,7 +1633,7 @@ test("CLI rejects malformed Codex settings and unusable configuration roots", as
     expect(run.result.execution.status).toBe("not_run");
   }
 });
-
+// eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("CLI runs its bundled Codex route with explicit auth and model", async () => {
   const installedCodex = Bun.which("codex");
   if (process.platform !== "darwin" || !installedCodex) return;
@@ -1701,17 +1726,19 @@ printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_token
   const run = await invoke(codexArgs);
   expect(run.code).toBe(0);
   expect(run.result.task.verdict).toBe("passed");
-  const trial = JSON.parse(
-    await readFile(run.result.cases[0].trials[0].artifactPath, "utf8"),
+  const trial = parseTrial(
+    await readFile(
+      defined(defined(defined(run.result.cases[0]).trials[0]).artifactPath),
+      "utf8",
+    ),
   );
-  expect(trial.evidence.routes[0]).toMatchObject({
+  expect(defined(trial.evidence.routes[0])).toMatchObject({
     host: "sevro.host.codex",
     model: "synthetic-codex",
   });
   const invalid = await invoke([...args, ...codexArgs.slice(-10)]);
   expect(invalid.code).toBe(64);
-
-  const definition = JSON.parse(await readFile(caseFile, "utf8"));
+  const definition = fixtureCase();
   definition.checks.push({
     id: "semantic-ready",
     grader: "sevro.semantic",
@@ -1733,17 +1760,17 @@ printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_token
   ];
   const semanticRun = await invoke(semanticArgs);
   expect(semanticRun.code).toBe(0);
-  const semanticEvidence = JSON.parse(
-    await readFile(semanticRun.result.evidencePath, "utf8"),
+  const semanticEvidence = parseRunEvidence(
+    await readFile(defined(semanticRun.result.evidencePath), "utf8"),
   );
-  expect(semanticEvidence.routes[1]).toMatchObject({
+  expect(defined(semanticEvidence.routes[1])).toMatchObject({
     role: "semantic",
     host: "sevro.host.codex",
     model: "synthetic-judge",
   });
-  expect(semanticEvidence.trials[0].artifactRefs).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({ id: "sevro.semantic.sevro.codex.events" }),
+  expectUnknown(defined(semanticEvidence.trials[0]).artifactRefs).toEqual(
+    arrayContaining([
+      objectContaining({ id: "sevro.semantic.sevro.codex.events" }),
     ]),
   );
   definition.checks.pop();
@@ -1775,15 +1802,15 @@ printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_token
     "low",
   ]);
   expect(advisoryRun.code).toBe(0);
-  const advisoryEvidence = JSON.parse(
-    await readFile(advisoryRun.result.evidencePath, "utf8"),
+  const advisoryEvidence = parseRunEvidence(
+    await readFile(defined(advisoryRun.result.evidencePath), "utf8"),
   );
-  expect(advisoryEvidence.routes[1]).toMatchObject({
+  expect(defined(advisoryEvidence.routes[1])).toMatchObject({
     role: "advisory",
     host: "sevro.host.codex",
     model: "synthetic-reviewer",
   });
-  expect(advisoryEvidence.trials[0].advisoryReview).toMatchObject({
+  expect(defined(advisoryEvidence.trials[0]).advisoryReview).toMatchObject({
     status: "completed",
     assessment: { verdict: "fail" },
   });
@@ -1794,7 +1821,6 @@ printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_token
   ]);
   expect(conflicting.code).toBe(64);
 });
-
 async function claudeContinuationFixture(scenario = "pass") {
   const { args, caseFile } = await fixture();
   const projectRoot = join(caseFile, "..");
@@ -1803,7 +1829,7 @@ async function claudeContinuationFixture(scenario = "pass") {
   roots.push(binRoot);
   const binary = join(binRoot, "claude-wrapper");
   const launches = join(binRoot, "launches.txt");
-  const definition = JSON.parse(await readFile(caseFile, "utf8"));
+  const definition = fixtureCase();
   definition.fixture = {
     kind: "generated",
     commits: [
@@ -1864,7 +1890,6 @@ if (affected && scenario.startsWith("duplicate-")) process.stdout.write(JSON.str
     launches,
   };
 }
-
 async function claudeCacheFixture() {
   const { args, caseFile } = await fixture();
   const projectRoot = join(caseFile, "..");
@@ -1878,7 +1903,7 @@ async function claudeCacheFixture() {
   await writeFile(credentialFile, '{"test":"synthetic-login"}', {
     mode: 0o600,
   });
-  const definition = JSON.parse(await readFile(caseFile, "utf8"));
+  const definition = fixtureCase();
   definition.fixture = {
     kind: "generated",
     commits: [
@@ -1927,7 +1952,6 @@ process.stdout.write(JSON.stringify({ type: "result", subtype: "success", is_err
     ],
   };
 }
-
 test("CLI curated Claude runtime leaves repository caches to tools", async () => {
   if (process.platform !== "darwin") return;
   const { command } = await claudeCacheFixture();
@@ -1941,7 +1965,7 @@ test("CLI curated Claude runtime leaves repository caches to tools", async () =>
     new Response(proc.stderr).text(),
     proc.exited,
   ]);
-  const result = JSON.parse(stdout);
+  const result = parseCliResult(stdout);
   expect(code, stderr + stdout).toBe(0);
   expect(result).toMatchObject({
     execution: { status: "completed" },
@@ -1949,11 +1973,10 @@ test("CLI curated Claude runtime leaves repository caches to tools", async () =>
     task: { verdict: "passed" },
   });
 });
-
 test("CLI curated shell grading leaves repository caches to tools", async () => {
   if (process.platform !== "darwin") return;
   const { command, caseFile } = await claudeCacheFixture();
-  const definition = JSON.parse(await readFile(caseFile, "utf8"));
+  const definition = fixtureCase();
   definition.checks.push({
     id: "isolated-cache",
     grader: "sevro.shell",
@@ -1967,19 +1990,22 @@ test("CLI curated shell grading leaves repository caches to tools", async () => 
   });
   expect(run.code, run.stderr + JSON.stringify(run.result)).toBe(0);
   expect(run.result.task.verdict).toBe("passed");
-  expect(run.result.cases[0].trials[0].checks).toContainEqual(
-    expect.objectContaining({ id: "isolated-cache", status: "passed" }),
+  expectUnknown(
+    defined(defined(run.result.cases[0]).trials[0]).checks,
+  ).toContainEqual(
+    objectContaining({ id: "isolated-cache", status: "passed" }),
   );
 });
-
 test("CLI resumes Claude in the same isolated session and grades its final turn", async () => {
   if (process.platform !== "darwin") return;
   const { command, launches } = await claudeContinuationFixture();
   const run = await invoke(command);
   expect(run.code, run.stderr + JSON.stringify(run.result)).toBe(0);
   expect(run.result.task.verdict).toBe("passed");
-  const evidence = JSON.parse(await readFile(run.result.evidencePath, "utf8"));
-  const trial = evidence.trials[0];
+  const evidence = parseRunEvidence(
+    await readFile(defined(run.result.evidencePath), "utf8"),
+  );
+  const trial = defined(evidence.trials[0]);
   const continuation = trial.observations.find(
     (item: { id: string }) => item.id === "sevro.claude.continuation",
   );
@@ -1994,15 +2020,15 @@ test("CLI resumes Claude in the same isolated session and grades its final turn"
   const followUp = trial.artifactRefs.find(
     (item: { id: string }) => item.id === "sevro.claude.follow-up-events",
   );
-  const first = JSON.parse(
-    (await readFile(new URL(initial.path), "utf8")).trim(),
+  const first = parseRecord(
+    (await readFile(new URL(defined(initial).path), "utf8")).trim(),
   );
-  const last = JSON.parse(
-    (await readFile(new URL(followUp.path), "utf8")).trim(),
+  const last = parseRecord(
+    (await readFile(new URL(defined(followUp).path), "utf8")).trim(),
   );
   expect(first.result).toBe("waiting");
   expect(last.result).toBe("ready");
-  expect(first.session_id).toBe(continuation.data.sessionId);
+  expect(first.session_id).toBe(defined(continuation).data.sessionId);
   expect(last.session_id).toBe(first.session_id);
   expect(trial.usage).toMatchObject({
     inputTokens: 4,
@@ -2012,19 +2038,19 @@ test("CLI resumes Claude in the same isolated session and grades its final turn"
   });
   expect(await readFile(launches, "utf8")).toBe("initial\nresume\n");
 });
-
-test("Claude continuation never grades failed or unbound native results", async () => {
-  if (process.platform !== "darwin") return;
-  for (const scenario of [
-    "failed-initial",
-    "missing-initial",
-    "foreign-initial",
-    "duplicate-initial",
-    "failed-follow-up",
-    "missing-follow-up",
-    "foreign-follow-up",
-    "duplicate-follow-up",
-  ]) {
+test.each([
+  "failed-initial",
+  "missing-initial",
+  "foreign-initial",
+  "duplicate-initial",
+  "failed-follow-up",
+  "missing-follow-up",
+  "foreign-follow-up",
+  "duplicate-follow-up",
+])(
+  "Claude continuation never grades failed or unbound native results: %s",
+  async (scenario) => {
+    if (process.platform !== "darwin") return;
     const { command, launches } = await claudeContinuationFixture(scenario);
     const run = await invoke(command);
     expect(run.code, scenario + JSON.stringify(run.result)).toBe(2);
@@ -2036,42 +2062,45 @@ test("Claude continuation never grades failed or unbound native results", async 
     expect(await readFile(launches, "utf8")).toBe(
       scenario.endsWith("initial") ? "initial\n" : "initial\nresume\n",
     );
-    const evidence = JSON.parse(
-      await readFile(run.result.evidencePath, "utf8"),
+    const evidence = parseRunEvidence(
+      await readFile(defined(run.result.evidencePath), "utf8"),
     );
-    expect(run.result.cases[0].trials[0].checks).toEqual([]);
-    const artifact = evidence.trials[0].artifactRefs.find(
+    expectUnknown(
+      defined(defined(run.result.cases[0]).trials[0]).checks,
+    ).toEqual([]);
+    const artifact = defined(evidence.trials[0]).artifactRefs.find(
       (item: { id: string }) => item.id === "sevro.claude.events",
     );
     expect(artifact).toBeDefined();
-    expect(await readFile(new URL(artifact.path), "utf8")).toContain(
+    expect(await readFile(new URL(defined(artifact).path), "utf8")).toContain(
       '"type":"result"',
     );
     if (scenario.endsWith("follow-up")) {
       expect(
-        evidence.trials[0].observations.find(
+        defined(evidence.trials[0]).observations.find(
           (item: { id: string }) => item.id === "sevro.claude.continuation",
         ),
       ).toMatchObject({ completeness: "partial" });
     }
-  }
-}, 10_000);
-
+  },
+  10000,
+);
 test("CLI leaves Claude usage unmeasured when a resumed result belongs to another session", async () => {
   if (process.platform !== "darwin") return;
   const { command } = await claudeContinuationFixture("foreign-follow-up");
   const run = await invoke(command);
   expect(run.code).toBe(2);
   expect(run.result.task.verdict).toBe("not_assessed");
-  const evidence = JSON.parse(await readFile(run.result.evidencePath, "utf8"));
-  expect(evidence.trials[0].usage).toMatchObject({
+  const evidence = parseRunEvidence(
+    await readFile(defined(run.result.evidencePath), "utf8"),
+  );
+  expect(defined(evidence.trials[0]).usage).toMatchObject({
     complete: false,
     inputTokens: null,
     outputTokens: null,
     costUsd: null,
   });
 });
-
 test("Claude continuation keeps workspace and usage uncertainty explicit", async () => {
   if (process.platform !== "darwin") return;
   for (const scenario of [
@@ -2083,23 +2112,15 @@ test("Claude continuation keeps workspace and usage uncertainty explicit", async
     const run = await invoke(command);
     expect(run.code, JSON.stringify(run.result)).toBe(0);
     expect(run.result.task.verdict).toBe("passed");
-    const evidence = JSON.parse(
-      await readFile(run.result.evidencePath, "utf8"),
+    const evidence = parseRunEvidence(
+      await readFile(defined(run.result.evidencePath), "utf8"),
     );
-    const trial = evidence.trials[0];
+    const trial = defined(evidence.trials[0]);
     expect(
       trial.observations.find(
         (item: { id: string }) => item.id === "sevro.claude.continuation",
       ),
-    ).toMatchObject({
-      completeness: scenario === "unmeasured-worktree" ? "partial" : "complete",
-      data: {
-        preFollowUpWorktreeUnchanged:
-          scenario === "unmeasured-worktree"
-            ? null
-            : scenario !== "changed-worktree",
-      },
-    });
+    ).toMatchObject(expectedContinuationState(scenario));
     if (scenario === "incomplete-usage")
       expect(trial.usage).toMatchObject({
         complete: false,
@@ -2109,7 +2130,6 @@ test("Claude continuation keeps workspace and usage uncertainty explicit", async
       });
   }
 });
-
 test("CLI runs its bundled Claude route with isolated credentials", async () => {
   if (process.platform !== "darwin") return;
   const { args, caseFile } = await fixture();
@@ -2150,10 +2170,13 @@ test("CLI runs its bundled Claude route with isolated credentials", async () => 
   const run = await invoke(claudeArgs);
   expect(run.code).toBe(0);
   expect(run.result.task.verdict).toBe("passed");
-  const trial = JSON.parse(
-    await readFile(run.result.cases[0].trials[0].artifactPath, "utf8"),
+  const trial = parseTrial(
+    await readFile(
+      defined(defined(defined(run.result.cases[0]).trials[0]).artifactPath),
+      "utf8",
+    ),
   );
-  expect(trial.evidence.routes[0]).toMatchObject({
+  expect(defined(trial.evidence.routes[0])).toMatchObject({
     host: "sevro.host.claude",
     model: "sonnet",
   });

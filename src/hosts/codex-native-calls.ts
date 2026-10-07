@@ -1,18 +1,18 @@
+import {
+  locateNativeSession as sessionPath,
+  readNativeSession,
+  readNativeSessionText,
+} from "./codex-session-files";
+import { isUnknownArray } from "../value-guards";
 import { nativeCommandOutputs } from "./codex-command-output";
-import type { Dirent } from "node:fs";
-import { lstat, readFile, readdir, stat } from "node:fs/promises";
-import { join } from "node:path";
 import {
   codexNativeReadDiagnostic,
   type NativeReadDiagnostic,
 } from "./codex-skill-reads";
 
-const MAX_SESSION_BYTES = 8 * 1024 * 1024;
 const MAX_SESSION_ENTRIES = 10_000;
-const MAX_SESSION_FILES = 1024;
 const MAX_RETAINED_CALLS = 128;
 const MAX_CHILD_SESSIONS = 8;
-const THREAD_ID = /^[A-Za-z0-9._-]{1,128}$/;
 const GOAL_CONTROLS = new Set(["create_goal", "get_goal", "update_goal"]);
 const COLLABORATION_CONTROLS = new Set([
   "spawn_agent",
@@ -126,76 +126,31 @@ function unavailable(
   };
 }
 
-async function sessionPath(home: string, threadId: string) {
-  if (!THREAD_ID.test(threadId)) return { status: "partial" as const };
-  const sessionsRoot = join(home, "sessions");
-  try {
-    const root = await lstat(sessionsRoot);
-    if (!root.isDirectory() || root.isSymbolicLink())
-      return { status: "partial" as const };
-  } catch (error) {
-    return {
-      status:
-        error instanceof Error && "code" in error && error.code === "ENOENT"
-          ? ("unavailable" as const)
-          : ("partial" as const),
-    };
-  }
-  const pending = [sessionsRoot];
-  const suffix = `-${threadId}.jsonl`;
-  const matches: string[] = [];
-  let visited = 0;
-  while (pending.length) {
-    const directory = pending.pop()!;
-    let entries: Dirent<string>[];
-    try {
-      entries = await readdir(directory, { withFileTypes: true });
-    } catch {
-      return { status: "partial" as const };
-    }
-    for (const entry of entries) {
-      visited++;
-      if (visited > MAX_SESSION_FILES || entry.isSymbolicLink())
-        return { status: "partial" as const };
-      const path = join(directory, entry.name);
-      if (entry.isDirectory()) pending.push(path);
-      else if (entry.isFile() && entry.name.endsWith(suffix))
-        matches.push(path);
-      if (matches.length > 1) return { status: "ambiguous" as const };
-    }
-  }
-  return matches.length === 1
-    ? { status: "found" as const, path: matches[0]! }
-    : { status: "unavailable" as const };
+function nativeControlNamespace(
+  payload: Record<string, unknown> & { name: string },
+): NativeCall["namespace"] | null {
+  if (goalNamespace(payload.namespace) && GOAL_CONTROLS.has(payload.name))
+    return "functions";
+  if (
+    payload.namespace === "collaboration" &&
+    COLLABORATION_CONTROLS.has(payload.name)
+  )
+    return "collaboration";
+  return null;
 }
-
+function goalNamespace(value: unknown): boolean {
+  return value === "functions" || value === undefined;
+}
 function directCall(
   ordinal: number,
   payload: Record<string, unknown>,
 ): NativeCall | null {
   if (payload.type !== "function_call" || typeof payload.name !== "string")
     return null;
-  if (
-    (payload.namespace === "functions" || payload.namespace === undefined) &&
-    GOAL_CONTROLS.has(payload.name)
-  )
-    return {
-      ordinal,
-      namespace: "functions",
-      name: payload.name,
-      evidence: "invocation_attempt",
-    };
-  if (
-    payload.namespace === "collaboration" &&
-    COLLABORATION_CONTROLS.has(payload.name)
-  )
-    return {
-      ordinal,
-      namespace: "collaboration",
-      name: payload.name,
-      evidence: "invocation_attempt",
-    };
-  return null;
+  const namespace = nativeControlNamespace({ ...payload, name: payload.name });
+  return namespace
+    ? { ordinal, namespace, name: payload.name, evidence: "invocation_attempt" }
+    : null;
 }
 
 const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/;
@@ -208,144 +163,191 @@ function bounded(value: unknown, pattern: RegExp): string | undefined {
     : undefined;
 }
 
+function toolNamespace(value: unknown): NativeToolCall["namespace"] {
+  return value === "functions" || value === "collaboration" || value === "clock"
+    ? value
+    : "other";
+}
+function parsedObject(text: unknown): Record<string, unknown> | null {
+  if (typeof text !== "string") return null;
+  try {
+    const value: unknown = JSON.parse(text);
+    return record(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+function feedbackTarget(
+  args: Record<string, unknown> | null,
+): string | undefined {
+  if (!args) return undefined;
+  return (
+    bounded(args.target, AGENT_REF) ??
+    bounded(args.target, /^[a-z0-9][a-z0-9_]{0,63}$/)
+  );
+}
+function nativeToolTarget(
+  payload: Record<string, unknown>,
+  namespace: NativeToolCall["namespace"],
+  name: string,
+): string | undefined {
+  if (
+    namespace !== "collaboration" ||
+    !["followup_task", "send_message", "interrupt_agent"].includes(name)
+  )
+    return undefined;
+  return feedbackTarget(parsedObject(payload.arguments));
+}
+function toolCallType(value: unknown): boolean {
+  return value === "function_call" || value === "custom_tool_call";
+}
 function nativeToolCall(
   ordinal: number,
   payload: Record<string, unknown>,
 ): NativeToolCall | null {
-  if (payload.type !== "function_call" && payload.type !== "custom_tool_call")
-    return null;
-  const namespace =
-    payload.namespace === "functions" ||
-    payload.namespace === "collaboration" ||
-    payload.namespace === "clock"
-      ? payload.namespace
-      : "other";
+  if (!toolCallType(payload.type)) return null;
+  const namespace = toolNamespace(payload.namespace);
   const name =
     bounded(payload.name, /^[A-Za-z_][A-Za-z0-9_]{0,63}$/) ?? "other";
-  let target: string | undefined;
-  if (
-    namespace === "collaboration" &&
-    ["followup_task", "send_message", "interrupt_agent"].includes(name) &&
-    typeof payload.arguments === "string"
-  ) {
-    try {
-      const args: unknown = JSON.parse(payload.arguments);
-      if (record(args))
-        target =
-          bounded(args.target, AGENT_REF) ??
-          bounded(args.target, /^[a-z0-9][a-z0-9_]{0,63}$/);
-    } catch {
-      // An unreadable target stays unknown without exposing arguments.
-    }
-  }
+  const target = nativeToolTarget(payload, namespace, name);
   return { ordinal, namespace, name, ...(target ? { target } : {}) };
 }
 
-function acceptedSpawns(
-  entries: Array<{ ordinal: number; payload: Record<string, unknown> }>,
-): AcceptedSpawn[] {
-  const requests = entries.filter(
-    ({ payload }) =>
-      payload.type === "function_call" &&
-      payload.namespace === "collaboration" &&
-      payload.name === "spawn_agent",
+type NativeEntry = { ordinal: number; payload: Record<string, unknown> };
+function spawnRequest(payload: Record<string, unknown>): boolean {
+  return (
+    payload.type === "function_call" &&
+    payload.namespace === "collaboration" &&
+    payload.name === "spawn_agent"
   );
+}
+function acceptedSpawns(entries: NativeEntry[]): AcceptedSpawn[] {
+  const requests = entries.filter(({ payload }) => spawnRequest(payload));
   const accepted: AcceptedSpawn[] = [];
   for (const request of requests) {
-    const callId = bounded(request.payload.call_id, IDENTIFIER);
-    if (
-      !callId ||
-      requests.filter(({ payload }) => payload.call_id === callId).length !==
-        1 ||
-      typeof request.payload.arguments !== "string"
-    )
-      continue;
-    let args: unknown;
-    try {
-      args = JSON.parse(request.payload.arguments);
-    } catch {
-      continue;
-    }
-    if (!record(args)) continue;
-    const starts = entries.filter(({ payload }) => {
-      const item = record(payload.item) ? payload.item : undefined;
-      return (
-        payload.type === "item_completed" &&
-        item?.type === "SubAgentActivity" &&
-        item.id === callId &&
-        item.kind === "started"
-      );
-    });
-    const outputs = entries.filter(
-      ({ payload }) =>
-        payload.type === "function_call_output" && payload.call_id === callId,
-    );
-    if (starts.length !== 1 || outputs.length !== 1) continue;
-    const start = starts[0]!;
-    const result = outputs[0]!;
-    const item = start.payload.item as Record<string, unknown>;
-    const agentRef = bounded(item.agent_path, AGENT_REF);
-    const threadId = bounded(item.agent_thread_id, IDENTIFIER);
-    if (
-      !agentRef ||
-      !threadId ||
-      !(request.ordinal < start.ordinal && start.ordinal < result.ordinal) ||
-      typeof result.payload.output !== "string"
-    )
-      continue;
-    let output: unknown;
-    try {
-      output = JSON.parse(result.payload.output);
-    } catch {
-      continue;
-    }
-    if (!record(output) || output.task_name !== agentRef) continue;
-    accepted.push({
-      callId,
-      agentRef,
-      threadId,
-      requestedOrdinal: request.ordinal,
-      startedOrdinal: start.ordinal,
-      acceptedOrdinal: result.ordinal,
-      ...(bounded(args.task_name, /^[a-z0-9][a-z0-9_]{0,63}$/)
-        ? { taskName: args.task_name as string }
-        : {}),
-      ...(bounded(args.model, IDENTIFIER)
-        ? { model: args.model as string }
-        : {}),
-      ...(bounded(
-        args.reasoning_effort,
-        /^(?:low|medium|high|xhigh|max|ultra)$/,
-      )
-        ? { reasoningEffort: args.reasoning_effort as string }
-        : {}),
-      ...(bounded(args.fork_turns, /^(?:none|all|[1-9][0-9]*)$/)
-        ? { forkTurns: args.fork_turns as string }
-        : {}),
-    });
+    const spawn = acceptedSpawn(request, requests, entries);
+    if (spawn) accepted.push(spawn);
   }
   return accepted;
 }
+function spawnArguments(request: NativeEntry, requests: NativeEntry[]) {
+  const callId = bounded(request.payload.call_id, IDENTIFIER);
+  if (
+    !callId ||
+    requests.filter(({ payload }) => payload.call_id === callId).length !== 1
+  )
+    return null;
+  const args = parsedObject(request.payload.arguments);
+  return args ? { callId, args } : null;
+}
+function startedSpawn(
+  payload: Record<string, unknown>,
+  callId: string,
+): boolean {
+  const item = record(payload.item) ? payload.item : {};
+  return (
+    payload.type === "item_completed" &&
+    item.type === "SubAgentActivity" &&
+    item.id === callId &&
+    item.kind === "started"
+  );
+}
+function spawnBoundaries(entries: NativeEntry[], callId: string) {
+  const starts = entries.filter(({ payload }) => startedSpawn(payload, callId));
+  const outputs = entries.filter(
+    ({ payload }) =>
+      payload.type === "function_call_output" && payload.call_id === callId,
+  );
+  const [start] = starts,
+    [result] = outputs;
+  if (
+    starts.length !== 1 ||
+    outputs.length !== 1 ||
+    start === undefined ||
+    result === undefined
+  )
+    return null;
+  return { start, result };
+}
+function spawnIdentity(
+  request: NativeEntry,
+  start: NativeEntry,
+  result: NativeEntry,
+) {
+  const item = record(start.payload.item) ? start.payload.item : {};
+  const agentRef = bounded(item.agent_path, AGENT_REF),
+    threadId = bounded(item.agent_thread_id, IDENTIFIER);
+  if (!agentRef || !threadId || !spawnOrdered(request, start, result))
+    return null;
+  return { agentRef, threadId };
+}
+function spawnOrdered(
+  request: NativeEntry,
+  start: NativeEntry,
+  result: NativeEntry,
+): boolean {
+  return request.ordinal < start.ordinal && start.ordinal < result.ordinal;
+}
+function acceptedSpawn(
+  request: NativeEntry,
+  requests: NativeEntry[],
+  entries: NativeEntry[],
+): AcceptedSpawn | null {
+  const declaration = spawnArguments(request, requests);
+  if (!declaration) return null;
+  const boundaries = spawnBoundaries(entries, declaration.callId);
+  if (!boundaries) return null;
+  return correlatedSpawn(request, declaration, boundaries);
+}
+function correlatedSpawn(
+  request: NativeEntry,
+  declaration: { callId: string; args: Record<string, unknown> },
+  boundaries: { start: NativeEntry; result: NativeEntry },
+): AcceptedSpawn | null {
+  const { start, result } = boundaries;
+  const identity = spawnIdentity(request, start, result);
+  if (!identity) return null;
+  const output = parsedObject(result.payload.output);
+  if (!output || output.task_name !== identity.agentRef) return null;
+  return {
+    callId: declaration.callId,
+    ...identity,
+    requestedOrdinal: request.ordinal,
+    startedOrdinal: start.ordinal,
+    acceptedOrdinal: result.ordinal,
+    ...requestFields(declaration.args),
+  };
+}
+function requestFields(args: Record<string, unknown>) {
+  const taskName = bounded(args.task_name, /^[a-z0-9][a-z0-9_]{0,63}$/);
+  const model = bounded(args.model, IDENTIFIER);
+  const reasoningEffort = bounded(
+    args.reasoning_effort,
+    /^(?:low|medium|high|xhigh|max|ultra)$/,
+  );
+  const forkTurns = bounded(args.fork_turns, /^(?:none|all|[1-9][0-9]*)$/);
+  return {
+    ...(taskName ? { taskName } : {}),
+    ...(model ? { model } : {}),
+    ...(reasoningEffort ? { reasoningEffort } : {}),
+    ...(forkTurns ? { forkTurns } : {}),
+  };
+}
 
+function feedbackRepresentation(
+  message: unknown,
+): NativeFeedbackCall["messageRepresentation"] {
+  if (typeof message !== "string") return "unavailable";
+  return /^gAAAAA[A-Za-z0-9_-]+={0,2}$/.test(message)
+    ? "encrypted"
+    : "plaintext";
+}
 function feedbackMessageEvidence(
   payload: Record<string, unknown>,
   followUpPrompt?: string,
 ) {
-  let message: unknown;
-  if (typeof payload.arguments === "string") {
-    try {
-      const args: unknown = JSON.parse(payload.arguments);
-      if (record(args)) message = args.message;
-    } catch {
-      // An unreadable message remains unavailable.
-    }
-  }
-  const messageRepresentation =
-    typeof message !== "string"
-      ? ("unavailable" as const)
-      : /^gAAAAA[A-Za-z0-9_-]+={0,2}$/.test(message)
-        ? ("encrypted" as const)
-        : ("plaintext" as const);
+  const message = parsedObject(payload.arguments)?.message;
+  const messageRepresentation = feedbackRepresentation(message);
   return {
     messageRepresentation,
     messageMatchesFollowUpPrompt:
@@ -355,190 +357,273 @@ function feedbackMessageEvidence(
   };
 }
 
+function feedbackPayload(
+  payload: Record<string, unknown>,
+): payload is Record<string, unknown> & { name: NativeFeedbackCall["tool"] } {
+  return (
+    payload.type === "function_call" &&
+    payload.namespace === "collaboration" &&
+    typeof payload.name === "string" &&
+    ["followup_task", "send_message", "interrupt_agent"].includes(payload.name)
+  );
+}
+function feedbackResponses(
+  entries: NativeEntry[],
+  callId: string | undefined,
+  ordinal: number,
+) {
+  return callId
+    ? entries.filter(
+        (entry) =>
+          entry.ordinal > ordinal &&
+          entry.payload.type === "function_call_output" &&
+          entry.payload.call_id === callId,
+      )
+    : [];
+}
+function responseObserved(outputs: NativeEntry[]): boolean {
+  return outputs.length === 1 && typeof outputs[0]?.payload.output === "string";
+}
 function nativeFeedbackCalls(
-  entries: Array<{ ordinal: number; payload: Record<string, unknown> }>,
+  entries: NativeEntry[],
   followUpPrompt?: string,
 ): NativeFeedbackCall[] {
-  return entries.flatMap(({ ordinal, payload }) => {
-    if (
-      payload.type !== "function_call" ||
-      payload.namespace !== "collaboration" ||
-      !["followup_task", "send_message", "interrupt_agent"].includes(
-        String(payload.name),
-      )
-    )
-      return [];
-    const callId = bounded(payload.call_id, IDENTIFIER);
-    const outputs = callId
-      ? entries.filter(
-          (entry) =>
-            entry.ordinal > ordinal &&
-            entry.payload.type === "function_call_output" &&
-            entry.payload.call_id === callId,
-        )
-      : [];
-    return [
-      {
-        ordinal,
-        tool: payload.name as NativeFeedbackCall["tool"],
-        target: nativeToolCall(ordinal, payload)?.target ?? null,
-        responseObserved:
-          outputs.length === 1 &&
-          typeof outputs[0]?.payload.output === "string",
-        ...feedbackMessageEvidence(payload, followUpPrompt),
-      },
-    ];
-  });
+  return entries.flatMap((entry) =>
+    feedbackCall(entry, entries, followUpPrompt),
+  );
+}
+function feedbackCall(
+  { ordinal, payload }: NativeEntry,
+  entries: NativeEntry[],
+  followUpPrompt: string | undefined,
+): NativeFeedbackCall[] {
+  if (!feedbackPayload(payload)) return [];
+  const outputs = feedbackResponses(
+    entries,
+    bounded(payload.call_id, IDENTIFIER),
+    ordinal,
+  );
+  return [
+    {
+      ordinal,
+      tool: payload.name,
+      target: nativeToolCall(ordinal, payload)?.target ?? null,
+      responseObserved: responseObserved(outputs),
+      ...feedbackMessageEvidence(payload, followUpPrompt),
+    },
+  ];
 }
 
+interface ParseState {
+  calls: NativeCall[];
+  toolCalls: NativeToolCall[];
+  entries: NativeEntry[];
+  submittedExecCalls: number;
+  lastOrdinal: number;
+  malformed: boolean;
+  entryCount: number;
+}
 function parseSession(
   text: string,
   followUpPrompt?: string,
-): {
-  observation: NativeCallObservation;
-  entries: Array<{ ordinal: number; payload: Record<string, unknown> }>;
-} {
-  const calls: NativeCall[] = [];
-  const toolCalls: NativeToolCall[] = [];
-  const entries: Array<{ ordinal: number; payload: Record<string, unknown> }> =
-    [];
-  let submittedExecCalls = 0;
-  let lastOrdinal = -1;
-  let malformed = false;
-  let entryCount = 0;
+): { observation: NativeCallObservation; entries: NativeEntry[] } {
+  const state: ParseState = {
+    calls: [],
+    toolCalls: [],
+    entries: [],
+    submittedExecCalls: 0,
+    lastOrdinal: -1,
+    malformed: false,
+    entryCount: 0,
+  };
   for (const line of text.split("\n")) {
     if (!line.trim()) continue;
-    entryCount++;
-    if (entryCount > MAX_SESSION_ENTRIES) {
-      malformed = true;
-      break;
-    }
-    let entry: unknown;
-    try {
-      entry = JSON.parse(line);
-    } catch {
-      malformed = true;
-      continue;
-    }
-    if (
-      !record(entry) ||
-      !Number.isSafeInteger(entry.ordinal) ||
-      (entry.ordinal as number) <= lastOrdinal ||
-      !record(entry.payload)
-    ) {
-      malformed = true;
-      continue;
-    }
-    lastOrdinal = entry.ordinal as number;
-    entries.push({ ordinal: lastOrdinal, payload: entry.payload });
-    if (
-      entry.payload.type === "custom_tool_call" &&
-      entry.payload.name === "exec"
-    )
-      submittedExecCalls++;
-    const call = directCall(lastOrdinal, entry.payload);
-    if (call) calls.push(call);
-    const toolCall = nativeToolCall(lastOrdinal, entry.payload);
-    if (toolCall) toolCalls.push(toolCall);
-    if (
-      calls.length > MAX_RETAINED_CALLS ||
-      toolCalls.length > MAX_RETAINED_CALLS
-    ) {
-      calls.length = MAX_RETAINED_CALLS;
-      toolCalls.length = MAX_RETAINED_CALLS;
-      malformed = true;
-      break;
-    }
+    if (!consumeSessionLine(line, state)) break;
   }
   return {
-    entries,
-    observation: {
-      id: "sevro.codex.native-calls",
-      completeness: malformed || entryCount === 0 ? "partial" : "complete",
-      data: {
-        method: "native_session",
-        calls,
-        toolCalls,
-        submittedExecCalls,
-        acceptedSpawns:
-          malformed || entries.length === 0 ? [] : acceptedSpawns(entries),
-        feedbackCalls:
-          malformed || entries.length === 0
-            ? []
-            : nativeFeedbackCalls(entries, followUpPrompt),
-        childSessions: [],
-        childrenTruncated: false,
-      },
+    entries: state.entries,
+    observation: sessionObservation(state, followUpPrompt),
+  };
+}
+function consumeSessionLine(line: string, state: ParseState): boolean {
+  state.entryCount++;
+  if (state.entryCount > MAX_SESSION_ENTRIES) {
+    state.malformed = true;
+    return false;
+  }
+  const entry = parsedSessionEntry(line, state);
+  if (!entry) return true;
+  state.lastOrdinal = entry.ordinal;
+  state.entries.push(entry);
+  retainSessionCalls(entry, state);
+  return !truncateSessionCalls(state);
+}
+function sessionOrdinal(
+  entry: Record<string, unknown>,
+  lastOrdinal: number,
+): entry is Record<string, unknown> & { ordinal: number } {
+  return (
+    typeof entry.ordinal === "number" &&
+    Number.isSafeInteger(entry.ordinal) &&
+    entry.ordinal > lastOrdinal
+  );
+}
+function parsedSessionEntry(
+  line: string,
+  state: ParseState,
+): NativeEntry | null {
+  let entry: unknown;
+  try {
+    entry = JSON.parse(line);
+  } catch {
+    state.malformed = true;
+    return null;
+  }
+  if (
+    !record(entry) ||
+    !sessionOrdinal(entry, state.lastOrdinal) ||
+    !record(entry.payload)
+  ) {
+    state.malformed = true;
+    return null;
+  }
+  return { ordinal: entry.ordinal, payload: entry.payload };
+}
+function retainSessionCalls(entry: NativeEntry, state: ParseState): void {
+  if (
+    entry.payload.type === "custom_tool_call" &&
+    entry.payload.name === "exec"
+  )
+    state.submittedExecCalls++;
+  const call = directCall(entry.ordinal, entry.payload);
+  if (call) state.calls.push(call);
+  const tool = nativeToolCall(entry.ordinal, entry.payload);
+  if (tool) state.toolCalls.push(tool);
+}
+function truncateSessionCalls(state: ParseState): boolean {
+  if (
+    state.calls.length <= MAX_RETAINED_CALLS &&
+    state.toolCalls.length <= MAX_RETAINED_CALLS
+  )
+    return false;
+  state.calls.length = MAX_RETAINED_CALLS;
+  state.toolCalls.length = MAX_RETAINED_CALLS;
+  state.malformed = true;
+  return true;
+}
+function sessionReceipts(
+  state: ParseState,
+  followUpPrompt: string | undefined,
+) {
+  if (state.malformed || state.entries.length === 0)
+    return { acceptedSpawns: [], feedbackCalls: [] };
+  return {
+    acceptedSpawns: acceptedSpawns(state.entries),
+    feedbackCalls: nativeFeedbackCalls(state.entries, followUpPrompt),
+  };
+}
+function sessionObservation(
+  state: ParseState,
+  followUpPrompt: string | undefined,
+): NativeCallObservation {
+  return {
+    id: "sevro.codex.native-calls",
+    completeness:
+      state.malformed || state.entryCount === 0 ? "partial" : "complete",
+    data: {
+      method: "native_session",
+      calls: state.calls,
+      toolCalls: state.toolCalls,
+      submittedExecCalls: state.submittedExecCalls,
+      ...sessionReceipts(state, followUpPrompt),
+      childSessions: [],
+      childrenTruncated: false,
     },
   };
 }
 
 /** Bind a private final answer to the same turn's later native completion. */
-function childResultCompleted(
-  entries: Array<{ ordinal: number; payload: Record<string, unknown> }>,
-): boolean {
-  const finals = entries.filter(({ payload }) => {
-    const item = record(payload.item) ? payload.item : null;
-    return (
-      payload.type === "item_completed" &&
-      item?.type === "AgentMessage" &&
-      item.phase === "final_answer"
-    );
-  });
+
+function finalAgentMessage(payload: Record<string, unknown>): boolean {
+  const item = record(payload.item) ? payload.item : {};
+  return (
+    payload.type === "item_completed" &&
+    item.type === "AgentMessage" &&
+    item.phase === "final_answer"
+  );
+}
+function childResultCompleted(entries: NativeEntry[]): boolean {
+  const finals = entries.filter(({ payload }) => finalAgentMessage(payload));
   const completions = entries.filter(
     ({ payload }) => payload.type === "task_complete",
   );
-  if (
-    finals.length !== 1 ||
-    completions.length !== 1 ||
-    entries.some(
+  const boundaries = childResultBoundaries(finals, completions, entries);
+  return (
+    boundaries !== null &&
+    childFinalMatched(boundaries.final, boundaries.complete)
+  );
+}
+function childResultBoundaries(
+  finals: NativeEntry[],
+  completions: NativeEntry[],
+  entries: NativeEntry[],
+) {
+  if (!uniqueChildCompletion(finals, completions, entries)) return null;
+  const [final] = finals,
+    [complete] = completions;
+  return final && complete ? { final, complete } : null;
+}
+
+function uniqueChildCompletion(
+  finals: NativeEntry[],
+  completions: NativeEntry[],
+  entries: NativeEntry[],
+): boolean {
+  return (
+    finals.length === 1 &&
+    completions.length === 1 &&
+    !entries.some(
       ({ payload }) =>
         payload.type === "turn_aborted" || payload.type === "turn_failed",
     )
-  )
-    return false;
-  const final = finals[0]!;
-  const complete = completions[0]!;
-  const item = final.payload.item as Record<string, unknown>;
-  const content = item.content;
-  if (
-    !bounded(final.payload.turn_id, IDENTIFIER) ||
-    complete.payload.turn_id !== final.payload.turn_id ||
-    final.ordinal >= complete.ordinal ||
-    !Array.isArray(content) ||
-    content.length === 0 ||
-    !content.every(
-      (part) =>
-        record(part) && part.type === "Text" && typeof part.text === "string",
-    )
-  )
-    return false;
-  const message = content.map((part) => part.text as string).join("");
-  return (
-    message.trim().length > 0 && complete.payload.last_agent_message === message
   );
+}
+function childFinalMatched(final: NativeEntry, complete: NativeEntry): boolean {
+  if (!childCompletionOrdered(final, complete)) return false;
+  const item = record(final.payload.item) ? final.payload.item : {};
+  const message = childMessage(item.content);
+  return (
+    message !== null &&
+    message.trim().length > 0 &&
+    complete.payload.last_agent_message === message
+  );
+}
+function childCompletionOrdered(
+  final: NativeEntry,
+  complete: NativeEntry,
+): boolean {
+  return (
+    !!bounded(final.payload.turn_id, IDENTIFIER) &&
+    complete.payload.turn_id === final.payload.turn_id &&
+    final.ordinal < complete.ordinal
+  );
+}
+function childTextBlock(part: unknown): part is { type: "Text"; text: string } {
+  return record(part) && part.type === "Text" && typeof part.text === "string";
+}
+function childMessage(content: unknown): string | null {
+  if (
+    !isUnknownArray(content) ||
+    content.length === 0 ||
+    !content.every(childTextBlock)
+  )
+    return null;
+  return content.map((part) => part.text).join("");
 }
 
 function nestedRequestFields(payload: Record<string, unknown>) {
-  let args: unknown;
-  try {
-    args = JSON.parse(payload.arguments as string);
-  } catch {
-    return {};
-  }
-  if (!record(args)) return {};
-  return {
-    ...(bounded(args.task_name, /^[a-z0-9][a-z0-9_]{0,63}$/)
-      ? { taskName: args.task_name as string }
-      : {}),
-    ...(bounded(args.model, IDENTIFIER) ? { model: args.model as string } : {}),
-    ...(bounded(args.reasoning_effort, /^(?:low|medium|high|xhigh|max|ultra)$/)
-      ? { reasoningEffort: args.reasoning_effort as string }
-      : {}),
-    ...(bounded(args.fork_turns, /^(?:none|all|[1-9][0-9]*)$/)
-      ? { forkTurns: args.fork_turns as string }
-      : {}),
-  };
+  const args = parsedObject(payload.arguments);
+  return args ? requestFields(args) : {};
 }
 
 async function nestedSpawnReceipts(
@@ -555,31 +640,58 @@ async function nestedSpawnReceipts(
   );
   const accepted = acceptedSpawns(entries);
   const nestedSpawns: NestedSpawn[] = await Promise.all(
-    requests.slice(0, MAX_CHILD_SESSIONS).map(async ({ ordinal, payload }) => {
-      const receipt = accepted.find(
-        (spawn) => spawn.requestedOrdinal === ordinal,
-      );
-      const session: ChildSession | null = receipt
-        ? receipt.threadId === rootThread
-          ? { threadId: receipt.threadId, status: "partial" }
-          : await childSessionStatus(home, parentThread, receipt.threadId)
-        : null;
-      return {
-        requestedOrdinal: ordinal,
-        status: receipt ? ("accepted" as const) : ("unaccepted" as const),
-        ...nestedRequestFields(payload),
-        ...(receipt
-          ? { agentRef: receipt.agentRef, threadId: receipt.threadId }
-          : {}),
-        sessionStatus: session?.status ?? "unavailable",
-        readerResultStatus: session?.resultStatus ?? "unavailable",
-      };
-    }),
+    requests
+      .slice(0, MAX_CHILD_SESSIONS)
+      .map((request) =>
+        nestedSpawnReceipt(home, rootThread, parentThread, accepted, request),
+      ),
   );
   return {
     nestedSpawns,
     requestsTruncated: requests.length > MAX_CHILD_SESSIONS,
   };
+}
+
+async function nestedSpawnReceipt(
+  home: string,
+  rootThread: string,
+  parentThread: string,
+  accepted: AcceptedSpawn[],
+  { ordinal, payload }: NativeEntry,
+): Promise<NestedSpawn> {
+  const receipt = accepted.find((spawn) => spawn.requestedOrdinal === ordinal);
+  const session = await nestedReaderSession(
+    home,
+    rootThread,
+    parentThread,
+    receipt,
+  );
+  return {
+    requestedOrdinal: ordinal,
+    status: receipt ? "accepted" : "unaccepted",
+    ...nestedRequestFields(payload),
+    ...(receipt
+      ? { agentRef: receipt.agentRef, threadId: receipt.threadId }
+      : {}),
+    ...nestedReaderStatus(session),
+  };
+}
+function nestedReaderStatus(session: ChildSession | null) {
+  return {
+    sessionStatus: session?.status ?? "unavailable",
+    readerResultStatus: session?.resultStatus ?? "unavailable",
+  };
+}
+async function nestedReaderSession(
+  home: string,
+  rootThread: string,
+  parentThread: string,
+  receipt: AcceptedSpawn | undefined,
+): Promise<ChildSession | null> {
+  if (!receipt) return null;
+  if (receipt.threadId === rootThread)
+    return { threadId: receipt.threadId, status: "partial" };
+  return childSessionStatus(home, parentThread, receipt.threadId);
 }
 
 async function childSessionStatus(
@@ -593,38 +705,55 @@ async function childSessionStatus(
   const located = await sessionPath(home, threadId);
   if (located.status !== "found") return { threadId, status: located.status };
   try {
-    const size = (await stat(located.path)).size;
-    if (size > MAX_SESSION_BYTES) return { threadId, status: "partial" };
-    const bytes = await readFile(located.path);
-    if (bytes.byteLength > MAX_SESSION_BYTES)
-      return { threadId, status: "partial" };
-    const parsed = parseSession(
-      new TextDecoder("utf-8", { fatal: true }).decode(bytes),
-    );
-    if (parsed.observation.completeness !== "complete")
-      return { threadId, status: "partial" };
-    const readDiagnostics = skillContext
-      ? await codexNativeReadDiagnostic(
-          parsed.entries,
-          skillContext.workspace,
-          skillContext.installedPluginRoots,
-        )
-      : undefined;
-    const nested = rootThread
-      ? await nestedSpawnReceipts(home, rootThread, threadId, parsed.entries)
-      : undefined;
-    return {
+    const text = await readNativeSession(located.path);
+    if (text === null) return { threadId, status: "partial" };
+    return await availableChildSession(
+      home,
       threadId,
-      status: "available",
-      resultStatus: childResultCompleted(parsed.entries)
-        ? "completed"
-        : "unavailable",
-      ...(readDiagnostics ? { readDiagnostics } : {}),
-      ...nested,
-    };
+      text,
+      skillContext,
+      rootThread,
+    );
   } catch {
     return { threadId, status: "partial" };
   }
+}
+
+async function readDiagnostics(
+  entries: NativeEntry[],
+  context: NativeSkillContext | undefined,
+) {
+  return context
+    ? codexNativeReadDiagnostic(
+        entries,
+        context.workspace,
+        context.installedPluginRoots,
+      )
+    : undefined;
+}
+async function availableChildSession(
+  home: string,
+  threadId: string,
+  text: string,
+  context: NativeSkillContext | undefined,
+  rootThread: string | undefined,
+): Promise<ChildSession> {
+  const parsed = parseSession(text);
+  if (parsed.observation.completeness !== "complete")
+    return { threadId, status: "partial" };
+  const diagnostics = await readDiagnostics(parsed.entries, context);
+  const nested = rootThread
+    ? await nestedSpawnReceipts(home, rootThread, threadId, parsed.entries)
+    : undefined;
+  return {
+    threadId,
+    status: "available",
+    resultStatus: childResultCompleted(parsed.entries)
+      ? "completed"
+      : "unavailable",
+    ...(diagnostics ? { readDiagnostics: diagnostics } : {}),
+    ...nested,
+  };
 }
 
 /** Last validated native event before a follow-up prompt enters this thread. */
@@ -635,17 +764,17 @@ export async function codexNativeSessionLastOrdinal(
   const located = await sessionPath(home, threadId);
   if (located.status !== "found") return null;
   try {
-    if ((await stat(located.path)).size > MAX_SESSION_BYTES) return null;
-    const bytes = await readFile(located.path);
-    if (bytes.byteLength > MAX_SESSION_BYTES) return null;
-    const parsed = parseSession(
-      new TextDecoder("utf-8", { fatal: true }).decode(bytes),
-    );
-    if (parsed.observation.completeness !== "complete") return null;
-    return parsed.entries.at(-1)?.ordinal ?? null;
+    const text = await readNativeSession(located.path);
+    return text === null ? null : lastSessionOrdinal(text);
   } catch {
     return null;
   }
+}
+
+function lastSessionOrdinal(text: string): number | null {
+  const parsed = parseSession(text);
+  if (parsed.observation.completeness !== "complete") return null;
+  return parsed.entries.at(-1)?.ordinal ?? null;
 }
 
 /** Bind one private native session to the completed public thread. */
@@ -660,46 +789,50 @@ export async function codexNativeCallObservation(
       located.status === "ambiguous" ? "partial" : located.status,
     );
   try {
-    const size = (await stat(located.path)).size;
-    if (size > MAX_SESSION_BYTES) return unavailable("partial");
-    const bytes = await readFile(located.path);
-    if (bytes.byteLength > MAX_SESSION_BYTES) return unavailable("partial");
-    const { observation, entries } = parseSession(
-      new TextDecoder("utf-8", { fatal: true }).decode(bytes),
-      skillContext?.followUpPrompt,
+    return await nativeSessionObservation(
+      home,
+      threadId,
+      located.path,
+      skillContext,
     );
-    if (observation.completeness !== "complete") return observation;
-    const parentReadDiagnostics = skillContext
-      ? await codexNativeReadDiagnostic(
-          entries,
-          skillContext.workspace,
-          skillContext.installedPluginRoots,
-        )
-      : undefined;
-    const children = [
-      ...new Set(
-        observation.data.acceptedSpawns.map((spawn) => spawn.threadId),
-      ),
-    ];
-    const childSessions = await Promise.all(
-      children
-        .slice(0, MAX_CHILD_SESSIONS)
-        .map((child) =>
-          childSessionStatus(home, threadId, child, skillContext, threadId),
-        ),
-    );
-    return {
-      ...observation,
-      data: {
-        ...observation.data,
-        ...(parentReadDiagnostics ? { parentReadDiagnostics } : {}),
-        childSessions,
-        childrenTruncated: children.length > MAX_CHILD_SESSIONS,
-      },
-    };
   } catch {
     return unavailable("partial");
   }
+}
+
+async function nativeSessionObservation(
+  home: string,
+  threadId: string,
+  path: string,
+  skillContext: NativeSkillContext | undefined,
+): Promise<NativeCallObservation> {
+  const text = await readNativeSession(path);
+  if (text === null) return unavailable("partial");
+  const { observation, entries } = parseSession(
+    text,
+    skillContext?.followUpPrompt,
+  );
+  if (observation.completeness !== "complete") return observation;
+  const parentReadDiagnostics = await readDiagnostics(entries, skillContext);
+  const children = [
+    ...new Set(observation.data.acceptedSpawns.map((spawn) => spawn.threadId)),
+  ];
+  const childSessions = await Promise.all(
+    children
+      .slice(0, MAX_CHILD_SESSIONS)
+      .map((child) =>
+        childSessionStatus(home, threadId, child, skillContext, threadId),
+      ),
+  );
+  return {
+    ...observation,
+    data: {
+      ...observation.data,
+      ...(parentReadDiagnostics ? { parentReadDiagnostics } : {}),
+      childSessions,
+      childrenTruncated: children.length > MAX_CHILD_SESSIONS,
+    },
+  };
 }
 
 /** Actor-local recovery stays in host memory and never enters public observations. */
@@ -710,48 +843,70 @@ export async function codexNativeSkillReadRecovery(
   const found = await sessionPath(home, threadId);
   if (found.status !== "found") return new Map();
   try {
-    if ((await stat(found.path)).size > MAX_SESSION_BYTES) return new Map();
-    const text = await readFile(found.path, "utf8");
-    if (Buffer.byteLength(text) > MAX_SESSION_BYTES) return new Map();
+    const text = await readNativeSessionText(found.path);
+    if (text === null) return new Map();
     const parsed = parseSession(text);
     if (parsed.observation.completeness !== "complete") return new Map();
-    const output = nativeCommandOutputs(parsed.entries);
-    const recovered = new Map<string, { command: string; output: string }>();
-    const counts = new Map<string, number>();
-    for (const { payload } of parsed.entries) {
-      const item = record(payload.item) ? payload.item : null;
-      if (
-        payload.type === "item_completed" &&
-        item?.type === "CommandExecution" &&
-        typeof item.id === "string"
-      )
-        counts.set(item.id, (counts.get(item.id) ?? 0) + 1);
-    }
-    for (const { ordinal, payload } of parsed.entries) {
-      const item = record(payload.item) ? payload.item : null;
-      if (
-        payload.type !== "item_completed" ||
-        item?.type !== "CommandExecution" ||
-        typeof item.id !== "string" ||
-        counts.get(item.id) !== 1
-      )
-        continue;
-      const recoveredOutput = output.get(ordinal)?.output;
-      if (
-        recoveredOutput === undefined ||
-        !Array.isArray(item.command) ||
-        item.command.length !== 3 ||
-        !["-c", "-lc"].includes(String(item.command[1])) ||
-        typeof item.command[2] !== "string"
-      )
-        continue;
-      recovered.set(item.id, {
-        command: item.command[2],
-        output: recoveredOutput,
-      });
-    }
-    return recovered;
+    return recoveredSessionReads(parsed.entries);
   } catch {
     return new Map();
   }
+}
+
+function completedCommandItem(
+  payload: Record<string, unknown>,
+): Record<string, unknown> | null {
+  if (payload.type !== "item_completed") return null;
+  if (!record(payload.item) || payload.item.type !== "CommandExecution")
+    return null;
+  return payload.item;
+}
+function commandIdentityCounts(entries: NativeEntry[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const { payload } of entries) {
+    const item = completedCommandItem(payload);
+    if (typeof item?.id === "string")
+      counts.set(item.id, (counts.get(item.id) ?? 0) + 1);
+  }
+  return counts;
+}
+function uniqueRecoveryItem(
+  payload: Record<string, unknown>,
+  counts: Map<string, number>,
+) {
+  const item = completedCommandItem(payload);
+  if (!item || typeof item.id !== "string" || counts.get(item.id) !== 1)
+    return null;
+  return { id: item.id, command: item.command };
+}
+function recoveredLiteralCommand(command: unknown): string | null {
+  if (!isUnknownArray(command) || command.length !== 3) return null;
+  if (
+    !["-c", "-lc"].includes(String(command[1])) ||
+    typeof command[2] !== "string"
+  )
+    return null;
+  return command[2];
+}
+function recoveredSessionReads(
+  entries: NativeEntry[],
+): Map<string, { command: string; output: string }> {
+  const output = nativeCommandOutputs(entries);
+  const counts = commandIdentityCounts(entries);
+  const recovered = new Map<string, { command: string; output: string }>();
+  for (const { ordinal, payload } of entries) {
+    const item = uniqueRecoveryItem(payload, counts);
+    if (!item) continue;
+    const read = recoveredCommandRead(
+      item.command,
+      output.get(ordinal)?.output,
+    );
+    if (read) recovered.set(item.id, read);
+  }
+  return recovered;
+}
+function recoveredCommandRead(value: unknown, output: string | undefined) {
+  if (output === undefined) return null;
+  const command = recoveredLiteralCommand(value);
+  return command === null ? null : { command, output };
 }

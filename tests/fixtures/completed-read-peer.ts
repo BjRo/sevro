@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-if (process.argv[2] === "sandbox") process.exit(0);
-if (process.argv[2] !== "exec") process.exit(99);
+if (defined(process.argv[2]) === "sandbox") process.exit(0);
+if (defined(process.argv[2]) !== "exec") process.exit(99);
 await Bun.stdin.text();
 const path = join(process.cwd(), ".agents/skills/probe/SKILL.md");
 const body = await readFile(path, "utf8");
@@ -56,8 +56,8 @@ const entries = [
   },
 ];
 if (mode === "literal") {
-  const result = entries.pop()!;
-  const completion = entries.pop()!;
+  const result = defined(entries.pop());
+  const completion = defined(entries.pop());
   entries.push({ ...result, ordinal: 2 }, { ...completion, ordinal: 3 });
 }
 if (mode === "native") {
@@ -71,9 +71,11 @@ if (mode === "native") {
     },
   });
 }
-await mkdir(join(process.env.CODEX_HOME!, "sessions"), { recursive: true });
+await mkdir(join(defined(process.env.CODEX_HOME), "sessions"), {
+  recursive: true,
+});
 await writeFile(
-  join(process.env.CODEX_HOME!, "sessions/rollout-root.jsonl"),
+  join(defined(process.env.CODEX_HOME), "sessions/rollout-root.jsonl"),
   entries.map((row) => JSON.stringify(row)).join("\n"),
 );
 console.log(JSON.stringify({ type: "thread.started", thread_id: "root" }));
@@ -102,3 +104,8 @@ console.log(
     usage: { input_tokens: 1, output_tokens: 1 },
   }),
 );
+function defined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined)
+    throw new Error("Missing peer fixture value");
+  return value;
+}

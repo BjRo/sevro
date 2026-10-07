@@ -1,21 +1,25 @@
-import { afterEach, expect, test } from "bun:test";
+import { expectUnknown } from "./fixtures/assertions";
+import {
+  defined,
+  parseCliResult,
+  parseReport,
+  parseRunEvidence,
+} from "./fixtures/assertions";
+import { afterEach, test, expect } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createReport, renderReport } from "../src/report";
 import { assertReport } from "../src/schema";
-
 const roots: string[] = [];
 const repository = resolve(import.meta.dir, "..");
 const cli = join(repository, "src/cli.ts");
 const host = join(repository, "examples/basic/host.ts");
-
 afterEach(async () => {
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
 });
-
 async function command(argv: string[]) {
   const proc = Bun.spawn(argv, { stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, code] = await Promise.all([
@@ -25,7 +29,6 @@ async function command(argv: string[]) {
   ]);
   return { stdout, stderr, code };
 }
-
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "sevro-report-"));
   roots.push(root);
@@ -63,19 +66,22 @@ async function fixture() {
   }
   return { root, paths };
 }
-
 test("report keeps measured task outcomes separate from dry and prompt-only runs", async () => {
   const { paths } = await fixture();
   const report = await createReport(paths);
   assertReport(report);
-  expect(report.summary).toEqual({
+  expectUnknown(report.summary).toEqual({
     cases: 3,
     passed: 1,
     failed: 0,
     notAssessed: 2,
   });
-  expect(report.rows.map((row) => row.taskPassRate)).toEqual([1, null, null]);
-  expect(report.rows[0]).toMatchObject({
+  expectUnknown(report.rows.map((row) => row.taskPassRate)).toEqual([
+    1,
+    null,
+    null,
+  ]);
+  expect(defined(report.rows[0])).toMatchObject({
     caseId: "basic-graded",
     execution: "completed",
     grading: "completed",
@@ -87,13 +93,14 @@ test("report keeps measured task outcomes separate from dry and prompt-only runs
       effort: "none",
     },
   });
-  expect(report.rows[0]!.candidateDurationMs).toBeGreaterThanOrEqual(0);
-  expect(report.rows[0]!.inputTokens).toBeNull();
-  expect(report.rows[0]!.costUsd).toBeNull();
-  expect(report.rows[2]!.candidateDurationMs).toBeNull();
+  expect(
+    defined(defined(report.rows[0])).candidateDurationMs,
+  ).toBeGreaterThanOrEqual(0);
+  expect(defined(defined(report.rows[0])).inputTokens).toBeNull();
+  expect(defined(defined(report.rows[0])).costUsd).toBeNull();
+  expect(defined(defined(report.rows[2])).candidateDurationMs).toBeNull();
   expect(renderReport(report)).toContain("unknown");
 });
-
 test("public report command emits versioned JSON and readable rows", async () => {
   const { paths } = await fixture();
   const json = await command([
@@ -104,7 +111,7 @@ test("public report command emits versioned JSON and readable rows", async () =>
     ...paths.flatMap((path) => ["--result-file", path]),
   ]);
   expect(json.code, json.stderr).toBe(0);
-  const parsed = JSON.parse(json.stdout);
+  const parsed = parseReport(json.stdout);
   assertReport(parsed);
   expect(parsed.rows).toHaveLength(3);
   const human = await command([
@@ -112,28 +119,31 @@ test("public report command emits versioned JSON and readable rows", async () =>
     cli,
     "report",
     "--result-file",
-    paths[0]!,
+    defined(defined(paths[0])),
   ]);
   expect(human.code, human.stderr).toBe(0);
   expect(human.stdout).toContain(
     "| basic-graded | passed | completed | completed |",
   );
 });
-
 test("report rejects inconsistent evidence and keeps historical duration unknown", async () => {
   const { paths } = await fixture();
-  const result = JSON.parse(await readFile(paths[0]!, "utf8"));
-  const evidence = JSON.parse(await readFile(result.evidencePath, "utf8"));
-  delete evidence.trials[0].candidateDurationMs;
-  await writeFile(result.evidencePath, JSON.stringify(evidence));
+  const result = parseCliResult(
+    await readFile(defined(defined(paths[0])), "utf8"),
+  );
+  const evidence = parseRunEvidence(
+    await readFile(defined(result.evidencePath), "utf8"),
+  );
+  delete defined(evidence.trials[0]).candidateDurationMs;
+  await writeFile(defined(result.evidencePath), JSON.stringify(evidence));
   expect(
-    (await createReport([paths[0]!])).rows[0]!.candidateDurationMs,
+    defined(defined((await createReport([defined(defined(paths[0]))])).rows[0]))
+      .candidateDurationMs,
   ).toBeNull();
   result.task.verdict = "failed";
-  await writeFile(paths[0]!, JSON.stringify(result));
-  expect(createReport([paths[0]!])).rejects.toThrow();
+  await writeFile(defined(defined(paths[0])), JSON.stringify(result));
+  expect(createReport([defined(defined(paths[0]))])).rejects.toThrow();
 });
-
 test("report keeps a pre-run invocation failure visible without a case row", async () => {
   const root = await mkdtemp(join(tmpdir(), "sevro-report-error-"));
   roots.push(root);
@@ -143,7 +153,7 @@ test("report keeps a pre-run invocation failure visible without a case row", asy
   await writeFile(path, failed.stdout);
   const report = await createReport([path]);
   expect(report.rows).toHaveLength(0);
-  expect(report.inputs[0]).toMatchObject({
+  expect(defined(report.inputs[0])).toMatchObject({
     exitCode: 64,
     execution: "not_run",
     grading: "not_requested",

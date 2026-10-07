@@ -1,3 +1,4 @@
+import { isRecord } from "./value-guards";
 import { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
 import {
@@ -27,6 +28,60 @@ interface Claim {
   artifactPath: string;
   startedAt: string;
   finalizedAt?: string;
+}
+
+interface RetainedClaim {
+  format: "sevro.run-owner.v1";
+  evaluationDigest: unknown;
+  attemptId: unknown;
+  status: Claim["status"];
+  owner?: unknown;
+  activeRunPath: string;
+  evidenceDirectory: string;
+  artifactPath: string;
+  startedAt?: unknown;
+  finalizedAt?: unknown;
+}
+
+function errorCode(error: unknown): unknown {
+  return isRecord(error) ? error.code : undefined;
+}
+function nonemptyText(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0;
+}
+
+function validClaimStatus(value: unknown): value is Claim["status"] {
+  return (
+    value === "active" ||
+    value === "complete" ||
+    value === "diagnostic" ||
+    value === "interrupted"
+  );
+}
+
+function validClaimIdentity(value: Record<string, unknown>): boolean {
+  return (
+    value.format === "sevro.run-owner.v1" &&
+    /^[a-f0-9]{64}$/.test(String(value.evaluationDigest)) &&
+    Boolean(value.attemptId) &&
+    validClaimStatus(value.status)
+  );
+}
+
+function validClaimPaths(value: Record<string, unknown>): boolean {
+  return (
+    nonemptyText(value.activeRunPath) &&
+    nonemptyText(value.evidenceDirectory) &&
+    nonemptyText(value.artifactPath)
+  );
+}
+
+function assertRetainedClaim(
+  value: unknown,
+  path: string,
+): asserts value is RetainedClaim {
+  if (!isRecord(value) || !validClaimIdentity(value) || !validClaimPaths(value))
+    throw new Error(`unrecognized Sevro ownership record: ${path}`);
 }
 
 export interface RunOwner {
@@ -62,41 +117,29 @@ function withClaimLock<T>(claimPath: string, action: () => T): T {
   mkdirSync(locks, { recursive: true, mode: 0o700 });
   const database = new Database(join(locks, `${basename(claimPath)}.sqlite`));
   try {
-    database.exec("PRAGMA busy_timeout = 5000");
-    database.exec("CREATE TABLE IF NOT EXISTS mutex (id INTEGER PRIMARY KEY)");
+    database.run("PRAGMA busy_timeout = 5000");
+    database.run("CREATE TABLE IF NOT EXISTS mutex (id INTEGER PRIMARY KEY)");
     return database.transaction(action).immediate();
   } finally {
     database.close();
   }
 }
 
-function readClaim(path: string): Claim | null {
+function readClaim(path: string): RetainedClaim | null {
   let bytes: string;
   try {
     bytes = readFileSync(path, "utf8");
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    if (errorCode(error) === "ENOENT") return null;
     throw error;
   }
-  const value = JSON.parse(bytes) as Claim;
-  if (
-    value?.format !== "sevro.run-owner.v1" ||
-    !/^[a-f0-9]{64}$/.test(value.evaluationDigest) ||
-    !value.attemptId ||
-    !["active", "complete", "diagnostic", "interrupted"].includes(
-      value.status,
-    ) ||
-    !value.activeRunPath ||
-    !value.evidenceDirectory ||
-    !value.artifactPath
-  )
-    throw new Error(`unrecognized Sevro ownership record: ${path}`);
+  const value: unknown = JSON.parse(bytes);
+  assertRetainedClaim(value, path);
   return value;
 }
 
-function processIdentity(pid: number): ProcessIdentity | null {
-  const windows = process.platform === "win32";
-  const argv = windows
+function identityCommand(pid: number, windows: boolean): string[] {
+  return windows
     ? [
         "powershell.exe",
         "-NoProfile",
@@ -105,49 +148,79 @@ function processIdentity(pid: number): ProcessIdentity | null {
         `(Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToUniversalTime().Ticks`,
       ]
     : ["/bin/ps", "-p", String(pid), "-o", "lstart="];
+}
+
+function identityEnvironment(windows: boolean) {
+  return windows
+    ? {
+        PATH: process.env.PATH ?? "",
+        SystemRoot: process.env.SystemRoot ?? "C:\\Windows",
+      }
+    : { PATH: "/usr/bin:/bin", LC_ALL: "C" };
+}
+
+function processStartTime(result: ReturnType<typeof Bun.spawnSync>): string {
+  return result.stdout?.toString().trim() ?? "";
+}
+
+function processIdentity(pid: number): ProcessIdentity | null {
+  const windows = process.platform === "win32";
+  const argv = identityCommand(pid, windows);
   let result: ReturnType<typeof Bun.spawnSync>;
   try {
     result = Bun.spawnSync(argv, {
-      env: windows
-        ? {
-            PATH: process.env.PATH ?? "",
-            SystemRoot: process.env.SystemRoot ?? "C:\\Windows",
-          }
-        : { PATH: "/usr/bin:/bin", LC_ALL: "C" },
+      env: identityEnvironment(windows),
       stdout: "pipe",
       stderr: "ignore",
     });
   } catch {
     return null;
   }
-  const startedAt = result.stdout?.toString().trim() ?? "";
+  const startedAt = processStartTime(result);
   return result.exitCode === 0 && startedAt
     ? { pid, startedAt, host: hostname() }
     : null;
 }
 
-function ownerStatus(owner: ProcessIdentity): "live" | "dead" | "unknown" {
-  if (
-    !owner ||
-    owner.host !== hostname() ||
-    !Number.isSafeInteger(owner.pid) ||
-    owner.pid <= 0 ||
-    !owner.startedAt
-  )
-    return "unknown";
+function validProcessId(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+}
+
+function validProcessIdentity(value: unknown): value is ProcessIdentity {
+  return (
+    isRecord(value) &&
+    value.host === hostname() &&
+    validProcessId(value.pid) &&
+    nonemptyText(value.startedAt)
+  );
+}
+
+function processLiveness(pid: number): "live" | "dead" | "unknown" {
   try {
-    process.kill(owner.pid, 0);
+    process.kill(pid, 0);
+    return "live";
   } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "ESRCH"
-      ? "dead"
-      : "unknown";
+    return errorCode(error) === "ESRCH" ? "dead" : "unknown";
   }
+}
+
+function ownerStatus(owner: unknown): "live" | "dead" | "unknown" {
+  if (!validProcessIdentity(owner)) return "unknown";
+  const liveness = processLiveness(owner.pid);
+  if (liveness !== "live") return liveness;
   const current = processIdentity(owner.pid);
   if (!current) return "unknown";
   return current.startedAt === owner.startedAt ? "live" : "dead";
 }
 
-function preserveAbandoned(claim: Claim): void {
+function activeRunFields(value: unknown): Record<string, unknown> {
+  if (value == null) return {};
+  // Preserve the existing object-spread representation of opaque active records.
+  const entries: [string, unknown][] = Object.entries(value);
+  return Object.fromEntries(entries);
+}
+
+function preserveAbandoned(claim: RetainedClaim): void {
   const interrupted = {
     ...claim,
     status: "interrupted" as const,
@@ -156,9 +229,12 @@ function preserveAbandoned(claim: Claim): void {
   atomicJson(join(claim.evidenceDirectory, "run-owner.json"), interrupted);
   let active: Record<string, unknown>;
   try {
-    active = JSON.parse(readFileSync(claim.activeRunPath, "utf8"));
+    const parsed: unknown = JSON.parse(
+      readFileSync(claim.activeRunPath, "utf8"),
+    );
+    active = activeRunFields(parsed);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    if (errorCode(error) !== "ENOENT") throw error;
     active = {
       format: "sevro.active-run.v1",
       runId: claim.attemptId,
@@ -172,6 +248,37 @@ function preserveAbandoned(claim: Claim): void {
     status: "interrupted",
     finalizedAt: interrupted.finalizedAt,
   });
+}
+
+function validateClaimIdentityMatch(
+  prior: RetainedClaim | null,
+  evaluationDigest: string,
+): void {
+  if (prior && prior.evaluationDigest !== evaluationDigest)
+    throw new Error("Sevro ownership record has a different identity");
+}
+
+function retainPreviousOwner(
+  prior: RetainedClaim | null,
+  claimPath: string,
+): void {
+  if (prior === null || prior.status !== "active") return;
+  const status = ownerStatus(prior.owner);
+  if (status === "live")
+    throw new Error(`equivalent Sevro run is active: ${claimPath}`);
+  if (status === "unknown")
+    throw new Error(`Sevro run ownership is unverifiable: ${claimPath}`);
+  preserveAbandoned(prior);
+}
+
+function validateCheckpointOwner(context: RunOwner): void {
+  const current = readClaim(context.claimPath);
+  if (!current || current.attemptId !== context.claim.attemptId)
+    throw new Error("Sevro run ownership changed before checkpoint");
+  if (current.status !== "active")
+    throw new Error("Sevro run owner is already finalized");
+  if (ownerStatus(current.owner) !== "live")
+    throw new Error("Sevro run owner identity is no longer verifiable");
 }
 
 /** Claim one evaluation identity before candidate execution. */
@@ -193,16 +300,8 @@ export function startRunOwner(options: {
   );
   return withClaimLock(claimPath, () => {
     const prior = readClaim(claimPath);
-    if (prior && prior.evaluationDigest !== options.evaluationDigest)
-      throw new Error("Sevro ownership record has a different identity");
-    if (prior?.status === "active") {
-      const status = ownerStatus(prior.owner);
-      if (status === "live")
-        throw new Error(`equivalent Sevro run is active: ${claimPath}`);
-      if (status === "unknown")
-        throw new Error(`Sevro run ownership is unverifiable: ${claimPath}`);
-      preserveAbandoned(prior);
-    }
+    validateClaimIdentityMatch(prior, options.evaluationDigest);
+    retainPreviousOwner(prior, claimPath);
     const owner = processIdentity(process.pid);
     if (!owner) throw new Error("cannot verify Sevro runner process identity");
     const claim: Claim = {
@@ -234,15 +333,7 @@ export function checkpointRunOwner(
   alreadyLocked = false,
 ): void {
   const write = () => {
-    if (!alreadyLocked) {
-      const current = readClaim(context.claimPath);
-      if (!current || current.attemptId !== context.claim.attemptId)
-        throw new Error("Sevro run ownership changed before checkpoint");
-      if (current.status !== "active")
-        throw new Error("Sevro run owner is already finalized");
-      if (ownerStatus(current.owner) !== "live")
-        throw new Error("Sevro run owner identity is no longer verifiable");
-    }
+    if (!alreadyLocked) validateCheckpointOwner(context);
     const finalizedAt =
       status === "active" ? undefined : new Date().toISOString();
     const updatedClaim = {

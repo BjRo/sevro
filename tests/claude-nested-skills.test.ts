@@ -1,10 +1,10 @@
-import { expect, test } from "bun:test";
+import { expectUnknown } from "./fixtures/assertions";
+import { test, expect } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { realpath } from "node:fs/promises";
 import { claudeNestedSkillsObservation } from "../src/hosts/claude-nested-skills";
-
 const sessionId = "session-1";
 const entry = (agentId: string | null, type: string, content: object[]) => ({
   sessionId,
@@ -24,7 +24,7 @@ const result = (toolUseId: string, agentId: string) => ({
 });
 const jsonl = (rows: object[]) =>
   rows.map((row) => JSON.stringify(row)).join("\n");
-
+// eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("Claude nested Skill receipts follow only completed bound Agent sessions", async () => {
   const root = await mkdtemp(join(tmpdir(), "sevro-claude-nested-"));
   try {
@@ -81,7 +81,7 @@ test("Claude nested Skill receipts follow only completed bound Agent sessions", 
       config,
       workspace,
     );
-    expect(observed).toEqual({
+    expectUnknown(observed).toEqual({
       id: "sevro.claude.nested-skills",
       completeness: "complete",
       data: {

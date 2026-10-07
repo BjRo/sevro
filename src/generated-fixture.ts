@@ -33,98 +33,185 @@ function validPath(path: string): void {
     throw new Error("generated fixture cannot write repository metadata");
 }
 
-/** Freeze a bounded declarative history before any host or fixture work. */
-export function prepareGeneratedFixture(value: unknown): GeneratedFixture {
+interface FixtureContents {
+  bytes: number;
+  files: number;
+  paths: string[];
+}
+
+function fixtureRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("invalid generated fixture");
-  const fixture = value as Record<string, unknown>;
+  return value as Record<string, unknown>;
+}
+
+function fixtureKeys(fixture: Record<string, unknown>): void {
+  const keys = [
+    "kind",
+    "commits",
+    "files",
+    "staged",
+    "commitFiles",
+    "hooks",
+    "bin",
+  ];
   if (
     fixture.kind !== "generated" ||
-    Object.keys(fixture).some(
-      (key) =>
-        ![
-          "kind",
-          "commits",
-          "files",
-          "staged",
-          "commitFiles",
-          "hooks",
-          "bin",
-        ].includes(key),
-    ) ||
-    !Array.isArray(fixture.commits) ||
-    fixture.commits.length > MAX_COMMITS ||
-    (fixture.files !== undefined && !validFiles(fixture.files)) ||
-    (fixture.staged !== undefined &&
-      (!Array.isArray(fixture.staged) ||
-        !fixture.staged.every((item: unknown) => typeof item === "string"))) ||
-    (fixture.commitFiles !== undefined &&
-      typeof fixture.commitFiles !== "boolean")
+    Object.keys(fixture).some((key) => !keys.includes(key))
   )
     throw new Error("invalid generated fixture");
-  prepareGitHooks(fixture.hooks);
-  prepareFixtureBin(fixture.bin);
-  let bytes = 0;
-  let files = 0;
-  const paths: string[] = [];
-  for (const commit of fixture.commits) {
-    if (
-      !commit ||
-      typeof commit !== "object" ||
-      Array.isArray(commit) ||
-      Object.keys(commit).some((key) => key !== "message" && key !== "files") ||
-      typeof commit.message !== "string" ||
-      !commit.message.trim() ||
-      Buffer.byteLength(commit.message, "utf8") > 4096 ||
-      !validFiles(commit.files) ||
-      Object.keys(commit.files).length === 0
-    )
-      throw new Error("invalid generated fixture commit");
-    bytes += Buffer.byteLength(commit.message, "utf8");
-    for (const [path, content] of Object.entries(
-      commit.files as Record<string, string>,
-    )) {
-      validPath(path);
-      paths.push(path);
-      files++;
-      bytes +=
-        Buffer.byteLength(path, "utf8") + Buffer.byteLength(content, "utf8");
-    }
-  }
-  const overlay = (fixture.files ?? {}) as Record<string, string>;
-  for (const [path, content] of Object.entries(overlay)) {
+}
+
+function stringArray(value: unknown): value is string[] {
+  return (
+    Array.isArray(value) &&
+    value.every((item: unknown) => typeof item === "string")
+  );
+}
+
+function fixtureOptionalFields(fixture: Record<string, unknown>): void {
+  if (fixture.files !== undefined && !validFiles(fixture.files))
+    throw new Error("invalid generated fixture");
+  validateStagedField(fixture.staged);
+  if (
+    fixture.commitFiles !== undefined &&
+    typeof fixture.commitFiles !== "boolean"
+  )
+    throw new Error("invalid generated fixture");
+}
+
+function validateStagedField(value: unknown): void {
+  if (value !== undefined && !stringArray(value))
+    throw new Error("invalid generated fixture");
+}
+
+function fixtureCommits(value: unknown): unknown[] {
+  if (!Array.isArray(value) || value.length > MAX_COMMITS)
+    throw new Error("invalid generated fixture");
+  return value;
+}
+
+function commitMessage(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    Boolean(value.trim()) &&
+    Buffer.byteLength(value, "utf8") <= 4096
+  );
+}
+
+function commitRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error("invalid generated fixture commit");
+  return value as Record<string, unknown>;
+}
+
+function prepareCommit(value: unknown): GeneratedFixture["commits"][number] {
+  const commit = commitRecord(value);
+  if (
+    Object.keys(commit).some((key) => key !== "message" && key !== "files") ||
+    !commitMessage(commit.message)
+  )
+    throw new Error("invalid generated fixture commit");
+  if (!validFiles(commit.files) || Object.keys(commit.files).length === 0)
+    throw new Error("invalid generated fixture commit");
+  return { message: commit.message, files: commit.files };
+}
+
+function countFiles(
+  contents: FixtureContents,
+  files: Record<string, string>,
+): void {
+  for (const [path, content] of Object.entries(files)) {
     validPath(path);
-    paths.push(path);
-    files++;
-    bytes +=
+    contents.paths.push(path);
+    contents.files++;
+    contents.bytes +=
       Buffer.byteLength(path, "utf8") + Buffer.byteLength(content, "utf8");
   }
-  bytes += ((fixture.staged ?? []) as string[]).reduce(
-    (size, path) => size + Buffer.byteLength(path, "utf8"),
-    0,
-  );
-  if (files > MAX_FILES || bytes > MAX_BYTES)
+}
+
+function validateContents(contents: FixtureContents): void {
+  if (contents.files > MAX_FILES || contents.bytes > MAX_BYTES)
     throw new Error("generated fixture exceeds the size limit");
-  const unique = [...new Set(paths)];
-  const normalized = unique.map((path) => path.toLowerCase());
-  for (let index = 0; index < normalized.length; index++) {
-    for (let other = 0; other < index; other++) {
-      if (
-        normalized[index] === normalized[other] ||
-        normalized[index]!.startsWith(`${normalized[other]}/`) ||
-        normalized[other]!.startsWith(`${normalized[index]}/`)
-      )
-        throw new Error("generated fixture paths collide");
-    }
+  const normalized = [...new Set(contents.paths)].map((path) =>
+    path.toLowerCase(),
+  );
+  for (const [index, path] of normalized.entries()) {
+    if (normalized.slice(0, index).some((other) => pathsCollide(path, other)))
+      throw new Error("generated fixture paths collide");
   }
-  const staged = (fixture.staged ?? []) as string[];
+}
+
+function pathsCollide(path: string, other: string): boolean {
+  return (
+    path === other ||
+    path.startsWith(`${other}/`) ||
+    other.startsWith(`${path}/`)
+  );
+}
+
+function validateStaging(
+  staged: string[],
+  overlay: Record<string, string>,
+  commitFiles: unknown,
+): void {
   if (
     new Set(staged.map((path) => path.toLowerCase())).size !== staged.length ||
     staged.some((path) => !Object.hasOwn(overlay, path)) ||
-    (fixture.commitFiles === true && Object.keys(overlay).length === 0)
+    emptyOverlayCommit(commitFiles, overlay)
   )
     throw new Error("invalid generated fixture staging");
+}
+
+function emptyOverlayCommit(
+  commitFiles: unknown,
+  overlay: Record<string, string>,
+): boolean {
+  return commitFiles === true && Object.keys(overlay).length === 0;
+}
+
+/** Freeze a bounded declarative history before any host or fixture work. */
+export function prepareGeneratedFixture(value: unknown): GeneratedFixture {
+  const fixture = fixtureRecord(value);
+  fixtureKeys(fixture);
+  const commits = fixtureCommits(fixture.commits);
+  fixtureOptionalFields(fixture);
+  prepareGitHooks(fixture.hooks);
+  prepareFixtureBin(fixture.bin);
+  const contents: FixtureContents = { bytes: 0, files: 0, paths: [] };
+  for (const value of commits) {
+    const commit = prepareCommit(value);
+    contents.bytes += Buffer.byteLength(commit.message, "utf8");
+    countFiles(contents, commit.files);
+  }
+  // The optional fields were checked above; preserve absent fields in the frozen declaration.
+  const overlay = validFiles(fixture.files) ? fixture.files : {};
+  const staged = stringArray(fixture.staged) ? fixture.staged : [];
+  countFiles(contents, overlay);
+  contents.bytes += staged.reduce(
+    (size, path) => size + Buffer.byteLength(path, "utf8"),
+    0,
+  );
+  validateContents(contents);
+  validateStaging(staged, overlay, fixture.commitFiles);
   return JSON.parse(canonicalJson(fixture)) as GeneratedFixture;
+}
+
+function gitEnvironment() {
+  const nullDevice = process.platform === "win32" ? "NUL" : "/dev/null";
+  return {
+    PATH: process.env.PATH ?? "/usr/bin:/bin",
+    ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: nullDevice,
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_AUTHOR_NAME: "Sevro Fixture",
+    GIT_AUTHOR_EMAIL: "fixture@sevro.invalid",
+    GIT_COMMITTER_NAME: "Sevro Fixture",
+    GIT_COMMITTER_EMAIL: "fixture@sevro.invalid",
+    GIT_AUTHOR_DATE: "2000-01-01T00:00:00+00:00",
+    GIT_COMMITTER_DATE: "2000-01-01T00:00:00+00:00",
+  };
 }
 
 async function git(workspace: string, args: string[]): Promise<void> {
@@ -147,21 +234,7 @@ async function git(workspace: string, args: string[]): Promise<void> {
       cwd: workspace,
       stdout: "pipe",
       stderr: "pipe",
-      env: {
-        PATH: process.env.PATH ?? "/usr/bin:/bin",
-        ...(process.env.SystemRoot
-          ? { SystemRoot: process.env.SystemRoot }
-          : {}),
-        GIT_CONFIG_NOSYSTEM: "1",
-        GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null",
-        GIT_TERMINAL_PROMPT: "0",
-        GIT_AUTHOR_NAME: "Sevro Fixture",
-        GIT_AUTHOR_EMAIL: "fixture@sevro.invalid",
-        GIT_COMMITTER_NAME: "Sevro Fixture",
-        GIT_COMMITTER_EMAIL: "fixture@sevro.invalid",
-        GIT_AUTHOR_DATE: "2000-01-01T00:00:00+00:00",
-        GIT_COMMITTER_DATE: "2000-01-01T00:00:00+00:00",
-      },
+      env: gitEnvironment(),
     },
   );
   try {
@@ -171,14 +244,14 @@ async function git(workspace: string, args: string[]): Promise<void> {
       proc.exited,
     ]);
     if (code !== 0) throw new Error();
-  } catch {
+  } catch (cause) {
     try {
       proc.kill("SIGKILL");
     } catch {
       // The process may have exited before the failure was observed.
     }
     await proc.exited;
-    throw new Error("generated fixture Git operation failed");
+    throw new Error("generated fixture Git operation failed", { cause });
   }
 }
 
@@ -204,6 +277,13 @@ export async function materializeGeneratedFixture(
     await git(workspace, ["add", "--", ...Object.keys(commit.files)]);
     await git(workspace, ["commit", "--quiet", "-m", commit.message]);
   }
+  await applyGeneratedOverlay(fixture, workspace);
+}
+
+async function applyGeneratedOverlay(
+  fixture: GeneratedFixture,
+  workspace: string,
+): Promise<void> {
   const overlay = fixture.files ?? {};
   await writeFiles(workspace, overlay);
   if (fixture.commitFiles) {

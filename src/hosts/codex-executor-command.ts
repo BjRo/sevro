@@ -5,7 +5,7 @@ const require = createRequire(import.meta.url);
 let parser: typeof ts | undefined;
 
 function typescript(): typeof ts {
-  return (parser ??= require("typescript"));
+  return (parser ??= require("typescript") as typeof ts);
 }
 
 export interface LiteralExecutorCommand {
@@ -39,14 +39,31 @@ function literalOptions(
     "tty",
   ]);
   for (const property of node.properties) {
-    if (!ts.isPropertyAssignment(property)) return undefined;
-    const name = propertyName(property.name);
-    const value = primitive(property.initializer);
-    if (!name || !allowed.has(name) || values.has(name) || value === undefined)
+    const option = literalOption(property);
+    if (!option || !validOptionName(option.name, allowed, values))
       return undefined;
-    values.set(name, value);
+    values.set(option.name, option.value);
   }
   return values;
+}
+
+function literalOption(
+  property: ts.ObjectLiteralElementLike,
+): { name: string; value: string | number | boolean } | undefined {
+  const ts = typescript();
+  if (!ts.isPropertyAssignment(property)) return undefined;
+  const name = propertyName(property.name);
+  const value = primitive(property.initializer);
+  if (!name || value === undefined) return undefined;
+  return { name, value };
+}
+
+function validOptionName(
+  name: string,
+  allowed: Set<string>,
+  values: Map<string, unknown>,
+): boolean {
+  return allowed.has(name) && !values.has(name);
 }
 
 function propertyName(name: ts.PropertyName): string | undefined {
@@ -65,18 +82,36 @@ function commandOptions(
 ): LiteralExecutorCommand | undefined {
   const values = literalOptions(node);
   if (!values) return undefined;
-  const command = values.get("cmd");
-  const cwd = values.get("workdir");
-  const shell = values.get("shell");
+  return resolvedCommandOptions(
+    values.get("cmd"),
+    values.get("workdir"),
+    values.get("shell"),
+  );
+}
+
+function nonemptyCommand(command: unknown): command is string {
+  return typeof command === "string" && command.length > 0;
+}
+
+function resolvedCommandOptions(
+  command: unknown,
+  cwd: unknown,
+  shell: unknown,
+): LiteralExecutorCommand | undefined {
   if (
-    typeof command !== "string" ||
-    !command ||
+    !nonemptyCommand(command) ||
     !optionalString(cwd) ||
     !optionalString(shell)
   )
     return undefined;
+  return { command, ...optionalCommandLocations(cwd, shell) };
+}
+
+function optionalCommandLocations(
+  cwd: string | undefined,
+  shell: string | undefined,
+) {
   return {
-    command,
     ...(cwd === undefined ? {} : { cwd }),
     ...(shell === undefined ? {} : { shell }),
   };
@@ -88,6 +123,17 @@ function commandDeclaration(statement: ts.Statement):
       command: LiteralExecutorCommand;
     }
   | undefined {
+  const declaration = singleConstDeclaration(statement);
+  if (!declaration) return undefined;
+  const name = literalVariableName(declaration.name);
+  if (name === undefined || !declaration.initializer) return undefined;
+  const command = awaitedCommand(declaration.initializer);
+  return command ? { name, command } : undefined;
+}
+
+function singleConstDeclaration(
+  statement: ts.Statement,
+): ts.VariableDeclaration | undefined {
   const ts = typescript();
   if (
     !ts.isVariableStatement(statement) ||
@@ -95,15 +141,37 @@ function commandDeclaration(statement: ts.Statement):
     statement.declarationList.declarations.length !== 1
   )
     return undefined;
-  const declaration = statement.declarationList.declarations[0]!;
+  return statement.declarationList.declarations[0];
+}
+
+function literalVariableName(name: ts.BindingName): string | undefined {
+  const ts = typescript();
+  if (!ts.isIdentifier(name) || ["tools", "text", "store"].includes(name.text))
+    return undefined;
+  return name.text;
+}
+
+function commandAccess(expression: ts.Expression): boolean {
+  const ts = typescript();
+  return (
+    ts.isPropertyAccessExpression(expression) &&
+    ts.isIdentifier(expression.expression) &&
+    expression.expression.text === "tools" &&
+    expression.name.text === "exec_command"
+  );
+}
+
+function executorCall(
+  expression: ts.Expression,
+): ts.CallExpression | undefined {
+  const ts = typescript();
   if (
-    !ts.isIdentifier(declaration.name) ||
-    ["tools", "text", "store"].includes(declaration.name.text) ||
-    !declaration.initializer
+    !ts.isCallExpression(expression) ||
+    expression.arguments.length !== 1 ||
+    !commandAccess(expression.expression)
   )
     return undefined;
-  const command = awaitedCommand(declaration.initializer);
-  return command ? { name: declaration.name.text, command } : undefined;
+  return expression;
 }
 
 function awaitedCommand(
@@ -111,17 +179,10 @@ function awaitedCommand(
 ): LiteralExecutorCommand | undefined {
   const ts = typescript();
   if (!ts.isAwaitExpression(expression)) return undefined;
-  const call = expression.expression;
-  if (
-    !ts.isCallExpression(call) ||
-    call.arguments.length !== 1 ||
-    !ts.isPropertyAccessExpression(call.expression) ||
-    !ts.isIdentifier(call.expression.expression) ||
-    call.expression.expression.text !== "tools" ||
-    call.expression.name.text !== "exec_command"
-  )
-    return undefined;
-  return commandOptions(call.arguments[0]!);
+  const call = executorCall(expression.expression);
+  if (!call) return undefined;
+  const [argument] = call.arguments;
+  return argument ? commandOptions(argument) : undefined;
 }
 
 function resultProperty(
@@ -156,22 +217,49 @@ function directOutput(
   call: ts.CallExpression,
   name: string,
 ): string | undefined {
-  const ts = typescript();
   const operation = (call.expression as ts.Identifier).text;
-  if (
-    operation === "text" &&
-    call.arguments.length === 1 &&
-    resultProperty(call.arguments[0]!, name, "output")
-  )
-    return "text";
-  if (
-    operation === "store" &&
-    call.arguments.length === 2 &&
-    ts.isStringLiteralLike(call.arguments[0]!) &&
-    resultProperty(call.arguments[1]!, name, "session_id")
-  )
-    return "store";
+  if (operation === "text" && textOutput(call, name)) return "text";
+  if (operation === "store" && storeOutput(call, name)) return "store";
   return undefined;
+}
+
+function textOutput(call: ts.CallExpression, name: string): boolean {
+  const [argument] = call.arguments;
+  return (
+    call.arguments.length === 1 &&
+    argument !== undefined &&
+    resultProperty(argument, name, "output")
+  );
+}
+
+function storeOutput(call: ts.CallExpression, name: string): boolean {
+  const ts = typescript();
+  const [key, value] = call.arguments;
+  if (call.arguments.length !== 2 || key === undefined || value === undefined)
+    return false;
+  return (
+    ts.isStringLiteralLike(key) && resultProperty(value, name, "session_id")
+  );
+}
+
+function validExecutorSource(source: ts.SourceFile): boolean {
+  const diagnostics = (
+    source as ts.SourceFile & { parseDiagnostics?: readonly ts.Diagnostic[] }
+  ).parseDiagnostics;
+  return (
+    diagnostics !== undefined &&
+    diagnostics.length === 0 &&
+    source.statements.length >= 2 &&
+    source.statements.length <= 3
+  );
+}
+
+function validExecutorOutputs(outputs: (string | undefined)[]): boolean {
+  return (
+    !outputs.some((output) => output === undefined) &&
+    outputs.filter((output) => output === "text").length === 1 &&
+    outputs.filter((output) => output === "store").length <= 1
+  );
 }
 
 /** Recognize only one unconditional awaited command whose output is returned directly. */
@@ -187,26 +275,17 @@ export function literalExecutorCommand(
     false,
     ts.ScriptKind.JS,
   );
-  const diagnostics = (
-    source as ts.SourceFile & { parseDiagnostics?: readonly ts.Diagnostic[] }
-  ).parseDiagnostics;
-  if (
-    !diagnostics ||
-    diagnostics.length ||
-    source.statements.length < 2 ||
-    source.statements.length > 3
-  )
-    return undefined;
-  const declaration = commandDeclaration(source.statements[0]!);
+  if (!validExecutorSource(source)) return undefined;
+  const declaration = leadingCommandDeclaration(source);
   if (!declaration) return undefined;
   const outputs = source.statements
     .slice(1)
     .map((statement) => outputStatement(statement, declaration.name));
-  if (
-    outputs.some((output) => output === undefined) ||
-    outputs.filter((output) => output === "text").length !== 1 ||
-    outputs.filter((output) => output === "store").length > 1
-  )
-    return undefined;
+  if (!validExecutorOutputs(outputs)) return undefined;
   return declaration.command;
+}
+
+function leadingCommandDeclaration(source: ts.SourceFile) {
+  const [statement] = source.statements;
+  return statement ? commandDeclaration(statement) : undefined;
 }

@@ -1,4 +1,5 @@
-import { afterEach, expect, test } from "bun:test";
+import { parseRunEvidence } from "./fixtures/assertions";
+import { afterEach, test, expect } from "bun:test";
 import {
   mkdir,
   mkdtemp,
@@ -12,16 +13,13 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { runEvaluation, type HostAdapter } from "../src/engine";
 import { prepareRepositoryFixture } from "../src/repository-fixture";
-
 const roots: string[] = [];
 const digest = "a".repeat(64);
-
 afterEach(async () => {
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
 });
-
 async function git(root: string, ...args: string[]) {
   const proc = Bun.spawn(["git", "-C", root, ...args], {
     stdout: "pipe",
@@ -35,7 +33,7 @@ async function git(root: string, ...args: string[]) {
   if (code !== 0) throw new Error(error);
   return output.trim();
 }
-
+// eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("repository fixtures clone a declared clean commit without remotes", async () => {
   const projectRoot = await mkdtemp(join(tmpdir(), "sevro-repository-test-"));
   roots.push(projectRoot);
@@ -101,12 +99,11 @@ test("repository fixtures clone a declared clean commit without remotes", async 
   const first = await runEvaluation(options);
   expect(first.result.exitCode).toBe(0);
   expect(workspaces).toHaveLength(2);
-  const firstEvidence = JSON.parse(
+  const firstEvidence = parseRunEvidence(
     await readFile(first.result.evidencePath, "utf8"),
   );
-
   await writeFile(join(repository, "extra.txt"), "new commit\n");
-  await expect(runEvaluation(options)).rejects.toThrow(/uncommitted changes/);
+  expect(runEvaluation(options)).rejects.toThrow(/uncommitted changes/);
   await git(repository, "add", "extra.txt");
   await git(
     repository,
@@ -119,16 +116,15 @@ test("repository fixtures clone a declared clean commit without remotes", async 
     "Extend fixture",
   );
   const second = await runEvaluation(options);
-  const secondEvidence = JSON.parse(
+  const secondEvidence = parseRunEvidence(
     await readFile(second.result.evidencePath, "utf8"),
   );
   expect(firstEvidence.evaluationIdentity.dimensions.fixtureDigest).not.toBe(
     secondEvidence.evaluationIdentity.dimensions.fixtureDigest,
   );
-
   const outside = await mkdtemp(join(tmpdir(), "sevro-outside-source-"));
   roots.push(outside);
-  await expect(
+  expect(
     runEvaluation({
       ...options,
       preparationSources: {
@@ -138,7 +134,7 @@ test("repository fixtures clone a declared clean commit without remotes", async 
     }),
   ).rejects.toThrow(/escapes its declared root/);
 });
-
+// eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("repository overlays preserve source, index state, and metadata boundaries", async () => {
   const projectRoot = await mkdtemp(join(tmpdir(), "sevro-overlay-test-"));
   roots.push(projectRoot);
@@ -216,7 +212,6 @@ test("repository overlays preserve source, index state, and metadata boundaries"
     "source\n",
   );
   expect(await git(repository, "status", "--porcelain=v1")).toBe("");
-
   const committed = await runEvaluation({
     ...options,
     case: {
@@ -252,7 +247,7 @@ test("repository overlays preserve source, index state, and metadata boundaries"
       files: { ".git/config": "unsafe" },
     }),
   ).toThrow(/repository metadata/);
-  await expect(
+  expect(
     runEvaluation({
       ...options,
       case: {

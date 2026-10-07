@@ -1,4 +1,5 @@
-import { expect, test } from "bun:test";
+import { expectUnknown } from "./fixtures/assertions";
+import { test, expect } from "bun:test";
 import {
   mkdir,
   mkdtemp,
@@ -15,7 +16,6 @@ import {
   verifyClaudeRepositoryInvocation,
 } from "../src/hosts/claude-repository-invocation";
 import { claudeToolCallsObservation } from "../src/hosts/claude-tool-calls";
-
 const invocation = {
   skillName: "probe",
   skillDir: "/fixture/.claude/skills/probe",
@@ -47,7 +47,6 @@ const assistant = {
 };
 const transcript = (items: unknown[]) =>
   items.map((item) => JSON.stringify(item)).join("\n");
-
 test("Claude repository dispatch binds exact arguments, session, body, and order", () => {
   const receipt = (items: unknown[]) =>
     matchClaudeRepositoryInvocation({
@@ -115,7 +114,7 @@ test("Claude repository dispatch binds exact arguments, session, body, and order
     }).accepted,
   ).toBeNull();
 });
-
+// eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("Claude repository observation refuses unavailable, duplicate, or redirected evidence", async () => {
   const root = await realpath(
     await mkdtemp(join(tmpdir(), "sevro-claude-project-")),
@@ -180,7 +179,7 @@ test("Claude repository observation refuses unavailable, duplicate, or redirecte
     );
     const accepted = await observe();
     expect(accepted.completeness).toBe("complete");
-    expect(accepted.data.observedSkills).toEqual(["probe"]);
+    expectUnknown(accepted.data.observedSkills).toEqual(["probe"]);
     expect(JSON.stringify(accepted)).not.toContain("Return ready");
     expect(
       (
@@ -203,7 +202,7 @@ test("Claude repository observation refuses unavailable, duplicate, or redirecte
     const skill = join(workspace, ".claude/skills/probe/SKILL.md");
     await rm(skill);
     await symlink(target, skill);
-    await expect(
+    expect(
       verifyClaudeRepositoryInvocation({
         prompt: invocation.prompt,
         workspace,

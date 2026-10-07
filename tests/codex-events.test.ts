@@ -56,8 +56,14 @@ test("exit failure, turn failure, and missing usage cannot become complete evide
 test("the last completed agent message is the final response", () => {
   const events = [
     start,
-    JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: "first" } }),
-    JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: "last" } }),
+    JSON.stringify({
+      type: "item.completed",
+      item: { type: "agent_message", text: "first" },
+    }),
+    JSON.stringify({
+      type: "item.completed",
+      item: { type: "agent_message", text: "last" },
+    }),
     completed,
   ].join("\n");
   expect(summarizeCodexEvents(events, 0).finalMessage).toBe("last");

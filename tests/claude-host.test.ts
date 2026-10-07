@@ -1,4 +1,6 @@
-import { afterEach, expect, test } from "bun:test";
+import { expectUnknown } from "./fixtures/assertions";
+import { defined, parseRunEvidence } from "./fixtures/assertions";
+import { afterEach, test, expect } from "bun:test";
 import {
   chmod,
   mkdir,
@@ -13,14 +15,13 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runEvaluation } from "../src/engine";
 import { createClaudeHost } from "../src/hosts/claude";
-
 const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
 });
-
+// eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("failed Claude execution retains private evidence without grading", async () => {
   if (process.platform !== "darwin") return;
   const root = await mkdtemp(join(tmpdir(), "sevro-claude-failure-"));
@@ -81,28 +82,30 @@ test("failed Claude execution retains private evidence without grading", async (
     task: { verdict: "not_assessed" },
     exitCode: 2,
   });
-  expect(outcome.result.cases[0]?.trials).toHaveLength(1);
+  expect(defined(outcome.result.cases[0]).trials).toHaveLength(1);
   expect(JSON.stringify(outcome.result)).not.toContain(
     "private host diagnosis",
   );
-  const evidence = JSON.parse(
-    await readFile(outcome.result.evidencePath!, "utf8"),
+  const evidence = parseRunEvidence(
+    await readFile(outcome.result.evidencePath, "utf8"),
   );
-  expect(outcome.result.cases[0]?.trials[0]?.checks).toEqual([]);
+  expectUnknown(
+    defined(defined(outcome.result.cases[0]).trials[0]).checks,
+  ).toEqual([]);
   for (const [id, contents] of [
     ["sevro.claude.events", `${event}\n`],
     ["sevro.claude.stderr", "private host diagnosis\n"],
-  ]) {
-    const artifact = evidence.trials[0].artifactRefs.find(
+  ] as const) {
+    const artifact = defined(evidence.trials[0]).artifactRefs.find(
       (item: { id: string }) => item.id === id,
     );
     expect(artifact).toBeDefined();
-    const path = fileURLToPath(artifact.path);
+    const path = fileURLToPath(defined(artifact).path);
     expect(await readFile(path, "utf8")).toBe(contents);
     expect((await stat(path)).mode & 0o777).toBe(0o600);
   }
 });
-
+// eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("Claude host runs with native sandbox settings and declared plugins", async () => {
   if (process.platform !== "darwin") return;
   const root = await mkdtemp(join(tmpdir(), "sevro-claude-host-"));
@@ -190,7 +193,7 @@ test("Claude host runs with native sandbox settings and declared plugins", async
   expect(result.finalMessage).toBe("ready");
   expect(result.complete).toBe(true);
   expect(host.hostCapabilities).toContain("sevro.host.native-controls");
-  expect(result.observations).toContainEqual({
+  expectUnknown(result.observations).toContainEqual({
     id: "sevro.host.native-controls",
     completeness: "complete",
     data: {
@@ -213,7 +216,7 @@ test("Claude host runs with native sandbox settings and declared plugins", async
   expect(argv).not.toContain("--allowedTools");
   expect(argv).toContain("--tools\nBash,Read,Edit,Skill,Agent\n");
 });
-
+// eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("Claude host observes a bound native repository command without a plugin", async () => {
   if (process.platform !== "darwin") return;
   const root = await mkdtemp(join(tmpdir(), "sevro-claude-repository-host-"));
@@ -276,7 +279,7 @@ for (const entry of [{ type: "system", subtype: "init", session_id: "session-one
   };
   const completed = await host.run(request);
   expect(completed.finalMessage).toBe("ready");
-  expect(completed.observations).toContainEqual({
+  expectUnknown(completed.observations).toContainEqual({
     id: "sevro.claude.repository-invocation",
     completeness: "complete",
     data: {
@@ -295,9 +298,9 @@ for (const entry of [{ type: "system", subtype: "init", session_id: "session-one
       (observation) => observation.id === "sevro.claude.repository-invocation",
     ),
   ).toMatchObject({ completeness: "partial", data: { accepted: false } });
-  await expect(
-    host.run({ ...request, prompt: "/probe /probe" }),
-  ).rejects.toThrow(/invalid Claude repository skill invocation/);
+  expect(host.run({ ...request, prompt: "/probe /probe" })).rejects.toThrow(
+    /invalid Claude repository skill invocation/,
+  );
   const disabled = createClaudeHost({
     binary,
     model: "synthetic",
@@ -310,11 +313,10 @@ for (const entry of [{ type: "system", subtype: "init", session_id: "session-one
   expect(disabled.hostCapabilities).not.toContain(
     "sevro.claude.repository-invocation",
   );
-  await expect(disabled.run(request)).rejects.toThrow(
+  expect(disabled.run(request)).rejects.toThrow(
     /requires project setting sources/,
   );
 });
-
 test("Claude host refuses undeclared and escaping plugin packages", async () => {
   if (process.platform !== "darwin") return;
   const root = await mkdtemp(join(tmpdir(), "sevro-claude-host-invalid-"));
@@ -329,7 +331,7 @@ test("Claude host refuses undeclared and escaping plugin packages", async () => 
     resultsRoot: root,
     additionalProtectedRoots: [],
   });
-  await expect(
+  expect(
     host.run({
       prompt: "ready",
       workspace,

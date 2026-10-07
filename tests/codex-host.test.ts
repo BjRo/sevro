@@ -1,4 +1,10 @@
-import { afterEach, expect, test } from "bun:test";
+import { expectUnknown } from "./fixtures/assertions";
+import {
+  defined,
+  objectContaining,
+  parseRunEvidence,
+} from "./fixtures/assertions";
+import { afterEach, test, expect } from "bun:test";
 import {
   chmod,
   mkdir,
@@ -12,7 +18,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runEvaluation } from "../src/engine";
 import { createCodexHost } from "../src/hosts/codex";
-
 const roots: string[] = [];
 const digest = "a".repeat(64);
 afterEach(async () => {
@@ -20,44 +25,29 @@ afterEach(async () => {
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
 });
-
-async function fixture() {
-  const projectRoot = await mkdtemp(join(tmpdir(), "sevro-codex-project-"));
-  const fixtureRoot = await mkdtemp(join(tmpdir(), "sevro-codex-fixture-"));
-  roots.push(projectRoot, fixtureRoot);
-  const resultsRoot = join(projectRoot, "results");
-  const authFile = join(projectRoot, "auth.json");
-  const fakeBinary = join(fixtureRoot, "fake-codex");
-  await mkdir(resultsRoot);
-  await writeFile(authFile, "test-only-auth\n", { mode: 0o600 });
-  const installedCodex = Bun.which("codex");
-  const quotedCodex = installedCodex
-    ? `'${installedCodex.replaceAll("'", `'"'"'`)}'`
-    : "/bin/false";
-  const nativeFeedbackEntry = JSON.stringify({
-    ordinal: 1,
-    payload: {
-      type: "function_call",
-      namespace: "collaboration",
-      name: "followup_task",
-      call_id: "feedback-1",
-      arguments: JSON.stringify({
-        target: "owner",
-        message: "Continue in this thread.",
-      }),
-    },
-  });
-  const nativeFeedbackResponse = JSON.stringify({
-    ordinal: 2,
-    payload: {
-      type: "function_call_output",
-      call_id: "feedback-1",
-      output: "response",
-    },
-  });
-  await writeFile(
-    fakeBinary,
-    `#!/bin/sh
+const nativeFeedbackEntry = JSON.stringify({
+  ordinal: 1,
+  payload: {
+    type: "function_call",
+    namespace: "collaboration",
+    name: "followup_task",
+    call_id: "feedback-1",
+    arguments: JSON.stringify({
+      target: "owner",
+      message: "Continue in this thread.",
+    }),
+  },
+});
+const nativeFeedbackResponse = JSON.stringify({
+  ordinal: 2,
+  payload: {
+    type: "function_call_output",
+    call_id: "feedback-1",
+    output: "response",
+  },
+});
+function codexFixtureScript(quotedCodex: string) {
+  return `#!/bin/sh
 if [ "$1" = plugin ]; then exec ${quotedCodex} "$@"; fi
 if [ "$1" != exec ]; then exit 99; fi
 shift
@@ -114,13 +104,25 @@ if [ -f "$workspace/require-plugin.flag" ] && [ ! -f "$workspace/skip-skill-read
 fi
 printf '%s\\n' '{"type":"item.completed","item":{"type":"agent_message","text":"ready"}}'
 printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":12,"output_tokens":4}}'
-`,
-    { mode: 0o700 },
-  );
+`;
+}
+async function fixture() {
+  const projectRoot = await mkdtemp(join(tmpdir(), "sevro-codex-project-"));
+  const fixtureRoot = await mkdtemp(join(tmpdir(), "sevro-codex-fixture-"));
+  roots.push(projectRoot, fixtureRoot);
+  const resultsRoot = join(projectRoot, "results");
+  const authFile = join(projectRoot, "auth.json");
+  const fakeBinary = join(fixtureRoot, "fake-codex");
+  await mkdir(resultsRoot);
+  await writeFile(authFile, "test-only-auth\n", { mode: 0o600 });
+  const installedCodex = Bun.which("codex");
+  const quotedCodex = installedCodex
+    ? `'${installedCodex.replaceAll("'", `'"'"'`)}'`
+    : "/bin/false";
+  await writeFile(fakeBinary, codexFixtureScript(quotedCodex), { mode: 0o700 });
   await chmod(fakeBinary, 0o700);
   return { projectRoot, resultsRoot, authFile, fakeBinary };
 }
-
 test("Codex host binds bounded native calls to its completed thread", async () => {
   const installedCodex = Bun.which("codex");
   if (process.platform !== "darwin" || !installedCodex) return;
@@ -144,7 +146,7 @@ test("Codex host binds bounded native calls to its completed thread", async () =
     condition: "passive",
   });
   expect(host.hostCapabilities).toContain("sevro.host.native-controls");
-  expect(result.observations).toContainEqual({
+  expectUnknown(result.observations).toContainEqual({
     id: "sevro.host.native-controls",
     completeness: "complete",
     data: {
@@ -155,7 +157,7 @@ test("Codex host binds bounded native calls to its completed thread", async () =
       truncated: false,
     },
   });
-  expect(result.observations).toContainEqual({
+  expectUnknown(result.observations).toContainEqual({
     id: "sevro.codex.native-calls",
     completeness: "complete",
     data: {
@@ -189,7 +191,7 @@ test("Codex host binds bounded native calls to its completed thread", async () =
     "private objective",
   );
 });
-
+// eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("Codex host resumes a second prompt in the initial thread", async () => {
   const installedCodex = Bun.which("codex");
   if (process.platform !== "darwin" || !installedCodex) return;
@@ -230,11 +232,11 @@ test("Codex host resumes a second prompt in the initial thread", async () => {
   expect(result.inputTokens).toBe(17);
   expect(result.outputTokens).toBe(6);
   expect(result.usageComplete).toBe(true);
-  expect(result.artifacts?.map((artifact) => artifact.id)).toEqual([
+  expectUnknown(result.artifacts?.map((artifact) => artifact.id)).toEqual([
     "sevro.codex.events",
     "sevro.codex.follow-up-events",
   ]);
-  expect(result.observations).toContainEqual({
+  expectUnknown(result.observations).toContainEqual({
     id: "sevro.codex.continuation",
     completeness: "complete",
     data: {
@@ -244,7 +246,7 @@ test("Codex host resumes a second prompt in the initial thread", async () => {
       preFollowUpWorktreeUnchanged: false,
     },
   });
-  expect(result.observations).toContainEqual({
+  expectUnknown(result.observations).toContainEqual({
     id: "sevro.codex.initial-skill-reads",
     completeness: "complete",
     data: {
@@ -253,11 +255,11 @@ test("Codex host resumes a second prompt in the initial thread", async () => {
       observedSkills: [],
     },
   });
-  expect(result.observations).toContainEqual(
-    expect.objectContaining({
+  expectUnknown(result.observations).toContainEqual(
+    objectContaining({
       id: "sevro.codex.native-calls",
       completeness: "complete",
-      data: expect.objectContaining({
+      data: objectContaining({
         feedbackCalls: [
           {
             ordinal: 1,
@@ -271,7 +273,7 @@ test("Codex host resumes a second prompt in the initial thread", async () => {
       }),
     }),
   );
-  expect(result.observations).toContainEqual({
+  expectUnknown(result.observations).toContainEqual({
     id: "sevro.codex.follow-up-skill-reads",
     completeness: "complete",
     data: {
@@ -281,7 +283,6 @@ test("Codex host resumes a second prompt in the initial thread", async () => {
     },
   });
 });
-
 test("Codex continuation ignores Git-private fixture state at the boundary", async () => {
   const installedCodex = Bun.which("codex");
   if (process.platform !== "darwin" || !installedCodex) return;
@@ -306,7 +307,7 @@ test("Codex continuation ignores Git-private fixture state at the boundary", asy
     workspace,
     condition: "passive",
   });
-  expect(result.observations).toContainEqual({
+  expectUnknown(result.observations).toContainEqual({
     id: "sevro.codex.continuation",
     completeness: "complete",
     data: {
@@ -317,7 +318,6 @@ test("Codex continuation ignores Git-private fixture state at the boundary", asy
     },
   });
 });
-
 test("Codex host refuses a continuation from another thread", async () => {
   const installedCodex = Bun.which("codex");
   if (process.platform !== "darwin" || !installedCodex) return;
@@ -335,7 +335,7 @@ test("Codex host refuses a continuation from another thread", async () => {
     resultsRoot: paths.resultsRoot,
     additionalProtectedRoots: [],
   });
-  await expect(
+  expect(
     host.run({
       prompt: "Initial instruction.",
       followUpPrompt: "Continue.",
@@ -344,7 +344,7 @@ test("Codex host refuses a continuation from another thread", async () => {
     }),
   ).rejects.toThrow(/original thread/);
 });
-
+// eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("Codex host installs a declared local plugin in its isolated home", async () => {
   const installedCodex = Bun.which("codex");
   if (process.platform !== "darwin" || !installedCodex) return;
@@ -419,7 +419,7 @@ test("Codex host installs a declared local plugin in its isolated home", async (
   });
   await writeFile(join(workspace, "follow-up-skill-read.flag"), "\n");
   const resumed = await host.run({ ...request, followUpPrompt: "Continue." });
-  expect(resumed.observations).toContainEqual({
+  expectUnknown(resumed.observations).toContainEqual({
     id: "sevro.codex.initial-skill-reads",
     completeness: "complete",
     data: {
@@ -428,7 +428,7 @@ test("Codex host installs a declared local plugin in its isolated home", async (
       observedSkills: ["probe"],
     },
   });
-  expect(resumed.observations).toContainEqual({
+  expectUnknown(resumed.observations).toContainEqual({
     id: "sevro.codex.follow-up-skill-reads",
     completeness: "complete",
     data: {
@@ -451,7 +451,7 @@ test("Codex host installs a declared local plugin in its isolated home", async (
     },
   };
   const dispatched = await host.run(explicit);
-  expect(dispatched.observations).toContainEqual({
+  expectUnknown(dispatched.observations).toContainEqual({
     id: "sevro.codex.explicit-invocation",
     completeness: "complete",
     data: {
@@ -464,11 +464,11 @@ test("Codex host installs a declared local plugin in its isolated home", async (
     id: "sevro.codex.skill-reads",
     data: { primarySkill: null, observedSkills: [] },
   });
-  await expect(
+  expect(
     host.run({ ...explicit, prompt: "Use $probe:probe twice: $probe:probe." }),
   ).rejects.toThrow(/invalid Codex explicit skill invocation/);
   await writeFile(join(packageRoot, "unlisted.txt"), "extra\n");
-  await expect(host.run(request)).rejects.toThrow(/undeclared files/);
+  expect(host.run(request)).rejects.toThrow(/undeclared files/);
   await rm(join(packageRoot, "unlisted.txt"));
   await writeFile(
     join(packageRoot, ".claude-plugin", "marketplace.json"),
@@ -484,9 +484,8 @@ test("Codex host installs a declared local plugin in its isolated home", async (
       ],
     }),
   );
-  await expect(host.run(request)).rejects.toThrow(/declared local source/);
+  expect(host.run(request)).rejects.toThrow(/declared local source/);
 });
-
 test("Codex host dispatches a verified repository skill without a plugin", async () => {
   const installedCodex = Bun.which("codex");
   if (process.platform !== "darwin" || !installedCodex) return;
@@ -526,7 +525,7 @@ test("Codex host dispatches a verified repository skill without a plugin", async
   expect(await readFile(join(workspace, "prompt.txt"), "utf8")).toBe(
     request.prompt,
   );
-  expect(result.observations).toContainEqual({
+  expectUnknown(result.observations).toContainEqual({
     id: "sevro.codex.explicit-invocation",
     completeness: "complete",
     data: {
@@ -535,10 +534,10 @@ test("Codex host dispatches a verified repository skill without a plugin", async
       observedSkills: ["probe"],
     },
   });
-  await expect(
+  expect(
     host.run({ ...request, followUpPrompt: "Use $probe again." }),
   ).rejects.toThrow(/invalid Codex explicit skill invocation/);
-  await expect(
+  expect(
     host.run({
       ...request,
       explicitSkillInvocation: {
@@ -549,19 +548,18 @@ test("Codex host dispatches a verified repository skill without a plugin", async
     }),
   ).rejects.toThrow(/invalid Codex explicit skill invocation/);
   await rm(skillFile);
-  await expect(host.run(request)).rejects.toThrow(/unavailable or unsafe/);
+  expect(host.run(request)).rejects.toThrow(/unavailable or unsafe/);
   const linkedFile = join(workspace, "linked-skill.md");
   await writeFile(linkedFile, "---\nname: probe\n---\n");
   await symlink(linkedFile, skillFile);
-  await expect(host.run(request)).rejects.toThrow(/unavailable or unsafe/);
+  expect(host.run(request)).rejects.toThrow(/unavailable or unsafe/);
   await rm(skillRoot, { recursive: true });
   const linkedRoot = join(workspace, "linked-skill");
   await mkdir(linkedRoot);
   await writeFile(join(linkedRoot, "SKILL.md"), "---\nname: probe\n---\n");
   await symlink(linkedRoot, skillRoot);
-  await expect(host.run(request)).rejects.toThrow(/unavailable or unsafe/);
+  expect(host.run(request)).rejects.toThrow(/unavailable or unsafe/);
 });
-
 test("Codex host verifies its permission profile and feeds the engine", async () => {
   const installedCodex = Bun.which("codex");
   if (process.platform !== "darwin" || !installedCodex) return;
@@ -606,27 +604,27 @@ test("Codex host verifies its permission profile and feeds the engine", async ()
     passThreshold: 1,
   });
   expect(outcome.result.exitCode).toBe(0);
-  const raw = outcome.result.cases[0]?.trials[0];
-  expect(raw?.checks.map((check) => check.status)).toEqual([
+  const raw = defined(defined(outcome.result.cases[0]).trials[0]);
+  expectUnknown(raw.checks.map((check) => check.status)).toEqual([
     "passed",
     "passed",
   ]);
-  const evidence = JSON.parse(
+  const evidence = parseRunEvidence(
     await readFile(outcome.result.evidencePath, "utf8"),
   );
-  expect(evidence.trials[0].usage).toEqual({
+  expectUnknown(defined(evidence.trials[0]).usage).toEqual({
     inputTokens: 12,
     outputTokens: 4,
     costUsd: null,
     complete: true,
   });
-  expect(evidence.trials[0].condition.actual).toBe("passive");
-  expect(evidence.trials[0].routes[0]).toMatchObject({
+  expect(defined(evidence.trials[0]).condition.actual).toBe("passive");
+  expect(defined(defined(evidence.trials[0]).routes[0])).toMatchObject({
     host: "sevro.host.codex",
     model: "synthetic-codex",
     effort: "low",
   });
-  expect(evidence.trials[0].observations).toContainEqual({
+  expectUnknown(defined(evidence.trials[0]).observations).toContainEqual({
     id: "sevro.codex.skill-reads",
     source: "sevro.host.codex",
     completeness: "complete",
@@ -636,13 +634,12 @@ test("Codex host verifies its permission profile and feeds the engine", async ()
       observedSkills: [],
     },
   });
-  const [events] = evidence.trials[0].artifactRefs;
-  expect(events.id).toBe("sevro.codex.events");
-  expect(await readFile(new URL(events.path), "utf8")).toContain(
+  const [events] = defined(evidence.trials[0]).artifactRefs;
+  expect(defined(events).id).toBe("sevro.codex.events");
+  expect(await readFile(new URL(defined(events).path), "utf8")).toContain(
     '"type":"turn.completed"',
   );
 });
-
 test("Codex fixture tools survive login-shell PATH setup", async () => {
   const installedCodex = Bun.which("codex");
   if (process.platform !== "darwin" || !installedCodex) return;
@@ -692,7 +689,6 @@ test("Codex fixture tools survive login-shell PATH setup", async () => {
   });
   expect(outcome.result.task.verdict).toBe("passed");
 });
-
 test("Codex host rejects malformed streams and unsupported enforcement", async () => {
   const installedCodex = Bun.which("codex");
   if (process.platform !== "darwin" || !installedCodex) return;
@@ -710,7 +706,7 @@ test("Codex host rejects malformed streams and unsupported enforcement", async (
     additionalProtectedRoots: [],
   });
   await writeFile(join(workspace, "malformed.flag"), "");
-  await expect(
+  expect(
     host.run({ prompt: "ready", workspace, condition: "passive" }),
   ).rejects.toThrow(/invalid JSONL/);
   expect(await readFile(join(workspace, "prompt.txt"), "utf8")).toBe("ready");
@@ -718,11 +714,10 @@ test("Codex host rejects malformed streams and unsupported enforcement", async (
   expect(argv).toContain("--strict-config");
   expect(argv).toContain("default_permissions=");
   expect(argv).not.toContain("--dangerously-bypass-approvals-and-sandbox");
-  await expect(
+  expect(
     host.run({ prompt: "ready", workspace, condition: "enforced" }),
   ).rejects.toThrow(/enforcement instrumentation/);
 });
-
 test("Codex host terminates a timed out turn", async () => {
   const installedCodex = Bun.which("codex");
   if (process.platform !== "darwin" || !installedCodex) return;
@@ -741,11 +736,10 @@ test("Codex host terminates a timed out turn", async () => {
     additionalProtectedRoots: [],
     timeoutMs: 50,
   });
-  await expect(
+  expect(
     host.run({ prompt: "ready", workspace, condition: "passive" }),
   ).rejects.toThrow(/timed out/);
 });
-
 test("Codex host kills its process group when cancelled", async () => {
   const installedCodex = Bun.which("codex");
   if (process.platform !== "darwin" || !installedCodex) return;
@@ -780,10 +774,9 @@ test("Codex host kills its process group when cancelled", async () => {
   }
   const pid = Number(await readFile(pidPath, "utf8"));
   controller.abort();
-  await expect(running).rejects.toThrow(/cancelled/);
+  expect(running).rejects.toThrow(/cancelled/);
   expect(() => process.kill(pid, 0)).toThrow();
 });
-
 test("Codex host refuses an executable inside a protected project", async () => {
   const installedCodex = Bun.which("codex");
   if (process.platform !== "darwin" || !installedCodex) return;
@@ -802,7 +795,7 @@ test("Codex host refuses an executable inside a protected project", async () => 
     resultsRoot: paths.resultsRoot,
     additionalProtectedRoots: [],
   });
-  await expect(
+  expect(
     host.run({ prompt: "ready", workspace, condition: "passive" }),
   ).rejects.toThrow(/executable resides inside a protected root/);
 });

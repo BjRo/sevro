@@ -1,3 +1,4 @@
+import { isRecord, isUnknownArray } from "./value-guards";
 import { canonicalJson } from "./identity";
 
 export interface InstrumentationRequest {
@@ -19,15 +20,64 @@ export class InstrumentationEvidenceError extends Error {
 
 const ID = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$/;
 
-function validRequest(value: InstrumentationRequest): boolean {
+function validInstrumentationId(value: unknown): value is string {
+  return typeof value === "string" && ID.test(value);
+}
+
+function validRequest(value: unknown): value is InstrumentationRequest {
   return (
-    Boolean(value && ID.test(value.id)) &&
-    Boolean(
-      value.configuration &&
-      typeof value.configuration === "object" &&
-      !Array.isArray(value.configuration),
-    )
+    isRecord(value) &&
+    validInstrumentationId(value.id) &&
+    isRecord(value.configuration)
   );
+}
+
+function validateSupportedInstrumentation(
+  supported: InstrumentationCapability[],
+): void {
+  const ids = new Set(supported.map((item) => item.id));
+  if (
+    supported.some(
+      (item) =>
+        !ID.test(item.id) || typeof item.executionChanging !== "boolean",
+    ) ||
+    ids.size !== supported.length
+  )
+    throw new Error("host instrumentation capabilities are invalid");
+}
+
+function validateRequestedInstrumentation(
+  requested: InstrumentationRequest[],
+): void {
+  const ids = new Set(requested.map((item) => item.id));
+  if (
+    requested.some((item) => !validRequest(item)) ||
+    ids.size !== requested.length
+  )
+    throw new Error("requested instrumentation is invalid or duplicated");
+}
+
+function requestedCapability(
+  item: InstrumentationRequest,
+  supported: InstrumentationCapability[],
+  negotiated: string[],
+): InstrumentationCapability {
+  const capability = supported.find((entry) => entry.id === item.id);
+  if (!capability || !negotiated.includes(item.id))
+    throw new Error(
+      "extension preparation requested unsupported instrumentation",
+    );
+  return capability;
+}
+
+function validateInstrumentationCondition(
+  capability: InstrumentationCapability,
+  condition: "passive" | "enforced",
+): void {
+  if (condition === "passive" && capability.executionChanging)
+    throw new Error(
+      "passive condition cannot apply execution-changing instrumentation",
+    );
 }
 
 /** Validate an extension's request before the candidate host starts. */
@@ -37,32 +87,13 @@ export function prepareInstrumentation(
   negotiated: string[],
   condition: "passive" | "enforced",
 ): InstrumentationRequest[] {
-  const supportedIds = new Set(supported.map((item) => item.id));
-  if (
-    supported.some(
-      (item) =>
-        !ID.test(item.id) || typeof item.executionChanging !== "boolean",
-    ) ||
-    supportedIds.size !== supported.length
-  )
-    throw new Error("host instrumentation capabilities are invalid");
-  const requestedIds = new Set(requested.map((item) => item.id));
-  if (
-    requested.some((item) => !validRequest(item)) ||
-    requestedIds.size !== requested.length
-  )
-    throw new Error("requested instrumentation is invalid or duplicated");
-  for (const item of requested) {
-    const capability = supported.find((entry) => entry.id === item.id);
-    if (!capability || !negotiated.includes(item.id))
-      throw new Error(
-        "extension preparation requested unsupported instrumentation",
-      );
-    if (condition === "passive" && capability.executionChanging)
-      throw new Error(
-        "passive condition cannot apply execution-changing instrumentation",
-      );
-  }
+  validateSupportedInstrumentation(supported);
+  validateRequestedInstrumentation(requested);
+  for (const item of requested)
+    validateInstrumentationCondition(
+      requestedCapability(item, supported, negotiated),
+      condition,
+    );
   canonicalJson(requested);
   return requested;
 }
@@ -75,32 +106,56 @@ export function verifyAppliedInstrumentation(
   actualCondition: "passive" | "enforced" | "unknown" | undefined,
 ): InstrumentationRequest[] {
   const actual = applied ?? [];
+  validateAppliedRequests(actual, requested);
+  validateActualCondition(actualCondition);
   if (
-    !Array.isArray(actual) ||
-    actual.some((item) => !validRequest(item)) ||
-    new Set(actual.map((item) => item.id)).size !== actual.length ||
-    canonicalJson(actual) !== canonicalJson(requested)
-  )
-    throw new InstrumentationEvidenceError(
-      "host applied instrumentation does not match the request",
-    );
-  if (
-    actualCondition !== undefined &&
-    actualCondition !== "unknown" &&
-    actualCondition !== "passive" &&
-    actualCondition !== "enforced"
-  )
-    throw new InstrumentationEvidenceError(
-      "host condition evidence is invalid",
-    );
-  if (
-    (actualCondition !== undefined &&
-      actualCondition !== "unknown" &&
-      actualCondition !== requestedCondition) ||
+    mismatchedCondition(actualCondition, requestedCondition) ||
     (requested.length > 0 && actualCondition !== requestedCondition)
   )
     throw new InstrumentationEvidenceError(
       "host did not confirm the requested condition",
     );
   return actual;
+}
+
+function requestArray(value: unknown): value is InstrumentationRequest[] {
+  return isUnknownArray(value) && value.every(validRequest);
+}
+
+function validateAppliedRequests(
+  actual: unknown,
+  requested: InstrumentationRequest[],
+): asserts actual is InstrumentationRequest[] {
+  if (
+    !requestArray(actual) ||
+    new Set(actual.map((item) => item.id)).size !== actual.length ||
+    canonicalJson(actual) !== canonicalJson(requested)
+  )
+    throw new InstrumentationEvidenceError(
+      "host applied instrumentation does not match the request",
+    );
+}
+
+function validActualCondition(value: unknown): boolean {
+  return (
+    value === undefined ||
+    value === "unknown" ||
+    value === "passive" ||
+    value === "enforced"
+  );
+}
+
+function validateActualCondition(value: unknown): void {
+  if (!validActualCondition(value))
+    throw new InstrumentationEvidenceError(
+      "host condition evidence is invalid",
+    );
+}
+
+function mismatchedCondition(
+  actual: string | undefined,
+  requested: string,
+): boolean {
+  if (actual === undefined || actual === "unknown") return false;
+  return actual !== requested;
 }

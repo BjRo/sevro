@@ -1,4 +1,13 @@
-import { afterEach, expect, test } from "bun:test";
+import { expectUnknown } from "./fixtures/assertions";
+import {
+  defined,
+  parseCheckpoint,
+  parseCliResult,
+  parseRunEvidence,
+  parseTrial,
+  parallelSample,
+} from "./fixtures/assertions";
+import { afterEach, test, expect } from "bun:test";
 import { existsSync } from "node:fs";
 import {
   mkdir,
@@ -11,16 +20,13 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-
 const roots: string[] = [];
 const cli = join(import.meta.dir, "../src/cli.ts");
-
 afterEach(async () => {
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
 });
-
 async function fixture(trials: number) {
   const root = await realpath(
     await mkdtemp(join(tmpdir(), "sevro-concurrency-")),
@@ -98,7 +104,6 @@ export default {
   ];
   return { root, args, adapter };
 }
-
 async function invoke(args: string[], synchronize = true) {
   const child = Bun.spawn(args, {
     stdout: "pipe",
@@ -110,29 +115,30 @@ async function invoke(args: string[], synchronize = true) {
     new Response(child.stderr).text(),
     child.exited,
   ]);
-  return { stdout, stderr, code, result: JSON.parse(stdout) };
+  return { stdout, stderr, code, result: parseCliResult(stdout) };
 }
-
 test("CLI bounds parallel trials and retains ordered isolated evidence", async () => {
   const { root, args } = await fixture(5);
   const run = await invoke([...args, "--jobs", "2"]);
   expect(run.code, run.stderr).toBe(0);
-  expect(
-    run.result.cases[0].trials.map((trial: { trial: number }) => trial.trial),
+  expectUnknown(
+    defined(run.result.cases[0]).trials.map(
+      (trial: { trial: number }) => trial.trial,
+    ),
   ).toEqual([1, 2, 3, 4, 5]);
-  const evidence = JSON.parse(await readFile(run.result.evidencePath, "utf8"));
+  const evidence = parseRunEvidence(
+    await readFile(defined(run.result.evidencePath), "utf8"),
+  );
   expect(evidence.configuration.redacted.jobs).toBe(2);
-  expect(
+  expectUnknown(
     evidence.trials.map((trial: { trial: number }) => trial.trial),
   ).toEqual([1, 2, 3, 4, 5]);
-  const samples = evidence.trials.map(
-    (trial: {
-      observations: {
-        id: string;
-        data: { peak: number; workspace: string; original: string };
-      }[];
-    }) =>
-      trial.observations.find((row) => row.id === "test.parallel.sample")!.data,
+  const samples = evidence.trials.map((trial) =>
+    parallelSample(
+      defined(
+        trial.observations.find((row) => row.id === "test.parallel.sample"),
+      ).data,
+    ),
   );
   expect(
     Math.max(...samples.map((sample: { peak: number }) => sample.peak)),
@@ -147,24 +153,23 @@ test("CLI bounds parallel trials and retains ordered isolated evidence", async (
       false,
     );
   }
-  const checkpoint = JSON.parse(
+  const checkpoint = parseCheckpoint(
     await readFile(
-      join(root, "state", run.result.runId, "checkpoint.json"),
+      join(root, "state", defined(run.result.runId), "checkpoint.json"),
       "utf8",
     ),
   );
-  expect(
+  expectUnknown(
     checkpoint.completedTrials.map((trial: { trial: number }) => trial.trial),
   ).toEqual([1, 2, 3, 4, 5]);
-  for (const trial of run.result.cases[0].trials)
-    expect(
-      JSON.parse(await readFile(trial.artifactPath, "utf8")).result,
+  for (const trial of defined(run.result.cases[0]).trials)
+    expectUnknown(
+      parseTrial(await readFile(defined(trial.artifactPath), "utf8")).result,
     ).toEqual(trial);
-  expect(dirname(run.result.evidencePath)).toBe(
-    join(root, "results", run.result.runId),
+  expect(dirname(defined(run.result.evidencePath))).toBe(
+    join(root, "results", defined(run.result.runId)),
   );
 });
-
 test("CLI parallel cancellation drains active trials and stops queued trials", async () => {
   const { root, args, adapter } = await fixture(6);
   const started = join(root, "started");
@@ -211,18 +216,21 @@ export default {
       child.exited,
     ]);
     expect(code, stderr).toBe(130);
-    const result = JSON.parse(stdout);
+    const result = parseCliResult(stdout);
     expect(result.execution.status).toBe("cancelled");
-    expect(result.cases[0].trials).toHaveLength(2);
+    expect(defined(result.cases[0]).trials).toHaveLength(2);
     expect(
-      result.cases[0].trials.every(
-        (trial: { execution: { status: string } }) =>
-          trial.execution.status === "cancelled",
+      defined(result.cases[0]).trials.every(
+        (trial: {
+          execution: {
+            status: string;
+          };
+        }) => trial.execution.status === "cancelled",
       ),
     ).toBe(true);
-    expect((await readdir(started)).sort()).toEqual(["1", "2"]);
-    expect((await readdir(stopped)).sort()).toEqual(["1", "2"]);
-    const active = JSON.parse(
+    expectUnknown((await readdir(started)).sort()).toEqual(["1", "2"]);
+    expectUnknown((await readdir(stopped)).sort()).toEqual(["1", "2"]);
+    const active = parseCheckpoint(
       await readFile(
         join(root, "state", "active", `${result.runId}.json`),
         "utf8",
@@ -238,8 +246,7 @@ export default {
     child.kill("SIGTERM");
     await child.exited;
   }
-}, 10_000);
-
+}, 10000);
 test("CLI parallel persistence failure retains a completed peer before finalizing", async () => {
   const { root, args, adapter } = await fixture(6);
   const started = join(root, "started");
@@ -267,15 +274,15 @@ export default {
   );
   const run = await invoke([...args, "--jobs", "2"]);
   expect(run.code, run.stderr).toBe(70);
-  expect((await readdir(started)).sort()).toEqual(["1", "2"]);
+  expectUnknown((await readdir(started)).sort()).toEqual(["1", "2"]);
   const [runId] = await readdir(join(root, "results"));
-  const active = JSON.parse(
+  const active = parseCheckpoint(
     await readFile(join(root, "state", "active", `${runId}.json`), "utf8"),
   );
   expect(active.status).toBe("diagnostic");
   expect(active.completedTrials).toHaveLength(1);
-  const completed = JSON.parse(
-    await readFile(active.completedTrials[0].artifactPath, "utf8"),
+  const completed = parseTrial(
+    await readFile(defined(active.completedTrials[0]).artifactPath, "utf8"),
   );
   expect(completed.result.task.verdict).toBe("passed");
   const failedWorkspace = await readFile(join(started, "1"), "utf8");
@@ -288,28 +295,28 @@ export default {
     false,
   );
 });
-
 test("CLI defaults to three trial jobs and serial limits change configuration identity", async () => {
   const { args } = await fixture(4);
   const parallel = await invoke(args);
   const serial = await invoke([...args, "--jobs", "1"], false);
   expect(parallel.code, parallel.stderr).toBe(0);
   expect(serial.code, serial.stderr).toBe(0);
-  const concurrentEvidence = JSON.parse(
-    await readFile(parallel.result.evidencePath, "utf8"),
+  const concurrentEvidence = parseRunEvidence(
+    await readFile(defined(parallel.result.evidencePath), "utf8"),
   );
-  const serialEvidence = JSON.parse(
-    await readFile(serial.result.evidencePath, "utf8"),
+  const serialEvidence = parseRunEvidence(
+    await readFile(defined(serial.result.evidencePath), "utf8"),
   );
   expect(concurrentEvidence.configuration.redacted.jobs).toBe(3);
   expect(serialEvidence.configuration.redacted.jobs).toBe(1);
-  const peaks = (evidence: {
-    trials: { observations: { id: string; data: { peak: number } }[] }[];
-  }) =>
+  const peaks = (evidence: ReturnType<typeof parseRunEvidence>) =>
     evidence.trials.map(
       (trial) =>
-        trial.observations.find((row) => row.id === "test.parallel.sample")!
-          .data.peak,
+        parallelSample(
+          defined(
+            trial.observations.find((row) => row.id === "test.parallel.sample"),
+          ).data,
+        ).peak,
     );
   expect(Math.max(...peaks(concurrentEvidence))).toBe(3);
   expect(Math.max(...peaks(serialEvidence))).toBe(1);
@@ -317,7 +324,6 @@ test("CLI defaults to three trial jobs and serial limits change configuration id
     serialEvidence.evaluationIdentity.digest,
   );
 });
-
 test("CLI refuses invalid job limits before creating run storage", async () => {
   const { root, args } = await fixture(1);
   for (const value of [
@@ -332,12 +338,11 @@ test("CLI refuses invalid job limits before creating run storage", async () => {
     const run = await invoke([...args, `--jobs=${value}`]);
     expect(run.code).toBe(64);
     expect(run.result.execution.status).toBe("not_run");
-    expect(run.result.diagnostic.message).toContain("--jobs");
+    expect(defined(run.result.diagnostic).message).toContain("--jobs");
   }
   expect(await readdir(root)).not.toContain("results");
   expect(await readdir(root)).not.toContain("state");
 });
-
 test("CLI retains interruption before admitting its first trial", async () => {
   for (const [signal, exitCode] of [
     ["SIGINT", 130],
@@ -366,28 +371,28 @@ export default {
     expect(run.result.execution.status).toBe("cancelled");
     expect(run.result.grading.status).toBe("not_requested");
     expect(run.result.task.verdict).toBe("not_assessed");
-    expect(run.result.cases[0].trials).toEqual([]);
+    expectUnknown(defined(run.result.cases[0]).trials).toEqual([]);
     expect(await Bun.file(called).exists()).toBe(false);
-    const evidence = JSON.parse(
-      await readFile(run.result.evidencePath, "utf8"),
+    const evidence = parseRunEvidence(
+      await readFile(defined(run.result.evidencePath), "utf8"),
     );
-    expect(evidence.result).toEqual(run.result);
-    expect(evidence.trials).toEqual([]);
-    const owner = JSON.parse(
+    expectUnknown(evidence.result).toEqual(run.result);
+    expectUnknown(evidence.trials).toEqual([]);
+    const owner = parseCheckpoint(
       await readFile(
         join(root, "state", "active", `${run.result.runId}.json`),
         "utf8",
       ),
     );
     expect(owner.status).toBe("interrupted");
-    expect(owner.completedTrials).toEqual([]);
+    expectUnknown(owner.completedTrials).toEqual([]);
   }
 });
-
 test.skipIf(
   process.platform !== "darwin" || !existsSync("/usr/bin/sandbox-exec"),
 )(
   "CLI sandbox denies read and write access to later admitted peer fixtures",
+  // eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
   async () => {
     const { root, args, adapter } = await fixture(3);
     const control = join(root, "control");
@@ -411,7 +416,7 @@ fi
 printf isolated
 `;
     await writeFile(
-      args[args.indexOf("--case-file") + 1]!,
+      defined(args[args.indexOf("--case-file") + 1]),
       JSON.stringify({
         id: "parallel",
         prompt: "Return ready.",
@@ -428,7 +433,7 @@ printf isolated
             configuration: {
               run: command,
               expectExact: "isolated",
-              timeoutMs: 10_000,
+              timeoutMs: 10000,
             },
           },
         ],
@@ -464,36 +469,29 @@ export default {
 };\n`,
     );
     const run = await invoke([...args, "--jobs", "2", "--shell-isolation"]);
-    const evidence = JSON.parse(
-      await readFile(run.result.evidencePath, "utf8"),
+    const evidence = parseRunEvidence(
+      await readFile(defined(run.result.evidencePath), "utf8"),
     );
     expect(run.code, JSON.stringify(evidence.result)).toBe(0);
-    expect(run.result.cases[0].trials).toHaveLength(3);
+    expect(defined(run.result.cases[0]).trials).toHaveLength(3);
     const peer = evidence.trials
-      .flatMap(
-        (trial: {
-          observations: {
-            id: string;
-            data: { position: number; marker: string };
-          }[];
-        }) => trial.observations,
-      )
+      .flatMap((trial) => trial.observations)
       .find(
-        (row: { id: string; data: { position: number } }) =>
+        (row) =>
           row.id === "test.future-peer.sample" && row.data.position === 3,
       );
-    expect(peer.data.marker).toBe("original");
+    expect(defined(peer).data.marker).toBe("original");
     expect(await readFile(join(control, "done"), "utf8")).toBe("");
   },
-  15_000,
+  15000,
 );
-
+// eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("CLI closes queued admission when grading fails before advisory retention", async () => {
   const { root, args, adapter } = await fixture(4);
   const started = join(root, "started");
   await mkdir(started);
   await writeFile(
-    args[args.indexOf("--case-file") + 1]!,
+    defined(args[args.indexOf("--case-file") + 1]),
     JSON.stringify({
       id: "parallel",
       prompt: "Return ready.",
@@ -577,18 +575,23 @@ export default {
     advisory,
   ]);
   expect(run.code, run.stderr).toBe(3);
-  expect((await readdir(started)).sort()).toEqual(["1", "2"]);
-  expect(run.result.cases[0].trials).toHaveLength(2);
+  expectUnknown((await readdir(started)).sort()).toEqual(["1", "2"]);
+  expect(defined(run.result.cases[0]).trials).toHaveLength(2);
   expect(run.result.grading.status).toBe("error");
-  for (const trial of run.result.cases[0].trials)
-    expect(
-      JSON.parse(await readFile(trial.artifactPath, "utf8")).result,
+  for (const trial of defined(run.result.cases[0]).trials)
+    expectUnknown(
+      parseTrial(await readFile(defined(trial.artifactPath), "utf8")).result,
     ).toEqual(trial);
-  const evidence = JSON.parse(await readFile(run.result.evidencePath, "utf8"));
-  expect(evidence.trials[0].advisoryReview.status).toBe("completed");
-  expect(evidence.trials[1].advisoryReview.status).toBe("completed");
-}, 15_000);
-
+  const evidence = parseRunEvidence(
+    await readFile(defined(run.result.evidencePath), "utf8"),
+  );
+  expect(defined(defined(evidence.trials[0]).advisoryReview).status).toBe(
+    "completed",
+  );
+  expect(defined(defined(evidence.trials[1]).advisoryReview).status).toBe(
+    "completed",
+  );
+}, 15000);
 test("CLI execution failure stops queued trials and retains an active peer", async () => {
   const { root, args, adapter } = await fixture(4);
   const started = join(root, "started");
@@ -611,18 +614,24 @@ export default {
   );
   const run = await invoke([...args, "--jobs", "2"]);
   expect(run.code, run.stderr).toBe(2);
-  expect((await readdir(started)).sort()).toEqual(["1", "2"]);
-  expect(run.result.cases[0].trials).toHaveLength(2);
-  expect(
-    run.result.cases[0].trials
-      .map((trial: { execution: { status: string } }) => trial.execution.status)
+  expectUnknown((await readdir(started)).sort()).toEqual(["1", "2"]);
+  expect(defined(run.result.cases[0]).trials).toHaveLength(2);
+  expectUnknown(
+    defined(run.result.cases[0])
+      .trials.map(
+        (trial: {
+          execution: {
+            status: string;
+          };
+        }) => trial.execution.status,
+      )
       .sort(),
   ).toEqual(["completed", "failed"]);
-  for (const trial of run.result.cases[0].trials)
-    expect(
-      JSON.parse(await readFile(trial.artifactPath, "utf8")).result,
+  for (const trial of defined(run.result.cases[0]).trials)
+    expectUnknown(
+      parseTrial(await readFile(defined(trial.artifactPath), "utf8")).result,
     ).toEqual(trial);
-  const owner = JSON.parse(
+  const owner = parseCheckpoint(
     await readFile(
       join(root, "state", "active", `${run.result.runId}.json`),
       "utf8",

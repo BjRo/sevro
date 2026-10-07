@@ -1,3 +1,4 @@
+import { isUnknownArray } from "../value-guards";
 import type { codexNativeCallObservation } from "./codex-native-calls";
 import { summarizeClaudeEvents } from "./claude-events";
 
@@ -53,72 +54,111 @@ export function codexNativeControls(
   };
 }
 
+const MALFORMED = Symbol("malformed native control event");
+
+function controlEvent(line: string): unknown {
+  try {
+    return JSON.parse(line) as unknown;
+  } catch {
+    return MALFORMED;
+  }
+}
+
+function assistantBlocks(event: unknown): unknown[] | null | typeof MALFORMED {
+  if (event === MALFORMED) return MALFORMED;
+  if (!assistantEvent(event)) return null;
+  const content = record(event.message) ? event.message.content : null;
+  return isUnknownArray(content) ? content : MALFORMED;
+}
+
+function nativeBlock(value: unknown): Entry | null {
+  const types = ["text", "thinking", "redacted_thinking", "tool_use"];
+  return record(value) && types.includes(String(value.type)) ? value : null;
+}
+
+function toolIdentity(
+  block: Entry,
+  ids: Set<string>,
+): { id: string; name: string } | null {
+  if (!label(block.id, 128) || !label(block.name, 256) || ids.has(block.id))
+    return null;
+  return { id: block.id, name: block.name };
+}
+
+class ClaudeNativeControls {
+  readonly calls: Call[] = [];
+  readonly ids = new Set<string>();
+  malformed = false;
+  truncated = false;
+
+  parse(stream: string): void {
+    for (const line of stream.split("\n")) {
+      if (!line.trim()) continue;
+      if (!this.observeLine(line)) break;
+    }
+  }
+
+  private observeLine(line: string): boolean {
+    const blocks = assistantBlocks(controlEvent(line));
+    if (blocks === null) return true;
+    if (blocks === MALFORMED) {
+      this.malformed = true;
+      return true;
+    }
+    for (const block of blocks) if (!this.observeBlock(block)) return false;
+    return true;
+  }
+
+  private observeBlock(value: unknown): boolean {
+    const block = nativeBlock(value);
+    if (!block) {
+      this.malformed = true;
+      return true;
+    }
+    if (block.type !== "tool_use") return true;
+    const identity = toolIdentity(block, this.ids);
+    if (!identity) {
+      this.malformed = true;
+      return true;
+    }
+    this.ids.add(identity.id);
+    if (this.calls.length >= MAX_CALLS) {
+      this.truncated = true;
+      return false;
+    }
+    this.calls.push({
+      ordinal: this.calls.length,
+      namespace: "claude",
+      name: identity.name,
+    });
+    return true;
+  }
+}
+
 /** Observe all native labels without retaining arguments or interpreting policy. */
 export function claudeNativeControls(
   stream: string,
   exitCode: number,
 ): NativeControlObservation {
   const summary = summarizeClaudeEvents(stream, exitCode);
-  const calls: Call[] = [];
-  const ids = new Set<string>();
-  let malformed = false;
-  let truncated = false;
-  lines: for (const line of stream.split("\n")) {
-    if (!line.trim()) continue;
-    let event: unknown;
-    try {
-      event = JSON.parse(line);
-    } catch {
-      malformed = true;
-      continue;
-    }
-    if (!record(event) || event.type !== "assistant") continue;
-    const content = record(event.message) ? event.message.content : null;
-    if (!Array.isArray(content)) {
-      malformed = true;
-      continue;
-    }
-    for (const block of content) {
-      if (
-        !record(block) ||
-        !["text", "thinking", "redacted_thinking", "tool_use"].includes(
-          String(block.type),
-        )
-      ) {
-        malformed = true;
-        continue;
-      }
-      if (block.type !== "tool_use") continue;
-      if (
-        !label(block.id, 128) ||
-        !label(block.name, 256) ||
-        ids.has(block.id)
-      ) {
-        malformed = true;
-        continue;
-      }
-      ids.add(block.id);
-      if (calls.length >= MAX_CALLS) {
-        truncated = true;
-        break lines;
-      }
-      calls.push({
-        ordinal: calls.length,
-        namespace: "claude",
-        name: block.name,
-      });
-    }
-  }
+  const controls = new ClaudeNativeControls();
+  controls.parse(stream);
   return {
     id: "sevro.host.native-controls",
     completeness:
-      summary.complete && !malformed && !truncated ? "complete" : "partial",
+      summary.complete && !controls.malformed && !controls.truncated
+        ? "complete"
+        : "partial",
     data: {
       method: "native_control_calls",
-      calls,
+      calls: controls.calls,
       acceptedAgentCount: null,
       submittedExecCalls: null,
-      truncated,
+      truncated: controls.truncated,
     },
   };
+}
+
+function assistantEvent(value: unknown): value is Entry {
+  return record(value) && value.type === "assistant";
 }
