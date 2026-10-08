@@ -7,3 +7,5 @@ export type {
   CliResult,
 } from "./evaluation-types";
 export { runEvaluation } from "./evaluation-run";
+export { loadRuntimeConfiguration } from "./runtime-config";
+export type { RuntimeConfiguration, RuntimePolicy } from "./runtime-config";

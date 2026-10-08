@@ -1393,6 +1393,7 @@ function redactedEvaluationConfiguration(
   return {
     condition: options.condition,
     executionMode: options.dry ? "dry" : "executed",
+    ...(options.runtimePolicy ? { runtimePolicy: options.runtimePolicy } : {}),
     trialCount: options.trialCount,
     jobs: state.jobs,
     passThreshold: options.passThreshold,

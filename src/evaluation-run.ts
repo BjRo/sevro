@@ -1,4 +1,5 @@
 import type { RunEvidenceData } from "./schema-types";
+import { runtimePolicySnapshot } from "./runtime-config";
 import { readSemanticArtifact } from "./graders/artifact";
 import {
   advisoryPrompt,
@@ -583,6 +584,7 @@ class EvaluationTrial {
       workspace: this.fixture.workspace,
       condition: this.options.condition,
       fixtureBinDir: this.fixture.fixtureBinDir,
+      runtimePolicy: this.options.runtimePolicy,
       instrumentation: snapshotInstrumentation(
         this.context.requestedInstrumentation,
       ),
@@ -794,6 +796,7 @@ class EvaluationTrial {
       workspace: this.fixture.workspace,
       fixtureBinDir: this.fixture.fixtureBinDir,
       toolchainBinDir: this.options.shellIsolation?.toolchainBinDir,
+      runtimePolicy: this.options.runtimePolicy,
       uvRuntimeCache: this.options.shellIsolation?.uvRuntimeCache,
       protectedRoots,
       protectedRootsCanonical: true,
@@ -920,6 +923,8 @@ class EvaluationTrial {
       if (!host) throw new Error("semantic host is unavailable");
       const response = await host.run({
         prompt: semanticHostPrompt(message, group, artifact),
+        runtimePolicy: gradingRuntimePolicy(this.options),
+        runtimeRole: "semantic",
         workspace,
         condition: "passive",
         signal: this.options.signal,
@@ -1203,6 +1208,8 @@ class EvaluationTrial {
       });
       const response = await host.run({
         prompt: advisoryPrompt(this.fixture.trialPrompt, this.checks),
+        runtimePolicy: gradingRuntimePolicy(this.options),
+        runtimeRole: "advisory",
         workspace,
         condition: "passive",
         signal: this.options.signal,
@@ -1335,6 +1342,11 @@ class EvaluationTrial {
       }
     }
   }
+}
+
+function gradingRuntimePolicy(options: EvaluationOptions) {
+  const policy = options.runtimePolicy;
+  return policy ? { ...policy, hooks: undefined } : undefined;
 }
 async function executeEvaluationTrials(
   options: EvaluationOptions,
@@ -1529,6 +1541,10 @@ async function cleanupEvaluationWorkspaces(
 export async function runEvaluation(
   options: EvaluationOptions,
 ): Promise<{ result: CliResult }> {
+  options = {
+    ...options,
+    runtimePolicy: runtimePolicySnapshot(options.runtimePolicy),
+  };
   const plan = await prepareEvaluation(options);
   const runtime = await allocateEvaluationRun(options, plan);
   try {

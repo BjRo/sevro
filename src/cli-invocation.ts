@@ -72,6 +72,7 @@ const RUN_OPTIONS = {
   "protected-root": { type: "string", multiple: true },
   "project-root": { type: "string" },
   "config-root": { type: "string" },
+  "runtime-config-file": { type: "string" },
   "results-root": { type: "string" },
   "run-state-root": { type: "string" },
   "runner-build-digest": { type: "string" },
@@ -329,6 +330,8 @@ function privateRootDeclarations(
     configRoot,
     ...protectedRoots,
     values["claude-credential-file"],
+    values["codex-auth-file"],
+    values["runtime-config-file"],
     values["case-file"],
     values["extension-command-file"],
     ...(values["extension-source-file"] ?? []),
@@ -466,7 +469,14 @@ function invocationInputs(
   } = context;
   return {
     json: values.json ?? false,
+    deprecatedRuntimeOptions: (
+      ["toolchain-bin-dir", "claude-uv-cache-dir"] as const
+    ).filter((name) => values[name] !== undefined),
     dry: values.dry ?? false,
+    runtimeConfigFile: optionalAbsolute(
+      values["runtime-config-file"],
+      "--runtime-config-file",
+    ),
     caseFile: optionalAbsolute(values["case-file"], "--case-file"),
     extension: extensionInvocation(values),
     caseSourceRoot: optionalAbsolute(

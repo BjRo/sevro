@@ -134,10 +134,15 @@ values are excluded from retained evidence and configuration digests. Pass
 It accepts declared Claude
 plugin directories and explicit skill invocations from extension preparation.
 It runs candidate tools under Claude Code's native macOS sandbox with private,
-source, and result paths denied. The route disables hooks and does not expose
+source, and result paths denied. The route disables hooks by default and does not expose
 the Write tool. It currently supports passive candidate turns only. Use
 `--protected-root` to exclude additional private paths from the candidate's
-filesystem access. For plugins that run locked UV backends, use
+filesystem access. Configure shared host tools, private caches, goals, and selected
+plugin hooks with [`sevro.json` or `--runtime-config-file`](runtime-v1.md).
+The same policy reaches isolated checks and native grading hosts.
+
+The deprecated options remain available when no runtime file is selected.
+For plugins that run locked UV backends, use
 `--claude-uv-cache-dir /absolute/path/to/curated-cache` to copy a prepared UV
 cache into the trial's Git-private runtime directory before the turn. Use
 `--toolchain-bin-dir /absolute/path/to/bin` for a compatible Python and other

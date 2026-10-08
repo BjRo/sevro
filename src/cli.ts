@@ -2,7 +2,7 @@
 import { resolvedFixture } from "./resolved-case";
 import { isStringArray } from "./value-guards";
 import { readFile } from "node:fs/promises";
-import { isAbsolute } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   EvaluationConfigurationError,
@@ -29,6 +29,11 @@ import {
 } from "./provenance";
 
 import { InvocationError, parseInvocation } from "./cli-invocation";
+import {
+  loadRuntimeConfiguration,
+  runtimeNativeGoalEnabled,
+} from "./runtime-config";
+import { canonicalRuntimeRoot, requireRuntimeReadRoots } from "./runtime-paths";
 
 function record(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
@@ -383,9 +388,17 @@ async function secondaryHost(
 
 async function prepareRunInvocation(argv: string[]) {
   const invocation = parseInvocation(argv);
+  warnDeprecatedRuntimeOptions(invocation);
+  const runtimePolicy = await loadRuntimeConfiguration(
+    invocation.projectRoot,
+    invocation.runtimeConfigFile,
+  );
+  requireRuntimeOptionCompatibility(invocation, runtimePolicy);
+  selectRuntimeTransport(invocation, runtimePolicy);
   const preparationSources = await loadPreparationSources(invocation);
   protectMappedSources(invocation, preparationSources);
   const configRoot = await configurationRoot(invocation.configRoot);
+  await validateInvocationRuntime(invocation, runtimePolicy);
   const agentConcurrencyLimit = await selectedConcurrency(
     invocation,
     configRoot,
@@ -406,6 +419,7 @@ async function prepareRunInvocation(argv: string[]) {
   );
   return {
     invocation,
+    runtimePolicy,
     preparationSources,
     caseData,
     host,
@@ -414,7 +428,72 @@ async function prepareRunInvocation(argv: string[]) {
   };
 }
 
+function selectRuntimeTransport(
+  invocation: Invocation,
+  policy: Awaited<ReturnType<typeof loadRuntimeConfiguration>>,
+): void {
+  if (!runtimeNativeGoalEnabled(policy)) return;
+  if (invocation.codex) selectCodexGoalTransport(invocation.codex);
+}
+
+function selectCodexGoalTransport(
+  codex: NonNullable<Invocation["codex"]>,
+): void {
+  if (codex.entrypoint === "exec")
+    throw new InvocationError(
+      "native-goal runtime policy requires Codex app-server",
+    );
+  codex.entrypoint = "app-server";
+}
+
+function warnDeprecatedRuntimeOptions(invocation: Invocation): void {
+  for (const option of invocation.deprecatedRuntimeOptions)
+    console.warn(
+      `--${option} is deprecated; declare the runtime in sevro.json or --runtime-config-file instead`,
+    );
+}
+
+function requireRuntimeOptionCompatibility(
+  invocation: Invocation,
+  policy: Awaited<ReturnType<typeof loadRuntimeConfiguration>>,
+): void {
+  if (policy && invocation.deprecatedRuntimeOptions.length)
+    throw new InvocationError(
+      "runtime configuration cannot be combined with deprecated runtime options",
+    );
+}
+
 type PreparedInvocation = Awaited<ReturnType<typeof prepareRunInvocation>>;
+
+async function validateInvocationRuntime(
+  invocation: Invocation,
+  policy: Awaited<ReturnType<typeof loadRuntimeConfiguration>>,
+): Promise<void> {
+  if (!policy) return;
+  const native = [
+    invocation.codex,
+    invocation.claude,
+    invocation.semanticCodex,
+    invocation.advisoryCodex,
+  ];
+  const protectedRoots = [
+    join(import.meta.dir, ".."),
+    invocation.projectRoot,
+    invocation.configRoot,
+    invocation.resultsRoot,
+    invocation.runStateRoot,
+    ...native.flatMap((host) => host?.additionalProtectedRoots ?? []),
+    ...(invocation.shellIsolation?.protectedRoots ?? []),
+  ];
+  requireRuntimeReadRoots(
+    policy.readOnlyRoots,
+    await Promise.all(protectedRoots.map(canonicalRuntimeRoot)),
+  );
+  requireRuntimeReadRoots(
+    (policy.seeds ?? []).map((seed) => seed.source),
+    await Promise.all(protectedRoots.map(canonicalRuntimeRoot)),
+  );
+}
 
 async function resolveSelectedExtension(
   prepared: PreparedInvocation,
@@ -479,6 +558,7 @@ async function evaluateInvocation(
     prepared;
   const { caseData, extension } = await selectedCase(prepared, signal);
   return runEvaluation({
+    runtimePolicy: prepared.runtimePolicy,
     projectRoot: invocation.projectRoot,
     resultsRoot: invocation.resultsRoot,
     runStateRoot: invocation.runStateRoot,

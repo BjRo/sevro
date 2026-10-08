@@ -5,6 +5,7 @@ import { installCodexPlugins } from "./codex-marketplace";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import {
+  cp,
   mkdir,
   mkdtemp,
   readFile,
@@ -27,6 +28,18 @@ import { codexSkillReadObservation } from "./codex-skill-reads";
 import { codexPermissionProfile } from "./codex-profile";
 import { evaluationProtectedRoots } from "./isolation-roots";
 import { workspaceFingerprint } from "./workspace-fingerprint";
+import {
+  requireRuntimeReadRoots,
+  runtimeExecutableProtection,
+} from "../runtime-paths";
+import { prepareRuntimeState, runtimeObservations } from "../runtime-state";
+import { runtimeNativeGoalEnabled } from "../runtime-config";
+import {
+  prepareHookMounts,
+  runtimeHookObservation,
+  releaseRuntimeHooks,
+  type HookMounts,
+} from "../runtime-hooks";
 
 const MAX_AUTH_BYTES = 1024 * 1024;
 const MAX_EVENT_BYTES = 8 * 1024 * 1024;
@@ -82,6 +95,7 @@ interface ExecutionContext {
   state: CodexState;
   timeoutMs: number;
   installedPluginRoots: string[];
+  hooks?: HookMounts;
 }
 interface TurnResult {
   execution: ProcessResult;
@@ -138,6 +152,8 @@ function codexCapabilities(
 ): string[] {
   return [
     "sevro.host.continuation",
+    "sevro.host.runtime",
+    "sevro.host.hooks",
     ...(entrypoint === "app-server" ? ["sevro.host.native-goal"] : []),
     "sevro.codex.plugin-marketplace",
     "sevro.codex.explicit-invocation",
@@ -211,10 +227,12 @@ async function runCodexRequest(
   requireCodexFollowUp(request);
   requireCodexFixtureBin(request);
   requirePassiveCodexRequest(request);
+  requireCodexGoalRoute(request, options);
   await verifyCodexInvocation(request);
   if (existsSync(join(request.workspace, ".codex")))
     throw new Error("fixture Codex configuration is unsupported");
   const stateRoot = await mkdtemp(join(tmpdir(), "sevro-codex-state-"));
+  let activeHooks: HookMounts | undefined;
   try {
     const state = await prepareCodexState(stateRoot, options, limit, request);
     const installedPluginRoots = await installCodexPlugins({
@@ -223,6 +241,8 @@ async function runCodexRequest(
       pluginCacheRoot: state.pluginCacheRoot,
       request,
     });
+    const hooks = await codexHookMounts(request, state, installedPluginRoots);
+    activeHooks = hooks;
     await codexPreflight(options, request, state);
     const context: ExecutionContext = {
       options,
@@ -230,12 +250,48 @@ async function runCodexRequest(
       state,
       timeoutMs,
       installedPluginRoots,
+      hooks,
     };
     const turns = await new CodexTurnExecution(context).run();
     return await codexHostResult(context, turns);
   } finally {
+    await releaseRuntimeHooks(activeHooks);
     await rm(stateRoot, { recursive: true, force: true });
   }
+}
+
+function requireCodexGoalRoute(
+  request: Request,
+  options: CodexHostOptions,
+): void {
+  if (
+    runtimeNativeGoalEnabled(request.runtimePolicy) &&
+    options.entrypoint !== "app-server"
+  )
+    throw new Error("native-goal runtime policy requires Codex app-server");
+}
+
+async function codexHookMounts(
+  request: Request,
+  state: CodexState,
+  installedPluginRoots: string[],
+) {
+  if (!request.runtimePolicy) return undefined;
+  const hooks = await prepareHookMounts({
+    workspace: request.workspace,
+    stateRoot: join(request.workspace, ".git", "sevro-runtime"),
+    privateRoot: state.codexHome,
+    pluginRoots: installedPluginRoots,
+    protectedRoots: state.protectedRoots,
+    policy: request.runtimePolicy,
+  });
+  for (const [index, root] of installedPluginRoots.entries()) {
+    const curated = hooks.directories[index];
+    if (!curated) throw new Error("Codex hook projection is incomplete");
+    await rm(root, { recursive: true });
+    await cp(curated, root, { recursive: true });
+  }
+  return hooks;
 }
 
 async function privateCodexDirectories(stateRoot: string) {
@@ -283,8 +339,13 @@ async function writeCodexProfile(
   readRoots: string[],
   protectedRoots: string[],
   limit: number | null,
+  commandEnvironment = request.runtimePolicy?.environment,
+  runtimeWriteRoot?: string,
 ): Promise<void> {
   const profile = codexPermissionProfile({
+    commandEnvironment: codexCommandEnvironment(request, commandEnvironment),
+    runtimeWriteRoot,
+    runtimeReadRoots: request.runtimePolicy?.readOnlyRoots,
     id: profileId,
     workspace: request.workspace,
     commandHome: paths.commandHome,
@@ -300,6 +361,20 @@ async function writeCodexProfile(
     profile + concurrencyConfiguration(limit),
     { flag: "wx", mode: 0o600 },
   );
+}
+
+function codexCommandEnvironment(
+  request: Request,
+  environment: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+  if (!environment) return undefined;
+  const path =
+    environment.PATH ??
+    "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
+  return {
+    ...environment,
+    PATH: [request.fixtureBinDir, path].filter(Boolean).join(delimiter),
+  };
 }
 async function fixtureShellRoot(request: Request): Promise<string> {
   const root = join(request.workspace, ".git", "sevro-shell");
@@ -323,7 +398,8 @@ function codexEnvironment(
   shellRoot: string,
 ): Record<string, string> {
   return {
-    PATH: codexPath(request.fixtureBinDir),
+    ...request.runtimePolicy?.environment,
+    PATH: declaredCodexPath(request),
     LANG: process.env.LANG ?? "C",
     HOME: paths.parentHome,
     TMPDIR: paths.parentTemp,
@@ -332,6 +408,49 @@ function codexEnvironment(
     ...(request.fixtureBinDir ? { ZDOTDIR: shellRoot } : {}),
   };
 }
+
+function declaredCodexPath(request: Request): string {
+  return (
+    request.runtimePolicy?.environment.PATH ?? codexPath(request.fixtureBinDir)
+  );
+}
+
+function codexSeedSources(request: Request): string[] {
+  return (request.runtimePolicy?.seeds ?? []).map((seed) => seed.source);
+}
+
+async function codexRuntime(
+  request: Request,
+  paths: Awaited<ReturnType<typeof privateCodexDirectories>>,
+) {
+  if (!request.runtimePolicy) return undefined;
+  const runtime = await prepareRuntimeState(
+    request.workspace,
+    request.runtimePolicy,
+    request.runtimeRole ?? "candidate",
+  );
+  paths.commandHome = runtime.home;
+  paths.commandTemp = runtime.temp;
+  return runtime;
+}
+
+function applyCodexRuntime(
+  runtime: Awaited<ReturnType<typeof codexRuntime>>,
+  env: Record<string, string>,
+  paths: Awaited<ReturnType<typeof privateCodexDirectories>>,
+): void {
+  if (runtime)
+    Object.assign(env, runtime.environment, {
+      HOME: paths.parentHome,
+      TMPDIR: paths.parentTemp,
+    });
+}
+
+function codexRuntimeProfile(
+  runtime: Awaited<ReturnType<typeof codexRuntime>>,
+) {
+  return { environment: runtime?.environment, root: runtime?.root };
+}
 async function prepareCodexState(
   stateRoot: string,
   options: CodexHostOptions,
@@ -339,12 +458,17 @@ async function prepareCodexState(
   request: Request,
 ) {
   const paths = await privateCodexDirectories(stateRoot);
+  const runtime = await codexRuntime(request, paths);
   await copyAuth(options.authFile, join(paths.codexHome, "auth.json"));
   const protectedRoots = await evaluationProtectedRoots({
     workspace: request.workspace,
     projectRoot: options.projectRoot,
     resultsRoot: options.resultsRoot,
-    additionalRoots: [...options.additionalProtectedRoots, stateRoot],
+    additionalRoots: [
+      ...options.additionalProtectedRoots,
+      stateRoot,
+      ...codexSeedSources(request),
+    ],
   });
   const sandboxBinary = options.sandboxBinary ?? options.binary;
   const readRoots = await Promise.all(
@@ -353,8 +477,17 @@ async function prepareCodexState(
       realpath(binary).then(dirname),
     ]),
   );
-  requireUnprotectedExecutables(readRoots, protectedRoots);
+  requireCodexRuntimeReadRoots(request, protectedRoots);
+  requireUnprotectedExecutables(
+    readRoots,
+    runtimeExecutableProtection(
+      readRoots,
+      protectedRoots,
+      Boolean(request.runtimePolicy),
+    ),
+  );
   const profileId = `sevro_${randomUUID().replaceAll("-", "")}`;
+  const runtimeProfile = codexRuntimeProfile(runtime);
   await writeCodexProfile(
     paths,
     profileId,
@@ -362,10 +495,23 @@ async function prepareCodexState(
     readRoots,
     protectedRoots,
     limit,
+    runtimeProfile.environment,
+    runtimeProfile.root,
   );
   const shellRoot = await fixtureShellRoot(request);
   const env = codexEnvironment(paths, request, shellRoot);
-  return { ...paths, sandboxBinary, profileId, env };
+  applyCodexRuntime(runtime, env, paths);
+  return { ...paths, sandboxBinary, profileId, env, protectedRoots };
+}
+
+function requireCodexRuntimeReadRoots(
+  request: Request,
+  protectedRoots: string[],
+): void {
+  requireRuntimeReadRoots(
+    request.runtimePolicy?.readOnlyRoots ?? [],
+    protectedRoots,
+  );
 }
 function sandboxArgs(
   state: CodexState,
@@ -431,6 +577,8 @@ function routeArgs(context: ExecutionContext): string[] {
     `default_permissions=${JSON.stringify(context.state.profileId)}`,
     "-c",
     'approval_policy="never"',
+    "-c",
+    `features.hooks=${Boolean(context.hooks)}`,
   ];
 }
 function initialTurnArgs(context: ExecutionContext): string[] {
@@ -442,6 +590,7 @@ function initialTurnArgs(context: ExecutionContext): string[] {
     "--skip-git-repo-check",
     ...(context.request.followUpPrompt ? [] : ["--ephemeral"]),
     "--ignore-rules",
+    ...(context.hooks ? ["--dangerously-bypass-hook-trust"] : []),
     "-C",
     context.request.workspace,
     ...routeArgs(context),
@@ -460,6 +609,7 @@ function followUpTurnArgs(
     "--strict-config",
     "--skip-git-repo-check",
     "--ignore-rules",
+    ...(context.hooks ? ["--dangerously-bypass-hook-trust"] : []),
     ...routeArgs(context),
     threadId,
     "-",
@@ -604,9 +754,12 @@ class CodexTurnExecution {
         "--strict-config",
         "-c",
         `default_permissions=${JSON.stringify(state.profileId)}`,
+        "-c",
+        `features.hooks=${Boolean(this.context.hooks)}`,
       ],
       env: state.env,
       permissionProfile: state.profileId,
+      vettedHooks: Boolean(this.context.hooks),
       request: {
         repoDir: request.workspace,
         prompt: request.prompt,
@@ -752,6 +905,11 @@ async function codexObservations(context: ExecutionContext, turns: TurnResult) {
     reads,
   );
   return [
+    ...(await codexHookObservations(context.hooks)),
+    ...runtimeObservations(
+      context.request.runtimePolicy,
+      context.request.runtimeRole,
+    ),
     ...appServerObservation(turns.appServer),
     reads,
     ...(phases.initial ? [phases.initial] : []),
@@ -761,6 +919,10 @@ async function codexObservations(context: ExecutionContext, turns: TurnResult) {
     ...(turns.continuation ? [turns.continuation] : []),
     ...(explicit ? [explicit] : []),
   ];
+}
+
+async function codexHookObservations(hooks: HookMounts | undefined) {
+  return hooks ? [await runtimeHookObservation(hooks)] : [];
 }
 function codexArtifacts(turns: TurnResult) {
   return [

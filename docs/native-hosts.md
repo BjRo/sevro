@@ -24,8 +24,11 @@ release before relying on them.
 
 Repository skill mounts under `.claude/skills` require explicit
 `--claude-project-settings`; otherwise repository dispatch is refused before
-launch. The bundled route disables hooks and candidate Write access. The CLI
-reference covers curated caches, toolchains, credential scrubbing, and follow-ups.
+launch. The bundled route disables hooks by default and omits candidate Write
+access. [Runtime configuration](runtime-v1.md) enables native goals and selected
+plugin hooks and reuses declared host tools with private caches. These changes
+are newer than published `rc.2`. The CLI reference covers credential scrubbing
+and follow-ups.
 
 ## Keep sources and credentials separate
 

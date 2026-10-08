@@ -49,7 +49,7 @@ shared TypeScript types, and it remains linted and typechecked.
 
 [`typescript-sources.json`](../../typescript-sources.json) declares the checked
 source inventory. Coverage counts every authored production file, including
-unimported files. The four generated AJV validators load normally and stay
+unimported files. The five generated AJV validators load normally and stay
 outside the coverage denominator; schema freshness, declarations and runtime
 validation still check them. Tooling, tests and fixtures are also outside that
 denominator.

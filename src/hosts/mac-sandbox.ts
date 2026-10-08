@@ -2,6 +2,11 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
+import {
+  insideRuntimeRoot,
+  isRuntimeHomeRoot,
+  requireRuntimeReadRoots,
+} from "../runtime-paths";
 
 const SANDBOX_EXEC = "/usr/bin/sandbox-exec";
 
@@ -35,9 +40,10 @@ function quoted(path: string): string {
 export function macSandboxProfile(
   deniedRoots: string[],
   denyNetwork = false,
+  readOnlyRoots: string[] = [],
+  writableRuntimeRoot?: string,
 ): string {
-  if (!deniedRoots.length || deniedRoots.some((path) => !path.startsWith("/")))
-    throw new HostIsolationError("sandbox roots must be absolute and nonempty");
+  requireProfileRoots(deniedRoots);
   return [
     "(version 1)",
     "(allow default)",
@@ -45,11 +51,44 @@ export function macSandboxProfile(
     ...[...new Set(deniedRoots)]
       .sort()
       .flatMap((path) => [
-        `(deny file-read* (subpath "${quoted(path)}"))`,
-        `(deny file-write* (subpath "${quoted(path)}"))`,
+        `(deny file-read* ${readFilter(path, readOnlyRoots, writableRuntimeRoot)})`,
+        `(deny file-write* ${rootFilter(path, ownedException(path, writableRuntimeRoot))})`,
       ]),
+    ...readOnlyRoots.map(
+      (path) => `(deny file-write* (subpath "${quoted(path)}"))`,
+    ),
     "",
   ].join("\n");
+}
+
+function requireProfileRoots(roots: string[]): void {
+  if (!roots.length || roots.some((path) => !path.startsWith("/")))
+    throw new HostIsolationError("sandbox roots must be absolute and nonempty");
+}
+
+function readFilter(
+  root: string,
+  readRoots: string[],
+  writableRuntimeRoot: string | undefined,
+): string {
+  const exceptions = isRuntimeHomeRoot(root)
+    ? readRoots.filter((path) => insideRuntimeRoot(root, path))
+    : [];
+  return rootFilter(root, [
+    ...exceptions,
+    ...ownedException(root, writableRuntimeRoot),
+  ]);
+}
+
+function rootFilter(root: string, exceptions: string[]): string {
+  const base = `(subpath "${quoted(root)}")`;
+  if (!exceptions.length) return base;
+  return `(require-all ${base} ${exceptions.map((path) => `(require-not (subpath "${quoted(path)}"))`).join(" ")})`;
+}
+
+function ownedException(root: string, ownedRoot: string | undefined): string[] {
+  if (ownedRoot && insideRuntimeRoot(root, ownedRoot)) return [ownedRoot];
+  return [];
 }
 
 export interface IsolatedCommand {
@@ -65,6 +104,8 @@ export async function prepareMacSandboxCommand(options: {
   protectedRootsCanonical?: boolean;
   privateStateRoot: string;
   denyNetwork?: boolean;
+  readOnlyRoots?: string[];
+  writableRuntimeRoot?: string;
 }): Promise<IsolatedCommand> {
   requireSandboxAvailable();
   requireIsolationPaths(options);
@@ -74,11 +115,22 @@ export async function prepareMacSandboxCommand(options: {
     : await Promise.all(options.protectedRoots.map((path) => realpath(path)));
   await mkdir(options.privateStateRoot, { recursive: true, mode: 0o700 });
   const stateRoot = await realpath(options.privateStateRoot);
+  const ownedRoot = await commandRuntimeRoot(
+    stateRoot,
+    options.writableRuntimeRoot,
+  );
+  const readRoots = options.readOnlyRoots ?? [];
+  requireRuntimeReadRoots(readRoots, [...roots, stateRoot]);
   requireDisjointState(workspace, roots, stateRoot);
   const profilePath = resolve(stateRoot, `host-${randomUUID()}.sb`);
   await writeFile(
     profilePath,
-    macSandboxProfile([...roots, stateRoot], options.denyNetwork),
+    macSandboxProfile(
+      [...roots, stateRoot],
+      options.denyNetwork,
+      readRoots,
+      ownedRoot,
+    ),
     { flag: "wx", mode: 0o600 },
   );
   return {
@@ -87,6 +139,19 @@ export async function prepareMacSandboxCommand(options: {
       await rm(profilePath, { force: true });
     },
   };
+}
+
+async function commandRuntimeRoot(
+  stateRoot: string,
+  path: string | undefined,
+): Promise<string | undefined> {
+  if (!path) return undefined;
+  const root = await realpath(path);
+  if (root === stateRoot || !insideRuntimeRoot(stateRoot, root))
+    throw new HostIsolationError(
+      "command runtime must be contained in private state",
+    );
+  return root;
 }
 
 function requireSandboxAvailable(): void {

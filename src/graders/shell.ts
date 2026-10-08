@@ -1,6 +1,9 @@
 import { mkdir, stat } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 import { prepareMacSandboxCommand } from "../hosts/mac-sandbox";
+import type { RuntimePolicy } from "../runtime-config";
+import { prepareRuntimeState } from "../runtime-state";
+import { hashJson } from "../identity";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 120_000;
@@ -260,6 +263,7 @@ function stopProcess(proc: Bun.Subprocess): void {
 }
 
 interface ShellRunOptions {
+  runtimePolicy?: RuntimePolicy;
   workspace: string;
   fixtureBinDir?: string;
   toolchainBinDir?: string;
@@ -270,6 +274,19 @@ interface ShellRunOptions {
   signal?: AbortSignal;
 }
 async function shellRuntime(options: ShellRunOptions) {
+  if (options.runtimePolicy) {
+    const runtime = await prepareRuntimeState(
+      options.workspace,
+      options.runtimePolicy,
+      "checks",
+      join(options.privateStateRoot, "runtime", hashJson(options.workspace)),
+    );
+    return {
+      ...runtime,
+      uvCache: join(runtime.root, "uv-cache"),
+      privateRuntimeRoot: runtime.root,
+    };
+  }
   const root = join(options.workspace, ".git", "sevro-runtime"),
     home = join(root, "check-home"),
     temp = join(root, "check-tmp");
@@ -277,7 +294,14 @@ async function shellRuntime(options: ShellRunOptions) {
     mkdir(home, { recursive: true, mode: 0o700 }),
     mkdir(temp, { recursive: true, mode: 0o700 }),
   ]);
-  return { root, home, temp, uvCache: join(root, "uv-cache") };
+  return {
+    root,
+    home,
+    temp,
+    uvCache: join(root, "uv-cache"),
+    environment: {} as Record<string, string>,
+    privateRuntimeRoot: undefined,
+  };
 }
 type ShellRuntime = Awaited<ReturnType<typeof shellRuntime>>;
 type Isolation = Awaited<ReturnType<typeof prepareMacSandboxCommand>>;
@@ -299,10 +323,11 @@ function shellEnvironment(
   runtime: ShellRuntime,
 ): Record<string, string> {
   return {
+    ...runtime.environment,
     PATH: [
       options.fixtureBinDir,
       options.toolchainBinDir,
-      "/usr/bin:/bin:/usr/sbin:/sbin",
+      runtime.environment.PATH ?? "/usr/bin:/bin:/usr/sbin:/sbin",
     ]
       .filter(Boolean)
       .join(delimiter),
@@ -411,11 +436,17 @@ export async function runShellCheck(
   const isolated = await prepareMacSandboxCommand({
     argv: ["/bin/sh", "-e", "-c", check.run],
     workspace: options.workspace,
-    protectedRoots: options.protectedRoots,
+    protectedRoots: [...options.protectedRoots, ...shellSeedSources(options)],
     protectedRootsCanonical: options.protectedRootsCanonical,
     privateStateRoot: options.privateStateRoot,
     denyNetwork: true,
+    readOnlyRoots: options.runtimePolicy?.readOnlyRoots,
+    writableRuntimeRoot: runtime.privateRuntimeRoot,
   });
   await requireShellRuntimeCache(options, runtime);
   return new ShellExecution(check, options, isolated, runtime).run();
+}
+
+function shellSeedSources(options: ShellRunOptions): string[] {
+  return (options.runtimePolicy?.seeds ?? []).map((seed) => seed.source);
 }

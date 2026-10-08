@@ -471,6 +471,7 @@ function requireGoalObjective(objective: unknown): void {
 }
 
 export interface AppServerRunOptions {
+  vettedHooks?: boolean;
   request: HarnessRunRequest;
   argv: string[];
   env: Record<string, string>;
@@ -517,6 +518,9 @@ class AppServerSession {
       config: {
         model_reasoning_effort: request.effort,
         default_permissions: this.options.permissionProfile,
+        ...(this.options.vettedHooks
+          ? { bypass_hook_trust: true, features: { hooks: true } }
+          : {}),
       },
       approvalPolicy: "never",
       allowProviderModelFallback: false,

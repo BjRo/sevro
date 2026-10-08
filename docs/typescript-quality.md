@@ -21,7 +21,7 @@ TypeScript and JavaScript source. The guard refuses new, missing or duplicated
 files and declarations outside the configured TypeScript project. Changing a
 source disposition requires review; adding a glob is not a substitute for the
 inventory. The coverage baseline includes exactly `inventory.production`, whose
-current instrumentation supports authored `.ts`. The four exact generated
+current instrumentation supports authored `.ts`. The five exact generated
 validators in `inventory.generated` are excluded from instrumentation and the
 coverage denominator. New `.tsx`, `.mts`, `.cts` or JavaScript
 production requires an explicit instrumentation and quality-policy change first.
@@ -29,20 +29,20 @@ production requires an explicit instrumentation and quality-policy change first.
 | Inventory      | Lint and typing                                                                                      | Test and coverage disposition                                                                                                                                                                        |
 | -------------- | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `production`   | Type-aware strict lint and strict compiler                                                           | All authored executable `src` statements and branch outcomes in the declared inventory, including unimported files                                                                                   |
-| `generated`    | CommonJS syntax parsing, exact `schemas:check` freshness, and checked `.d.cts` boundary declarations | Real Bun schema tests; the four declared generated validators are outside the coverage denominator                                                                                                   |
+| `generated`    | CommonJS syntax parsing, exact `schemas:check` freshness, and checked `.d.cts` boundary declarations | Real Bun schema tests; the five declared generated validators are outside the coverage denominator                                                                                                   |
 | `declarations` | Type-aware lint and compiler                                                                         | Declaration-only files have no executable counters                                                                                                                                                   |
 | `tooling`      | Same type-aware lint and strict compiler; `.mjs`/`.cjs` use `checkJs` and explicit JSDoc contracts   | Durable public gate probes, schema freshness, release and installed-package tests; outside the runner-production denominator                                                                         |
 | `tests`        | Same type-aware lint and strict compiler, including fixtures                                         | Real Bun filesystem/process/protocol tests; outside the production denominator                                                                                                                       |
 | `examples`     | Same type-aware lint and strict compiler                                                             | Packaged demonstration host adapters are synthetic consumer fixtures, exercised by installed-package validation; they implement no runner behavior and are outside the runner-production denominator |
 
 Generated AJV CommonJS is deliberately not rewritten to conform to authored-code
-rules. Applying ESLint's recommended JavaScript rules to the four exact generated
-files found 879 redeclarations, 281 useless assignments, 182 unused variables and
+rules. An earlier audit of the original four generated files using ESLint's
+recommended JavaScript rules found 879 redeclarations, 281 useless assignments, 182 unused variables and
 108 unreachable-code findings. Those are generator emissions. Their syntax,
 generation freshness, typed public boundaries and runtime behavior remain checked.
 Generated compiler output is excluded from coverage because the coverage target
 measures authored runner behavior. This applies only to
-`src/generated/cli-result.cjs`, `extension.cjs`, `report.cjs` and `run-evidence.cjs`
+`src/generated/cli-result.cjs`, `extension.cjs`, `report.cjs`, `run-evidence.cjs` and `runtime.cjs`
 as explicitly declared in the inventory. This disposition does not apply to authored CommonJS, including
 the coverage capture hook.
 
