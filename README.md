@@ -16,9 +16,9 @@ account is required.
 ## Status and environments
 
 Sevro is under active development. The npm package is `@bjoernrochel/sevro`;
-its command is `sevro`. On 2026-10-07 the published default is `0.1.0-rc.2`.
-This checkout contains unreleased changes and different licensing terms.
-Installing `rc.2` does not install this README or the new license.
+its command is `sevro`. Release candidate `0.1.0-rc.3` includes runtime
+configuration, native goals, selected plugin hooks, and the current licensing terms.
+Earlier `rc.1` and `rc.2` packages retain their original BSL grants.
 See [installation and release differences](docs/installing.md).
 
 Use Bun 1.3.13. The full deterministic suite and native isolation target macOS;
@@ -33,7 +33,7 @@ deterministic adapter and needs no native model credentials.
 mkdir sevro-demo
 cd sevro-demo
 bun init -y
-bun add --exact @bjoernrochel/sevro@0.1.0-rc.2
+bun add --exact @bjoernrochel/sevro@0.1.0-rc.3
 ```
 
 Continue with [your first evaluation](docs/getting-started.md): the exact command,
@@ -72,7 +72,7 @@ environment.
 
 ## License and acknowledgements
 
-This unreleased checkout uses the [Sevro Source Available License 1.0](LICENSE).
+Release candidate `0.1.0-rc.3` uses the [Sevro Source Available License 1.0](LICENSE).
 Use is free in every context, including commercial work and paid education.
 Selling copies, rebranded versions, or hosted access to Sevro's functionality
 requires a separate license. Modification and free redistribution remain allowed.

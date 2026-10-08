@@ -27,10 +27,9 @@ two years after its first public availability. This checkout does not revoke
 or rewrite earlier grants. The [retained rc.2 license](licenses/BUSL-1.1-0.1.0-rc.2.txt)
 records those terms.
 
-Candidate package metadata uses `SEE LICENSE IN LICENSE`: the new license has
-no SPDX identifier. The matching LICENSE travels in the tarball. Select a new
-release version before publishing; these changes do not alter the already
-published artifact of the same version.
+Package metadata from `0.1.0-rc.3` uses `SEE LICENSE IN LICENSE`: the new license
+has no SPDX identifier. The matching LICENSE travels in the tarball. These
+terms do not alter the already published `rc.1` or `rc.2` artifacts.
 
 ## Branding and independently authored material
 

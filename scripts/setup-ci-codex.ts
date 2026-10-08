@@ -1,7 +1,8 @@
 import { appendFile, mkdir, mkdtemp, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 
-const version = "0.156.1";
+const version = "0.160.1";
+const claudeVersion = "2.1.284";
 const targets = {
   arm64: "aarch64-apple-darwin",
   x64: "x86_64-apple-darwin",
@@ -29,6 +30,7 @@ try {
       "--no-audit",
       "--no-fund",
       `@openai/codex@${version}`,
+      `@anthropic-ai/claude-code@${claudeVersion}`,
     ],
     { stdout: "inherit", stderr: "inherit" },
   );
@@ -57,9 +59,32 @@ try {
     throw new Error("CI Codex native version differs from the pinned version");
   // Expose the native executable: the npm launcher needs Node inside the sandbox.
   await appendFile(githubPath, `${bin}\n`);
+  const claudeBin = join(
+    prefix,
+    "node_modules/@anthropic-ai",
+    `claude-code-darwin-${process.arch}`,
+  );
+  await checkClaudeVersion(join(claudeBin, "claude"));
+  await appendFile(githubPath, `${claudeBin}\n`);
   await appendFile(githubEnv, `TMPDIR=${temporary}\n`);
   console.log(`${output.trim()} installed at ${binary}`);
 } catch (error) {
   await rm(root, { recursive: true, force: true });
   throw error;
+}
+
+async function checkClaudeVersion(binary: string): Promise<void> {
+  if (!(await stat(binary)).isFile())
+    throw new Error("CI Claude native executable is missing");
+  const child = Bun.spawn([binary, "--version"], {
+    stdout: "pipe",
+    stderr: "inherit",
+  });
+  const [output, code] = await Promise.all([
+    new Response(child.stdout).text(),
+    child.exited,
+  ]);
+  if (code !== 0 || output.trim() !== `${claudeVersion} (Claude Code)`)
+    throw new Error("CI Claude native version differs from the pinned version");
+  console.log(`${output.trim()} installed at ${binary}`);
 }

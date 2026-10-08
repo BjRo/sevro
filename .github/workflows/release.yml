@@ -35,7 +35,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.13
-      - name: Install deterministic sandbox prerequisite
+      - name: Install deterministic native host prerequisites
         run: bun scripts/setup-ci-codex.ts
       - run: bun install --frozen-lockfile
       - run: bun run schemas:check

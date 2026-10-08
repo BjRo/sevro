@@ -10,7 +10,7 @@ Linux and Windows are unverified.
 mkdir sevro-demo
 cd sevro-demo
 bun init -y
-bun add --exact @bjoernrochel/sevro@0.1.0-rc.2
+bun add --exact @bjoernrochel/sevro@0.1.0-rc.3
 ```
 
 Run the [packaged deterministic example](getting-started.md#from-an-installed-package)
@@ -33,10 +33,11 @@ no adjustment is needed. Bun must also be on `PATH`: the executable uses
 
 ## Published package and checkout
 
-On 2026-10-07 npm `latest` points to `0.1.0-rc.2`, published under BUSL-1.1.
-The commands above pin it. This checkout contains subsequent runner fixes,
-new onboarding, and [different licensing terms](licensing.md). Its package
-version alone does not prove those changes have been published.
+The commands above pin release candidate `0.1.0-rc.3`, which includes runtime
+configuration, native goals, selected plugin hooks, current onboarding, and
+[source-available licensing terms](licensing.md). Earlier `rc.1` and `rc.2`
+packages retain BUSL-1.1. Source checkouts can include changes beyond their
+package version; compare the exact release tag when establishing provenance.
 
 The candidate npm package contains sources, schemas, examples, documentation,
 LICENSE, and contribution guidance. It excludes tests, developer scripts, Git
@@ -59,11 +60,11 @@ directories; it does not publish. [Contributing](../CONTRIBUTING.md) lists check
 Review a release's license and compatibility, then install its exact version:
 
 ```sh
-bun add --exact @bjoernrochel/sevro@0.1.0-rc.2
+bun add --exact @bjoernrochel/sevro@0.1.0-rc.3
 ```
 
-Here `rc.2` is the known published version, not a claim that an upgrade is
-available. Substitute the intended published version, then rerun the example.
+This selects `rc.3` explicitly. For later updates, substitute the intended
+published version, then rerun the example.
 Rollback uses the prior exact version and another verification run.
 [Releases](releases.md) explains artifact provenance.
 
