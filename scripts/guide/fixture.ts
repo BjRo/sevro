@@ -83,3 +83,59 @@ export async function guideFixture(kind?: string) {
   });
   return { files, artifacts };
 }
+
+function shellQuote(value: string): string {
+  return "'" + value.replaceAll("'", "'\"'\"'") + "'";
+}
+
+function fixtureDirectories(paths: string[]): string[] {
+  const directories = new Set(["."]);
+  for (const path of paths) {
+    const parts = path.split("/");
+    for (let count = 1; count < parts.length; count++)
+      directories.add("./" + parts.slice(0, count).join("/"));
+  }
+  return [...directories].sort();
+}
+
+export function fixtureCheck(
+  fixture: Awaited<ReturnType<typeof guideFixture>>,
+) {
+  const checksums = fixture.artifacts.map(
+    (item) => item.sha256 + "  " + item.relativePath,
+  );
+  const directories = fixtureDirectories([
+    ...Object.keys(fixture.files),
+    ...fixture.artifacts.map((item) => item.relativePath),
+  ]);
+  const run = [
+    'test -z "$(git status --porcelain --untracked-files=all)"',
+    ...fixture.artifacts.map(
+      (item) =>
+        "test ! -L " +
+        shellQuote(item.relativePath) +
+        " && test ! -x " +
+        shellQuote(item.relativePath),
+    ),
+    "printf '%s\\n' " +
+      checksums.map(shellQuote).join(" ") +
+      " | /usr/bin/shasum -a 256 --check --status --strict -",
+    "test \"$(find . -path './.git' -prune -o -type d -print | LC_ALL=C sort)\" = " +
+      shellQuote(directories.join("\n")),
+  ].join("\n");
+  return {
+    id: "sevro.guide.files-unchanged",
+    grader: "sevro.shell",
+    configuration: { run },
+  };
+}
+
+export async function guideSources(): Promise<string[]> {
+  const code = [
+    ...new Bun.Glob("scripts/guide/*.ts").scanSync({ cwd: guideRoot }),
+    ...new Bun.Glob("src/**/*.{ts,cjs}").scanSync({ cwd: guideRoot }),
+  ];
+  return [...new Set([...code, casesPath, ...(await fixtureSources())])].map(
+    (path) => join(guideRoot, path),
+  );
+}

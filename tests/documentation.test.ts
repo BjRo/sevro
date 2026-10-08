@@ -2,13 +2,34 @@ import { expect, test } from "bun:test";
 import { guideCli } from "./fixtures/documentation-tools";
 import { inspectMarkdown } from "../scripts/check-docs";
 import {
-  answerChecks,
-  semanticChecks,
   usedGuide,
   readOnlyCommand,
   effectAttempts,
   inspectedSources,
-} from "../scripts/eval-guide";
+} from "../scripts/guide/evidence";
+import {
+  gradeOutput,
+  prepareOutputChecks,
+  isOutputGrader,
+} from "../src/graders/output";
+import cases from "../.agents/skills/sevro-guide/evals/cases.json";
+
+function prepared(
+  checks: {
+    id: string;
+    grader: string;
+    configuration: Record<string, unknown>;
+  }[],
+) {
+  return prepareOutputChecks(
+    checks.map((check) => {
+      const grader = check.grader;
+      if (!isOutputGrader(grader))
+        throw new Error("Expected a built-in output grader");
+      return { ...check, grader };
+    }),
+  );
+}
 
 test("Markdown parser ignores code links and applies duplicate GitHub heading anchors", () => {
   const page = inspectMarkdown(
@@ -29,26 +50,17 @@ test("Markdown and HTML images need alternatives and fenced commands need langua
   expect(page.errors).toHaveLength(3);
 });
 
-test("Guide answer controls refuse generic reassurance without required result distinctions", () => {
-  expect(
-    answerChecks("Everything works perfectly.", [
-      "states",
-      "citation",
-      "unknown",
-      "boundary",
-    ]),
-  ).toEqual({
-    states: false,
-    citation: false,
-    unknown: false,
-    boundary: false,
-  });
-  expect(
-    answerChecks(
-      "Unknown: docs/getting-started.md is missing. Request that source.",
-      ["unknown", "citation"],
-    ),
-  ).toEqual({ unknown: true, citation: true });
+test("Declarative guide answer rules reject generic reassurance", () => {
+  for (const id of ["explicit", "missing", "unauthorized"]) {
+    const selected = cases.find((item) => item.id === id);
+    if (!selected) throw new Error("Missing case");
+    const checks = prepared(selected.checks);
+    expect(
+      gradeOutput("Everything works perfectly.", true, checks).some(
+        (check) => check.status === "failed",
+      ),
+    ).toBe(true);
+  }
 });
 
 test("Native discovery is not satisfied by the skill name in an unrelated fixture path", () => {
@@ -83,11 +95,11 @@ test("Native discovery is not satisfied by the skill name in an unrelated fixtur
       },
     ],
   };
-  expect(usedGuide(turn)).toBe(false);
+  expect(usedGuide(turn, "Canonical guide body")).toBe(false);
   expect(inspectedSources(turn)).toEqual(["README.md"]);
   request.input.file_path =
     "/tmp/sevro-guide-trial-x/repository/.claude/skills/sevro-guide/SKILL.md";
-  expect(usedGuide(turn)).toBe(false);
+  expect(usedGuide(turn, "Canonical guide body")).toBe(false);
 });
 
 test("Read-only command classification ignores words in grep patterns and rejects execution", () => {
@@ -119,8 +131,6 @@ test("Read-only command classification ignores words in grep patterns and reject
   expect(
     effectAttempts({
       answer: "",
-      code: 0,
-      diagnostic: "",
       events: [
         {
           type: "item.completed",
@@ -138,14 +148,19 @@ test("Read-only command classification ignores words in grep patterns and reject
 test("Lexical signals cannot validate contradictory benchmark claims", () => {
   const fabricated =
     "README.md: deterministic evaluation. Prompt-only grading is passed. Unknown conflict between README.md and package.json; install the invented package. Linux support is not unverified. evidencePath. Read-only.";
-  const checks = semanticChecks(fabricated, ["states", "unverified"]);
-  expect(checks.resultDistinctions).toBe(false);
-  expect(checks.noExpandedSupport).toBe(false);
+
+  for (const id of ["explicit", "stale"]) {
+    const selected = cases.find((item) => item.id === id);
+    if (!selected) throw new Error("Missing case");
+    expect(
+      gradeOutput(fabricated, true, prepared(selected.checks)).some(
+        (check) => check.status === "failed",
+      ),
+    ).toBe(true);
+  }
   expect(
     inspectedSources({
       answer: fabricated,
-      code: 0,
-      diagnostic: "",
       events: [],
     }),
   ).toEqual([]);
@@ -178,7 +193,7 @@ test("Mentioning or listing a source is not content inspection or guide activati
         },
       ],
     };
-    expect(usedGuide(turn)).toBe(false);
+    expect(usedGuide(turn, "Canonical guide body")).toBe(false);
     expect(inspectedSources(turn)).toEqual([]);
   }
   const listing = {
@@ -218,17 +233,28 @@ test.each(["codex", "claude"])(
     const run = await guideCli([
       "--host",
       host,
-      "--case",
+      "--case-id",
       "unrelated",
-      "--jobs",
-      "1",
+
+      ...(host === "codex"
+        ? [
+            "--codex-bin",
+            "/bin/false",
+            "--codex-auth-file",
+            "/unused-auth.json",
+          ]
+        : ["--claude-bin", "/bin/false", "--claude-project-settings"]),
+      "--model",
+      "dry-unverified",
+      "--effort",
+      "medium",
+      "--json",
+
       "--dry",
     ]);
     expect(run.code, run.stderr).toBe(0);
-    expect(run.stdout).toContain(
-      "unrelated: execution=not_run grading=not_requested task=not_assessed",
-    );
+    expect(run.stdout).toContain('"execution":{"status":"not_run"}');
+    expect(run.stdout).toContain('"task":{"verdict":"not_assessed"}');
     expect(run.stdout).toContain("/run.json");
-    expect(run.stdout).toContain("Native host remains unverified.");
   },
 );

@@ -3,6 +3,8 @@ import { createCoverageMap } from "istanbul-lib-coverage";
 import { mergeChecked } from "./coverage/gate";
 import { runCoverage, enforceThresholds } from "./coverage/run";
 import { resolve } from "node:path";
+import { readFileSync } from "node:fs";
+import { object } from "./coverage/records";
 import { checkInventory } from "./typescript-inventory.mjs";
 import { runInNewContext } from "node:vm";
 import { integrityProbes } from "./coverage/probes";
@@ -36,10 +38,7 @@ async function qualityGate(fast) {
     run([process.execPath, "run", name], root);
   }
   if (fast) return;
-  run(
-    [process.execPath, "run", "eval:guide", "--host", "codex", "--dry"],
-    root,
-  );
+  guideDryRuns(root);
   run([process.execPath, "run", "test:docs-examples"], root);
   integrityProbes();
   sourceMapProbe();
@@ -47,6 +46,45 @@ async function qualityGate(fast) {
   coverageScopeProbe(root);
   runCoverage(root);
   run([process.execPath, "run", "test:package-install"], root);
+}
+
+/** @param {string} root */
+function guideDryRuns(root) {
+  const cases = /** @type {unknown} */ (
+    JSON.parse(
+      readFileSync(
+        resolve(root, ".agents/skills/sevro-guide/evals/cases.json"),
+        "utf8",
+      ),
+    )
+  );
+  if (!Array.isArray(cases)) throw new Error("Invalid guide cases");
+  for (const value of cases) {
+    const id = object(/** @type {unknown} */ (value)).id;
+    if (typeof id !== "string") throw new Error("Invalid guide case ID");
+    run(
+      [
+        process.execPath,
+        "run",
+        "eval:guide",
+        "--case-id",
+        id,
+        "--host",
+        "codex",
+        "--codex-bin",
+        "/bin/false",
+        "--codex-auth-file",
+        "/unused-auth.json",
+        "--model",
+        "dry-unverified",
+        "--effort",
+        "medium",
+        "--json",
+        "--dry",
+      ],
+      root,
+    );
+  }
 }
 
 function branchProbe() {

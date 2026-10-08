@@ -1,34 +1,45 @@
 # Evaluate the repository guide
 
-Guide evals use Sevro's engine, bundled Codex/Claude hosts, and a repository
-extension for guide-specific fixtures and grading. The question inventory and
+Guide evals use Sevro's standard CLI, native hosts, built-in answer graders,
+and a small extension for guide-specific evidence and fixtures. The inventory and
 cases remain under `.agents/skills/sevro-guide/evals/`. The
 [extension modules](../scripts/guide/README.md) do not implement a second runner.
 
 From this checkout, validate fixture preparation without launching a model:
 
 ```sh
-bun run eval:guide --host codex --dry
-bun run eval:guide --host claude --dry
+bun run eval:guide --case-id orientation --host codex \
+  --codex-bin /bin/false --codex-auth-file /unused-auth.json \
+  --model dry-unverified --effort medium --json --dry
 ```
+
+The dry command's executable and auth paths are unused; it makes no native
+host call. The full quality gate dry-prepares every case.
 
 Live runs require the [native host prerequisites](native-hosts.md), macOS
 isolation, existing authentication, and an explicit model identifier:
 
 ```sh
-bun run eval:guide --host codex --model <codex-model> --effort medium
-bun run eval:guide --host claude --model <claude-model> --effort medium
+bun run eval:guide --case-id orientation --host codex \
+  --codex-bin "$(command -v codex)" \
+  --codex-auth-file "${CODEX_HOME:-$HOME/.codex}/auth.json" \
+  --model <codex-model> --effort medium --json
+
+bun run eval:guide --case-id orientation --host claude \
+  --claude-bin "$(command -v claude)" --claude-project-settings \
+  --model <claude-model> --effort medium --json
 ```
 
-These commands consume the selected account's model quota. Use `--case <id>`
-for a bounded rerun and `--jobs 1` for serial cases; the default is two concurrent
-cases. Each case runs one passive Sevro trial. Dry runs retain
+These commands consume the selected account's model quota. The launcher forwards
+[Sevro's CLI options](development-cli.md); use `--case-id` for case selection,
+`--trials` for repeated trials, and `--jobs` for Sevro's trial concurrency.
+It defaults to one passive trial per selected case. Dry runs retain
 `not_run / not_requested / not_assessed`; they never establish native support.
 
-Each run prints its case states and evidence path. Ignored
+With `--json`, Sevro prints its standard CLI result and evidence path. Ignored
 `.guide-results/<run-id>/` directories contain Sevro's `run.json`, trial
-evidence, retained native event artifacts, and a `result.json` usable with
-the [standard report command](report-v1.md):
+evidence and retained native event artifacts. Save stdout to a result file
+to use the [standard report command](report-v1.md):
 
 ```sh
 bun src/cli.ts report --result-file /absolute/path/to/result.json
@@ -41,9 +52,11 @@ The case matrix covers orientation, explicit invocation, unrelated requests,
 missing/conflicting/stale evidence, follow-ups, pressure for effects,
 extension boundaries, contributions, and licensing.
 Missing event artifacts, incomplete turns, missing dispatch receipts, or absent
-fresh follow-up reads cannot pass. The extension checks guide selection,
-answer signals, inspected citations, attempted effects, and unchanged visible
-fixture contents.
+fresh follow-up reads cannot pass. Built-in `sevro.regex` checks assess answer
+assertions and contradictions. The `sevro.shell` check verifies Git status,
+hashes of ignored skill/assets, and visible directories. Custom grading is
+limited to selection observations, inspected citations, and attempted effects.
+The follow-up case also reuses Sevro's output grader for its initial answer.
 
 The execution envelope now follows [Sevro's native hosts](native-hosts.md).
 Claude fixtures also deny editing, shell execution, delegation, and web tools.

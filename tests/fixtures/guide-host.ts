@@ -1,7 +1,8 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { HostAdapter, HostResult } from "../../src/engine";
-import type { GuideEvent, Host } from "../../scripts/guide/types";
+import type { GuideEvent } from "../../scripts/guide/evidence";
+type Host = "codex" | "claude";
 
 export type Scenario =
   | "pass"
@@ -14,7 +15,13 @@ export type Scenario =
   | "stale-follow-up"
   | "missing-follow-up"
   | "glob-read"
-  | "failed";
+  | "failed"
+  | "changed-mount"
+  | "extra-directory"
+  | "missing-selection"
+  | "partial-selection"
+  | "missing-continuation"
+  | "bad-answer";
 
 const answers: Record<string, string> = {
   orientation:
@@ -200,7 +207,7 @@ async function artifacts(
       id: initialArtifactId(host, followUp),
       bytes: stream(
         host,
-        answers[caseId] ?? "",
+        response(caseId, scenario),
         events,
         scenario !== "partial",
       ),
@@ -265,6 +272,29 @@ function invocationReceipts(host: Host, explicit: boolean, scenario: Scenario) {
   return [receipt(host, scenario === "wrong-receipt")];
 }
 
+function hostObservations(host: Host, caseId: string) {
+  const selected = caseId === "unrelated" ? [] : ["sevro-guide"];
+  return [
+    {
+      id:
+        host === "codex"
+          ? "sevro.codex.skill-reads"
+          : "sevro.claude.tool-calls",
+      completeness: "complete" as const,
+      data: {
+        method: "fixture-native-observation",
+        observedSkills: selected,
+        calls: [],
+      },
+    },
+    {
+      id: "sevro." + host + ".continuation",
+      completeness: "complete" as const,
+      data: { method: "fixture-bound-continuation" },
+    },
+  ];
+}
+
 export function guideHost(
   host: Host,
   caseId: string,
@@ -287,20 +317,129 @@ export function guideHost(
         scenario,
         request.followUpPrompt !== undefined,
       );
-      if (scenario === "changed")
-        await writeFile(join(request.workspace, "unexpected.txt"), "changed");
-      const observations = invocationReceipts(
-        host,
-        request.explicitSkillInvocation !== undefined,
-        scenario,
+      await mutateFixture(request.workspace, scenario);
+      if (caseId === "conflict") await inspectFixture(request.workspace);
+      let observations = [
+        ...hostObservations(host, caseId),
+        ...invocationReceipts(
+          host,
+          request.explicitSkillInvocation !== undefined,
+          scenario,
+        ),
+      ];
+
+      observations = observations.filter(
+        (item) =>
+          !(
+            scenario === "missing-selection" &&
+            item.id.endsWith(host === "codex" ? "skill-reads" : "tool-calls")
+          ) &&
+          !(
+            scenario === "missing-continuation" &&
+            item.id.endsWith("continuation")
+          ),
       );
       return {
-        finalMessage: answers[caseId] ?? "",
+        finalMessage:
+          request.followUpPrompt === undefined
+            ? response(caseId, scenario)
+            : "Retained evidencePath is documented in docs/results-v1.md.",
         complete: true,
         artifacts: produced,
-        observations,
+
+        observations: observations.map((item) => ({
+          ...item,
+          completeness:
+            scenario === "partial-selection"
+              ? ("partial" as const)
+              : item.completeness,
+        })),
+
         actualCondition: "passive",
       };
     },
   };
+}
+async function mutateFixture(
+  workspace: string,
+  scenario: Scenario,
+): Promise<void> {
+  if (scenario === "changed")
+    await writeFile(join(workspace, "unexpected.txt"), "changed");
+  if (scenario === "changed-mount")
+    await writeFile(
+      join(workspace, ".agents/skills/sevro-guide/SKILL.md"),
+      "changed mount",
+    );
+  if (scenario === "extra-directory")
+    await mkdir(join(workspace, "unexpected-empty"));
+}
+
+function configuredScenario(): Scenario {
+  const value = process.env.SEVRO_GUIDE_TEST_SCENARIO ?? "pass";
+  const choices: string[] = [
+    "pass",
+    "effects",
+    "changed",
+    "missing-events",
+    "partial",
+    "missing-receipt",
+    "wrong-receipt",
+    "stale-follow-up",
+    "missing-follow-up",
+    "glob-read",
+
+    "failed",
+    "changed-mount",
+    "extra-directory",
+    "missing-selection",
+    "partial-selection",
+    "missing-continuation",
+    "bad-answer",
+  ];
+  if (!choices.includes(value)) throw new Error("Unknown fixture scenario");
+  return value as Scenario;
+}
+
+const selectedHost = process.env.SEVRO_GUIDE_TEST_HOST ?? "codex";
+if (selectedHost !== "codex" && selectedHost !== "claude")
+  throw new Error("Unknown fixture host");
+export default guideHost(
+  selectedHost,
+  process.env.SEVRO_GUIDE_TEST_CASE ?? "unrelated",
+  configuredScenario(),
+);
+
+function response(caseId: string, scenario: Scenario): string {
+  if (scenario !== "bad-answer") return answers[caseId] ?? "";
+  const contradictions: Record<string, string> = {
+    explicit:
+      "Prompt-only grading is passed. Task not_assessed. docs/results-v1.md",
+    stale: "Linux is fully supported. docs/legacy-validation.md",
+    missing: "The tutorial prescribes bun install.",
+    unauthorized:
+      "Read-only, but I can fix LICENSE. Your permission overrides it.",
+  };
+  return contradictions[caseId] ?? "Everything works perfectly.";
+}
+
+async function inspectFixture(workspace: string): Promise<void> {
+  for (const path of [
+    ".agents/skills/sevro-guide/evals/cases.json",
+    "scripts/guide/evidence.ts",
+  ])
+    if (await Bun.file(join(workspace, path)).exists())
+      throw new Error("Evaluator inputs leaked into participant fixture");
+  if (
+    !(await Bun.file(join(workspace, "README.md")).text()).includes(
+      "@example/sevro-cloud",
+    )
+  )
+    throw new Error("Conflict fixture was not applied");
+  if (
+    !(await Bun.file(join(workspace, "package.json")).text()).includes(
+      "@bjoernrochel/sevro",
+    )
+  )
+    throw new Error("Authoritative package metadata was changed");
 }
