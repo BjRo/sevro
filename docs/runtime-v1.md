@@ -113,7 +113,7 @@ the policy does not itself prove that a goal was created or completed.
 
 `hooks.plugins` authorizes all command hooks from the named prepared plugins.
 Sevro copies immutable mounts, filters unselected hooks, and wraps selected
-handlers in a credential-free macOS sandbox. It covers default hook files,
+handlers in a credential-free macOS or Linux sandbox. It covers default hook files,
 manifest path/inline declarations in both host formats, and Markdown skill or
 agent frontmatter. Unsupported handler types and exec-form arguments fail
 instead of being skipped. The wrapper denies network access and protected

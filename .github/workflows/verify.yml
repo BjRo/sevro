@@ -12,8 +12,8 @@ permissions:
 
 jobs:
   verify:
-    name: TypeScript gate (macOS arm64)
-    runs-on: macos-26
+    name: TypeScript gate (Ubuntu x64)
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
@@ -22,6 +22,8 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.13
+      - name: Prepare Linux isolation
+        run: bash scripts/setup-ci-linux.sh
       - name: Install deterministic native host prerequisites
         run: bun scripts/setup-ci-codex.ts
       - run: bun install --frozen-lockfile
@@ -39,7 +41,7 @@ jobs:
     name: TypeScript quality
     needs: verify
     if: always()
-    runs-on: macos-26
+    runs-on: ubuntu-24.04
     steps:
       - name: Require the complete gate
         env:

@@ -107,7 +107,7 @@ The same worktree protection applies to other declared source and private roots;
 a package without Git metadata remains usable. Result and active-run storage
 stay independent through `--results-root` and `--run-state-root`.
 
-A bundled Claude Code candidate route is available on macOS:
+A bundled Claude Code candidate route is available on macOS and Linux:
 
 ```sh
 sevro run --json \
@@ -133,7 +133,7 @@ values are excluded from retained evidence and configuration digests. Pass
 `--claude-credential-file` with an absolute path to select a separate saved login.
 It accepts declared Claude
 plugin directories and explicit skill invocations from extension preparation.
-It runs candidate tools under Claude Code's native macOS sandbox with private,
+It runs candidate tools under Claude Code's native sandbox with private,
 source, and result paths denied. The route disables hooks by default and does not expose
 the Write tool. It currently supports passive candidate turns only. Use
 `--protected-root` to exclude additional private paths from the candidate's
@@ -317,8 +317,8 @@ For shell checks, add
 `--shell-isolation` and repeat `--protected-root /absolute/path` for every
 additional source worktree or private root. The engine always protects the
 selected project, results, runner source, user home, configured host homes,
-and active peer fixtures. Shell checks require macOS `sandbox-exec` in this
-development slice.
+and active peer fixtures. Shell checks require macOS `sandbox-exec` or Linux
+`bubblewrap`.
 Injected host adapters may return namespaced observations and bounded evidence
 artifacts. A case can list their IDs in `requiredEvidence`; missing or partial
 host evidence produces unavailable grading rather than a passing task. The

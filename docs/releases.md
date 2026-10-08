@@ -42,7 +42,14 @@ metadata in the installed package.
    behavior changes. Set `publishConfig.tag` to `latest` for the recommended
    default or `next` for an opt-in preview. A prerelease does not establish full
    Darrow migration completion.
-2. Run frozen installation, typecheck, formatting, and the full test suite.
+2. On macOS with Bun 1.3.13, Node 24, npm, and `sandbox-exec`, run frozen
+   installation and the full quality gate:
+
+   ```sh
+   bun install --frozen-lockfile
+   bun run check:typescript
+   ```
+
 3. Prepare and test the exact candidate:
 
    ```sh
@@ -64,29 +71,21 @@ metadata in the installed package.
    version's evidence for updates. Roll back through a new dependency/lockfile
    commit and rerun the installed gate; never relabel failed-version evidence.
 
-## Manual release workflow
+## Local macOS publication
 
-`.github/workflows/release.yml` runs only through explicit dispatch against a
-release tag. Its default prepares and checks the artifact. `publish: true`
-additionally publishes that verified artifact using npm trusted publishing.
-No push or pull-request event publishes a package.
-
-Before the first publication, an npm owner must establish the package and its
-publishing authorization. The initial reviewed tarball can be published
-manually with an authenticated npm account:
+There is no GitHub release job. The maintainer prepares, verifies, and publishes
+the reviewed tarball from macOS with an authenticated npm account. Check its
+retained checksum immediately before publication:
 
 ```sh
-npm publish /absolute/reviewed/bjoernrochel-sevro-0.1.0-rc.1.tgz --ignore-scripts --access public --tag latest
+cd /absolute/reviewed
+shasum -a 256 -c SHA256SUMS
+npm publish ./bjoernrochel-sevro-0.1.0-rc.1.tgz --ignore-scripts --access public --tag latest
 ```
 
-After the package exists, configure its trusted publisher for GitHub owner
-`BjRo`, repository `sevro`, and workflow filename `release.yml`. The workflow
-uses a GitHub-hosted runner, Node 24, npm 11.20.0, and job-scoped `id-token: write`.
-The package repository URL must match this public repository. See npm's
-[trusted publishing documentation](https://docs.npmjs.com/trusted-publishers/).
-The workflow checks the downloaded artifact's SHA-256 before publishing and
-retains its release record. Configuring an owner or workflow does not itself
-authorize this coding session to publish or push.
+Replace the example version and distribution tag with the reviewed candidate's
+values. The package repository URL must match this public repository. Preparing
+a tarball or opening a pull request does not authorize publication.
 
 An existing published candidate can become the default without republishing:
 
@@ -99,7 +98,7 @@ Promotion changes the registry tag; it does not update the published tarball.
 
 The first published candidate was `0.1.0-rc.1`, using the owner-selected
 `BUSL-1.1` license. Its `LICENSE` preserves Darrow's terms and parameters,
-changing only the Licensed Work name and description to Sevro. Neither local
-checks nor a workflow file claim a remote CI run or publication. Darrow's exact
+changing only the Licensed Work name and description to Sevro. Local checks do
+not claim a remote CI run or publication. Darrow's exact
 registry pin, default caller switch, remaining workflow migrations, focused live validation, and
 generic runner removal remain separate extraction gates.

@@ -17,7 +17,7 @@ export class HostIsolationError extends Error {
   }
 }
 
-function inside(root: string, path: string): boolean {
+export function inside(root: string, path: string): boolean {
   const child = relative(root, path);
   return (
     child === "" ||
@@ -141,7 +141,7 @@ export async function prepareMacSandboxCommand(options: {
   };
 }
 
-async function commandRuntimeRoot(
+export async function commandRuntimeRoot(
   stateRoot: string,
   path: string | undefined,
 ): Promise<string | undefined> {
@@ -159,7 +159,7 @@ function requireSandboxAvailable(): void {
     throw new HostIsolationError("macOS sandbox-exec isolation is unavailable");
 }
 
-function requireIsolationPaths(
+export function requireIsolationPaths(
   options: Parameters<typeof prepareMacSandboxCommand>[0],
 ): void {
   if (!options.argv.length || options.argv.some((part) => !part))
@@ -180,7 +180,7 @@ function absoluteIsolationPaths(
   );
 }
 
-function requireDisjointState(
+export function requireDisjointState(
   workspace: string,
   roots: string[],
   stateRoot: string,

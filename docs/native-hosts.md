@@ -1,7 +1,8 @@
 # Run native model hosts
 
 The basic tutorial needs none of this setup. Bundled model routes and isolated
-shell checks require macOS `sandbox-exec`, a supported native CLI, and model
+shell checks require macOS `sandbox-exec` or Linux `bubblewrap` (and `socat` for
+Claude Code), a supported native CLI, and model
 authentication. Complete commands/rules live in the [CLI reference](development-cli.md)
 and [Codex host reference](codex-host.md).
 

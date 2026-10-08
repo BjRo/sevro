@@ -1,5 +1,6 @@
 import { isMissingFile } from "../fixture-tools";
-import { lstat, realpath, stat } from "node:fs/promises";
+import { lstat, readdir, realpath, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 
 async function containingRepository(root: string): Promise<string | null> {
@@ -14,12 +15,26 @@ async function containingRepository(root: string): Promise<string | null> {
 
 async function hasRepositoryMetadata(directory: string): Promise<boolean> {
   try {
-    await lstat(join(directory, ".git"));
-    return true;
+    const path = join(directory, ".git");
+    const metadata = await lstat(path);
+    return !(await emptyTemporaryGitPlaceholder(directory, path, metadata));
   } catch (cause) {
     if (isMissingFile(cause)) return false;
     throw new Error("protected repository metadata is unreadable", { cause });
   }
+}
+
+async function emptyTemporaryGitPlaceholder(
+  directory: string,
+  path: string,
+  metadata: Awaited<ReturnType<typeof lstat>>,
+): Promise<boolean> {
+  // Codex's Linux sandbox can leave an empty mount placeholder at /tmp/.git.
+  return (
+    directory === tmpdir() &&
+    metadata.isDirectory() &&
+    (await readdir(path)).length === 0
+  );
 }
 
 /** Protect the primary checkout and linked worktrees without requiring Git. */

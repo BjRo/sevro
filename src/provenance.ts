@@ -1,6 +1,7 @@
 import type { Stats } from "node:fs";
 import { createHash } from "node:crypto";
 import { lstat, readFile, readdir, readlink, realpath } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import packageJson from "../package.json";
@@ -221,16 +222,35 @@ export async function checkoutProvenance(root: string, buildDigest: string) {
 async function enclosingGitRoot(root: string): Promise<string | null> {
   let path = root;
   for (;;) {
-    try {
-      await lstat(join(path, ".git"));
-      return path;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
+    if (await gitMetadataAt(path)) return path;
     const parent = dirname(path);
     if (parent === path) return null;
     path = parent;
   }
+}
+
+async function gitMetadataAt(path: string): Promise<boolean> {
+  try {
+    const metadataPath = join(path, ".git");
+    const metadata = await lstat(metadataPath);
+    return !(await emptyTemporaryGitPlaceholder(path, metadataPath, metadata));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+async function emptyTemporaryGitPlaceholder(
+  directory: string,
+  metadataPath: string,
+  metadata: Stats,
+): Promise<boolean> {
+  // Codex's Linux sandbox can leave an empty mount placeholder at /tmp/.git.
+  return (
+    directory === tmpdir() &&
+    metadata.isDirectory() &&
+    (await readdir(metadataPath)).length === 0
+  );
 }
 
 export async function projectProvenance(root: string) {

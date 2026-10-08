@@ -38,7 +38,7 @@ The shell-check process runner accepts a bounded evaluator-owned `run` string,
 optional `expectedExitCode` and `timeoutMs`, plus `expectExact`, `expectRegex`,
 `notRegex`, and regex `flags` for stdout. Exact matching removes one final
 newline; regex matching always uses multiline mode. The runner executes with
-`sh -e`. On macOS it runs through the outer sandbox with network access denied,
+`sh -e`. On macOS and Linux it runs through the outer sandbox with network access denied,
 a credential-free environment, and caller-declared protected roots. Without a
 stdout assertion, process output is discarded. With one, the runner captures
 at most 1 MiB in memory and retains only its digest and byte length. Oversized

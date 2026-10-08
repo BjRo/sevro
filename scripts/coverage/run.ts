@@ -120,7 +120,15 @@ function runTests(
   root: string,
 ) {
   const child = Bun.spawnSync(
-    [process.execPath, "test", ...testArguments, "--timeout", "15000"],
+    [
+      process.execPath,
+      "test",
+      ...testArguments,
+      "--timeout",
+      "15000",
+      "--max-concurrency",
+      "4",
+    ],
     { cwd: project, env, stdout: "pipe", stderr: "pipe" },
   );
   const output = child.stdout.toString() + child.stderr.toString();

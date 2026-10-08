@@ -1,6 +1,6 @@
 import { mkdir, stat } from "node:fs/promises";
 import { delimiter, join } from "node:path";
-import { prepareMacSandboxCommand } from "../hosts/mac-sandbox";
+import { prepareIsolatedCommand } from "../hosts/isolation";
 import type { RuntimePolicy } from "../runtime-config";
 import { prepareRuntimeState } from "../runtime-state";
 import { hashJson } from "../identity";
@@ -304,7 +304,7 @@ async function shellRuntime(options: ShellRunOptions) {
   };
 }
 type ShellRuntime = Awaited<ReturnType<typeof shellRuntime>>;
-type Isolation = Awaited<ReturnType<typeof prepareMacSandboxCommand>>;
+type Isolation = Awaited<ReturnType<typeof prepareIsolatedCommand>>;
 function shellRuntimeEnvironment(
   runtime: ShellRuntime,
   enabled: boolean | undefined,
@@ -433,7 +433,7 @@ export async function runShellCheck(
 ): Promise<ShellCheckResult> {
   if (options.signal?.aborted) throw new Error("shell check cancelled");
   const runtime = await shellRuntime(options);
-  const isolated = await prepareMacSandboxCommand({
+  const isolated = await prepareIsolatedCommand({
     argv: ["/bin/sh", "-e", "-c", check.run],
     workspace: options.workspace,
     protectedRoots: [...options.protectedRoots, ...shellSeedSources(options)],

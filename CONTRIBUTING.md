@@ -26,8 +26,9 @@ by applicable law.
 
 ## Set up development
 
-Use Bun 1.3.13, Git, Node 24, and npm. Full suite isolation needs macOS and
-`sandbox-exec`; Linux/Windows acceptance is unverified. From a fresh checkout:
+Use Bun 1.3.13, Git, Node 24, and npm. Full suite isolation uses `sandbox-exec`
+on macOS or `bubblewrap` and `socat` on Ubuntu. Windows acceptance is unverified.
+From a fresh checkout:
 
 ```sh
 bun install --frozen-lockfile
@@ -70,7 +71,7 @@ Documentation checks supplement #1 rather than replacing its contract.
 
 ## Tests, fixtures, and schemas
 
-Preserve real Bun filesystem/process integration tests and macOS isolation.
+Preserve real Bun filesystem/process integration tests and native isolation.
 Use deterministic fixtures under `tests/fixtures/`; keep evaluator-only inputs
 outside candidate workspaces. Keep credentials and raw trial evidence out of Git.
 Add meaningful regression coverage for reproducible bugs. Fixtures should
