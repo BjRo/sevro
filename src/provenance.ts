@@ -247,7 +247,8 @@ async function emptyTemporaryGitPlaceholder(
 ): Promise<boolean> {
   // Codex's Linux sandbox can leave an empty mount placeholder at /tmp/.git.
   return (
-    directory === tmpdir() &&
+    process.platform === "linux" &&
+    (directory === "/tmp" || directory === tmpdir()) &&
     metadata.isDirectory() &&
     (await readdir(metadataPath)).length === 0
   );
