@@ -68,10 +68,21 @@ function sedRead(payload: string, path: string): DirectRead | null {
 function directRead(command: string): DirectRead | null {
   const payload = shellPayload(command).trim();
   const path = "(?:\"([^\"]+)\"|'([^']+)'|([^\\s'\"`$;&|<>]+))";
+  return catRead(payload, path) ?? sedRead(payload, path);
+}
+
+function catRead(payload: string, path: string): DirectRead | null {
   const cat = payload.match(
-    new RegExp(`^(?:/bin/)?cat\\s+(?:--\\s+)?${path}$`),
+    new RegExp(`^(?:/bin/)?cat\\s+(?:--\\s+)?(${path}(?:\\s+${path})*)$`),
   );
-  return cat ? { path: capturedReadPath(cat, 1) } : sedRead(payload, path);
+  if (!cat) return null;
+  const paths = [
+    ...cat.slice(1, 2).join("").matchAll(new RegExp(path, "g")),
+  ].map((match) => capturedReadPath(match, 1));
+  const skills = paths.filter((value) => /(?:^|\/)SKILL\.md$/.test(value));
+  if (skills.length !== 1 || paths.length > MAX_NATIVE_READ_ATTEMPTS)
+    return null;
+  return { path: skills.join("") };
 }
 
 function readRange(body: string, read: DirectRead): [number, number] {

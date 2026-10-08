@@ -1,96 +1,109 @@
-import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { assessGuide, failedChecks, followUpSources } from "./assessment";
-import { followUpTurn, nativeInvocation } from "./native-invocation";
-import { runGuideTurn } from "./native-turn";
-import { inspectedSources } from "./observations";
-import type { GuideCase, Host } from "./types";
-import { fingerprint, guideEnvironment, guideFixture } from "./workspace";
+import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { runEvaluation, type HostAdapter } from "../../src/engine";
+import { openExtensionSession } from "../../src/extension-session";
+import { workspaceFingerprint } from "../../src/hosts/workspace-fingerprint";
+import {
+  packageBuildDigest,
+  projectIdentityDigest,
+  projectProvenance,
+} from "../../src/provenance";
+import { resolvedFixture } from "../../src/resolved-case";
+import { atomicWriteJson } from "../../src/storage";
+import { casesPath, fixtureSources, guideRoot } from "./fixture";
+import { workspaceObservation } from "./grading";
 
-async function trial(
-  test: GuideCase,
-  host: Host,
-  output: string,
-  model: string | undefined,
-  temporary: string,
-) {
-  const project = join(temporary, "repository");
-  const home = join(temporary, "private-host");
-  await guideFixture(project, test.fixture);
-  await mkdir(home, { mode: 0o700 });
-  const before = await fingerprint(project);
-  const env = await guideEnvironment(host, home);
-  const session = randomUUID();
-  const first = await runGuideTurn(
-    host,
-    project,
-    test.prompt,
-    env,
-    session,
-    model,
-  );
-  const invocation = await nativeInvocation(host, test, project, home, session);
-  const follow = await followUpTurn(
-    test,
-    host,
-    first,
-    project,
-    env,
-    session,
-    model,
-  );
-  const assessment = assessGuide(
-    test,
-    {
-      first,
-      follow,
-      nativeInvocation: invocation,
-      filesUnchanged: before === (await fingerprint(project)),
+export function observedHost(host: HostAdapter): HostAdapter {
+  return {
+    ...host,
+    configuration: {
+      ...host.configuration,
+      "sevro.guide.workspace-observation": true,
     },
-    invocation !== undefined,
-  );
-  await mkdir(output, { recursive: true });
-  await writeFile(
-    join(output, `${test.id}.json`),
-    JSON.stringify(
-      {
-        id: test.id,
-        host,
-        model: model ?? "native default; inspect host init events",
-        fixtureDigest: before,
-        passed: assessment.passed,
-        acceptance: "automatic checks only; human claim grounding required",
-        signals: assessment.signals,
-        checks: assessment.checks,
-        sourceReads: inspectedSources(first),
-        followUpSourceReads: followUpSources(follow),
-        nativeInvocation: invocation,
-        effectAttempts: assessment.attempts,
-        first,
-        follow,
-      },
-      null,
-      2,
-    ),
-  );
-  console.log(
-    `${assessment.passed ? "AUTO PASS" : "FAIL"} ${host}/${test.id}: ${failedChecks(assessment.checks, "all checks")}`,
-  );
-  return { id: test.id, passed: assessment.passed, checks: assessment.checks };
+    async run(request) {
+      const before = await workspaceFingerprint(request.workspace);
+      const result = await host.run(request);
+      const after = await workspaceFingerprint(request.workspace);
+      const measured = before !== null && after !== null;
+      return {
+        ...result,
+        observations: [
+          ...(result.observations ?? []),
+          {
+            id: workspaceObservation,
+            completeness: measured ? "complete" : "unavailable",
+            data: { unchanged: measured && before === after },
+          },
+        ],
+      };
+    },
+  };
 }
 
-export async function evaluate(
-  test: GuideCase,
-  host: Host,
-  output: string,
-  model?: string,
+export async function guideSession(host: HostAdapter, signal?: AbortSignal) {
+  const code = [...new Bun.Glob("*.ts").scanSync({ cwd: import.meta.dir })];
+  const sourceFiles = [
+    ...new Set([
+      ...code.map((name) => join(import.meta.dir, name)),
+      join(guideRoot, casesPath),
+      ...(await fixtureSources()).map((path) => join(guideRoot, path)),
+      join(guideRoot, "src/value-guards.ts"),
+      join(guideRoot, "src/generated/extension.cjs"),
+      join(guideRoot, "src/hosts/codex-events.ts"),
+      join(guideRoot, "src/hosts/claude-events.ts"),
+    ]),
+  ];
+  return openExtensionSession({
+    command: [process.execPath, join(import.meta.dir, "extension.ts")],
+    sourceFiles,
+    configuration: {},
+    redactedConfiguration: {},
+    engineCapabilities: ["sevro.host.exec", "sevro.case.host-route"],
+    hostCapabilities: host.hostCapabilities ?? [],
+    ...(signal ? { signal } : {}),
+  });
+}
+
+export async function evaluateGuide(
+  caseId: string,
+  host: HostAdapter,
+  options: { dry?: boolean; resultsRoot?: string; signal?: AbortSignal } = {},
 ) {
-  const temporary = await mkdtemp(join(tmpdir(), "sevro-guide-trial-"));
-  try {
-    return await trial(test, host, output, model, temporary);
-  } finally {
-    await rm(temporary, { recursive: true, force: true });
-  }
+  const selected = observedHost(host);
+  const session = await guideSession(selected, options.signal);
+  const [resolvedCase] = await session.resolve(
+    pathToFileURL(guideRoot).href,
+    { caseIds: [caseId] },
+    {
+      id: selected.id,
+      model: selected.model,
+      effort: selected.effort,
+      capabilities: selected.hostCapabilities ?? [],
+    },
+  );
+  if (!resolvedCase) throw new Error("Guide extension resolved no case");
+  const resultsRoot = options.resultsRoot ?? join(guideRoot, ".guide-results");
+  const outcome = await runEvaluation({
+    projectRoot: guideRoot,
+    resultsRoot,
+    case: { ...resolvedCase, fixture: resolvedFixture(resolvedCase.fixture) },
+    extension: { session, resolvedCase },
+    host: selected,
+    runnerBuildDigest: await packageBuildDigest(),
+    runnerCheckoutRoot: guideRoot,
+    projectDigest: await projectIdentityDigest(
+      guideRoot,
+      await projectProvenance(guideRoot),
+      [resultsRoot],
+    ),
+    condition: "passive",
+    trialCount: 1,
+    passThreshold: 1,
+    ...options,
+  });
+  await atomicWriteJson(
+    join(dirname(outcome.result.evidencePath), "result.json"),
+    outcome.result,
+  );
+  return outcome;
 }

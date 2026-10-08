@@ -82,6 +82,37 @@ test("completed direct Codex reads produce bounded ordered skill evidence", asyn
   );
   expect(missingBody.completeness).toBe("partial");
 });
+test.each([
+  { command: "cat README.md .agents/skills/example/SKILL.md", complete: true },
+  {
+    command: 'cat -- ".agents/skills/example/SKILL.md" README.md',
+    complete: true,
+  },
+  {
+    command:
+      "cat .agents/skills/example/SKILL.md .agents/skills/other/SKILL.md",
+    complete: false,
+  },
+  {
+    command:
+      "cat .agents/skills/example/SKILL.md " +
+      Array(64).fill("README.md").join(" "),
+    complete: false,
+  },
+])(
+  "batched literal read $command preserves conservative completeness",
+  async ({ command, complete }) => {
+    const workspace = await fixture();
+    await writeFile(join(workspace, "README.md"), "Repository documentation\n");
+    const observed = await codexSkillReadObservation(
+      stream([read(command, "Repository documentation\n" + body)]),
+      workspace,
+    );
+    expect(observed.completeness).toBe(complete ? "complete" : "partial");
+    expect(observed.data.observedSkills).toEqual(complete ? ["example"] : []);
+  },
+);
+
 test("exact sed pages establish a mounted body only after complete coverage", async () => {
   const workspace = await fixture();
   const lines = defined(body.match(/[^\n]*\n|[^\n]+$/g));

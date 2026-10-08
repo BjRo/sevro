@@ -90,19 +90,3 @@ export function assessGuide(
     passed: Object.values(checks).every(Boolean),
   };
 }
-
-export function failedChecks(
-  checks: Record<string, boolean>,
-  fallback: string,
-): string {
-  return (
-    Object.entries(checks)
-      .filter(([, value]) => !value)
-      .map(([name]) => name)
-      .join(", ") || fallback
-  );
-}
-
-export function followUpSources(follow: Turn | undefined): string[] {
-  return follow ? inspectedSources(follow) : [];
-}

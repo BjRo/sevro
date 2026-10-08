@@ -1,11 +1,5 @@
 import { expect, test } from "bun:test";
-import { readFile, rm } from "node:fs/promises";
-import { join } from "node:path";
-import { parseRecord, record } from "./fixtures/assertions";
-import {
-  guideCli,
-  retainedGuideEvidence,
-} from "./fixtures/documentation-tools";
+import { guideCli } from "./fixtures/documentation-tools";
 import { inspectMarkdown } from "../scripts/check-docs";
 import {
   answerChecks,
@@ -117,6 +111,7 @@ test("Read-only command classification ignores words in grep patterns and reject
     "mystery-command",
     "cat README.md > copied.md",
     "rg --pre executable pattern",
+    "rg needle *",
     "sed -i s/a/b/ README.md",
     "cat $(touch side-effect)",
   ])
@@ -226,90 +221,14 @@ test.each(["codex", "claude"])(
       "--case",
       "unrelated",
       "--jobs",
-      "invalid",
+      "1",
       "--dry",
     ]);
     expect(run.code, run.stderr).toBe(0);
-    expect(run.stdout).toContain("Dry validation: 1 cases,");
-    expect(run.stdout).toContain("Native host remains unverified.");
-  },
-);
-
-test.each([
-  {
-    name: "successful retained arithmetic",
-    code: 0,
-    unchanged: true,
-    effects: false,
-    passed: true,
-  },
-  {
-    name: "failed host with correct answer",
-    code: 1,
-    unchanged: true,
-    effects: false,
-    passed: false,
-  },
-  {
-    name: "changed participant files",
-    code: 0,
-    unchanged: false,
-    effects: false,
-    passed: false,
-  },
-  {
-    name: "write attempt in native events",
-    code: 0,
-    unchanged: true,
-    effects: true,
-    passed: false,
-  },
-])(
-  "Guide rechecks $name without replacing original native evidence",
-  async (scenario) => {
-    const fixture = await retainedGuideEvidence(
-      scenario.code,
-      scenario.unchanged,
-      scenario.effects,
+    expect(run.stdout).toContain(
+      "unrelated: execution=not_run grading=not_requested task=not_assessed",
     );
-    try {
-      const run = await guideCli([
-        "--host",
-        "codex",
-        "--case",
-        "unrelated",
-        "--recheck",
-        fixture.directory,
-      ]);
-      expect(run.code, run.stderr).toBe(scenario.passed ? 0 : 1);
-      expect(
-        await readFile(join(fixture.directory, "unrelated.json"), "utf8"),
-      ).toBe(fixture.original);
-      const recheck = parseRecord(
-        await readFile(
-          join(fixture.directory, "automatic-recheck.json"),
-          "utf8",
-        ),
-      );
-      expect(recheck.acceptance).toBe(
-        "reclassified original native events; human grounding required; no new model calls",
-      );
-      expect(recheck.results).toHaveLength(1);
-      const results = recheck.results;
-      if (!Array.isArray(results))
-        throw new Error("Expected reclassified results");
-      const result = record(results[0]);
-      expect(result.passed).toBe(scenario.passed);
-      expect(result.sourceReads).toEqual([]);
-      expect(result.checks).toEqual({
-        arithmetic: true,
-        hostCompleted: scenario.code === 0,
-        selection: true,
-        noEffectAttempts: !scenario.effects,
-        filesUnchanged: scenario.unchanged,
-      });
-    } finally {
-      await rm(fixture.directory, { recursive: true, force: true });
-    }
+    expect(run.stdout).toContain("/run.json");
+    expect(run.stdout).toContain("Native host remains unverified.");
   },
 );

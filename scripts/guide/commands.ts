@@ -26,14 +26,29 @@ function segments(tokens: ShellTokens): string[][] | null {
   const result: string[][] = [];
   let current: string[] = [];
   for (const token of tokens) {
-    if (typeof token === "string") current.push(token);
-    else if ("op" in token && ["&&", ";", "|"].includes(token.op)) {
+    const word = literalWord(token);
+    if (word !== undefined) current.push(word);
+    else if (separator(token)) {
       result.push(current);
       current = [];
     } else return null;
   }
   result.push(current);
   return result;
+}
+
+function separator(token: ShellTokens[number]): boolean {
+  return (
+    typeof token !== "string" &&
+    "op" in token &&
+    ["&&", ";", "|"].includes(token.op)
+  );
+}
+
+function literalWord(token: ShellTokens[number]): string | undefined {
+  if (typeof token === "string") return token;
+  if (!("op" in token) || token.op !== "glob") return undefined;
+  return /^[A-Za-z0-9_./]/.test(token.pattern) ? token.pattern : undefined;
 }
 
 function readonlySed(args: string[]): boolean {

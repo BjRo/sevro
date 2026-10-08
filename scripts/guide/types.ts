@@ -14,11 +14,4 @@ export type Turn = {
   code: number;
   diagnostic: string;
 };
-export type NativeInvocation = { accepted: boolean | null; reason: string };
 export type Host = "codex" | "claude";
-export type CaseResult = {
-  id: string;
-  passed: boolean;
-  checks?: Record<string, boolean>;
-  diagnostic?: string;
-};

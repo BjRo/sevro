@@ -4,7 +4,7 @@ import {
   isUnknownArray,
 } from "../../src/value-guards";
 import { oracles } from "./answers";
-import type { GuideCase, Turn } from "./types";
+import type { GuideCase } from "./types";
 
 function record(value: unknown): Record<string, unknown> {
   if (!isRecord(value)) throw new Error("Invalid guide evidence record");
@@ -58,60 +58,4 @@ export function parseGuideCases(text: string): GuideCase[] {
   const value: unknown = JSON.parse(text);
   if (!isUnknownArray(value)) throw new Error("Invalid guide cases");
   return value.map(guideCase);
-}
-
-function guideEvents(value: unknown): Record<string, unknown>[] {
-  if (!isUnknownArray(value)) throw new Error("Invalid retained guide events");
-  return value.map(record);
-}
-
-function guideTurn(value: unknown): Turn {
-  const item = record(value);
-  if (
-    typeof item.answer !== "string" ||
-    typeof item.code !== "number" ||
-    typeof item.diagnostic !== "string"
-  )
-    throw new Error("Invalid retained guide turn");
-  return {
-    answer: item.answer,
-    code: item.code,
-    diagnostic: item.diagnostic,
-    events: guideEvents(item.events),
-  };
-}
-
-function invocation(value: unknown): { accepted: boolean | null } | undefined {
-  if (value === undefined) return undefined;
-  const item = record(value);
-  if (item.accepted !== null && typeof item.accepted !== "boolean")
-    throw new Error("Invalid retained guide invocation");
-  return { accepted: item.accepted };
-}
-
-function unchangedFiles(value: unknown): boolean {
-  const item = record(value);
-  if (typeof item.filesUnchanged !== "boolean")
-    throw new Error("Invalid retained guide file evidence");
-  return item.filesUnchanged;
-}
-
-export function parseGuideEvidence(text: string) {
-  const item = record(JSON.parse(text) as unknown);
-  return {
-    first: guideTurn(item.first),
-    follow: item.follow === undefined ? undefined : guideTurn(item.follow),
-    nativeInvocation: invocation(item.nativeInvocation),
-    filesUnchanged: unchangedFiles(item.checks),
-  };
-}
-
-export function parseGuideSummary(text: string): {
-  skillDigest: string;
-  host: string;
-} {
-  const item = record(JSON.parse(text) as unknown);
-  if (typeof item.skillDigest !== "string" || typeof item.host !== "string")
-    throw new Error("Invalid guide summary");
-  return { skillDigest: item.skillDigest, host: item.host };
 }
