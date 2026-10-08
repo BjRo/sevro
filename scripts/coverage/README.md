@@ -2,7 +2,7 @@
 
 This folder measures authored production code while running the real Bun test
 suite and its CLI/extension subprocesses. The canonical entrypoint is
-[`scripts/check-typescript.mjs`](../check-typescript.mjs).
+[`scripts/check-typescript.ts`](../check-typescript.ts).
 
 Run these commands from the repository root:
 

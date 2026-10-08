@@ -1,19 +1,18 @@
 import { createInstrumenter } from "istanbul-lib-instrument";
-import { createCoverageMap } from "istanbul-lib-coverage";
+import { createCoverageMap, type CoverageMapData } from "istanbul-lib-coverage";
 import { mergeChecked } from "./coverage/gate";
 import { runCoverage, enforceThresholds } from "./coverage/run";
 import { resolve } from "node:path";
 import { readFileSync } from "node:fs";
 import { object } from "./coverage/records";
-import { checkInventory } from "./typescript-inventory.mjs";
+import { checkInventory } from "./typescript-inventory";
 import { runInNewContext } from "node:vm";
 import { integrityProbes } from "./coverage/probes";
 import { sourceMapProbe } from "./coverage/source-map-probe";
 import { snapshotProbe } from "./coverage/snapshot-probe";
 import { coverageScopeProbe } from "./coverage/scope-probe";
 
-/** @param {string[]} command @param {string} root */
-function run(command, root) {
+function run(command: string[], root: string) {
   const child = Bun.spawnSync(command, {
     cwd: root,
     stdout: "inherit",
@@ -23,8 +22,7 @@ function run(command, root) {
     throw new Error(`${command.join(" ")} exited ${child.exitCode}`);
 }
 
-/** @param {boolean} fast */
-async function qualityGate(fast) {
+async function qualityGate(fast: boolean) {
   const root = resolve(import.meta.dir, "..");
   await checkInventory(root);
   if (!fast) run([process.execPath, "install", "--frozen-lockfile"], root);
@@ -48,19 +46,16 @@ async function qualityGate(fast) {
   run([process.execPath, "run", "test:package-install"], root);
 }
 
-/** @param {string} root */
-function guideDryRuns(root) {
-  const cases = /** @type {unknown} */ (
-    JSON.parse(
-      readFileSync(
-        resolve(root, ".agents/skills/sevro-guide/evals/cases.json"),
-        "utf8",
-      ),
-    )
+function guideDryRuns(root: string) {
+  const cases: unknown = JSON.parse(
+    readFileSync(
+      resolve(root, ".agents/skills/sevro-guide/evals/cases.json"),
+      "utf8",
+    ),
   );
   if (!Array.isArray(cases)) throw new Error("Invalid guide cases");
   for (const value of cases) {
-    const id = object(/** @type {unknown} */ (value)).id;
+    const id = object(value).id;
     if (typeof id !== "string") throw new Error("Invalid guide case ID");
     run(
       [
@@ -97,8 +92,7 @@ function branchProbe() {
     "function pick(flag) { let result = 1; if (flag) result = 2; return result; } pick(true);",
     "/probe/branch.js",
   );
-  /** @type {{__coverage__?: import('istanbul-lib-coverage').CoverageMapData}} */
-  const context = {};
+  const context: { __coverage__?: CoverageMapData } = {};
   runInNewContext(code, context);
   const map = createCoverageMap(context.__coverage__ ?? {});
   const summary = map.getCoverageSummary().toJSON();

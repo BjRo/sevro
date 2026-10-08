@@ -84,7 +84,7 @@ test.each([
       const child = Bun.spawnSync(
         [
           process.execPath,
-          resolve(project, "scripts/check-typescript.mjs"),
+          resolve(project, "scripts/check-typescript.ts"),
           "--coverage",
           "tests/schema.test.ts",
         ],

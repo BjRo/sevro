@@ -28,7 +28,7 @@
     "sevro": "./src/cli.ts"
   },
   "scripts": {
-    "check:typescript": "bun scripts/check-typescript.mjs",
+    "check:typescript": "bun scripts/check-typescript.ts",
     "check:typescript:fast": "bun run check:typescript --fast",
     "lint": "eslint . --max-warnings 0",
     "cli:dev": "bun src/cli.ts",
@@ -43,7 +43,7 @@
     "eval:guide": "bun scripts/eval-guide.ts",
     "release:prepare": "bun scripts/prepare-release.ts",
     "typecheck": "tsc --noEmit",
-    "format:check": "prettier --check README.md CONTRIBUTING.md AGENTS.md CLAUDE.md 'docs/**/*.md' '.agents/**/*.md' '.agents/**/*.json' '.claude/**/*.md' 'scripts/**/*.md' examples/**/*.json examples/**/*.ts schemas/*.json src/**/*.ts scripts/**/*.ts scripts/**/*.mjs scripts/**/*.cjs tests/**/*.ts eslint.config.mjs package.json tsconfig.json typescript-sources.json .github/workflows/*.yml"
+    "format:check": "prettier --check README.md CONTRIBUTING.md AGENTS.md CLAUDE.md 'docs/**/*.md' '.agents/**/*.md' '.agents/**/*.json' '.claude/**/*.md' 'scripts/**/*.md' examples/**/*.json examples/**/*.ts schemas/*.json src/**/*.ts scripts/**/*.ts scripts/**/*.cjs tests/**/*.ts eslint.config.mjs package.json tsconfig.json typescript-sources.json .github/workflows/*.yml"
   },
   "dependencies": {
     "ajv": "8.20.0",

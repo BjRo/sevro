@@ -4,8 +4,7 @@ import ts from "typescript";
 import { object } from "./coverage/records";
 import { ESLint } from "eslint";
 
-/** @type {Record<string, RegExp>} */
-const rolePaths = {
+const rolePaths: Record<string, RegExp> = {
   production: /^src\/.*(?<!\.d)\.ts$/,
   generated:
     /^src\/generated\/(?:cli-result|run-evidence|report|extension)\.cjs$/,
@@ -21,8 +20,7 @@ const generatedFiles = [
   "run-evidence",
 ].map((name) => `src/generated/${name}.cjs`);
 
-/** @param {Record<string, string[]>} inventory */
-function checkRoles(inventory) {
+function checkRoles(inventory: Record<string, string[]>) {
   for (const [kind, files] of Object.entries(inventory)) {
     const pattern = rolePaths[kind];
     if (!pattern) throw new Error(`Unknown source disposition: ${kind}`);
@@ -33,8 +31,7 @@ function checkRoles(inventory) {
   checkGeneratedScope(inventory.generated);
 }
 
-/** @param {string[] | undefined} generated */
-function checkGeneratedScope(generated) {
+function checkGeneratedScope(generated: string[] | undefined) {
   if (
     !generated ||
     generated.length !== generatedFiles.length ||
@@ -43,27 +40,32 @@ function checkGeneratedScope(generated) {
     throw new Error("Expected the four exact generated validators");
 }
 
-/** @param {string} root @param {Record<string, string[]>} inventory */
-async function checkLintDisposition(root, inventory) {
+async function checkLintDisposition(
+  root: string,
+  inventory: Record<string, string[]>,
+) {
   const linter = new ESLint({ cwd: root });
   for (const [kind, files] of Object.entries(inventory)) {
     await requireLintedFiles(linter, root, files, kind);
   }
 }
 
-/** @param {ESLint} linter @param {string} root @param {string[]} files @param {string} kind */
-async function requireLintedFiles(linter, root, files, kind) {
+async function requireLintedFiles(
+  linter: ESLint,
+  root: string,
+  files: string[],
+  kind: string,
+) {
   for (const file of files) {
-    const configuration = /** @type {unknown} */ (
-      await linter.calculateConfigForFile(resolve(root, file))
+    const configuration: unknown = await linter.calculateConfigForFile(
+      resolve(root, file),
     );
     if (!configuration) throw new Error(`Source is outside lint: ${file}`);
     if (kind !== "generated") requireUnsafeRules(configuration, file);
   }
 }
 
-/** @param {unknown} configuration @param {string} file */
-function requireUnsafeRules(configuration, file) {
+function requireUnsafeRules(configuration: unknown, file: string) {
   const rules = object(object(configuration).rules);
   for (const name of [
     "no-unsafe-assignment",
@@ -80,8 +82,7 @@ function requireUnsafeRules(configuration, file) {
   }
 }
 
-/** @param {unknown} setting */
-function errorRule(setting) {
+function errorRule(setting: unknown) {
   return setting === 2 || (Array.isArray(setting) && setting[0] === 2);
 }
 
@@ -94,22 +95,18 @@ const kinds = [
   "examples",
 ];
 
-/** @param {unknown} value @returns {value is string[]} */
-function fileList(value) {
+function fileList(value: unknown): value is string[] {
   return (
     Array.isArray(value) && value.every((file) => typeof file === "string")
   );
 }
 
-/** @param {string} root */
-function readInventory(root) {
-  const input = object(
-    /** @type {unknown} */ (
-      JSON.parse(readFileSync(join(root, "typescript-sources.json"), "utf8"))
-    ),
+function readInventory(root: string) {
+  const value: unknown = JSON.parse(
+    readFileSync(join(root, "typescript-sources.json"), "utf8"),
   );
-  /** @type {Record<string, string[]>} */
-  const inventory = {};
+  const input = object(value);
+  const inventory: Record<string, string[]> = {};
   for (const [kind, files] of Object.entries(input)) {
     if (!kinds.includes(kind))
       throw new Error(`Unknown source disposition: ${kind}`);
@@ -120,23 +117,20 @@ function readInventory(root) {
   return inventory;
 }
 
-/** @param {Record<string, string[]>} inventory */
-function requireDispositions(inventory) {
+function requireDispositions(inventory: Record<string, string[]>) {
   for (const kind of kinds)
     if (!inventory[kind])
       throw new Error(`Missing source disposition: ${kind}`);
 }
 
-/** @param {string} file */
-function sourceFile(file) {
+function sourceFile(file: string) {
   return (
     !/^(?:node_modules|\.git|\.quality|\.worktrees)\//.test(file) &&
     /\.(?:[cm]?ts|tsx|[cm]?js|jsx)$/.test(file)
   );
 }
 
-/** @param {string[]} found @param {string[]} declared */
-function compareInventory(found, declared) {
+function compareInventory(found: string[], declared: string[]) {
   if (new Set(declared).size !== declared.length)
     throw new Error("Duplicate source inventory entry");
   for (const file of found) {
@@ -146,16 +140,17 @@ function compareInventory(found, declared) {
   requireFound(declared, found);
 }
 
-/** @param {string[]} declared @param {string[]} found */
-function requireFound(declared, found) {
+function requireFound(declared: string[], found: string[]) {
   for (const file of declared) {
     if (!found.includes(file))
       throw new Error(`Missing inventoried source: ${file}`);
   }
 }
 
-/** @param {string} root @param {Record<string, string[]>} inventory */
-function checkTypedDisposition(root, inventory) {
+function checkTypedDisposition(
+  root: string,
+  inventory: Record<string, string[]>,
+) {
   const configuration = ts.getParsedCommandLineOfConfigFile(
     join(root, "tsconfig.json"),
     {},
@@ -176,16 +171,14 @@ function checkTypedDisposition(root, inventory) {
   }
 }
 
-/** @param {string} root @param {string[]} declared @param {Set<string>} files */
-function requireTyped(root, declared, files) {
+function requireTyped(root: string, declared: string[], files: Set<string>) {
   for (const file of declared) {
     if (!files.has(resolve(root, file)))
       throw new Error(`Source is outside typing: ${file}`);
   }
 }
 
-/** @param {string} root */
-export function sourceInventory(root) {
+export function sourceInventory(root: string) {
   const inventory = readInventory(root);
   const declared = Object.values(inventory).flat();
   const found = [
@@ -196,15 +189,13 @@ export function sourceInventory(root) {
   return inventory;
 }
 
-/** @param {string} root */
-export function productionSources(root) {
+export function productionSources(root: string) {
   const files = sourceInventory(root).production;
   if (!files) throw new Error("Missing production source inventory");
   return files;
 }
 
-/** @param {string} root */
-export async function checkInventory(root) {
+export async function checkInventory(root: string) {
   const inventory = sourceInventory(root);
   checkTypedDisposition(root, inventory);
   await checkLintDisposition(root, inventory);

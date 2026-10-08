@@ -1,7 +1,7 @@
 import js from "@eslint/js";
 import { defineConfig } from "eslint/config";
 import tseslint from "typescript-eslint";
-import { testCallbackLines } from "./scripts/eslint-test-callbacks.mjs";
+import { testCallbackLines } from "./scripts/eslint-test-callbacks.ts";
 
 export default defineConfig(
   { ignores: ["node_modules/**", ".quality/**"] },

@@ -80,7 +80,7 @@
   "tooling": [
     "eslint.config.mjs",
     "scripts/check-docs.ts",
-    "scripts/check-typescript.mjs",
+    "scripts/check-typescript.ts",
     "scripts/coverage/capture.cjs",
     "scripts/coverage/gate.ts",
     "scripts/coverage/prepare.ts",
@@ -98,7 +98,7 @@
     "scripts/documentation-links.ts",
     "scripts/documentation-markdown.ts",
     "scripts/documentation-process.ts",
-    "scripts/eslint-test-callbacks.mjs",
+    "scripts/eslint-test-callbacks.ts",
     "scripts/eval-guide.ts",
     "scripts/generate-schemas.ts",
     "scripts/guide/evidence.ts",
@@ -107,7 +107,7 @@
     "scripts/prepare-release.ts",
     "scripts/setup-ci-codex.ts",
     "scripts/sync-guide.ts",
-    "scripts/typescript-inventory.mjs",
+    "scripts/typescript-inventory.ts",
     "scripts/verify-doc-examples.ts",
     "scripts/verify-package-install.ts"
   ],

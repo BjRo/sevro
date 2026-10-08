@@ -14,7 +14,7 @@ import { createHash } from "node:crypto";
 import { createInstrumenter } from "istanbul-lib-instrument";
 import { transformSync } from "@babel/core";
 import transformTypescript from "@babel/plugin-transform-typescript";
-import { productionSources } from "../typescript-inventory.mjs";
+import { productionSources } from "../typescript-inventory";
 
 function git(command: string[], cwd: string) {
   const result = Bun.spawnSync(["git", ...command], {

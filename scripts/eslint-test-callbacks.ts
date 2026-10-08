@@ -1,5 +1,7 @@
-/** @type {import('eslint').Rule.RuleModule} */
-export const testCallbackLines = {
+import type { Rule } from "eslint";
+import type { ArrowFunctionExpression, FunctionExpression, Node } from "estree";
+
+export const testCallbackLines: Rule.RuleModule = {
   meta: {
     type: "suggestion",
     schema: [],
@@ -9,8 +11,9 @@ export const testCallbackLines = {
   },
   create(context) {
     const source = context.sourceCode;
-    /** @param {(import('estree').ArrowFunctionExpression | import('estree').FunctionExpression) & {parent?: import('estree').Node}} node */
-    function inspect(node) {
+    function inspect(
+      node: (ArrowFunctionExpression | FunctionExpression) & { parent?: Node },
+    ) {
       if (!isTestCallback(node)) return;
       const text = source.getText(node);
       const lines = text
@@ -23,15 +26,13 @@ export const testCallbackLines = {
   },
 };
 
-/** @param {{parent?: import('estree').Node}} node */
-function isTestCallback(node) {
+function isTestCallback(node: { parent?: Node }) {
   const parent = node.parent;
   if (!parent || parent.type !== "CallExpression") return false;
   return isTestCallee(parent.callee);
 }
 
-/** @param {import('estree').Node} node */
-function isTestCallee(node) {
+function isTestCallee(node: Node): boolean {
   if (node.type === "Identifier") return ["test", "it"].includes(node.name);
   if (node.type === "CallExpression") return isTestCallee(node.callee);
   if (node.type === "MemberExpression") return isTestCallee(node.object);
