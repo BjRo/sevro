@@ -151,8 +151,8 @@ CI invokes the canonical gate, uploads `.quality` even when coverage fails, and
 publishes the stable aggregate `TypeScript quality` status. A cancelled, skipped
 or failed gate cannot turn that status green.
 
-The maintained coverage harness is in `scripts/coverage/`; fresh CI reports
-provide candidate-specific evidence.
+The [coverage tooling README](../scripts/coverage/README.md) explains the maintained
+pipeline and file responsibilities. Fresh CI reports provide candidate-specific evidence.
 
 References: [Darrow's Python quality contract](https://github.com/BjRo/darrow/blob/main/docs/specs/python-quality.md),
 [typescript-eslint presets](https://typescript-eslint.io/users/configs/),

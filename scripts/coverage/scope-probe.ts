@@ -1,13 +1,13 @@
+import type { CoverageIdentity } from "./types";
 import { cpSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
-import { prepare, copySnapshot } from "./prepare.mjs";
-import { mergeChecked } from "./gate.mjs";
-import { loadReports } from "./run.mjs";
+import { prepare, copySnapshot } from "./prepare";
+import { mergeChecked } from "./gate";
+import { loadReports } from "./run";
 
-/** @param {string} repo @param {string} root */
-function pristineCandidate(repo, root) {
+function pristineCandidate(repo: string, root: string) {
   const original = process.env.SEVRO_COVERAGE_SOURCE_ROOT;
   if (!original) return repo;
   const snapshot = copySnapshot(repo, join(root, "candidate"));
@@ -17,8 +17,12 @@ function pristineCandidate(repo, root) {
   return snapshot.project;
 }
 
-/** @param {ReturnType<typeof prepare>} prepared @param {string} root @param {string} reports @param {import('./types').CoverageIdentity} identity */
-function exerciseScope(prepared, root, reports, identity) {
+function exerciseScope(
+  prepared: ReturnType<typeof prepare>,
+  root: string,
+  reports: string,
+  identity: CoverageIdentity,
+) {
   const script = join(root, "exercise.ts");
   writeFileSync(
     script,
@@ -43,8 +47,7 @@ function exerciseScope(prepared, root, reports, identity) {
     throw new Error(`Scope runtime probe failed: ${child.stderr.toString()}`);
 }
 
-/** @param {string} repo */
-export function coverageScopeProbe(repo) {
+export function coverageScopeProbe(repo: string) {
   const root = mkdtempSync(join(tmpdir(), "sevro-coverage-scope-"));
   const prepared = prepare(pristineCandidate(repo, root), join(root, "run"));
   const reports = join(root, "reports");

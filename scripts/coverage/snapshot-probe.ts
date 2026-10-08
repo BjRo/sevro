@@ -7,7 +7,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { copySnapshot, candidateFiles } from "./prepare.mjs";
+import { copySnapshot, candidateFiles } from "./prepare";
 
 function participantFiles(root: string): string[] {
   return [

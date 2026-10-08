@@ -1,6 +1,10 @@
+import type {
+  CoverageMapData,
+  CoverageSummaryData,
+} from "istanbul-lib-coverage";
 import { createInstrumenter } from "istanbul-lib-instrument";
-import { mergeChecked } from "./gate.mjs";
-import { loadReports } from "./run.mjs";
+import { mergeChecked } from "./gate";
+import { loadReports } from "./run";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -35,8 +39,7 @@ function fixture() {
   return { baseline, record };
 }
 
-/** @param {string} label @param {() => unknown} action @param {string} expected */
-function refusal(label, action, expected) {
+function refusal(label: string, action: () => unknown, expected: string) {
   try {
     action();
   } catch (error) {
@@ -114,11 +117,13 @@ export function integrityProbes() {
   storageProbes(baseline, record);
 }
 
-/** @param {import('istanbul-lib-coverage').CoverageMapData} baseline @param {ReturnType<typeof fixture>['record']} record */
-function storageProbes(baseline, record) {
+function storageProbes(
+  baseline: CoverageMapData,
+  record: ReturnType<typeof fixture>["record"],
+) {
   const directory = mkdtempSync(join(tmpdir(), "sevro-report-integrity-"));
-  /** @param {string} name @param {unknown} value */
-  const write = (name, value) => {
+
+  const write = (name: string, value: unknown) => {
     writeFileSync(join(directory, name), JSON.stringify(value));
   };
   write("1.started.json", owner);
@@ -156,8 +161,7 @@ function storageProbes(baseline, record) {
   );
 }
 
-/** @param {import('istanbul-lib-coverage').CoverageSummaryData} summary */
-function verifyConservative(summary) {
+function verifyConservative(summary: CoverageSummaryData) {
   if (summary.branches.covered !== 1 || summary.branches.total !== 2)
     throw new Error("Force-kill counters were extrapolated");
 }

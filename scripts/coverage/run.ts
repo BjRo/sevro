@@ -1,3 +1,9 @@
+import type {
+  CoverageMap,
+  CoverageMapData,
+  CoverageSummaryData,
+} from "istanbul-lib-coverage";
+import type { CoverageIdentity, CoverageParticipant } from "./types";
 import {
   mkdirSync,
   mkdtempSync,
@@ -12,12 +18,11 @@ import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { createContext } from "istanbul-lib-report";
 import reports from "istanbul-reports";
-import { prepare } from "./prepare.mjs";
-import { mergeChecked, coverageRecord } from "./gate.mjs";
-import { participant, object } from "./records.mjs";
+import { prepare } from "./prepare";
+import { mergeChecked, coverageRecord } from "./gate";
+import { participant, object } from "./records";
 
-/** @param {string} repo @param {string[]} testArguments */
-export function runCoverage(repo, testArguments = []) {
+export function runCoverage(repo: string, testArguments: string[] = []) {
   const root = mkdtempSync(join(tmpdir(), "sevro-typescript-quality-"));
   const prepared = prepare(repo, root);
   console.log(
@@ -95,23 +100,25 @@ export function runCoverage(repo, testArguments = []) {
   return map;
 }
 
-/** @param {import('istanbul-lib-coverage').CoverageSummaryData} summary */
-export function enforceThresholds(summary) {
-  const failed = /** @type {const} */ (["statements", "branches"]).filter(
+export function enforceThresholds(summary: CoverageSummaryData) {
+  const failed = (["statements", "branches"] as const).filter(
     (metric) => summary[metric].covered * 100 < summary[metric].total * 95,
   );
   if (failed.length) throw new Error(`Below 95%: ${failed.join(", ")}`);
 }
 
-/** @param {string} root @param {string} output @param {string} source */
-function retainInputs(root, output, source) {
+function retainInputs(root: string, output: string, source: string) {
   for (const file of ["baseline.json", "snapshot.json", "tests.log"])
     cpSync(join(root, file), join(output, file));
   cpSync(source, join(output, "source"), { recursive: true });
 }
 
-/** @param {string} project @param {NodeJS.ProcessEnv} env @param {string[]} testArguments @param {string} root */
-function runTests(project, env, testArguments, root) {
+function runTests(
+  project: string,
+  env: NodeJS.ProcessEnv,
+  testArguments: string[],
+  root: string,
+) {
   const child = Bun.spawnSync(
     [process.execPath, "test", ...testArguments, "--timeout", "15000"],
     { cwd: project, env, stdout: "pipe", stderr: "pipe" },
@@ -122,16 +129,18 @@ function runTests(project, env, testArguments, root) {
   return child;
 }
 
-/** @param {string} directory @param {import('istanbul-lib-coverage').CoverageMapData} baseline
- * @param {import('./types').CoverageIdentity} identity */
-export function loadReports(directory, baseline, identity) {
+export function loadReports(
+  directory: string,
+  baseline: CoverageMapData,
+  identity: CoverageIdentity,
+) {
   const names = readdirSync(directory);
   for (const name of names) requireReportName(name);
-  /** @param {string} name @returns {unknown} */
-  const load = (name) => {
-    const value = /** @type {unknown} */ (
-      JSON.parse(readFileSync(join(directory, name), "utf8"))
-    );
+
+  const load = (name: string): unknown => {
+    const value = JSON.parse(
+      readFileSync(join(directory, name), "utf8"),
+    ) as unknown;
     const entry = participant(value);
     if (!name.startsWith(`${entry.pid}.`))
       throw new Error("Coverage report filename identity mismatch");
@@ -159,8 +168,8 @@ export function loadReports(directory, baseline, identity) {
   });
   return { started, killed, records };
 }
-/** @param {string} name */
-function requireReportName(name) {
+
+function requireReportName(name: string) {
   if (
     !/^\d+\.(?:started|killed|complete|checkpoint)\.json(?:\.\d+\.tmp)?$/.test(
       name,
@@ -168,48 +177,47 @@ function requireReportName(name) {
   )
     throw new Error(`Unexpected coverage report file: ${name}`);
 }
-/** @param {string} name @param {unknown} value */
-function requireCompletionName(name, value) {
+
+function requireCompletionName(name: string, value: unknown) {
   if (!snapshotName(name)) return;
   const completion = object(value).completion;
   if (!name.endsWith(`.${String(completion)}.json`))
     throw new Error("Coverage report completion filename mismatch");
 }
 
-/** @param {string} name */
-function snapshotName(name) {
+function snapshotName(name: string) {
   return name.endsWith(".complete.json") || name.endsWith(".checkpoint.json");
 }
 
-/** @param {ReturnType<typeof coverageRecord>[]} snapshots @param {import('./types').CoverageParticipant[]} started */
-function requireRegisteredSnapshots(snapshots, started) {
+function requireRegisteredSnapshots(
+  snapshots: ReturnType<typeof coverageRecord>[],
+  started: CoverageParticipant[],
+) {
   for (const report of snapshots) {
     if (!started.some((owner) => owner.pid === report.pid))
       throw new Error(`Unregistered coverage process ${report.pid}`);
   }
 }
 
-/** @param {string} output @param {import('istanbul-lib-coverage').CoverageMap} map */
-function publishReports(output, map) {
+function publishReports(output: string, map: CoverageMap) {
   rmSync(output, { recursive: true, force: true });
   mkdirSync(output, { recursive: true });
   const context = createContext({ dir: output, coverageMap: map });
-  for (const type of /** @type {const} */ ([
-    "json",
-    "json-summary",
-    "lcovonly",
-    "html",
-  ]))
+  for (const type of ["json", "json-summary", "lcovonly", "html"] as const)
     reports.create(type).execute(context);
 }
 
-/** @param {string} directory @param {number} pid @param {import('istanbul-lib-coverage').CoverageMapData} baseline @param {import('./types').CoverageIdentity} identity @param {string} cli */
-function requireForeignCli(directory, pid, baseline, identity, cli) {
-  /** @param {string} kind */
-  const load = (kind) =>
-    /** @type {unknown} */ (
-      JSON.parse(readFileSync(join(directory, `${pid}.${kind}.json`), "utf8"))
-    );
+function requireForeignCli(
+  directory: string,
+  pid: number,
+  baseline: CoverageMapData,
+  identity: CoverageIdentity,
+  cli: string,
+) {
+  const load = (kind: string) =>
+    JSON.parse(
+      readFileSync(join(directory, `${pid}.${kind}.json`), "utf8"),
+    ) as unknown;
   const started = participant(load("started"));
   const complete = coverageRecord(load("complete"), baseline, identity);
   if (
@@ -221,8 +229,8 @@ function requireForeignCli(directory, pid, baseline, identity, cli) {
   requireCoveredCli(complete.coverage, cli);
   console.log("foreign-working-directory-cli: registered and collected");
 }
-/** @param {import('istanbul-lib-coverage').CoverageMapData} coverage @param {string} cli */
-function requireCoveredCli(coverage, cli) {
+
+function requireCoveredCli(coverage: CoverageMapData, cli: string) {
   const counts = coverage[cli]?.s;
   if (!counts || !Object.values(counts).some((count) => count > 0))
     throw new Error(
@@ -230,8 +238,12 @@ function requireCoveredCli(coverage, cli) {
     );
 }
 
-/** @param {ReturnType<typeof prepare>} prepared @param {NodeJS.ProcessEnv} env @param {string} directory @param {import('./types').CoverageIdentity} identity */
-function foreignCli(prepared, env, directory, identity) {
+function foreignCli(
+  prepared: ReturnType<typeof prepare>,
+  env: NodeJS.ProcessEnv,
+  directory: string,
+  identity: CoverageIdentity,
+) {
   const foreign = Bun.spawnSync(
     [process.execPath, join(prepared.project, "src/cli.ts"), "run", "--json"],
     { cwd: tmpdir(), env, stdout: "pipe", stderr: "pipe" },

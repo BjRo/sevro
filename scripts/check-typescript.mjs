@@ -1,14 +1,14 @@
 import { createInstrumenter } from "istanbul-lib-instrument";
 import { createCoverageMap } from "istanbul-lib-coverage";
-import { mergeChecked } from "./coverage/gate.mjs";
-import { runCoverage, enforceThresholds } from "./coverage/run.mjs";
+import { mergeChecked } from "./coverage/gate";
+import { runCoverage, enforceThresholds } from "./coverage/run";
 import { resolve } from "node:path";
 import { checkInventory } from "./typescript-inventory.mjs";
 import { runInNewContext } from "node:vm";
-import { integrityProbes } from "./coverage/probes.mjs";
-import { sourceMapProbe } from "./coverage/source-map-probe.mjs";
+import { integrityProbes } from "./coverage/probes";
+import { sourceMapProbe } from "./coverage/source-map-probe";
 import { snapshotProbe } from "./coverage/snapshot-probe";
-import { coverageScopeProbe } from "./coverage/scope-probe.mjs";
+import { coverageScopeProbe } from "./coverage/scope-probe";
 
 /** @param {string[]} command @param {string} root */
 function run(command, root) {

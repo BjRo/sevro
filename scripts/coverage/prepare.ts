@@ -1,3 +1,4 @@
+import type { CoverageMapData } from "istanbul-lib-coverage";
 import {
   cpSync,
   readFileSync,
@@ -15,8 +16,7 @@ import { transformSync } from "@babel/core";
 import transformTypescript from "@babel/plugin-transform-typescript";
 import { productionSources } from "../typescript-inventory.mjs";
 
-/** @param {string[]} command @param {string} cwd */
-function git(command, cwd) {
+function git(command: string[], cwd: string) {
   const result = Bun.spawnSync(["git", ...command], {
     cwd,
     stdout: "pipe",
@@ -27,8 +27,7 @@ function git(command, cwd) {
   return result.stdout.toString().trim();
 }
 
-/** @param {string} repo */
-export function candidateFiles(repo) {
+export function candidateFiles(repo: string) {
   return git(
     ["ls-files", "--cached", "--others", "--exclude-standard", "-z"],
     repo,
@@ -45,8 +44,7 @@ export function candidateFiles(repo) {
     .sort();
 }
 
-/** @param {string} project @param {string} root @param {string[]} files */
-function snapshotIdentity(project, root, files) {
+function snapshotIdentity(project: string, root: string, files: string[]) {
   const inputs = files.map((file) => ({
     file,
     sha256: createHash("sha256")
@@ -63,8 +61,7 @@ function snapshotIdentity(project, root, files) {
   return content;
 }
 
-/** @param {string} repo @param {string} root */
-export function copySnapshot(repo, root) {
+export function copySnapshot(repo: string, root: string) {
   const project = join(root, "project");
   const source = join(root, "source");
   git(["clone", "--no-hardlinks", "--no-checkout", repo, project], repo);
@@ -89,8 +86,11 @@ export function copySnapshot(repo, root) {
   return { project, source, hooks, content };
 }
 
-/** @param {ReturnType<typeof createInstrumenter>} instrumenter @param {string} code @param {string} path */
-function eraseTypes(instrumenter, code, path) {
+function eraseTypes(
+  instrumenter: ReturnType<typeof createInstrumenter>,
+  code: string,
+  path: string,
+) {
   const input = instrumenter.lastSourceMap();
   const inputMap = inputSourceMap(input, path);
   const result = transformSync(code, {
@@ -106,8 +106,10 @@ function eraseTypes(instrumenter, code, path) {
   return { code: result.code, map: result.map };
 }
 
-/** @param {ReturnType<ReturnType<typeof createInstrumenter>['lastSourceMap']>} input @param {string} path */
-function inputSourceMap(input, path) {
+function inputSourceMap(
+  input: ReturnType<ReturnType<typeof createInstrumenter>["lastSourceMap"]>,
+  path: string,
+) {
   return {
     ...input,
     version: Number(input.version),
@@ -116,8 +118,7 @@ function inputSourceMap(input, path) {
   };
 }
 
-/** @param {string} code @param {string} mappings */
-function markBun(code, mappings) {
+function markBun(code: string, mappings: string) {
   if (!code.startsWith("#!"))
     return { code: `// @bun\n${code}`, mappings: `;${mappings}` };
   const newline = code.indexOf("\n");
@@ -129,8 +130,11 @@ function markBun(code, mappings) {
   };
 }
 
-/** @param {string} path @param {string} target @param {string} capturePath */
-export function instrumentFile(path, target, capturePath) {
+export function instrumentFile(
+  path: string,
+  target: string,
+  capturePath: string,
+) {
   const instrumenter = createInstrumenter({
     esModules: true,
     parserPlugins: ["typescript"],
@@ -158,12 +162,11 @@ export function instrumentFile(path, target, capturePath) {
   return instrumenter.lastFileCoverage();
 }
 
-/** @param {string} repo @param {string} root */
-export function prepare(repo, root) {
+export function prepare(repo: string, root: string) {
   const files = productionSources(repo);
   const snapshot = copySnapshot(repo, root);
-  /** @type {import('istanbul-lib-coverage').CoverageMapData} */
-  const baseline = {};
+
+  const baseline: CoverageMapData = {};
   for (const file of files) {
     const path = join(snapshot.source, file);
     baseline[path] = instrumentFile(

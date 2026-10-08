@@ -1,31 +1,27 @@
-/** @param {unknown} value @returns {Record<string, unknown>} */
-export function object(value) {
+import type { CoverageParticipant } from "./types";
+export function object(value: unknown): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Expected a coverage object");
   }
-  return /** @type {Record<string, unknown>} */ (value);
+  return value as Record<string, unknown>;
 }
 
-/** @param {unknown} value @returns {value is string[]} */
-function strings(value) {
+function strings(value: unknown): value is string[] {
   return (
     Array.isArray(value) && value.every((item) => typeof item === "string")
   );
 }
 
-/** @param {unknown} value @returns {value is number} */
-export function counter(value) {
+export function counter(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
-/** @param {unknown} value @returns {import('./types').CoverageParticipant} */
-export function participant(value) {
+export function participant(value: unknown): CoverageParticipant {
   const entry = object(value);
   return { ...runIdentity(entry), ...processIdentity(entry) };
 }
 
-/** @param {Record<string, unknown>} entry */
-function runIdentity(entry) {
+function runIdentity(entry: Record<string, unknown>) {
   const { version, runId, layout } = entry;
   if (
     version !== 1 ||
@@ -37,8 +33,7 @@ function runIdentity(entry) {
   return { version, runId, layout };
 }
 
-/** @param {Record<string, unknown>} entry */
-function processIdentity(entry) {
+function processIdentity(entry: Record<string, unknown>) {
   const { pid, ppid, argv } = entry;
   if (!counter(pid) || !counter(ppid) || pid === 0 || !strings(argv)) {
     throw new Error("Invalid coverage process identity");
@@ -46,8 +41,7 @@ function processIdentity(entry) {
   return { pid, ppid, argv };
 }
 
-/** @param {unknown} value @param {string[]} keys */
-function countersObject(value, keys) {
+function countersObject(value: unknown, keys: string[]) {
   const entry = object(value);
   const actual = Object.keys(entry).sort();
   if (JSON.stringify(actual) !== JSON.stringify([...keys].sort())) {
@@ -56,11 +50,10 @@ function countersObject(value, keys) {
   return entry;
 }
 
-/** @param {unknown} value @param {string[]} keys */
-export function numbers(value, keys) {
+export function numbers(value: unknown, keys: string[]) {
   const entry = countersObject(value, keys);
-  /** @type {Record<string, number>} */
-  const result = {};
+
+  const result: Record<string, number> = {};
   for (const [id, count] of Object.entries(entry)) {
     if (!counter(count)) throw new Error(`Invalid coverage counter: ${id}`);
     result[id] = count;
@@ -68,8 +61,7 @@ export function numbers(value, keys) {
   return result;
 }
 
-/** @param {unknown} value @param {number} length */
-function branch(value, length) {
+function branch(value: unknown, length: number) {
   if (
     !Array.isArray(value) ||
     value.length !== length ||
@@ -77,14 +69,13 @@ function branch(value, length) {
   ) {
     throw new Error("Invalid branch counter");
   }
-  return /** @type {number[]} */ (value);
+  return value;
 }
 
-/** @param {unknown} value @param {Record<string, number[]>} expected */
-export function branches(value, expected) {
+export function branches(value: unknown, expected: Record<string, number[]>) {
   const entry = countersObject(value, Object.keys(expected));
-  /** @type {Record<string, number[]>} */
-  const result = {};
+
+  const result: Record<string, number[]> = {};
   for (const [id, counts] of Object.entries(expected)) {
     result[id] = branch(entry[id], counts.length);
   }

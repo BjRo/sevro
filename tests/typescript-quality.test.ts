@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isRecord, isStringArray } from "../src/value-guards";
-import { copySnapshot } from "../scripts/coverage/prepare.mjs";
+import { copySnapshot } from "../scripts/coverage/prepare";
 
 function qualityInventory(root: string) {
   const value: unknown = JSON.parse(

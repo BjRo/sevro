@@ -1,7 +1,7 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { instrumentFile } from "./prepare.mjs";
+import { instrumentFile } from "./prepare";
 
 export function sourceMapProbe() {
   const root = mkdtempSync(join(tmpdir(), "sevro-source-map-"));
