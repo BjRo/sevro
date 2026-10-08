@@ -19,6 +19,7 @@ import { randomUUID } from "node:crypto";
 import { createContext } from "istanbul-lib-report";
 import reports from "istanbul-reports";
 import { prepare } from "./prepare";
+import { platformBranchCoverage } from "./platform-branches";
 import { mergeChecked, coverageRecord } from "./gate";
 import { participant, object } from "./records";
 
@@ -54,50 +55,71 @@ export function runCoverage(repo: string, testArguments: string[] = []) {
       forcedChildren: killed.length,
     }),
   );
-  const map = mergeChecked(
+  const raw = mergeChecked(
     prepared.baseline,
     records,
     started,
     identity,
     killed,
   );
+  const projected = platformBranchCoverage(raw, prepared.source);
+  const map = projected.map;
   const output = join(
     repo,
     testArguments.length ? ".quality/coverage-targeted" : ".quality/coverage",
   );
   publishReports(output, map);
   writeFileSync(
+    join(output, "coverage-raw.json"),
+    JSON.stringify(raw.toJSON()),
+  );
+  writeFileSync(
     join(output, "run.json"),
     JSON.stringify(
       {
         ...identity,
+        scope: { ...prepared.scope, branchExclusions: projected.exclusions },
         root,
         exitCode: child.exitCode,
         processes: started,
         forcedChildren: killed,
         summary: map.getCoverageSummary().toJSON(),
+        rawSummary: raw.getCoverageSummary().toJSON(),
       },
       null,
       2,
     ),
   );
   retainInputs(root, output, prepared.source);
-  console.log(JSON.stringify(map.getCoverageSummary().toJSON()));
   if (child.exitCode !== 0)
     throw new Error(
       `Deterministic Bun tests failed with exit ${child.exitCode}`,
     );
+  enforceCoverage(
+    output,
+    prepared.scope,
+    projected.exclusions,
+    map.getCoverageSummary().toJSON(),
+  );
+  return map;
+}
+
+function enforceCoverage(
+  output: string,
+  scope: ReturnType<typeof prepare>["scope"],
+  branchExclusions: ReturnType<typeof platformBranchCoverage>["exclusions"],
+  summary: CoverageSummaryData,
+) {
   const enforcement = {
-    scope: "inventory.production",
-    summary: map.getCoverageSummary().toJSON(),
+    scope: { ...scope, branchExclusions },
+    summary,
   };
   writeFileSync(
     join(output, "enforcement.json"),
     JSON.stringify(enforcement, null, 2),
   );
   console.log(JSON.stringify(enforcement));
-  enforceThresholds(enforcement.summary);
-  return map;
+  enforceThresholds(summary);
 }
 
 export function enforceThresholds(summary: CoverageSummaryData) {

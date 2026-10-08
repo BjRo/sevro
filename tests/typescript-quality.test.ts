@@ -4,6 +4,10 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isRecord, isStringArray } from "../src/value-guards";
 import { copySnapshot } from "../scripts/coverage/prepare";
+import { platformCoverageScope } from "../scripts/coverage/platform-scope";
+import { platformBranchCoverage } from "../scripts/coverage/platform-branches";
+import { createInstrumenter } from "istanbul-lib-instrument";
+import { createCoverageMap, type CoverageMapData } from "istanbul-lib-coverage";
 
 function qualityInventory(root: string) {
   const value: unknown = JSON.parse(
@@ -99,7 +103,7 @@ test.each([
   30000,
 );
 
-test("the public TypeScript gate covers every authored production file and excludes exactly generated validators", () => {
+test("the public TypeScript gate covers host-reachable production and excludes generated validators", () => {
   const repo = resolve(import.meta.dir, "..");
   const child = Bun.spawnSync(
     [process.execPath, "run", "check:typescript", "--probe", "scope"],
@@ -109,17 +113,65 @@ test("the public TypeScript gate covers every authored production file and exclu
   const observed = scopeResult(child.stdout.toString());
   expect(observed.generatedCjs).toBe("validated");
   const inventory = qualityInventory(repo);
+  const scope = platformCoverageScope(inventory.production);
   for (const file of ["baseline.json", "coverage-final.json"]) {
     const files = scopeFiles(repo, file);
-    expect(files).toEqual([...inventory.production].sort());
+    expect(files).toEqual([...scope.included].sort());
+    for (const excluded of scope.excluded)
+      expect(files).not.toContain(excluded);
     for (const generated of inventory.generated)
       expect(files).not.toContain(generated);
   }
+  const report: unknown = JSON.parse(
+    readFileSync(resolve(repo, ".quality/coverage-scope/run.json"), "utf8"),
+  );
+  expect(report).toMatchObject({ scope });
   for (const generated of inventory.generated)
     expect(
       readFileSync(resolve(observed.root, "run/project", generated), "utf8"),
     ).toBe(readFileSync(resolve(repo, generated), "utf8"));
 }, 30000);
+
+test("platform coverage retains reachable outcomes and refuses an executed exclusion", () => {
+  const root = mkdtempSync(resolve(tmpdir(), "sevro-platform-branches-"));
+  try {
+    const path = resolve(root, "guard.ts");
+    const source = [
+      'if (process.platform === "linux") linux(); else mac();',
+      'if (process.platform === "linux" && enabled()) linux();',
+      "if (enabled()) any();",
+    ].join("\n");
+    writeFileSync(path, source);
+    const instrumenter = createInstrumenter({ esModules: true });
+    instrumenter.instrumentSync(source, path);
+    const baseline = { [path]: instrumenter.lastFileCoverage() };
+    const raw = createCoverageMap(baseline);
+    const mac = platformBranchCoverage(raw, root, "darwin");
+    const linux = platformBranchCoverage(raw, root, "linux");
+    expect(mac.exclusions.map(({ line, outcome }) => [line, outcome])).toEqual([
+      [1, 0],
+      [2, 0],
+      [2, 1],
+    ]);
+    expect(
+      linux.exclusions.map(({ line, outcome }) => [line, outcome]),
+    ).toEqual([[1, 1]]);
+    expect(mac.map.getCoverageSummary().branches.total).toBe(
+      raw.getCoverageSummary().branches.total - 3,
+    );
+    const executed = JSON.parse(JSON.stringify(baseline)) as CoverageMapData;
+    const first = mac.exclusions[0];
+    if (!first) throw new Error("Expected one excluded branch");
+    const counts = executed[path]?.b[first.branch];
+    if (!counts) throw new Error("Expected the raw branch counters");
+    counts[first.outcome] = 1;
+    expect(() =>
+      platformBranchCoverage(createCoverageMap(executed), root, "darwin"),
+    ).toThrow("Platform-unreachable branch was executed");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("the public TypeScript gate copies exact candidate inputs and deletions with independent Git", () => {
   const child = Bun.spawnSync(

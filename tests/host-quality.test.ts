@@ -18,7 +18,6 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
-  watch,
   writeFileSync,
 } from "node:fs";
 import {
@@ -39,6 +38,9 @@ import {
 import { defined, record } from "./fixtures/assertions";
 
 const roots: string[] = [];
+const isolatedNativeHost =
+  process.platform === "darwin" ||
+  (process.platform === "linux" && Boolean(Bun.which("bwrap")));
 const skillBody =
   "---\nname: probe\ndescription: A fixture skill\n---\nPRIVATE_SKILL_BODY\n";
 afterEach(async () => {
@@ -1306,10 +1308,7 @@ async function exchangePeerReceipt(
     acknowledged.resolve(undefined);
     return true;
   };
-  const observer = watch(directory, (event, name) => {
-    events.push({ at: Date.now(), event, name });
-    inspectReceipt();
-  });
+  const observer = setInterval(inspectReceipt, 25);
   const timer = setTimeout(() => {
     if (!inspectReceipt())
       acknowledged.reject(
@@ -1326,7 +1325,7 @@ async function exchangePeerReceipt(
     await acknowledged.promise;
     expect(await readFile(join(directory, receipt), "utf8")).toBe("emitted");
   } finally {
-    observer.close();
+    clearInterval(observer);
     clearTimeout(timer);
   }
 }
@@ -1528,7 +1527,7 @@ function requirePrivateResult(
   );
 }
 test("Claude explicit credential takes precedence over inherited authentication", async () => {
-  if (process.platform !== "darwin") return;
+  if (!isolatedNativeHost) return;
   const fixture = await claudeHostFixture();
   await withAuthenticationEnvironment(
     {
@@ -1561,7 +1560,7 @@ test("Claude explicit credential takes precedence over inherited authentication"
 test.each(["api", "oauth", "both"])(
   "Claude inherited %s credentials stay in the host environment",
   async (mode) => {
-    if (process.platform !== "darwin") return;
+    if (!isolatedNativeHost) return;
     const fixture = await claudeHostFixture();
     delete fixture.options.credentialFile;
     const environment = {
@@ -1584,7 +1583,7 @@ test.each(["api", "oauth", "both"])(
   },
 );
 test("Claude saved configuration contributes only credentials to private state", async () => {
-  if (process.platform !== "darwin") return;
+  if (!isolatedNativeHost) return;
   const fixture = await claudeHostFixture();
   delete fixture.options.credentialFile;
   const saved = join(fixture.root, "saved");
@@ -1621,7 +1620,7 @@ test("Claude saved configuration contributes only credentials to private state",
 test.each(["empty", "whitespace", "oversized", "missing"])(
   "Claude selected credential %s refuses execution without fallback",
   async (mode) => {
-    if (process.platform !== "darwin") return;
+    if (!isolatedNativeHost) return;
     const fixture = await claudeHostFixture();
     const bytes: Record<string, string> = {
       empty: "",
@@ -1641,7 +1640,7 @@ test.each(["empty", "whitespace", "oversized", "missing"])(
   },
 );
 test("Claude unreadable saved configuration refuses authentication rather than querying another login", async () => {
-  if (process.platform !== "darwin") return;
+  if (!isolatedNativeHost) return;
   const fixture = await claudeHostFixture();
   delete fixture.options.credentialFile;
   await withAuthenticationEnvironment(
@@ -1654,7 +1653,7 @@ test("Claude unreadable saved configuration refuses authentication rather than q
   );
 });
 test("Claude refuses an oversized environment credential before model execution", async () => {
-  if (process.platform !== "darwin") return;
+  if (!isolatedNativeHost) return;
   const fixture = await claudeHostFixture();
   delete fixture.options.credentialFile;
   await withAuthenticationEnvironment(
@@ -1734,7 +1733,7 @@ test.each([
 ] as const)(
   "Claude retained native goal reports %s as %s without its objective",
   async (mode, status) => {
-    if (process.platform !== "darwin") return;
+    if (!isolatedNativeHost) return;
     const fixture = await claudeHostFixture();
     fixture.request.prompt = mode;
     const result = await createClaudeHost(fixture.options).run(fixture.request);
@@ -1756,7 +1755,7 @@ test.each([
 ])(
   "Claude malformed persisted native goal remains unavailable: %s",
   async (mode) => {
-    if (process.platform !== "darwin") return;
+    if (!isolatedNativeHost) return;
     const fixture = await claudeHostFixture();
     fixture.request.prompt = mode;
     const result = await createClaudeHost(fixture.options).run(fixture.request);
@@ -1892,7 +1891,7 @@ const invalidClaudeOptions: Array<{
 test.each(invalidClaudeOptions)(
   "Claude route refuses invalid configuration: %s",
   async ({ change }) => {
-    if (process.platform !== "darwin") return;
+    if (!isolatedNativeHost) return;
     const fixture = await claudeHostFixture();
     expect(() => createClaudeHost({ ...fixture.options, ...change })).toThrow(
       /invalid Claude host configuration/,
@@ -1906,7 +1905,7 @@ test.each([
   "fixture-bin",
   "repository-source",
 ])("Claude route refuses undeclared execution change: %s", async (mode) => {
-  if (process.platform !== "darwin") return;
+  if (!isolatedNativeHost) return;
   const fixture = await claudeHostFixture();
   const request: ClaudeRequest = { ...fixture.request };
   const changes: Record<string, () => void> = {
@@ -2045,7 +2044,7 @@ test.each([
   "overlapping aliases",
   "nested roots",
 ])("Claude refuses an unsafe declared plugin: %s", async (mode) => {
-  if (process.platform !== "darwin") return;
+  if (!isolatedNativeHost) return;
   const fixture = await claudePluginFixture();
   await invalidatePlugin(fixture, mode);
   expect(
@@ -2058,7 +2057,7 @@ test.each([
   ).rejects.toThrow();
 });
 test("Claude verifies a declared plugin invocation before the real host process", async () => {
-  if (process.platform !== "darwin") return;
+  if (!isolatedNativeHost) return;
   const fixture = await claudePluginFixture();
   requirePrivateResult(
     await createClaudeHost(fixture.options).run(fixture.request),
@@ -2075,7 +2074,7 @@ test.each([
   "invalid-plugin",
   "invalid-skill",
 ])("Claude explicit dispatch refuses %s invocation", async (mode) => {
-  if (process.platform !== "darwin") return;
+  if (!isolatedNativeHost) return;
   const fixture = await claudePluginFixture();
   const changes: Record<string, () => void> = {
     missing: () => {
@@ -2117,7 +2116,7 @@ test.each([
 test.each(["executable", "toolchain", "cache"])(
   "Claude refuses protected %s execution assets",
   async (mode) => {
-    if (process.platform !== "darwin") return;
+    if (!isolatedNativeHost) return;
     const fixture = await claudeHostFixture();
     const options: ClaudeHostOptions = { ...fixture.options };
     if (mode === "executable")

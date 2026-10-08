@@ -20,6 +20,9 @@ import {
 import { fixtureGit } from "./quality-fixtures/fixture-preparation-tools";
 import { gitHeadRevision, gitHeadState } from "../src/graders/git-head";
 const roots: string[] = [];
+const isolatedNativeHost =
+  process.platform === "darwin" ||
+  (process.platform === "linux" && Boolean(Bun.which("bwrap")));
 const digest = "a".repeat(64);
 afterEach(async () => {
   await Promise.all(
@@ -29,6 +32,13 @@ afterEach(async () => {
 async function git(workspace: string, ...args: string[]): Promise<string> {
   const proc = Bun.spawn(["git", ...args], {
     cwd: workspace,
+    env: {
+      ...process.env,
+      GIT_AUTHOR_NAME: "Sevro Fixture",
+      GIT_AUTHOR_EMAIL: "fixture@sevro.invalid",
+      GIT_COMMITTER_NAME: "Sevro Fixture",
+      GIT_COMMITTER_EMAIL: "fixture@sevro.invalid",
+    },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -478,7 +488,7 @@ test("generated Git hooks run for host commits after fixture preparation", async
   ).toThrow(/invalid fixture hooks/);
 });
 test("fixture binaries reach the host and isolated shell checks", async () => {
-  if (process.platform !== "darwin") return;
+  if (!isolatedNativeHost) return;
   const projectRoot = await mkdtemp(join(tmpdir(), "sevro-bin-test-"));
   roots.push(projectRoot);
   const host: HostAdapter = {

@@ -394,6 +394,13 @@ function codexPluginReadRoot(request: Request, root: string) {
   return request.codexMarketplace ? { pluginReadRoot: root } : {};
 }
 
+function codexHelperBinary(options: CodexHostOptions, sandboxBinary: string) {
+  const sibling = join(dirname(options.binary), "codex-linux-sandbox");
+  return (
+    options.sandboxBinary ?? (existsSync(sibling) ? sibling : sandboxBinary)
+  );
+}
+
 function codexCommandEnvironment(
   request: Request,
   environment: Record<string, string> | undefined,
@@ -407,12 +414,17 @@ function codexCommandEnvironment(
     PATH: [request.fixtureBinDir, path].filter(Boolean).join(delimiter),
   };
 }
-async function fixtureShellRoot(request: Request): Promise<string> {
+async function fixtureShellRoot(
+  request: Request,
+  parentHome: string,
+): Promise<string> {
   const root = join(request.workspace, ".git", "sevro-shell");
   if (request.fixtureBinDir) {
     await mkdir(root, { mode: 0o700 });
     await writeFile(
-      join(root, ".zprofile"),
+      process.platform === "linux"
+        ? join(parentHome, ".bash_profile")
+        : join(root, ".zprofile"),
       `export PATH=${shellQuote(request.fixtureBinDir)}:"$PATH"\n`,
       { flag: "wx", mode: 0o600 },
     );
@@ -436,7 +448,9 @@ function codexEnvironment(
     TMPDIR: paths.parentTemp,
     CODEX_HOME: paths.codexHome,
     NO_COLOR: "1",
-    ...(request.fixtureBinDir ? { ZDOTDIR: shellRoot } : {}),
+    ...(request.fixtureBinDir && process.platform === "darwin"
+      ? { ZDOTDIR: shellRoot }
+      : {}),
   };
 }
 
@@ -503,10 +517,11 @@ async function prepareCodexState(
     ],
   });
   const sandboxBinary = options.sandboxBinary ?? options.binary;
+  const helperBinary = codexHelperBinary(options, sandboxBinary);
   if (helperRoot)
-    await symlink(sandboxBinary, join(helperRoot, "codex-linux-sandbox"));
+    await symlink(helperBinary, join(helperRoot, "codex-linux-sandbox"));
   const readRoots = await Promise.all(
-    [options.binary, sandboxBinary].flatMap((binary) => [
+    [options.binary, sandboxBinary, helperBinary].flatMap((binary) => [
       realpath(dirname(binary)),
       realpath(binary).then(dirname),
     ]),
@@ -533,7 +548,7 @@ async function prepareCodexState(
     runtimeProfile.environment,
     runtimeProfile.root,
   );
-  const shellRoot = await fixtureShellRoot(request);
+  const shellRoot = await fixtureShellRoot(request, paths.parentHome);
   const env = codexEnvironment(paths, request, shellRoot);
   applyCodexRuntime(runtime, env, paths);
   return { ...paths, sandboxBinary, profileId, env, protectedRoots };

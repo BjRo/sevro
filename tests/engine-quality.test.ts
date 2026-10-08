@@ -767,7 +767,7 @@ test("ownership initialization failure removes separately allocated run and stat
   await pending.catch(() => undefined);
   expect(candidateCalls).toBe(0);
   expect(await readdir(options.resultsRoot)).toEqual([]);
-  expect(await readdir(stateRoot)).toEqual(["locks", "owners"]);
+  expect((await readdir(stateRoot)).sort()).toEqual(["locks", "owners"]);
   expect(await readFile(join(stateRoot, "owners"), "utf8")).toBe(
     "preserved blocking file\n",
   );

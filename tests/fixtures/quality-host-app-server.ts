@@ -2,7 +2,6 @@ import {
   appendFileSync,
   readFileSync,
   renameSync,
-  watch,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -352,7 +351,6 @@ createInterface({ input: process.stdin })
   })
   .on("close", () => {
     if (mode === "trailing-malformed-on-close") process.stdout.write("{broken");
-    boundaryWatcher?.close();
     keepPeerAfterEof();
   });
 
@@ -503,12 +501,10 @@ function inspectBoundaryCommands(): void {
   }
 }
 
-const boundaryWatcher = mode.startsWith("boundary-")
-  ? watch(join(process.cwd(), ".git"), () => {
-      inspectBoundaryCommands();
-    })
-  : undefined;
-if (boundaryWatcher) inspectBoundaryCommands();
+if (mode.startsWith("boundary-")) {
+  inspectBoundaryCommands();
+  setInterval(inspectBoundaryCommands, 25).unref();
+}
 
 function processOutputFixture(): void {
   if (!mode.startsWith("process-")) return;

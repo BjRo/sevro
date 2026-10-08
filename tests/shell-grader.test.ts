@@ -18,6 +18,9 @@ import {
   runShellCheck,
 } from "../src/graders/shell";
 const roots: string[] = [];
+const isolatedNativeHost =
+  process.platform === "darwin" ||
+  (process.platform === "linux" && Boolean(Bun.which("bwrap")));
 afterEach(async () => {
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
@@ -101,7 +104,7 @@ test("a pre-aborted shell check refuses admission before preparing runtime state
 });
 
 test("shell cancellation requested during preparation stops its eventual owned process", async () => {
-  if (process.platform !== "darwin") return;
+  if (!isolatedNativeHost) return;
   const options = await shellWorkspace();
   const controller = new AbortController();
   const running = runShellCheck(
@@ -113,7 +116,7 @@ test("shell cancellation requested during preparation stops its eventual owned p
 });
 
 test("active shell cancellation stops only the receipt-bound owned process", async () => {
-  if (process.platform !== "darwin") return;
+  if (!isolatedNativeHost) return;
   const options = await shellWorkspace();
   const controller = new AbortController();
   const ready = Promise.withResolvers<undefined>();
@@ -151,7 +154,7 @@ test("active shell cancellation stops only the receipt-bound owned process", asy
 });
 
 test("shell runtime refuses a regular file in place of its required isolated UV cache", async () => {
-  if (process.platform !== "darwin") return;
+  if (!isolatedNativeHost) return;
   const options = await shellWorkspace();
   const directory = join(options.workspace, ".git/sevro-runtime");
   await mkdir(directory, { recursive: true });
@@ -223,7 +226,7 @@ test("shell stdout assertions preserve exact and multiline matching semantics", 
   ).toBeFalse();
 });
 test("timed out shell checks stop without returning a result", async () => {
-  if (process.platform !== "darwin") return;
+  if (!isolatedNativeHost) return;
   const root = await mkdtemp(join(tmpdir(), "sevro-shell-timeout-"));
   const workspace = join(root, "fixture");
   try {
@@ -247,7 +250,7 @@ test("timed out shell checks stop without returning a result", async () => {
   }
 });
 test("isolated shell checks can use an explicit toolchain", async () => {
-  if (process.platform !== "darwin") return;
+  if (!isolatedNativeHost) return;
   const root = await mkdtemp(join(tmpdir(), "sevro-shell-toolchain-"));
   const workspace = join(root, "fixture");
   const toolchainBinDir = join(root, "toolchain");
@@ -282,7 +285,7 @@ test("isolated shell checks can use an explicit toolchain", async () => {
   }
 });
 test("shell scratch files stay inside Git metadata", async () => {
-  if (process.platform !== "darwin") return;
+  if (!isolatedNativeHost) return;
   const root = await mkdtemp(join(tmpdir(), "sevro-shell-scratch-"));
   const workspace = join(root, "fixture");
   try {
@@ -320,7 +323,7 @@ test("shell scratch files stay inside Git metadata", async () => {
 });
 // eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("shell check sees the fixture but cannot read or write protected sources", async () => {
-  if (process.platform !== "darwin") return;
+  if (!isolatedNativeHost) return;
   const root = await mkdtemp(join(tmpdir(), "sevro-shell-check-"));
   const workspace = join(root, "fixture");
   const protectedRoot = join(root, "source");

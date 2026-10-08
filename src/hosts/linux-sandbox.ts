@@ -9,11 +9,10 @@ import {
   requireDisjointState,
   requireIsolationPaths,
   type IsolatedCommand,
-  prepareMacSandboxCommand,
-} from "./mac-sandbox";
+  type IsolationOptions,
+} from "./isolation-common";
 
 const BWRAP = "/usr/bin/bwrap";
-type Options = Parameters<typeof prepareMacSandboxCommand>[0];
 
 async function protectedKind(path: string): Promise<"file" | "directory"> {
   try {
@@ -45,7 +44,7 @@ function mountProtectedRoot(
 
 /** Mask protected inputs before launching an evaluator-owned command. */
 export async function prepareLinuxSandboxCommand(
-  options: Options,
+  options: IsolationOptions,
 ): Promise<IsolatedCommand> {
   requireLinuxSandbox();
   requireIsolationPaths(options);
