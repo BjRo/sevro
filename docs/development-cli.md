@@ -8,6 +8,9 @@ grading, evidence, and extension lifecycle.
 [versioned report contract](report-v1.md). It emits Markdown by default or
 `sevro.report.v1` with `--json`.
 
+Examples assume [Sevro and Bun are on `PATH`](installing.md#make-the-command-available).
+For a contributor checkout, use `bun src/cli.ts` in place of `sevro`.
+
 An installed package records its name, version, and a digest of its packaged
 runtime and public contract files without reading runner Git metadata. The CLI
 derives the project digest from its revision and dirty patch, or from a bounded
@@ -20,7 +23,7 @@ records its revision and dirty-patch digest instead of package provenance.
 temporary project without runner Git metadata.
 
 ```sh
-bun src/cli.ts run --json \
+sevro run --json \
   --case-file /absolute/path/case.json \
   --adapter-module /absolute/path/host-adapter.ts \
   --project-root /absolute/path/project \
@@ -33,7 +36,7 @@ chosen by the operator. The runner does not load it from a case file or infer
 it from an installed extension. A bundled Codex route is also available:
 
 ```sh
-bun src/cli.ts run --json \
+sevro run --json \
   --case-file /absolute/path/case.json \
   --host codex --codex-bin /absolute/path/codex \
   --codex-auth-file /absolute/path/auth.json \
@@ -107,7 +110,7 @@ stay independent through `--results-root` and `--run-state-root`.
 A bundled Claude Code candidate route is available on macOS:
 
 ```sh
-bun src/cli.ts run --json \
+sevro run --json \
   --case-file /absolute/path/case.json \
   --host claude --claude-bin /absolute/path/claude \
   --model sonnet --effort medium \

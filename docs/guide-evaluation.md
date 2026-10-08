@@ -42,8 +42,11 @@ evidence and retained native event artifacts. Save stdout to a result file
 to use the [standard report command](report-v1.md):
 
 ```sh
-bun src/cli.ts report --result-file /absolute/path/to/result.json
+sevro report --result-file /absolute/path/to/result.json
 ```
+
+This assumes [Sevro is on `PATH`](installing.md#make-the-command-available).
+For a contributor checkout, use `bun src/cli.ts` in place of `sevro`.
 
 Sevro owns fixture isolation, native continuation, invocation receipts,
 cancellation, retention, and cleanup. Participant fixtures contain repository

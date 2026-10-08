@@ -17,6 +17,20 @@ Run the [packaged deterministic example](getting-started.md#from-an-installed-pa
 to verify installation. It needs neither model credentials nor Darrow.
 Local installation records the selected version in the project lockfile.
 
+## Make the command available
+
+The examples call `sevro` from `PATH`. For a local installation, run this from
+the directory containing its `node_modules`:
+
+```sh
+export PATH="$PWD/node_modules/.bin:$PATH"
+```
+
+This selects the locally installed version for the current shell, including
+after changing directories. If your installed `sevro` is already on `PATH`,
+no adjustment is needed. Bun must also be on `PATH`: the executable uses
+`#!/usr/bin/env bun`.
+
 ## Published package and checkout
 
 On 2026-10-07 npm `latest` points to `0.1.0-rc.2`, published under BUSL-1.1.

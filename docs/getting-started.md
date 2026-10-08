@@ -19,11 +19,15 @@ bun add --exact @bjoernrochel/sevro@0.1.0-rc.2
 Published `rc.2` retains its original BSL license and lacks this checkout's new
 guide/docs. Read [version differences](installing.md#published-package-and-checkout).
 
+Make the local installation available on `PATH` for this shell, then call
+`sevro` directly. Bun must also be on `PATH`.
+
 <!-- sevro-example:consumer -->
 
 ```sh
+export PATH="$PWD/node_modules/.bin:$PATH"
 mkdir -p project
-bun node_modules/.bin/sevro run --json \
+sevro run --json \
   --case-file "$PWD/node_modules/@bjoernrochel/sevro/examples/basic/graded.json" \
   --adapter-module "$PWD/node_modules/@bjoernrochel/sevro/examples/basic/host.ts" \
   --project-root "$PWD/project" --results-root "$PWD/sevro-results" \

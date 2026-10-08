@@ -21,10 +21,11 @@ Do not assume a run-directory name or publish private host artifacts.
 ## Summarize runs
 
 ```sh
-bun src/cli.ts report --json --result-file /absolute/path/sevro-result.json
+sevro report --json --result-file /absolute/path/sevro-result.json
 ```
 
-For installed packages use `bun node_modules/.bin/sevro` instead of `bun src/cli.ts`.
+The command assumes [Sevro is on `PATH`](installing.md#make-the-command-available).
+For a contributor checkout, use `bun src/cli.ts` in place of `sevro`.
 [Report v1](report-v1.md) defines fields and limits. Missing cost, usage, or
 duration is unknown, not zero. Advisory recommendations remain independent
 of the task verdict.
