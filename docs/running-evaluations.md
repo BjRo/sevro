@@ -1,10 +1,11 @@
 # Run an evaluation
 
 Begin with the [deterministic example](getting-started.md). For your own case,
-select a trusted adapter and absolute paths:
+make [the installed command available](installing.md#make-the-command-available),
+then select a trusted adapter and absolute paths:
 
 ```sh
-bun src/cli.ts run --json \
+sevro run --json \
   --case-file /absolute/path/case.json \
   --adapter-module /absolute/path/host.ts \
   --project-root /absolute/path/project \
@@ -12,7 +13,7 @@ bun src/cli.ts run --json \
   --condition passive --trials 1 --threshold 1
 ```
 
-For an installed project replace `bun src/cli.ts` with `bun node_modules/.bin/sevro`.
+For a contributor checkout, use `bun src/cli.ts` in place of `sevro`.
 An adapter is trusted executable code; injection does not automatically provide
 native isolation. `--project-root` identifies the evaluated project, not
 necessarily the runner checkout. `--results-root` receives evidence.

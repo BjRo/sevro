@@ -64,6 +64,12 @@ The npm package does not install the repository guide.
 regeneration, compatibility, and releases. [Documentation quality](docs/documentation-quality.md)
 defines documentation checks and review.
 
+Run `bun run check:typescript` for the complete quality gate and
+`bun run check:typescript --fast` before committing. The
+[TypeScript quality contract](docs/typescript-quality.md) defines the source
+inventory, strict typing, property tests, coverage integrity, and supported
+environment.
+
 ## License and acknowledgements
 
 This unreleased checkout uses the [Sevro Source Available License 1.0](LICENSE).

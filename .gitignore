@@ -1,4 +1,5 @@
 node_modules/
+.quality/
 dist/
 *.tgz
 sevro-results/

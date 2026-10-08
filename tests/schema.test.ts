@@ -1,4 +1,5 @@
-import { expect, test } from "bun:test";
+import { defined } from "./fixtures/assertions";
+import { test, expect } from "bun:test";
 import Ajv2020 from "ajv/dist/2020.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,7 +10,6 @@ import { createCodexHost } from "../src/hosts/codex";
 import cliValidator from "../src/generated/cli-result.cjs";
 import extensionValidator from "../src/generated/extension.cjs";
 import runValidator from "../src/generated/run-evidence.cjs";
-
 const ajv = new Ajv2020({
   allErrors: true,
   strict: true,
@@ -18,7 +18,6 @@ const ajv = new Ajv2020({
 });
 for (const schema of [cliSchema, extensionSchema, runSchema])
   ajv.addSchema(schema);
-
 function valid(schemaId: string, value: unknown): boolean {
   const validator = ajv.getSchema(schemaId);
   if (!validator) throw new Error(`missing schema: ${schemaId}`);
@@ -28,15 +27,13 @@ function valid(schemaId: string, value: unknown): boolean {
     "urn:sevro:schema:extension:v1": extensionValidator,
     "urn:sevro:schema:run-evidence:v1": runValidator,
   };
-  expect(generated[schemaId]!(value)).toBe(result);
+  expect(defined(generated[schemaId])(value)).toBe(result);
   return result;
 }
-
 const digest = "a".repeat(64);
 const complete = { status: "completed" };
 const notRequested = { status: "not_requested" };
 const notAssessed = { verdict: "not_assessed" };
-
 const cliResult = {
   format: "sevro.cli-result.v1",
   runId: "run-1",
@@ -64,7 +61,7 @@ const cliResult = {
     },
   ],
 };
-
+// eslint-disable-next-line max-lines-per-function -- Keep this complete versioned schema example and its rejection assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("accepts discovery and each extension operation", () => {
   const envelope = (
     protocol: string,
@@ -204,7 +201,6 @@ test("accepts discovery and each extension operation", () => {
   for (const exchange of exchanges)
     expect(valid("urn:sevro:schema:extension:v1", exchange)).toBe(true);
 });
-
 test("rejects ambiguous or incomplete extension messages", () => {
   const base = {
     protocol: "sevro.extension.v1",
@@ -240,7 +236,6 @@ test("rejects ambiguous or incomplete extension messages", () => {
     }),
   ).toBe(false);
 });
-
 test("keeps execution, grading, and task verdict distinct in CLI JSON", () => {
   expect(valid("urn:sevro:schema:cli-result:v1", cliResult)).toBe(true);
   expect(
@@ -262,10 +257,10 @@ test("keeps execution, grading, and task verdict distinct in CLI JSON", () => {
       ...cliResult,
       cases: [
         {
-          ...cliResult.cases[0],
+          ...defined(cliResult.cases[0]),
           trials: [
             {
-              ...cliResult.cases[0].trials[0],
+              ...defined(defined(cliResult.cases[0]).trials[0]),
               grading: { status: "unavailable" },
               task: { verdict: "passed" },
             },
@@ -282,7 +277,7 @@ test("keeps execution, grading, and task verdict distinct in CLI JSON", () => {
     }),
   ).toBe(true);
 });
-
+// eslint-disable-next-line max-lines-per-function -- Keep this complete versioned schema example and its rejection assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("requires separate runner, project, and extension provenance", () => {
   const evidence = {
     format: "sevro.run-evidence.v1",
@@ -364,8 +359,10 @@ test("requires separate runner, project, and extension provenance", () => {
       runner: { version: "0.1.0" },
     }),
   ).toBe(false);
-  const { instrumentationDigest: _missing, ...incompleteDimensions } =
-    evidence.evaluationIdentity.dimensions;
+  const incompleteDimensions: Partial<
+    typeof evidence.evaluationIdentity.dimensions
+  > = { ...evidence.evaluationIdentity.dimensions };
+  delete incompleteDimensions.instrumentationDigest;
   expect(
     valid("urn:sevro:schema:run-evidence:v1", {
       ...evidence,

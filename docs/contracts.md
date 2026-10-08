@@ -10,8 +10,8 @@ Read these human contracts and their schemas together:
 - [Schemas](../schemas/): machine-readable public forms.
 
 [Guide specification](specs/repository-guide.md) governs the repository assistant.
-[LICENSE](../LICENSE) governs licensing. [Issue #1](https://github.com/BjRo/sevro/issues/1)
-owns the forthcoming TypeScript quality contract; this checkout does not invent
-its accepted policy. There is no accepted Rust migration decision here.
+[LICENSE](../LICENSE) governs licensing. The
+[TypeScript quality contract](typescript-quality.md) defines source inventories,
+development checks, and coverage policy.
 [Architecture](architecture.md) explains implementation context;
 [historical validation](evidence.md) records past observations. Return to the [hub](README.md).

@@ -13,6 +13,62 @@ const checked = (status: "passed" | "failed" | "unavailable") => ({
   status,
 });
 
+for (const { name, checks } of [
+  { name: "foreign ID", checks: [{ ...checked("passed"), id: "other" }] },
+  { name: "duplicate ID", checks: [checked("passed"), checked("passed")] },
+]) {
+  test(`trial assessment refuses a ${name} without accepting its passing checks`, () => {
+    expect(() =>
+      assessTrial({
+        execution: "completed",
+        declaredChecks: ["answer"],
+        checks,
+      }),
+    ).toThrow("unexpected or duplicate check result:");
+  });
+}
+
+for (const { name, declarations } of [
+  { name: "an empty ID", declarations: [""] },
+  { name: "a repeated ID", declarations: ["answer", "answer"] },
+]) {
+  test(`trial assessment refuses ${name} in its declared criteria`, () => {
+    expect(() =>
+      assessTrial({
+        execution: "completed",
+        declaredChecks: declarations,
+        checks: [],
+      }),
+    ).toThrow("check declarations must have unique nonempty IDs");
+  });
+}
+
+test("assessment summary refuses an empty trial set", () => {
+  expect(() => summarizeAssessments([])).toThrow(
+    "at least one assessment is required",
+  );
+});
+
+for (const { name, threshold } of [
+  { name: "NaN", threshold: Number.NaN },
+  { name: "positive infinity", threshold: Number.POSITIVE_INFINITY },
+  { name: "negative infinity", threshold: Number.NEGATIVE_INFINITY },
+  { name: "zero", threshold: 0 },
+  { name: "a negative fraction", threshold: -0.1 },
+  { name: "above one", threshold: 1.1 },
+]) {
+  test(`assessment summary refuses a threshold of ${name}`, () => {
+    const passed = assessTrial({
+      execution: "completed",
+      declaredChecks: ["answer"],
+      checks: [checked("passed")],
+    });
+    expect(() => summarizeAssessments([passed], threshold)).toThrow(
+      "pass threshold must be greater than zero and at most one",
+    );
+  });
+}
+
 test("prompt-only and dry runs do not claim task success", () => {
   const prompt = assessTrial({
     execution: "completed",

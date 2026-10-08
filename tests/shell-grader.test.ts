@@ -1,6 +1,15 @@
-import { expect, test } from "bun:test";
-import { existsSync } from "node:fs";
-import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { expectUnknown } from "./fixtures/assertions";
+import { defined } from "./fixtures/assertions";
+import { afterEach, test, expect } from "bun:test";
+import { existsSync, watch } from "node:fs";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -8,13 +17,158 @@ import {
   prepareShellChecks,
   runShellCheck,
 } from "../src/graders/shell";
+const roots: string[] = [];
+afterEach(async () => {
+  await Promise.all(
+    roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
+  );
+});
 
+function outputCheck(configuration: Record<string, unknown>) {
+  return defined(
+    prepareShellChecks([
+      { id: "output", grader: "sevro.shell", configuration },
+    ])[0],
+  );
+}
+
+async function shellWorkspace() {
+  const root = await mkdtemp(join(tmpdir(), "sevro-shell-boundary-"));
+  roots.push(root);
+  const workspace = join(root, "fixture");
+  await mkdir(workspace);
+  return {
+    workspace,
+    protectedRoots: [join(import.meta.dir, "..", "src")],
+    privateStateRoot: join(root, "private"),
+  };
+}
+
+test("shell declarations retain UTF-8 output and regex limits at their public boundary", () => {
+  expect(() =>
+    prepareShellChecks([
+      { id: "", grader: "sevro.shell", configuration: { run: "true" } },
+    ]),
+  ).toThrow("invalid shell check declaration");
+  expect(
+    outputCheck({ run: "true", expectExact: "🙂".repeat(262144) })
+      .captureStdout,
+  ).toBe(true);
+  expect(() =>
+    outputCheck({ run: "true", expectExact: "🙂".repeat(262145) }),
+  ).toThrow("invalid exact shell output expectation");
+  expect(() => outputCheck({ run: "true", expectExact: 42 })).toThrow(
+    "invalid exact shell output expectation",
+  );
+  expect(
+    outputCheck({ run: "true", expectRegex: "x".repeat(4096) }).captureStdout,
+  ).toBe(true);
+  expect(() =>
+    outputCheck({ run: "true", expectRegex: "x".repeat(4097) }),
+  ).toThrow("invalid shell regex pattern");
+  expect(() => outputCheck({ run: "true", notRegex: 42 })).toThrow(
+    "invalid shell regex pattern",
+  );
+});
+
+test("shell assessment refuses missing required stdout and distinguishes regex mismatch", () => {
+  const check = outputCheck({ run: "printf ready", expectRegex: "^ready$" });
+  expect(() => assessShellCheck(check, { exitCode: 0, stdout: null })).toThrow(
+    "shell stdout observation is missing",
+  );
+  expect(
+    assessShellCheck(check, { exitCode: 0, stdout: "private unmatched bytes" }),
+  ).toEqual({
+    passed: false,
+    detail: "expected shell output pattern did not match",
+  });
+  expect(
+    assessShellCheck(check, { exitCode: 0, stdout: "ready\n" }).passed,
+  ).toBe(true);
+});
+
+test("a pre-aborted shell check refuses admission before preparing runtime state", async () => {
+  const options = await shellWorkspace();
+  const controller = new AbortController();
+  controller.abort();
+  expect(
+    runShellCheck(outputCheck({ run: "true" }), {
+      ...options,
+      signal: controller.signal,
+    }),
+  ).rejects.toThrow("shell check cancelled");
+  expect(existsSync(join(options.workspace, ".git/sevro-runtime"))).toBe(false);
+});
+
+test("shell cancellation requested during preparation stops its eventual owned process", async () => {
+  if (process.platform !== "darwin") return;
+  const options = await shellWorkspace();
+  const controller = new AbortController();
+  const running = runShellCheck(
+    outputCheck({ run: "sleep 30", timeoutMs: 5000 }),
+    { ...options, signal: controller.signal },
+  );
+  controller.abort();
+  expect(running).rejects.toThrow("shell check cancelled");
+});
+
+test("active shell cancellation stops only the receipt-bound owned process", async () => {
+  if (process.platform !== "darwin") return;
+  const options = await shellWorkspace();
+  const controller = new AbortController();
+  const ready = Promise.withResolvers<undefined>();
+  const observer = watch(options.workspace, (_event, name) => {
+    if (name === "ready") ready.resolve(undefined);
+  });
+  const timer = setTimeout(() => {
+    ready.reject(new Error("owned shell did not publish readiness"));
+  }, 2000);
+  let running: Promise<unknown> | undefined;
+  try {
+    const check = outputCheck({
+      run: 'printf "%s\\n" "$$" > ready; exec sleep 30',
+      timeoutMs: 5000,
+    });
+    running = runShellCheck(check, {
+      ...options,
+      signal: controller.signal,
+    }).catch((cause: unknown) => cause);
+    await ready.promise;
+    const pid = Number(
+      await readFile(join(options.workspace, "ready"), "utf8"),
+    );
+    expect(Number.isSafeInteger(pid)).toBe(true);
+    expect(pid).toBeGreaterThan(0);
+    controller.abort();
+    expect(await running).toMatchObject({ message: "shell check cancelled" });
+    expect(() => process.kill(pid, 0)).toThrow(/ESRCH|No such process/);
+  } finally {
+    controller.abort();
+    if (running) await running;
+    observer.close();
+    clearTimeout(timer);
+  }
+});
+
+test("shell runtime refuses a regular file in place of its required isolated UV cache", async () => {
+  if (process.platform !== "darwin") return;
+  const options = await shellWorkspace();
+  const directory = join(options.workspace, ".git/sevro-runtime");
+  await mkdir(directory, { recursive: true });
+  await writeFile(join(directory, "uv-cache"), "not a directory");
+  expect(
+    runShellCheck(outputCheck({ run: "true" }), {
+      ...options,
+      uvRuntimeCache: true,
+    }),
+  ).rejects.toThrow("isolated UV cache is missing");
+});
 test("shell declarations reject invalid commands and bounds", () => {
   const check = (configuration: Record<string, unknown>) =>
     prepareShellChecks([{ id: "check", grader: "sevro.shell", configuration }]);
-  expect(check({ run: "test -f README.md" })[0]).toMatchObject({
+  expect(defined(check({ run: "test -f README.md" })[0])).toMatchObject({
     expectedExitCode: 0,
-    timeoutMs: 30_000,
+    timeoutMs: 30000,
   });
   expect(() => check({ run: "" })).toThrow(/bounded command/);
   expect(() => check({ run: "true", timeoutMs: 0 })).toThrow(/timeout/);
@@ -28,7 +182,6 @@ test("shell declarations reject invalid commands and bounds", () => {
   );
   expect(() => check({ run: "true", flags: "i" })).toThrow(/flags/);
 });
-
 test("shell stdout assertions preserve exact and multiline matching semantics", () => {
   const [check] = prepareShellChecks([
     {
@@ -43,13 +196,16 @@ test("shell stdout assertions preserve exact and multiline matching semantics", 
     },
   ]);
   expect(
-    assessShellCheck(check!, { exitCode: 0, stdout: "first\nsecond\n" }).passed,
+    assessShellCheck(defined(check), { exitCode: 0, stdout: "first\nsecond\n" })
+      .passed,
   ).toBeTrue();
   expect(
-    assessShellCheck(check!, { exitCode: 0, stdout: "first\nother\n" }).passed,
+    assessShellCheck(defined(check), { exitCode: 0, stdout: "first\nother\n" })
+      .passed,
   ).toBeFalse();
   expect(
-    assessShellCheck(check!, { exitCode: 1, stdout: "first\nsecond\n" }).detail,
+    assessShellCheck(defined(check), { exitCode: 1, stdout: "first\nsecond\n" })
+      .detail,
   ).toContain("exit code");
   const [negative] = prepareShellChecks([
     {
@@ -62,10 +218,10 @@ test("shell stdout assertions preserve exact and multiline matching semantics", 
     },
   ]);
   expect(
-    assessShellCheck(negative!, { exitCode: 0, stdout: "forbidden\n" }).passed,
+    assessShellCheck(defined(negative), { exitCode: 0, stdout: "forbidden\n" })
+      .passed,
   ).toBeFalse();
 });
-
 test("timed out shell checks stop without returning a result", async () => {
   if (process.platform !== "darwin") return;
   const root = await mkdtemp(join(tmpdir(), "sevro-shell-timeout-"));
@@ -79,8 +235,8 @@ test("timed out shell checks stop without returning a result", async () => {
         configuration: { run: "sleep 10", timeoutMs: 50 },
       },
     ]);
-    await expect(
-      runShellCheck(check!, {
+    expect(
+      runShellCheck(defined(check), {
         workspace,
         protectedRoots: [join(import.meta.dir, "..", "src")],
         privateStateRoot: join(root, "private"),
@@ -90,7 +246,6 @@ test("timed out shell checks stop without returning a result", async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
-
 test("isolated shell checks can use an explicit toolchain", async () => {
   if (process.platform !== "darwin") return;
   const root = await mkdtemp(join(tmpdir(), "sevro-shell-toolchain-"));
@@ -114,7 +269,7 @@ test("isolated shell checks can use an explicit toolchain", async () => {
         },
       },
     ]);
-    const result = await runShellCheck(check!, {
+    const result = await runShellCheck(defined(check), {
       workspace,
       toolchainBinDir,
       uvRuntimeCache: true,
@@ -126,7 +281,6 @@ test("isolated shell checks can use an explicit toolchain", async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
-
 test("shell scratch files stay inside Git metadata", async () => {
   if (process.platform !== "darwin") return;
   const root = await mkdtemp(join(tmpdir(), "sevro-shell-scratch-"));
@@ -142,17 +296,21 @@ test("shell scratch files stay inside Git metadata", async () => {
         },
       },
     ]);
-    const result = await runShellCheck(check!, {
+    const result = await runShellCheck(defined(check), {
       workspace,
       protectedRoots: [join(import.meta.dir, "..", "src")],
       privateStateRoot: join(root, "private"),
     });
     expect(result.exitCode).toBe(0);
     expect(
-      existsSync(join(workspace, ".git", "sevro-runtime", "check-home", "probe")),
+      existsSync(
+        join(workspace, ".git", "sevro-runtime", "check-home", "probe"),
+      ),
     ).toBeTrue();
     expect(
-      existsSync(join(workspace, ".git", "sevro-runtime", "check-tmp", "probe")),
+      existsSync(
+        join(workspace, ".git", "sevro-runtime", "check-tmp", "probe"),
+      ),
     ).toBeTrue();
     expect(existsSync(join(workspace, ".sevro-check-home"))).toBeFalse();
     expect(existsSync(join(workspace, ".sevro-check-tmp"))).toBeFalse();
@@ -160,7 +318,7 @@ test("shell scratch files stay inside Git metadata", async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
-
+// eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("shell check sees the fixture but cannot read or write protected sources", async () => {
   if (process.platform !== "darwin") return;
   const root = await mkdtemp(join(tmpdir(), "sevro-shell-check-"));
@@ -173,7 +331,7 @@ test("shell check sees the fixture but cannot read or write protected sources", 
       const [check] = prepareShellChecks([
         { id: "check", grader: "sevro.shell", configuration: { run: command } },
       ]);
-      return runShellCheck(check!, {
+      return runShellCheck(defined(check), {
         workspace,
         protectedRoots: [protectedRoot],
         privateStateRoot: join(root, "private"),
@@ -201,12 +359,12 @@ test("shell check sees the fixture but cannot read or write protected sources", 
         },
       },
     ]);
-    const output = await runShellCheck(outputCheck!, {
+    const output = await runShellCheck(defined(outputCheck), {
       workspace,
       protectedRoots: [protectedRoot],
       privateStateRoot: join(root, "private"),
     });
-    expect(output).toEqual({ exitCode: 0, stdout: "alpha\nbeta\n" });
+    expectUnknown(output).toEqual({ exitCode: 0, stdout: "alpha\nbeta\n" });
     const [failFast] = prepareShellChecks([
       {
         id: "fail-fast",
@@ -217,12 +375,12 @@ test("shell check sees the fixture but cannot read or write protected sources", 
         },
       },
     ]);
-    const stopped = await runShellCheck(failFast!, {
+    const stopped = await runShellCheck(defined(failFast), {
       workspace,
       protectedRoots: [protectedRoot],
       privateStateRoot: join(root, "private"),
     });
-    expect(stopped).toEqual({ exitCode: 1, stdout: "" });
+    expectUnknown(stopped).toEqual({ exitCode: 1, stdout: "" });
     const [oversized] = prepareShellChecks([
       {
         id: "oversized",
@@ -233,8 +391,8 @@ test("shell check sees the fixture but cannot read or write protected sources", 
         },
       },
     ]);
-    await expect(
-      runShellCheck(oversized!, {
+    expect(
+      runShellCheck(defined(oversized), {
         workspace,
         protectedRoots: [protectedRoot],
         privateStateRoot: join(root, "private"),

@@ -1,3 +1,4 @@
+import { isRecord } from "../value-guards";
 import { lstat } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -20,18 +21,28 @@ export function prepareGitHeadChecks(
   declarations: GitHeadCheckDeclaration[],
 ): PreparedGitHeadCheck[] {
   return declarations.map(({ id, configuration }) => {
-    if (
-      !id ||
-      !configuration ||
-      typeof configuration !== "object" ||
-      Object.keys(configuration).some((key) => key !== "kind") ||
-      (configuration.kind !== "changed" &&
-        configuration.kind !== "unchanged" &&
-        configuration.kind !== "base-ancestor")
-    )
+    if (!id || !validGitHeadConfiguration(configuration))
       throw new Error("invalid Git HEAD check declaration");
     return { id, kind: configuration.kind };
   });
+}
+
+function validGitHeadKind(
+  value: unknown,
+): value is PreparedGitHeadCheck["kind"] {
+  return (
+    value === "changed" || value === "unchanged" || value === "base-ancestor"
+  );
+}
+
+function validGitHeadConfiguration(
+  value: unknown,
+): value is { kind: PreparedGitHeadCheck["kind"] } {
+  return (
+    isRecord(value) &&
+    !Object.keys(value).some((key) => key !== "kind") &&
+    validGitHeadKind(value.kind)
+  );
 }
 
 async function boundedOutput(
@@ -40,7 +51,7 @@ async function boundedOutput(
   const reader = stream.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
-  while (true) {
+  for (;;) {
     const { value, done } = await reader.read();
     if (done) break;
     size += value.byteLength;
@@ -69,58 +80,96 @@ function stopProcess(proc: Bun.Subprocess): void {
   }
 }
 
+function gitEnvironment() {
+  return {
+    PATH: process.env.PATH ?? "/usr/bin:/bin",
+    ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null",
+    GIT_NO_REPLACE_OBJECTS: "1",
+    GIT_TERMINAL_PROMPT: "0",
+  };
+}
+
+async function validateGitMetadata(workspace: string): Promise<void> {
+  const directory = await lstat(join(workspace, ".git"));
+  if (!directory.isDirectory() || directory.isSymbolicLink())
+    throw new Error("Git fixture metadata is not a directory");
+}
+
+class GitHeadExecution {
+  private timer: ReturnType<typeof setTimeout> | undefined;
+  private cancel: (() => void) | undefined;
+  constructor(
+    private readonly proc: Bun.Subprocess<"ignore", "pipe", "ignore">,
+    private readonly signal: AbortSignal | undefined,
+  ) {}
+
+  private complete() {
+    return Promise.all([
+      boundedOutput(this.proc.stdout),
+      this.proc.exited,
+    ]).then(([output, code]) => ({ output: output.trim(), code }));
+  }
+
+  private timeout(): Promise<never> {
+    return new Promise((_resolve, reject) => {
+      this.timer = setTimeout(() => {
+        reject(new Error("Git HEAD check timed out"));
+      }, TIMEOUT_MS);
+    });
+  }
+
+  private aborted(): Promise<never> {
+    return new Promise((_resolve, reject) => {
+      const signal = this.signal;
+      if (!signal) return;
+      this.cancel = () => {
+        reject(new Error("Git HEAD check cancelled"));
+      };
+      signal.addEventListener("abort", this.cancel, { once: true });
+      if (signal.aborted) this.cancel();
+    });
+  }
+
+  private dispose(): void {
+    if (this.timer) clearTimeout(this.timer);
+    if (this.cancel) this.signal?.removeEventListener("abort", this.cancel);
+  }
+
+  async run(): Promise<{ output: string; code: number }> {
+    try {
+      return await Promise.race([
+        this.complete(),
+        this.timeout(),
+        this.aborted(),
+      ]);
+    } catch (error) {
+      stopProcess(this.proc);
+      await this.proc.exited;
+      throw error;
+    } finally {
+      this.dispose();
+    }
+  }
+}
+
 async function git(
   workspace: string,
   args: string[],
   signal?: AbortSignal,
 ): Promise<{ code: number; output: string }> {
   if (signal?.aborted) throw new Error("Git HEAD check cancelled");
-  const gitDirectory = await lstat(join(workspace, ".git"));
-  if (!gitDirectory.isDirectory() || gitDirectory.isSymbolicLink())
-    throw new Error("Git fixture metadata is not a directory");
+  await validateGitMetadata(workspace);
   const proc = Bun.spawn(["git", ...args], {
     cwd: workspace,
     stdin: "ignore",
     stdout: "pipe",
     stderr: "ignore",
     detached: process.platform !== "win32",
-    env: {
-      PATH: process.env.PATH ?? "/usr/bin:/bin",
-      ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
-      GIT_CONFIG_NOSYSTEM: "1",
-      GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null",
-      GIT_NO_REPLACE_OBJECTS: "1",
-      GIT_TERMINAL_PROMPT: "0",
-    },
+    env: gitEnvironment(),
   });
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let cancel: (() => void) | undefined;
-  try {
-    const complete = Promise.all([
-      boundedOutput(proc.stdout),
-      proc.exited,
-    ]).then(([output, code]) => ({ output: output.trim(), code }));
-    const timeout = new Promise<never>((_resolve, reject) => {
-      timer = setTimeout(
-        () => reject(new Error("Git HEAD check timed out")),
-        TIMEOUT_MS,
-      );
-    });
-    const aborted = new Promise<never>((_resolve, reject) => {
-      if (!signal) return;
-      cancel = () => reject(new Error("Git HEAD check cancelled"));
-      signal.addEventListener("abort", cancel, { once: true });
-      if (signal.aborted) cancel();
-    });
-    return await Promise.race([complete, timeout, aborted]);
-  } catch (error) {
-    stopProcess(proc);
-    await proc.exited;
-    throw error;
-  } finally {
-    if (timer) clearTimeout(timer);
-    if (cancel) signal?.removeEventListener("abort", cancel);
-  }
+  return new GitHeadExecution(proc, signal).run();
 }
 
 export async function gitHeadRevision(

@@ -6,6 +6,12 @@ the same guide and freshly inspected sources. Unrelated questions and requests
 to implement, install, run evaluations, or diagnose a live environment do not
 select the guide. The explicitly invoked guide remains read-only.
 
+Before changing source code, tests, tooling, examples, or schemas,
+read `CONTRIBUTING.md` and `docs/typescript-quality.md`.
+Before preparing a commit, pull request, or release, read `CONTRIBUTING.md`.
+Before changing the repository guide or its evaluation fixtures and grading,
+read `docs/guide-evaluation.md`.
+
 Before changing public behavior, read `docs/contracts.md` and the applicable
 linked contract. Before changing documentation or guide files, read
 `docs/documentation-quality.md` and `docs/specs/repository-guide.md`.

@@ -10,6 +10,87 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { codexPermissionProfile } from "../src/hosts/codex-profile";
+import { parse } from "smol-toml";
+
+const ordinaryProfile = {
+  id: "sevro_trial",
+  workspace: "/tmp/fixture",
+  commandHome: "/tmp/fixture/home",
+  commandTemp: "/tmp/fixture/tmp",
+  executableReadRoots: ["/bin"],
+  protectedRoots: ["/source"],
+};
+
+const profileRefusals: Array<{
+  label: string;
+  change: Partial<Parameters<typeof codexPermissionProfile>[0]>;
+}> = [
+  { label: "relative workspace", change: { workspace: "fixture" } },
+  { label: "relative home", change: { commandHome: "home" } },
+  { label: "relative temporary directory", change: { commandTemp: "tmp" } },
+  { label: "missing executable roots", change: { executableReadRoots: [] } },
+  {
+    label: "unbounded executable root",
+    change: { executableReadRoots: ["/"] },
+  },
+  {
+    label: "relative executable root",
+    change: { executableReadRoots: ["bin"] },
+  },
+  { label: "relative plugin root", change: { pluginReadRoot: "plugins" } },
+  { label: "unbounded plugin root", change: { pluginReadRoot: "/" } },
+  { label: "missing protected roots", change: { protectedRoots: [] } },
+  { label: "relative protected root", change: { protectedRoots: ["source"] } },
+];
+test.each(profileRefusals)(
+  "Codex profile refuses $label before creating a command policy",
+  ({ change }) => {
+    expect(() =>
+      codexPermissionProfile({ ...ordinaryProfile, ...change }),
+    ).toThrow("Codex profile paths must be absolute and protected");
+  },
+);
+
+test.each(["\n", "\t", "\u007f"])(
+  "Codex profile refuses control characters in a filesystem policy value %j",
+  (character) => {
+    expect(() =>
+      codexPermissionProfile({
+        ...ordinaryProfile,
+        commandHome: `/tmp/home${character}`,
+      }),
+    ).toThrow("Codex profile value contains a control character");
+  },
+);
+
+test("Codex profile preserves quoted paths and deduplicates declared access roots", () => {
+  const profile = parse(
+    codexPermissionProfile({
+      ...ordinaryProfile,
+      commandHome: '/tmp/fixture/quoted "home"',
+      executableReadRoots: ["/bin", "/bin"],
+      protectedRoots: ['/tmp/source "quoted"', '/tmp/source "quoted"'],
+      pluginReadRoot: "/tmp/fixture/plugins",
+    }),
+  );
+  expect(profile).toMatchObject({
+    default_permissions: "sevro_trial",
+    shell_environment_policy: {
+      inherit: "none",
+      set: { HOME: '/tmp/fixture/quoted "home"' },
+    },
+    permissions: {
+      sevro_trial: {
+        filesystem: {
+          '/tmp/source "quoted"': "deny",
+          "/bin": "read",
+          "/tmp/fixture/plugins": "read",
+          '/tmp/fixture/quoted "home"': "write",
+        },
+      },
+    },
+  });
+});
 
 test("Codex profile denies roots and strips command credentials", () => {
   const profile = codexPermissionProfile({
@@ -49,7 +130,6 @@ test("actual Codex sandbox keeps fixture access and denies source and auth", asy
   const pluginCache = join(codexHome, "plugins", "cache");
   try {
     await Promise.all([mkdir(fixture), mkdir(source), mkdir(state)]);
-    await mkdir(codexHome);
     await mkdir(pluginCache, { recursive: true });
     await Promise.all([mkdir(commandHome), mkdir(commandTemp)]);
     await writeFile(join(fixture, "visible.txt"), "visible\n");
@@ -103,7 +183,9 @@ test("actual Codex sandbox keeps fixture access and denies source and auth", asy
     expect(
       (await run(["/bin/cat", join(codexHome, "auth.json")])).code,
     ).not.toBe(0);
-    expect((await run(["/bin/cat", join(pluginCache, "skill.txt")])).code).toBe(0);
+    expect((await run(["/bin/cat", join(pluginCache, "skill.txt")])).code).toBe(
+      0,
+    );
     expect(
       (await run(["/bin/sh", "-c", "printf created > created.txt"])).code,
     ).toBe(0);

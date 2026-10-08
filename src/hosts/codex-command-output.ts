@@ -1,5 +1,6 @@
 import { isAbsolute, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isUnknownArray } from "../value-guards";
 import {
   literalExecutorCommand,
   type LiteralExecutorCommand,
@@ -32,49 +33,56 @@ function processId(value: unknown): string | undefined {
   return /^(?:[1-9][0-9]*)$/.test(String(value)) ? String(value) : undefined;
 }
 
-function yieldedChunk(
-  value: Record<string, unknown>,
-): YieldedChunk | undefined {
+function validChunkId(value: unknown): value is string {
+  return typeof value === "string" && /^[\w-]{1,64}$/.test(value);
+}
+function validWallTime(value: unknown): boolean {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+function yieldedEnvelope(value: Record<string, unknown>) {
   const process = processId(value.session_id);
   if (!process || value.exit_code != null || typeof value.output !== "string")
     return undefined;
-  if (
-    typeof value.chunk_id !== "string" ||
-    !/^[\w-]{1,64}$/.test(value.chunk_id)
-  )
-    return undefined;
-  if (
-    typeof value.wall_time_seconds !== "number" ||
-    !Number.isFinite(value.wall_time_seconds) ||
-    value.wall_time_seconds < 0
-  )
-    return undefined;
-  return { process, id: value.chunk_id, output: value.output };
+  return { process, output: value.output };
 }
-
+function yieldedChunk(
+  value: Record<string, unknown>,
+): YieldedChunk | undefined {
+  const envelope = yieldedEnvelope(value);
+  if (!envelope) return undefined;
+  if (!validChunkId(value.chunk_id) || !validWallTime(value.wall_time_seconds))
+    return undefined;
+  return { ...envelope, id: value.chunk_id };
+}
 // Decode only host result/content envelopes, never arbitrary object properties,
 // prose containing JSON, or JSON printed inside a command's output.
+
 function resultChunks(value: unknown, depth = 0): YieldedChunk[] {
   if (depth > 6) return [];
-  if (typeof value === "string") {
-    try {
-      return resultChunks(JSON.parse(value), depth + 1);
-    } catch {
-      return [];
-    }
+  if (typeof value === "string") return decodedChunks(value, depth);
+  return containerChunks(value, depth);
+}
+function decodedChunks(value: string, depth: number): YieldedChunk[] {
+  try {
+    return resultChunks(JSON.parse(value), depth + 1);
+  } catch {
+    return [];
   }
+}
+function textEnvelope(value: unknown): boolean {
+  return value === "input_text" || value === "text";
+}
+function containerChunks(value: unknown, depth: number): YieldedChunk[] {
   if (Array.isArray(value))
-    return value.flatMap((part) => resultChunks(part, depth + 1));
+    return value.flatMap((part: unknown) => resultChunks(part, depth + 1));
   if (!record(value)) return [];
-  if (value.type === "input_text" || value.type === "text")
-    return resultChunks(value.text, depth + 1);
+  if (textEnvelope(value.type)) return resultChunks(value.text, depth + 1);
   const chunk = yieldedChunk(value);
   return chunk ? [chunk] : [];
 }
 
 function execCall(payload: Record<string, unknown>): boolean {
-  if (payload.type !== "custom_tool_call" && payload.type !== "function_call")
-    return false;
+  if (!executorCallType(payload.type)) return false;
   const namespace = payload.namespace;
   if (namespace !== undefined && namespace !== "functions") return false;
   const names = [
@@ -93,17 +101,13 @@ function chunksAtEntry(
   entries: NativeEntry[],
 ): YieldedChunk[] {
   const { payload, ordinal } = entry;
-  if (
-    payload.type !== "custom_tool_call_output" &&
-    payload.type !== "function_call_output"
-  )
-    return [];
+  if (!executorOutputType(payload.type)) return [];
   if (typeof payload.call_id !== "string") return [];
   const calls = entries.filter(
     (other) =>
       execCall(other.payload) && other.payload.call_id === payload.call_id,
   );
-  if (calls.length !== 1 || calls[0]!.ordinal >= ordinal) return [];
+  if (!soleEarlierCall(calls, ordinal)) return [];
   return resultChunks(payload.output);
 }
 
@@ -119,24 +123,32 @@ function commandProcess(entry: NativeEntry): string | undefined {
   return processId(payload.item.process_id);
 }
 
-function executorTextBlocks(value: unknown): string[] | undefined {
-  if (typeof value === "string") {
-    try {
-      value = JSON.parse(value);
-    } catch {
-      return undefined;
-    }
+function executorEnvelope(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  try {
+    const decoded: unknown = JSON.parse(value);
+    return decoded;
+  } catch {
+    return undefined;
   }
-  if (!Array.isArray(value) || value.length < 2) return undefined;
+}
+function executorTextBlock(block: unknown): string | undefined {
+  if (
+    !record(block) ||
+    !["input_text", "text"].includes(String(block.type)) ||
+    typeof block.text !== "string"
+  )
+    return undefined;
+  return block.text;
+}
+function executorTextBlocks(value: unknown): string[] | undefined {
+  const envelope = executorEnvelope(value);
+  if (!Array.isArray(envelope) || envelope.length < 2) return undefined;
   const text: string[] = [];
-  for (const block of value) {
-    if (
-      !record(block) ||
-      !["input_text", "text"].includes(String(block.type)) ||
-      typeof block.text !== "string"
-    )
-      return undefined;
-    text.push(block.text);
+  for (const block of envelope) {
+    const line = executorTextBlock(block);
+    if (line === undefined) return undefined;
+    text.push(line);
   }
   return text;
 }
@@ -155,7 +167,7 @@ function completedText(value: unknown): string | undefined {
   if (!text) return undefined;
   if (
     !/^Script completed\nWall time [0-9]+(?:\.[0-9]+)? seconds\nOutput:\n$/.test(
-      text[0]!,
+      text.slice(0, 1).join(""),
     )
   )
     return undefined;
@@ -179,9 +191,7 @@ function uniqueExecutorCall(
   const calls = entries.filter(
     (entry) => execCall(entry.payload) && entry.payload.call_id === id,
   );
-  return calls.length === 1 && calls[0]!.ordinal < result.ordinal
-    ? calls[0]
-    : undefined;
+  return soleEarlierCall(calls, result.ordinal);
 }
 
 function uniqueCommandIdentity(
@@ -226,104 +236,159 @@ function soleCompletedCommand(
       record(payload.item) &&
       payload.item.type === "CommandExecution",
   );
-  return commands.length === 1 && uniqueCommandIdentity(commands[0]!, entries)
-    ? commands[0]
-    : undefined;
+  return soleUniqueCommand(commands, entries);
 }
 
 function completedCallOutputs(entries: NativeEntry[]): Map<number, string> {
   const outputs = new Map<number, string>();
   const results = entries.filter(({ payload }) =>
-    ["custom_tool_call_output", "function_call_output"].includes(
-      String(payload.type),
-    ),
+    executorOutputType(payload.type),
   );
   for (const result of results) {
-    const call = uniqueExecutorCall(result, results, entries);
-    if (!call) continue;
-    const command = soleCompletedCommand(call, result, entries);
-    if (!command) continue;
-    const item = command.payload.item as Record<string, unknown>;
-    const literal = literalCallCommand(call.payload);
-    if (!literal || !literalCommandMatches(item, literal)) continue;
-    const output = completedText(result.payload.output);
-    if (
-      output !== undefined &&
-      !(
-        typeof item.aggregated_output === "string" &&
-        item.aggregated_output.includes(output)
-      )
-    )
-      outputs.set(command.ordinal, output);
+    const output = completedResultOutput(result, results, entries);
+    if (output) outputs.set(output.ordinal, output.output);
   }
   return outputs;
 }
+function completedResultOutput(
+  result: NativeEntry,
+  results: NativeEntry[],
+  entries: NativeEntry[],
+) {
+  const call = uniqueExecutorCall(result, results, entries);
+  if (!call) return undefined;
+  const command = soleCompletedCommand(call, result, entries);
+  if (!command) return undefined;
+  const item = command.payload.item as Record<string, unknown>;
+  const literal = literalCallCommand(call.payload);
+  if (!literal || !literalCommandMatches(item, literal)) return undefined;
+  return unaggregatedCompletedOutput(command, item, result);
+}
+function unaggregatedCompletedOutput(
+  command: NativeEntry,
+  item: Record<string, unknown>,
+  result: NativeEntry,
+) {
+  const output = completedText(result.payload.output);
+  if (output === undefined) return undefined;
+  if (
+    typeof item.aggregated_output === "string" &&
+    item.aggregated_output.includes(output)
+  )
+    return undefined;
+  return { ordinal: command.ordinal, output };
+}
 
+function literalArgv(argv: unknown, command: LiteralExecutorCommand): boolean {
+  if (!isUnknownArray(argv) || argv.length !== 3) return false;
+  const [shell, flag, script]: unknown[] = argv;
+  return (
+    shellFlag(flag) &&
+    script === command.command &&
+    requestedShell(shell, command.shell)
+  );
+}
+function shellFlag(flag: unknown): boolean {
+  return typeof flag === "string" && ["-c", "-lc"].includes(flag);
+}
+function requestedShell(
+  shell: unknown,
+  requested: string | undefined,
+): boolean {
+  return requested === undefined || shell === requested;
+}
 function literalCommandMatches(
   item: Record<string, unknown>,
   command: LiteralExecutorCommand,
 ): boolean {
-  const argv = item.command;
-  if (
-    !Array.isArray(argv) ||
-    argv.length !== 3 ||
-    !["-c", "-lc"].includes(argv[1]) ||
-    argv[2] !== command.command ||
-    (command.shell !== undefined && argv[0] !== command.shell)
-  )
-    return false;
+  if (!literalArgv(item.command, command)) return false;
   if (command.cwd === undefined) return true;
   return matchingCwd(item.cwd, command.cwd);
 }
 
-function matchingCwd(observed: unknown, requested: string): boolean {
-  if (!isAbsolute(requested) || typeof observed !== "string") return false;
+function normalizedCwd(observed: string): string | undefined {
   try {
     const cwd = observed.startsWith("file:")
       ? fileURLToPath(observed)
       : observed;
-    return isAbsolute(cwd) && normalize(cwd) === normalize(requested);
+    return isAbsolute(cwd) ? normalize(cwd) : undefined;
   } catch {
-    return false;
+    return undefined;
   }
+}
+function matchingCwd(observed: unknown, requested: string): boolean {
+  if (!isAbsolute(requested) || typeof observed !== "string") return false;
+  return normalizedCwd(observed) === normalize(requested);
 }
 
 function literalCallOutputs(entries: NativeEntry[]): Map<number, string> {
   const outputs = new Map<number, string>();
   const results = entries.filter(({ payload }) =>
-    ["custom_tool_call_output", "function_call_output"].includes(
-      String(payload.type),
-    ),
+    executorOutputType(payload.type),
   );
   for (const result of results) {
-    const output = completedText(result.payload.output);
-    if (output === undefined) continue;
-    const call = uniqueExecutorCall(result, results, entries);
-    const command = call && literalCallCommand(call.payload);
-    if (!call || !command) continue;
-    const matches = entries.filter(
-      (entry) =>
-        commandProcess(entry) &&
-        literalCommandMatches(
-          entry.payload.item as Record<string, unknown>,
-          command,
-        ),
-    );
-    if (
-      matches.length !== 1 ||
-      matches[0]!.ordinal <= result.ordinal ||
-      !uniqueCommandIdentity(matches[0]!, entries)
-    )
-      continue;
-    const sameCalls = entries.filter(
+    const output = literalResultOutput(result, results, entries);
+    if (output) outputs.set(output.ordinal, output.output);
+  }
+  return outputs;
+}
+function literalResultOutput(
+  result: NativeEntry,
+  results: NativeEntry[],
+  entries: NativeEntry[],
+) {
+  const output = completedText(result.payload.output);
+  if (output === undefined) return undefined;
+  const call = uniqueExecutorCall(result, results, entries);
+  if (!call) return undefined;
+  const command = literalCallCommand(call.payload);
+  if (!command) return undefined;
+  const completion = literalCompletion(result, command, entries);
+  return completion ? { ordinal: completion.ordinal, output } : undefined;
+}
+function literalCompletion(
+  result: NativeEntry,
+  command: LiteralExecutorCommand,
+  entries: NativeEntry[],
+) {
+  const matches = entries.filter(
+    (entry) =>
+      commandProcess(entry) &&
+      literalCommandMatches(
+        entry.payload.item as Record<string, unknown>,
+        command,
+      ),
+  );
+  const completion = uniqueLaterCommand(matches, result, entries);
+  if (!completion || !uniqueLiteralInvocation(command, entries))
+    return undefined;
+  return completion;
+}
+function uniqueLaterCommand(
+  matches: NativeEntry[],
+  result: NativeEntry,
+  entries: NativeEntry[],
+) {
+  const [completion] = matches;
+  if (matches.length !== 1 || completion === undefined) return undefined;
+  if (
+    completion.ordinal <= result.ordinal ||
+    !uniqueCommandIdentity(completion, entries)
+  )
+    return undefined;
+  return completion;
+}
+function uniqueLiteralInvocation(
+  command: LiteralExecutorCommand,
+  entries: NativeEntry[],
+): boolean {
+  return (
+    entries.filter(
       (entry) =>
         execCall(entry.payload) &&
         literalCallCommand(entry.payload)?.command === command.command,
-    );
-    if (sameCalls.length !== 1) continue;
-    outputs.set(matches[0]!.ordinal, output);
-  }
-  return outputs;
+    ).length === 1
+  );
 }
 
 function literalCallCommand(
@@ -343,12 +408,7 @@ function mergeLiteralOutputs(
 ): void {
   for (const [ordinal, output] of literalCallOutputs(entries)) {
     const earlier = outputs.get(ordinal);
-    outputs.set(ordinal, {
-      ...earlier,
-      output: output + (earlier?.output ?? ""),
-      chunks: earlier?.chunks ?? 0,
-      literalCommandCall: true,
-    });
+    outputs.set(ordinal, mergedLiteralOutput(output, earlier));
   }
 }
 
@@ -367,6 +427,71 @@ export function nativeCommandOutputs(
     })),
   );
   const outputs = new Map<number, RecoveredCommandOutput>();
+  mergeYieldedOutputs(outputs, completions, chunks);
+  for (const [ordinal, output] of completedCallOutputs(entries)) {
+    const earlier = outputs.get(ordinal);
+    outputs.set(ordinal, mergedCompletedOutput(output, earlier));
+  }
+  mergeLiteralOutputs(outputs, entries);
+  return outputs;
+}
+
+function executorCallType(value: unknown): boolean {
+  return value === "custom_tool_call" || value === "function_call";
+}
+function executorOutputType(value: unknown): boolean {
+  return (
+    value === "custom_tool_call_output" || value === "function_call_output"
+  );
+}
+function soleEarlierCall(
+  calls: NativeEntry[],
+  ordinal: number,
+): NativeEntry | undefined {
+  const [call] = calls;
+  if (calls.length !== 1 || call === undefined || call.ordinal >= ordinal)
+    return undefined;
+  return call;
+}
+function soleUniqueCommand(
+  commands: NativeEntry[],
+  entries: NativeEntry[],
+): NativeEntry | undefined {
+  const [command] = commands;
+  if (
+    commands.length !== 1 ||
+    command === undefined ||
+    !uniqueCommandIdentity(command, entries)
+  )
+    return undefined;
+  return command;
+}
+function mergedLiteralOutput(
+  output: string,
+  earlier: RecoveredCommandOutput | undefined,
+): RecoveredCommandOutput {
+  return {
+    ...earlier,
+    output: output + (earlier?.output ?? ""),
+    chunks: earlier?.chunks ?? 0,
+    literalCommandCall: true,
+  };
+}
+function mergedCompletedOutput(
+  output: string,
+  earlier: RecoveredCommandOutput | undefined,
+): RecoveredCommandOutput {
+  return {
+    output: (earlier?.output ?? "") + output,
+    chunks: earlier?.chunks ?? 0,
+    completedCall: true,
+  };
+}
+function mergeYieldedOutputs(
+  outputs: Map<number, RecoveredCommandOutput>,
+  completions: { process: string; entry: NativeEntry }[],
+  chunks: (YieldedChunk & { ordinal: number })[],
+): void {
   for (const { process, entry } of completions) {
     // A reused or duplicated process identifier cannot bind a result uniquely.
     if (completions.filter((other) => other.process === process).length !== 1)
@@ -386,14 +511,4 @@ export function nativeCommandOutputs(
       chunks: earlier.length,
     });
   }
-  for (const [ordinal, output] of completedCallOutputs(entries)) {
-    const earlier = outputs.get(ordinal);
-    outputs.set(ordinal, {
-      output: (earlier?.output ?? "") + output,
-      chunks: earlier?.chunks ?? 0,
-      completedCall: true,
-    });
-  }
-  mergeLiteralOutputs(outputs, entries);
-  return outputs;
 }

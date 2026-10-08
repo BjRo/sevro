@@ -441,10 +441,35 @@ const response = {
   protocol: request.protocol,
   id: scenario === "wrong-id" ? "different" : request.id,
   method: request.method,
-  result,
+  result: preparationDataResult(result),
 };
 if (scenario === "oversized") {
   process.stdout.write("x".repeat(8 * 1024 * 1024 + 1));
   process.exit(0);
 }
-process.stdout.write(JSON.stringify(response));
+process.stdout.write(JSON.stringify(serializedResponse(response)));
+
+function preparationDataResult(value: unknown): unknown {
+  if (!scenario.startsWith("prepare-key")) return value;
+  const suffixLength = scenario === "prepare-key128" ? 120 : 121;
+  return {
+    artifacts: [],
+    requestedInstrumentation: [],
+    extensionData: { ["example." + "a".repeat(suffixLength)]: null },
+  };
+}
+
+function serializedResponse(value: Record<string, unknown>): unknown {
+  switch (scenario) {
+    case "wrong-protocol":
+      return { ...value, protocol: "foreign.extension.v1" };
+    case "id-array":
+      return { ...value, id: [] };
+    case "result-array":
+      return { ...value, result: [] };
+    case "null-root":
+      return null;
+    default:
+      return value;
+  }
+}

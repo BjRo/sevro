@@ -39,23 +39,30 @@ Native model trials need their own [credentials and prerequisites](docs/native-h
 
 ## Quality contract and checks
 
-[Issue #1](https://github.com/BjRo/sevro/issues/1) owns the TypeScript quality
-contract, including canonical/fast checks, linting, focused functions,
-properties, and coverage. Its implementation is not present in this checkout.
-Reference its accepted contract when it lands; do not copy draft policy here
-or claim its gate already passes.
-
-Current applicable checks are:
+[The TypeScript quality contract](docs/typescript-quality.md) defines the checked
+source inventory, type-aware lint, strict typing, focused functions, reproducible
+properties, and independent statement and branch coverage requirements.
+Run the complete acceptance command:
 
 ```sh
-bun run schemas:check
-bun run typecheck
-bun run format:check
-bun run check:docs
-bun test --timeout 15000
-bun run test:package-install
-bun run test:docs-examples
+bun run check:typescript
 ```
+
+It performs frozen installation, schema freshness, formatting, lint, typing,
+documentation and guide dry-run checks, tutorial examples, the real Bun suite,
+coverage integrity and thresholds, and installed-package validation. Statements
+and branches must each reach at least 95% using raw exact counts over the complete
+authored production inventory, including unimported files. The four explicitly
+inventoried generated AJV validators are excluded from coverage because this
+target measures authored runner behavior; their syntax, schema freshness, typed
+boundaries and runtime tests remain checked. Tests and fixtures remain linted and
+typed; they do not enter the production coverage denominator. New or changed
+source dispositions require review.
+
+Before committing, use `bun run check:typescript --fast` after installing the
+locked dependencies. This runs inventory, schema, formatting, lint, typing and
+documentation checks; it does not replace full acceptance. CI retains machine-readable coverage
+reports under `.quality/` and exposes the stable `TypeScript quality` status.
 
 Run `bun run check:docs:external` separately and [triage network failures](docs/documentation-quality.md#external-links).
 Guide changes also need [native evals](docs/guide-evaluation.md).

@@ -51,13 +51,18 @@ function textList(value: unknown): string[] {
   return value.map(text);
 }
 
-/** Parse a bounded, exact assessment from an independent review host. */
-export function parseAdvisoryAssessment(raw: string): AdvisoryAssessment {
+function advisoryJson(raw: string): Record<string, unknown> {
   if (Buffer.byteLength(raw, "utf8") > 64 * 1024)
     throw new Error("advisory assessment exceeds 64 KiB");
   const trimmed = raw.trim();
   const fenced = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(trimmed);
-  const value = object(JSON.parse(fenced ? fenced[1]! : trimmed) as unknown);
+  const value: unknown = JSON.parse(fenced?.[1] ?? trimmed);
+  return object(value);
+}
+
+/** Parse a bounded, exact assessment from an independent review host. */
+export function parseAdvisoryAssessment(raw: string): AdvisoryAssessment {
+  const value = advisoryJson(raw);
   exactKeys(value, [
     "verdict",
     "overallScore",

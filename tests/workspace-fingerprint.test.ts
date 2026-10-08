@@ -1,5 +1,13 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, open, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  open,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { workspaceFingerprint } from "../src/hosts/workspace-fingerprint";
@@ -10,6 +18,39 @@ afterEach(async () => {
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
 });
+
+test("workspace identity hashes symlink targets without reading external contents", async () => {
+  const root = await mkdtemp(join(tmpdir(), "sevro-fingerprint-links-"));
+  roots.push(root);
+  const workspace = join(root, "workspace");
+  await mkdir(workspace);
+  await writeFile(join(root, "first.txt"), "external first");
+  await writeFile(join(root, "second.txt"), "external second");
+  const link = join(workspace, "document");
+  await symlink("../first.txt", link);
+  const baseline = await workspaceFingerprint(workspace);
+  expect(baseline).toMatch(/^[a-f0-9]{64}$/);
+  await writeFile(join(root, "first.txt"), "changed external contents");
+  expect(await workspaceFingerprint(workspace)).toBe(baseline);
+  await rm(link);
+  await symlink("../second.txt", link);
+  expect(await workspaceFingerprint(workspace)).not.toBe(baseline);
+});
+
+test("workspace identity is unavailable when directory entries exceed its declared bound", async () => {
+  const root = await mkdtemp(join(tmpdir(), "sevro-fingerprint-entries-"));
+  roots.push(root);
+  for (let batch = 0; batch < 100; batch++) {
+    await Promise.all(
+      Array.from({ length: 100 }, (_, index) =>
+        writeFile(join(root, `file-${batch * 100 + index}`), ""),
+      ),
+    );
+  }
+  expect(await workspaceFingerprint(root)).toMatch(/^[a-f0-9]{64}$/);
+  await writeFile(join(root, "extra-file"), "");
+  expect(await workspaceFingerprint(root)).toBeNull();
+}, 15000);
 
 test("oversized workspace contents leave continuation identity unavailable", async () => {
   const root = await mkdtemp(join(tmpdir(), "sevro-fingerprint-large-"));

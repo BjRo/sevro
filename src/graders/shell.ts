@@ -23,91 +23,141 @@ export interface PreparedShellCheck {
   captureStdout: boolean;
 }
 
+function requireShellDeclaration(
+  id: string,
+  value: unknown,
+): asserts value is Record<string, unknown> {
+  if (!id || !value || typeof value !== "object")
+    throw new Error("invalid shell check declaration");
+}
+function requireShellKeys(config: Record<string, unknown>): void {
+  const allowed = [
+    "run",
+    "expectedExitCode",
+    "timeoutMs",
+    "expectExact",
+    "expectRegex",
+    "notRegex",
+    "flags",
+  ];
+  if (Object.keys(config).some((key) => !allowed.includes(key)))
+    throw new Error("unsupported shell check configuration");
+}
+function requireShellCommand(run: unknown): asserts run is string {
+  if (typeof run !== "string" || !run.trim() || run.length > 4096)
+    throw new Error("shell check requires a bounded command");
+}
+function requireExpectedExit(code: unknown): asserts code is number {
+  if (
+    typeof code !== "number" ||
+    !Number.isSafeInteger(code) ||
+    code < 0 ||
+    code > 255
+  )
+    throw new Error("invalid expected shell exit code");
+}
+function requireShellTimeout(timeout: unknown): asserts timeout is number {
+  if (
+    typeof timeout !== "number" ||
+    !Number.isSafeInteger(timeout) ||
+    timeout < 1 ||
+    timeout > MAX_TIMEOUT_MS
+  )
+    throw new Error("invalid shell check timeout");
+}
+function requireExactShellOutput(
+  output: unknown,
+): asserts output is string | undefined {
+  if (
+    output !== undefined &&
+    (typeof output !== "string" ||
+      Buffer.byteLength(output, "utf8") > MAX_OUTPUT_BYTES)
+  )
+    throw new Error("invalid exact shell output expectation");
+}
+function requireShellFlags(flags: unknown): asserts flags is string {
+  if (
+    flags !== "" &&
+    (typeof flags !== "string" ||
+      !/^[isu]*$/.test(flags) ||
+      new Set(flags).size !== flags.length)
+  )
+    throw new Error("invalid shell regex flags");
+}
+function requireFlagPattern(
+  flags: string,
+  expected: unknown,
+  forbidden: unknown,
+): void {
+  if (flags && expected === undefined && forbidden === undefined)
+    throw new Error("shell regex flags require a pattern");
+}
+function shellOptions(config: Record<string, unknown>) {
+  const {
+    run,
+    expectedExitCode = 0,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+    expectExact,
+    expectRegex,
+    notRegex,
+    flags = "",
+  } = config;
+  requireShellCommand(run);
+  requireExpectedExit(expectedExitCode);
+  requireShellTimeout(timeoutMs);
+  requireExactShellOutput(expectExact);
+  requireShellFlags(flags);
+  requireFlagPattern(flags, expectRegex, notRegex);
+  return {
+    run,
+    expectedExitCode,
+    timeoutMs,
+    expectExact,
+    expectRegex,
+    notRegex,
+    flags,
+  };
+}
+function compileShellPattern(
+  value: unknown,
+  flags: string,
+): RegExp | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || value.length > 4096)
+    throw new Error("invalid shell regex pattern");
+  try {
+    return new RegExp(value, `m${flags}`);
+  } catch (cause) {
+    throw new Error("invalid shell regex pattern or flags", { cause });
+  }
+}
+function prepareShellCheck({
+  id,
+  configuration,
+}: ShellCheckDeclaration): PreparedShellCheck {
+  requireShellDeclaration(id, configuration);
+  requireShellKeys(configuration);
+  const config = shellOptions(configuration);
+  const expectRegex = compileShellPattern(config.expectRegex, config.flags),
+    notRegex = compileShellPattern(config.notRegex, config.flags);
+  return {
+    id,
+    run: config.run,
+    expectedExitCode: config.expectedExitCode,
+    timeoutMs: config.timeoutMs,
+    expectExact: config.expectExact,
+    expectRegex,
+    notRegex,
+    captureStdout:
+      config.expectExact !== undefined ||
+      expectRegex !== undefined ||
+      notRegex !== undefined,
+  };
+}
 export function prepareShellChecks(
   declarations: ShellCheckDeclaration[],
 ): PreparedShellCheck[] {
-  return declarations.map(({ id, configuration }) => {
-    if (!id || !configuration || typeof configuration !== "object")
-      throw new Error("invalid shell check declaration");
-    if (
-      Object.keys(configuration).some(
-        (key) =>
-          ![
-            "run",
-            "expectedExitCode",
-            "timeoutMs",
-            "expectExact",
-            "expectRegex",
-            "notRegex",
-            "flags",
-          ].includes(key),
-      )
-    )
-      throw new Error("unsupported shell check configuration");
-    const {
-      run,
-      expectedExitCode = 0,
-      timeoutMs = DEFAULT_TIMEOUT_MS,
-      expectExact,
-      expectRegex,
-      notRegex,
-      flags = "",
-    } = configuration;
-    if (typeof run !== "string" || !run.trim() || run.length > 4096)
-      throw new Error("shell check requires a bounded command");
-    if (
-      !Number.isSafeInteger(expectedExitCode) ||
-      (expectedExitCode as number) < 0 ||
-      (expectedExitCode as number) > 255
-    )
-      throw new Error("invalid expected shell exit code");
-    if (
-      !Number.isSafeInteger(timeoutMs) ||
-      (timeoutMs as number) < 1 ||
-      (timeoutMs as number) > MAX_TIMEOUT_MS
-    )
-      throw new Error("invalid shell check timeout");
-    if (
-      expectExact !== undefined &&
-      (typeof expectExact !== "string" ||
-        Buffer.byteLength(expectExact, "utf8") > MAX_OUTPUT_BYTES)
-    )
-      throw new Error("invalid exact shell output expectation");
-    if (
-      flags !== "" &&
-      (typeof flags !== "string" ||
-        !/^[isu]*$/.test(flags) ||
-        new Set(flags).size !== flags.length)
-    )
-      throw new Error("invalid shell regex flags");
-    if (flags && expectRegex === undefined && notRegex === undefined)
-      throw new Error("shell regex flags require a pattern");
-    const pattern = (value: unknown): RegExp | undefined => {
-      if (value === undefined) return undefined;
-      if (typeof value !== "string" || value.length > 4096)
-        throw new Error("invalid shell regex pattern");
-      try {
-        return new RegExp(value, `m${flags}`);
-      } catch {
-        throw new Error("invalid shell regex pattern or flags");
-      }
-    };
-    const expectedPattern = pattern(expectRegex);
-    const forbiddenPattern = pattern(notRegex);
-    return {
-      id,
-      run,
-      expectedExitCode: expectedExitCode as number,
-      timeoutMs: timeoutMs as number,
-      expectExact: expectExact as string | undefined,
-      expectRegex: expectedPattern,
-      notRegex: forbiddenPattern,
-      captureStdout:
-        expectExact !== undefined ||
-        expectedPattern !== undefined ||
-        forbiddenPattern !== undefined,
-    };
-  });
+  return declarations.map(prepareShellCheck);
 }
 
 export interface ShellCheckResult {
@@ -125,22 +175,57 @@ export function assessShellCheck(
       passed: false,
       detail: `exit code ${result.exitCode} (expected ${check.expectedExitCode})`,
     };
-  const out = result.stdout;
-  if (check.captureStdout && out === null)
+  if (check.captureStdout && result.stdout === null)
     throw new Error("shell stdout observation is missing");
-  if (
-    check.expectExact !== undefined &&
-    (out!.endsWith("\n") ? out!.slice(0, -1) : out) !== check.expectExact
-  )
-    return { passed: false, detail: "exact shell output did not match" };
-  if (check.expectRegex && !check.expectRegex.test(out!))
-    return {
-      passed: false,
-      detail: "expected shell output pattern did not match",
-    };
-  if (check.notRegex && check.notRegex.test(out!))
-    return { passed: false, detail: "forbidden shell output pattern matched" };
-  return { passed: true, detail: `exit code ${result.exitCode}` };
+  const detail = shellOutputFailure(check, result.stdout);
+  return assessedShellOutput(detail, result.exitCode);
+}
+
+function shellOutputFailure(
+  check: PreparedShellCheck,
+  out: string | null,
+): string | undefined {
+  return (
+    exactOutputFailure(check, out) ??
+    expectedPatternFailure(check, out) ??
+    forbiddenPatternFailure(check, out)
+  );
+}
+
+function assessedShellOutput(
+  detail: string | undefined,
+  exitCode: number,
+): { passed: boolean; detail: string } {
+  return detail === undefined
+    ? { passed: true, detail: `exit code ${exitCode}` }
+    : { passed: false, detail };
+}
+function exactOutputFailure(
+  check: PreparedShellCheck,
+  out: string | null,
+): string | undefined {
+  if (check.expectExact === undefined) return undefined;
+  if (out === null) throw new Error("shell stdout observation is missing");
+  const actual = out.endsWith("\n") ? out.slice(0, -1) : out;
+  return actual === check.expectExact
+    ? undefined
+    : "exact shell output did not match";
+}
+function expectedPatternFailure(
+  check: PreparedShellCheck,
+  out: string | null,
+): string | undefined {
+  return check.expectRegex && !check.expectRegex.test(String(out))
+    ? "expected shell output pattern did not match"
+    : undefined;
+}
+function forbiddenPatternFailure(
+  check: PreparedShellCheck,
+  out: string | null,
+): string | undefined {
+  return check.notRegex && check.notRegex.test(String(out))
+    ? "forbidden shell output pattern matched"
+    : undefined;
 }
 
 async function boundedOutput(
@@ -174,28 +259,155 @@ function stopProcess(proc: Bun.Subprocess): void {
   }
 }
 
-/** Run a check without inherited credentials or retaining raw process output. */
-export async function runShellCheck(
-  check: PreparedShellCheck,
-  options: {
-    workspace: string;
-    fixtureBinDir?: string;
-    toolchainBinDir?: string;
-    uvRuntimeCache?: boolean;
-    protectedRoots: string[];
-    protectedRootsCanonical?: boolean;
-    privateStateRoot: string;
-    signal?: AbortSignal;
-  },
-): Promise<ShellCheckResult> {
-  if (options.signal?.aborted) throw new Error("shell check cancelled");
-  const runtimeRoot = join(options.workspace, ".git", "sevro-runtime");
-  const home = join(runtimeRoot, "check-home");
-  const temp = join(runtimeRoot, "check-tmp");
+interface ShellRunOptions {
+  workspace: string;
+  fixtureBinDir?: string;
+  toolchainBinDir?: string;
+  uvRuntimeCache?: boolean;
+  protectedRoots: string[];
+  protectedRootsCanonical?: boolean;
+  privateStateRoot: string;
+  signal?: AbortSignal;
+}
+async function shellRuntime(options: ShellRunOptions) {
+  const root = join(options.workspace, ".git", "sevro-runtime"),
+    home = join(root, "check-home"),
+    temp = join(root, "check-tmp");
   await Promise.all([
     mkdir(home, { recursive: true, mode: 0o700 }),
     mkdir(temp, { recursive: true, mode: 0o700 }),
   ]);
+  return { root, home, temp, uvCache: join(root, "uv-cache") };
+}
+type ShellRuntime = Awaited<ReturnType<typeof shellRuntime>>;
+type Isolation = Awaited<ReturnType<typeof prepareMacSandboxCommand>>;
+function shellRuntimeEnvironment(
+  runtime: ShellRuntime,
+  enabled: boolean | undefined,
+): Record<string, string> {
+  return enabled
+    ? {
+        UV_CACHE_DIR: runtime.uvCache,
+        UV_PROJECT_ENVIRONMENT: join(runtime.root, "project-environment"),
+        UV_OFFLINE: "1",
+        PYTHONDONTWRITEBYTECODE: "1",
+      }
+    : {};
+}
+function shellEnvironment(
+  options: ShellRunOptions,
+  runtime: ShellRuntime,
+): Record<string, string> {
+  return {
+    PATH: [
+      options.fixtureBinDir,
+      options.toolchainBinDir,
+      "/usr/bin:/bin:/usr/sbin:/sbin",
+    ]
+      .filter(Boolean)
+      .join(delimiter),
+    HOME: runtime.home,
+    TMPDIR: runtime.temp,
+    LANG: process.env.LANG ?? "C",
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_CONFIG_NOSYSTEM: "1",
+    ...shellRuntimeEnvironment(runtime, options.uvRuntimeCache),
+  };
+}
+async function requireShellRuntimeCache(
+  options: ShellRunOptions,
+  runtime: ShellRuntime,
+): Promise<void> {
+  if (options.uvRuntimeCache && !(await stat(runtime.uvCache)).isDirectory())
+    throw new Error("isolated UV cache is missing");
+}
+function shellStdout(
+  check: PreparedShellCheck,
+  output: Bun.Subprocess["stdout"],
+): ReadableStream<Uint8Array> | null {
+  if (!check.captureStdout) return null;
+  if (!(output instanceof ReadableStream))
+    throw new Error("shell stdout pipe is unavailable");
+  return output;
+}
+class ShellExecution {
+  private proc?: Bun.Subprocess;
+  private timer?: ReturnType<typeof setTimeout>;
+  private cancel?: () => void;
+  constructor(
+    private check: PreparedShellCheck,
+    private options: ShellRunOptions,
+    private isolation: Isolation,
+    private runtime: ShellRuntime,
+  ) {}
+  async run(): Promise<ShellCheckResult> {
+    try {
+      const running = this.spawn();
+      const stream = shellStdout(this.check, running.stdout);
+      const timeout = this.deadline();
+      const aborted = this.cancellation();
+      const completed = Promise.all([
+        running.exited,
+        stream ? boundedOutput(stream) : Promise.resolve(null),
+      ]).then(([exitCode, stdout]) => ({ exitCode, stdout }));
+      return await Promise.race([completed, timeout, aborted]);
+    } catch (error) {
+      await this.stop();
+      throw error;
+    } finally {
+      this.releaseListeners();
+      await this.isolation.release();
+    }
+  }
+  private spawn() {
+    this.proc = Bun.spawn(this.isolation.argv, {
+      cwd: this.options.workspace,
+      env: shellEnvironment(this.options, this.runtime),
+      detached: true,
+      stdin: "ignore",
+      stdout: this.check.captureStdout ? "pipe" : "ignore",
+      stderr: "ignore",
+    });
+    return this.proc;
+  }
+  private deadline(): Promise<never> {
+    return new Promise((_resolve, reject) => {
+      this.timer = setTimeout(() => {
+        reject(new Error("shell check timed out"));
+      }, this.check.timeoutMs);
+    });
+  }
+  private cancellation(): Promise<never> {
+    return new Promise((_resolve, reject) => {
+      const signal = this.options.signal;
+      if (!signal) return;
+      this.cancel = () => {
+        reject(new Error("shell check cancelled"));
+      };
+      if (signal.aborted) this.cancel();
+      else signal.addEventListener("abort", this.cancel, { once: true });
+    });
+  }
+  private async stop(): Promise<void> {
+    const proc = this.proc;
+    if (!proc) return;
+    stopProcess(proc);
+    await proc.exited;
+  }
+  private releaseListeners(): void {
+    if (this.timer) clearTimeout(this.timer);
+    if (this.cancel)
+      this.options.signal?.removeEventListener("abort", this.cancel);
+  }
+}
+
+/** Run a check without inherited credentials or retaining raw process output. */
+export async function runShellCheck(
+  check: PreparedShellCheck,
+  options: ShellRunOptions,
+): Promise<ShellCheckResult> {
+  if (options.signal?.aborted) throw new Error("shell check cancelled");
+  const runtime = await shellRuntime(options);
   const isolated = await prepareMacSandboxCommand({
     argv: ["/bin/sh", "-e", "-c", check.run],
     workspace: options.workspace,
@@ -204,74 +416,6 @@ export async function runShellCheck(
     privateStateRoot: options.privateStateRoot,
     denyNetwork: true,
   });
-  const uvCache = join(runtimeRoot, "uv-cache");
-  if (options.uvRuntimeCache && !(await stat(uvCache)).isDirectory())
-    throw new Error("isolated UV cache is missing");
-  let proc: Bun.Subprocess | undefined;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let cancel: (() => void) | undefined;
-  try {
-    proc = Bun.spawn(isolated.argv, {
-      cwd: options.workspace,
-      env: {
-        PATH: [
-          options.fixtureBinDir,
-          options.toolchainBinDir,
-          "/usr/bin:/bin:/usr/sbin:/sbin",
-        ]
-          .filter(Boolean)
-          .join(delimiter),
-        HOME: home,
-        TMPDIR: temp,
-        LANG: process.env.LANG ?? "C",
-        GIT_CONFIG_GLOBAL: "/dev/null",
-        GIT_CONFIG_NOSYSTEM: "1",
-        ...(options.uvRuntimeCache
-          ? {
-              UV_CACHE_DIR: uvCache,
-              UV_PROJECT_ENVIRONMENT: join(runtimeRoot, "project-environment"),
-              UV_OFFLINE: "1",
-              PYTHONDONTWRITEBYTECODE: "1",
-            }
-          : {}),
-      },
-      detached: true,
-      stdin: "ignore",
-      stdout: check.captureStdout ? "pipe" : "ignore",
-      stderr: "ignore",
-    });
-    const running = proc;
-    const outputStream = running.stdout;
-    if (check.captureStdout && !(outputStream instanceof ReadableStream))
-      throw new Error("shell stdout pipe is unavailable");
-    const timeout = new Promise<never>((_resolve, reject) => {
-      timer = setTimeout(
-        () => reject(new Error("shell check timed out")),
-        check.timeoutMs,
-      );
-    });
-    const aborted = new Promise<never>((_resolve, reject) => {
-      if (!options.signal) return;
-      cancel = () => reject(new Error("shell check cancelled"));
-      if (options.signal.aborted) cancel();
-      else options.signal.addEventListener("abort", cancel, { once: true });
-    });
-    const completed = Promise.all([
-      running.exited,
-      check.captureStdout
-        ? boundedOutput(outputStream as ReadableStream<Uint8Array>)
-        : Promise.resolve(null),
-    ]).then(([exitCode, stdout]) => ({ exitCode, stdout }));
-    return await Promise.race([completed, timeout, aborted]);
-  } catch (error) {
-    if (proc) {
-      stopProcess(proc);
-      await proc.exited;
-    }
-    throw error;
-  } finally {
-    if (timer) clearTimeout(timer);
-    if (cancel) options.signal?.removeEventListener("abort", cancel);
-    await isolated.release();
-  }
+  await requireShellRuntimeCache(options, runtime);
+  return new ShellExecution(check, options, isolated, runtime).run();
 }

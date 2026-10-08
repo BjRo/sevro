@@ -1,3 +1,4 @@
+import { isRecord } from "../value-guards";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
@@ -93,12 +94,29 @@ function errorClassification(value: unknown): {
   const tag = (s: unknown): s is string =>
     typeof s === "string" && /^[A-Za-z][A-Za-z0-9]{0,79}$/.test(s);
   if (tag(value)) return { code: value };
-  if (!value || typeof value !== "object" || Array.isArray(value))
-    return { code: null };
+  if (!isRecord(value)) return { code: null };
+  return classifiedErrorEntry(value, tag);
+}
+
+function classifiedErrorEntry(
+  value: RecordValue,
+  tag: (value: unknown) => value is string,
+) {
   const entries = Object.entries(value);
-  if (entries.length !== 1 || !tag(entries[0]?.[0])) return { code: null };
-  const [code, details] = entries[0]!;
+  const [entry] = entries;
+  if (entries.length !== 1 || entry === undefined || !tag(entry[0]))
+    return { code: null };
+  const [code, details] = entry;
   return { code, ...errorHttpStatus(details) };
+}
+
+function validHttpStatus(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= 0 &&
+    value <= 65535
+  );
 }
 
 function errorHttpStatus(details: unknown): { httpStatusCode?: number } {
@@ -107,12 +125,7 @@ function errorHttpStatus(details: unknown): { httpStatusCode?: number } {
       ? (details as RecordValue).httpStatusCode
       : undefined;
   return {
-    ...(typeof status === "number" &&
-    Number.isInteger(status) &&
-    status >= 0 &&
-    status <= 65535
-      ? { httpStatusCode: status }
-      : {}),
+    ...(validHttpStatus(status) ? { httpStatusCode: status } : {}),
   };
 }
 
@@ -144,7 +157,7 @@ class AppServerRpc {
   stderr = "";
 
   constructor(argv: string[], cwd: string, env: Record<string, string>) {
-    this.process = spawn(argv[0]!, argv.slice(1), {
+    this.process = spawn(identifier(argv[0]), argv.slice(1), {
       detached: process.platform !== "win32",
       cwd,
       env,
@@ -157,13 +170,18 @@ class AppServerRpc {
         resolve(null);
       });
     });
-    this.reads = this.readLines().catch((error) => this.fail(error));
-    this.process.stdin.on("error", (error) => this.fail(error));
+    this.reads = this.readLines().catch((error: unknown) => {
+      this.fail(error);
+    });
+    this.process.stdin.on("error", (error) => {
+      this.fail(error);
+    });
     this.errors = new Promise((resolve) => {
       this.process.stderr.on("data", (chunk) => {
         this.stderr = (this.stderr + String(chunk)).slice(-16000);
       });
       this.process.stderr.on("end", resolve);
+      this.process.stderr.on("close", resolve);
       this.process.stderr.on("error", (error) => {
         this.fail(error);
         resolve();
@@ -196,6 +214,9 @@ class AppServerRpc {
   private readLines(): Promise<void> {
     return new Promise((resolve) => {
       const lines = createInterface({ input: this.process.stdout });
+      this.process.stdout.on("close", () => {
+        lines.close();
+      });
       lines.on("line", (line) => {
         try {
           this.receivedBytes += Buffer.byteLength(line);
@@ -216,29 +237,38 @@ class AppServerRpc {
   }
 
   private receive(message: RecordValue): void {
-    if (typeof message.method === "string" && message.id !== undefined) {
-      this.send({
-        id: message.id,
-        error: {
-          code: -32601,
-          message: "Unattended eval cannot answer this server request",
-        },
-      });
-      throw new Error(`Unsupported app-server request: ${message.method}`);
-    }
-    if (typeof message.id === "number") {
-      const pending = this.pending.get(message.id);
-      if (!pending) throw new Error("Unmatched app-server response");
-      // Validate before removing the waiter so malformed responses reject it.
-      const value = record(message.error ?? message.result);
-      this.pending.delete(message.id);
-      clearTimeout(pending.timer);
-      if (message.error)
-        pending.reject(new Error(`App-server RPC failed (${value.code})`));
-      else pending.resolve(value);
-    } else if (typeof message.method === "string")
+    this.refuseServerRequest(message);
+    if (typeof message.id === "number")
+      this.receiveResponse(message, message.id);
+    else if (typeof message.method === "string")
       this.receiveNotification(message.method, message.params);
     else throw new Error("Malformed app-server message");
+  }
+
+  private refuseServerRequest(message: RecordValue): void {
+    if (typeof message.method !== "string" || message.id === undefined) return;
+    this.send({
+      id: message.id,
+      error: {
+        code: -32601,
+        message: "Unattended eval cannot answer this server request",
+      },
+    });
+    throw new Error(`Unsupported app-server request: ${message.method}`);
+  }
+
+  private receiveResponse(message: RecordValue, id: number): void {
+    const pending = this.pending.get(id);
+    if (!pending) throw new Error("Unmatched app-server response");
+    // Validate before removing the waiter so malformed responses reject it.
+    const value = record(message.error ?? message.result);
+    this.pending.delete(id);
+    clearTimeout(pending.timer);
+    if (message.error)
+      pending.reject(
+        new Error(`App-server RPC failed (${String(value.code)})`),
+      );
+    else pending.resolve(value);
   }
 
   private receiveNotification(method: string, value: unknown): void {
@@ -256,13 +286,7 @@ class AppServerRpc {
     )
       return;
     const params = record(value);
-    if (
-      method === "item/completed" &&
-      !["commandExecution", "collabAgentToolCall"].includes(
-        String(record(params.item).type),
-      )
-    )
-      return;
+    if (!allowedNotificationItem(method, params)) return;
     if (this.queue.length >= 1024)
       throw new Error("App-server notification queue exceeds limit");
     this.queue.push({ method, params });
@@ -273,10 +297,9 @@ class AppServerRpc {
     if (this.failure) throw this.failure;
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(
-        () => this.fail(new Error(`App-server RPC timeout: ${method}`)),
-        45000,
-      );
+      const timer = setTimeout(() => {
+        this.fail(new Error(`App-server RPC timeout: ${method}`));
+      }, 45000);
       this.pending.set(id, { resolve, reject, timer });
       try {
         this.send({ id, method, params });
@@ -301,7 +324,9 @@ class AppServerRpc {
       });
     this.wake = undefined;
     if (this.failure) throw this.failure;
-    return this.queue.shift()!;
+    const notification = this.queue.shift();
+    if (!notification) throw new Error("Missing app-server notification");
+    return notification;
   }
 
   async close(): Promise<void> {
@@ -314,8 +339,12 @@ class AppServerRpc {
         if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
       }
     };
-    const term = setTimeout(() => terminate("SIGTERM"), 5000);
-    const kill = setTimeout(() => terminate("SIGKILL"), 6000);
+    const term = setTimeout(() => {
+      terminate("SIGTERM");
+    }, 5000);
+    const kill = setTimeout(() => {
+      terminate("SIGKILL");
+    }, 6000);
     try {
       await this.exited;
       await this.reads;
@@ -327,8 +356,17 @@ class AppServerRpc {
   }
 }
 
+function allowedNotificationItem(method: string, params: RecordValue): boolean {
+  return (
+    method !== "item/completed" ||
+    ["commandExecution", "collabAgentToolCall"].includes(
+      String(record(params.item).type),
+    )
+  );
+}
+
 /** Convert only public tool items used by the existing bounded evidence readers. */
-function toolEvent(value: unknown): unknown | undefined {
+function toolEvent(value: unknown): unknown {
   const item = record(value);
   if (item.type === "commandExecution")
     return {
@@ -363,17 +401,12 @@ function toolEvent(value: unknown): unknown | undefined {
         reasoning_effort: item.reasoningEffort,
       },
     };
+  return undefined;
 }
 
 /** Require the exact terminal turn, not a previous checkpoint or child response. */
 export function appServerFinal(thread: unknown, turnId: string): string {
-  const turns = record(thread).turns;
-  if (!Array.isArray(turns))
-    throw new Error("App-server thread has no retained turns");
-  const matches = turns.map(record).filter((turn) => turn.id === turnId);
-  if (matches.length !== 1 || matches[0]!.status !== "completed")
-    throw new Error("Missing completed app-server turn");
-  const items = matches[0]!.items;
+  const items = completedAppServerTurn(thread, turnId).items;
   if (!Array.isArray(items))
     throw new Error("Completed app-server turn has no items");
   const finals = items
@@ -387,6 +420,17 @@ export function appServerFinal(thread: unknown, turnId: string): string {
   if (!finals.length)
     throw new Error("Completed app-server turn has no final response");
   return finals.map((item) => item.text).join("\n\n");
+}
+
+function completedAppServerTurn(thread: unknown, turnId: string): RecordValue {
+  const turns: unknown = record(thread).turns;
+  if (!Array.isArray(turns))
+    throw new Error("App-server thread has no retained turns");
+  const matches = turns.map(record).filter((turn) => turn.id === turnId);
+  const [turn] = matches;
+  if (matches.length !== 1 || turn === undefined || turn.status !== "completed")
+    throw new Error("Missing completed app-server turn");
+  return turn;
 }
 
 const GOAL_STATUSES = [
@@ -404,19 +448,26 @@ export function appServerGoalStatus(
 ): string | null {
   if (value === null) return null;
   const goal = record(value);
-  if (
-    goal.threadId !== threadId ||
-    !GOAL_STATUSES.includes(String(goal.status)) ||
-    typeof goal.objective !== "string" ||
-    !goal.objective.length ||
-    [...goal.objective].length > 4000
-  )
-    throw new Error("Invalid native goal readback");
+  requireGoalIdentity(goal, threadId);
+  requireGoalObjective(goal.objective);
   return String(goal.status);
 }
 
-export function codexAppServerArgv(): string[] {
-  return ["codex", "app-server", "--stdio"];
+function requireGoalIdentity(goal: RecordValue, threadId: string): void {
+  if (
+    goal.threadId !== threadId ||
+    typeof goal.status !== "string" ||
+    !GOAL_STATUSES.includes(goal.status)
+  )
+    throw new Error("Invalid native goal readback");
+}
+function requireGoalObjective(objective: unknown): void {
+  if (
+    typeof objective !== "string" ||
+    !objective.length ||
+    Array.from(objective).length > 4000
+  )
+    throw new Error("Invalid native goal readback");
 }
 
 export interface AppServerRunOptions {
@@ -511,21 +562,17 @@ class AppServerSession {
     params: RecordValue,
     source: "notification" | "readback" = "notification",
   ): void {
-    const status = appServerGoalStatus(params.goal, this.threadId)!;
+    const status = requiredGoalStatus(params.goal, this.threadId);
     this.goalSeen = true;
     const observation = {
       status,
-      characters: [...String(record(params.goal).objective)].length,
+      characters: Array.from(String(record(params.goal).objective)).length,
       turnId: typeof params.turnId === "string" ? params.turnId : null,
       at: new Date().toISOString(),
       source,
     };
     const previous = this.evidence.goals.at(-1);
-    if (
-      previous?.status !== status ||
-      previous.turnId !== observation.turnId ||
-      previous.source !== source
-    )
+    if (!sameGoalObservation(previous, observation))
       this.evidence.goals.push(observation);
   }
 
@@ -546,23 +593,12 @@ class AppServerSession {
     willRetry: unknown,
     value: unknown,
   ): void {
-    const error =
-      value && typeof value === "object" && !Array.isArray(value)
-        ? (value as RecordValue)
-        : {};
     const errors = (this.evidence.errors ??= []);
     if (errors.length === 32) {
       errors.shift();
       this.evidence.errorsDropped = (this.evidence.errorsDropped ?? 0) + 1;
     }
-    errors.push({
-      source,
-      threadId: this.threadId,
-      turnId: typeof turnId === "string" ? turnId.slice(0, 200) : null,
-      willRetry: typeof willRetry === "boolean" ? willRetry : null,
-      ...publicErrorMessage(error.message),
-      ...errorClassification(error.codexErrorInfo),
-    });
+    errors.push(errorReceipt(source, this.threadId, turnId, willRetry, value));
   }
 
   private async onNotification({
@@ -609,10 +645,24 @@ class AppServerSession {
 
   private async onCompletedTurn(turn: RecordValue): Promise<boolean> {
     const turnId = this.observeTurn(turn);
-    if (turn.status !== "completed") {
-      this.observeError("turn/completed", turnId, null, turn.error);
-      throw new Error(`App-server turn ${String(turn.status)}`);
-    }
+    this.requireCompletedTurn(turn, turnId);
+    const status = await this.completedGoal(turnId);
+    this.emit({
+      type: "turn.completed",
+      ...(this.usage ? { usage: this.usage } : {}),
+    });
+    if (this.followUp !== undefined)
+      return this.deliverFeedback(turnId, status, this.followUp);
+    return status !== "active" && (await this.saveFinal(turnId));
+  }
+
+  private requireCompletedTurn(turn: RecordValue, turnId: string): void {
+    if (turn.status === "completed") return;
+    this.observeError("turn/completed", turnId, null, turn.error);
+    throw new Error(`App-server turn ${String(turn.status)}`);
+  }
+
+  private async completedGoal(turnId: string): Promise<string | null> {
     const goal = await this.rpc.call("thread/goal/get", {
       threadId: this.threadId,
     });
@@ -622,32 +672,32 @@ class AppServerSession {
       throw new Error("Observed native goal disappeared");
     if (status !== null)
       this.observeGoal({ goal: goal.goal, turnId }, "readback");
+    return status;
+  }
+
+  private async deliverFeedback(
+    turnId: string,
+    status: string | null,
+    prompt: string,
+  ): Promise<boolean> {
+    // User input does not require a terminal goal. Preserve the completed
+    // response and actual boundary before delivering the declared follow-up.
+    if (!(await this.saveFinal(turnId, true))) return false;
+    const boundary = protocolMessage(
+      await this.options.followUpBoundary(this.threadId, {
+        nativeGoalObserved: this.goalSeen,
+        nativeGoalStatus: status,
+      }),
+    );
+    if (!this.responseBoundaryReady(turnId)) return false;
     this.emit({
-      type: "turn.completed",
-      ...(this.usage ? { usage: this.usage } : {}),
+      ...boundary,
+      native_goal_observed: this.goalSeen,
+      native_goal_status: status,
     });
-    if (this.followUp !== undefined) {
-      // User input does not require a terminal goal. Preserve the completed
-      // response and actual boundary before delivering the declared follow-up.
-      if (!(await this.saveFinal(turnId, true))) return false;
-      const boundary = protocolMessage(
-        await this.options.followUpBoundary(this.threadId, {
-          nativeGoalObserved: this.goalSeen,
-          nativeGoalStatus: status,
-        }),
-      );
-      if (!this.responseBoundaryReady(turnId)) return false;
-      this.emit({
-        ...boundary,
-        native_goal_observed: this.goalSeen,
-        native_goal_status: status,
-      });
-      const prompt = this.followUp;
-      this.followUp = undefined;
-      await this.startUserTurn(prompt);
-      return false;
-    }
-    return status !== "active" && (await this.saveFinal(turnId));
+    this.followUp = undefined;
+    await this.startUserTurn(prompt);
+    return false;
   }
 
   private async saveFinal(
@@ -658,18 +708,10 @@ class AppServerSession {
       threadId: this.threadId,
       includeTurns: true,
     });
-    const thread = record(snapshot.thread);
-    if (thread.id !== this.threadId)
-      throw new Error("App-server returned another thread");
-    const turns = thread.turns;
-    if (!Array.isArray(turns)) throw new Error("Missing app-server history");
+    const { thread, turns } = retainedThread(snapshot, this.threadId);
     const latest = record(turns.at(-1));
     // A later native turn can start while readback is pending. Wait for it.
-    if (latest.id !== turnId) {
-      if (latest.status === "inProgress" || latest.status === "completed")
-        return false;
-      throw new Error("Later app-server turn did not complete");
-    }
+    if (!latestTurnReady(latest, turnId)) return false;
     const final = appServerFinal(thread, turnId);
     for (const value of turns) this.backfillItems(record(value));
     await writeFile(
@@ -691,19 +733,19 @@ class AppServerSession {
     this.rpc.assertHealthy();
     let ready = true;
     for (const event of this.rpc.queue) {
-      const { method, params } = event;
+      const { params } = event;
       if (params.threadId !== this.threadId) continue;
-      if (method === "error" || method === "thread/goal/cleared")
-        this.checkPendingSettlement(event);
-      if (method === "thread/goal/updated")
-        appServerGoalStatus(params.goal, this.threadId);
-      if (
-        ["turn/started", "turn/completed"].includes(method) &&
-        record(params.turn).id !== turnId
-      )
-        ready = false;
+      this.validateResponseEvent(event);
+      if (laterRootTurn(event, turnId)) ready = false;
     }
     return ready;
+  }
+
+  private validateResponseEvent(event: Notification): void {
+    if (event.method === "error" || event.method === "thread/goal/cleared")
+      this.checkPendingSettlement(event);
+    if (event.method === "thread/goal/updated")
+      appServerGoalStatus(event.params.goal, this.threadId);
   }
 
   /** Readback and file I/O can race with a terminal protocol event. */
@@ -716,22 +758,29 @@ class AppServerSession {
   }
 
   private checkPendingSettlement({ method, params }: Notification): void {
+    this.requireNonfatalPendingError(method, params);
+    if (method === "thread/goal/cleared")
+      throw new Error("Native goal cleared during settlement");
+    this.requireSettledGoal(method, params);
+    if (laterRootTurn({ method, params }, this.evidence.finalTurnId))
+      throw new Error("Another root turn appeared during settlement");
+  }
+
+  private requireNonfatalPendingError(
+    method: string,
+    params: RecordValue,
+  ): void {
     if (method === "error" && params.willRetry !== true) {
       this.observeError("error", params.turnId, params.willRetry, params.error);
       throw new Error("App-server reported a fatal error during settlement");
     }
-    if (method === "thread/goal/cleared")
-      throw new Error("Native goal cleared during settlement");
+  }
+  private requireSettledGoal(method: string, params: RecordValue): void {
     if (
       method === "thread/goal/updated" &&
       appServerGoalStatus(params.goal, this.threadId) === "active"
     )
       throw new Error("Native goal became active during settlement");
-    if (
-      ["turn/started", "turn/completed"].includes(method) &&
-      record(params.turn).id !== this.evidence.finalTurnId
-    )
-      throw new Error("Another root turn appeared during settlement");
   }
 
   private backfillItems(turn: RecordValue): void {
@@ -747,6 +796,108 @@ class AppServerSession {
   }
 }
 
+function requiredGoalStatus(value: unknown, threadId: string): string {
+  const status = appServerGoalStatus(value, threadId);
+  if (status === null) throw new Error("Malformed app-server object");
+  return status;
+}
+function sameGoalObservation(
+  previous: AppServerEvidence["goals"][number] | undefined,
+  observation: AppServerEvidence["goals"][number],
+): boolean {
+  return (
+    previous?.status === observation.status &&
+    previous.turnId === observation.turnId &&
+    previous.source === observation.source
+  );
+}
+function errorReceipt(
+  source: AppServerErrorEvidence["source"],
+  threadId: string,
+  turnId: unknown,
+  willRetry: unknown,
+  value: unknown,
+): AppServerErrorEvidence {
+  const error = isRecord(value) ? value : {};
+  return {
+    source,
+    threadId,
+    turnId: typeof turnId === "string" ? turnId.slice(0, 200) : null,
+    willRetry: typeof willRetry === "boolean" ? willRetry : null,
+    ...publicErrorMessage(error.message),
+    ...errorClassification(error.codexErrorInfo),
+  };
+}
+function retainedThread(snapshot: RecordValue, threadId: string) {
+  const thread = record(snapshot.thread);
+  if (thread.id !== threadId)
+    throw new Error("App-server returned another thread");
+  const turns: unknown = thread.turns;
+  if (!Array.isArray(turns)) throw new Error("Missing app-server history");
+  return { thread, turns: turns as unknown[] };
+}
+function latestTurnReady(latest: RecordValue, turnId: string): boolean {
+  if (latest.id === turnId) return true;
+  if (latest.status === "inProgress" || latest.status === "completed")
+    return false;
+  throw new Error("Later app-server turn did not complete");
+}
+function laterRootTurn(
+  event: Notification,
+  turnId: string | undefined,
+): boolean {
+  return (
+    ["turn/started", "turn/completed"].includes(event.method) &&
+    record(event.params.turn).id !== turnId
+  );
+}
+function requireAppServerRun(request: HarnessRunRequest, bound: number): void {
+  if (request.signal?.aborted) throw new Error("Codex run cancelled");
+  if (!Number.isFinite(bound) || bound <= 0)
+    throw new Error("Invalid app-server time bound");
+}
+function sessionFailure(session: AppServerSession, error: unknown): void {
+  session.evidence.failure =
+    error instanceof Error ? error.message : String(error);
+  session.emit({ type: "turn.failed" });
+}
+async function completeSession(
+  session: AppServerSession,
+  rpc: AppServerRpc,
+  request: HarnessRunRequest,
+  bound: number,
+): Promise<number> {
+  const cancel = () => {
+    rpc.fail(new Error("Codex run cancelled"));
+  };
+  request.signal?.addEventListener("abort", cancel, { once: true });
+  const deadline = setTimeout(() => {
+    rpc.fail(new Error("App-server evaluation time bound reached"));
+  }, bound);
+  try {
+    await session.run();
+    session.assertSettled();
+    return 0;
+  } catch (error) {
+    sessionFailure(session, error);
+    return 1;
+  } finally {
+    clearTimeout(deadline);
+    request.signal?.removeEventListener("abort", cancel);
+    await rpc.close();
+  }
+}
+function settlementCode(session: AppServerSession, code: number): number {
+  if (code !== 0) return code;
+  try {
+    session.assertSettled();
+    return 0;
+  } catch (error) {
+    sessionFailure(session, error);
+    return 1;
+  }
+}
+
 export async function runCodexAppServer(options: AppServerRunOptions): Promise<{
   out: string;
   err: string;
@@ -755,47 +906,16 @@ export async function runCodexAppServer(options: AppServerRunOptions): Promise<{
 }> {
   const { request, argv, env } = options;
   const bound = request.control?.appServerTimeoutMs ?? 3600000;
-  if (request.signal?.aborted) throw new Error("Codex run cancelled");
-  if (!Number.isFinite(bound) || bound <= 0)
-    throw new Error("Invalid app-server time bound");
+  requireAppServerRun(request, bound);
   const rpc = new AppServerRpc(argv, request.repoDir, env);
   const session = new AppServerSession(rpc, options);
-  const cancel = () => rpc.fail(new Error("Codex run cancelled"));
-  request.signal?.addEventListener("abort", cancel, { once: true });
-  const deadline = setTimeout(
-    () => rpc.fail(new Error("App-server evaluation time bound reached")),
-    bound,
-  );
-  let code = 1;
-  try {
-    await session.run();
-    session.assertSettled();
-    code = 0;
-  } catch (error) {
-    session.evidence.failure =
-      error instanceof Error ? error.message : String(error);
-    session.emit({ type: "turn.failed" });
-  } finally {
-    clearTimeout(deadline);
-    request.signal?.removeEventListener("abort", cancel);
-    await rpc.close();
-  }
-  // Flush stdout before accepting success: malformed trailing data and queued
-  // terminal errors must not be hidden by a successful readback response.
-  if (code === 0) {
-    try {
-      session.assertSettled();
-    } catch (error) {
-      code = 1;
-      session.evidence.failure =
-        error instanceof Error ? error.message : String(error);
-      session.emit({ type: "turn.failed" });
-    }
-  }
+  const code = await completeSession(session, rpc, request, bound);
+  // Flush stdout before accepting success, including trailing data and terminal errors.
+  const finalCode = settlementCode(session, code);
   return {
     out: session.out.join("\n"),
     err: rpc.stderr,
-    code,
+    code: finalCode,
     evidence: session.evidence,
   };
 }

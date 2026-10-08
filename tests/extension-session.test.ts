@@ -1,10 +1,11 @@
-import { afterEach, expect, test } from "bun:test";
+import { expectUnknown } from "./fixtures/assertions";
+import { defined } from "./fixtures/assertions";
+import { afterEach, test, expect } from "bun:test";
 import { copyFile, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openExtensionSession } from "../src/extension-session";
 import { extensionFixtureCommand } from "./fixtures/extension-command";
-
 const source = join(import.meta.dir, "fixtures", "extension.ts");
 const roots: string[] = [];
 const extensionCommand = extensionFixtureCommand();
@@ -13,7 +14,6 @@ afterEach(async () => {
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
 });
-
 test("negotiates and runs resolve, prepare, and evaluate in separate processes", async () => {
   const session = await openExtensionSession({
     command: extensionCommand(source, "lifecycle"),
@@ -28,15 +28,15 @@ test("negotiates and runs resolve, prepare, and evaluate in separate processes",
   const [resolved] = await session.resolve("file:///tmp/project", {});
   expect(resolved?.id).toBe("extension-case");
   const prepared = await session.prepare(
-    resolved!,
+    defined(resolved),
     { id: "sevro.host.synthetic", capabilities: [] },
     "passive",
   );
-  expect(prepared.extensionData).toEqual({
+  expectUnknown(prepared.extensionData).toEqual({
     "example.extension": { marker: "prepared" },
   });
   const graded = await session.evaluate({
-    caseId: resolved!.id,
+    caseId: defined(resolved).id,
     execution: { status: "completed" },
     observations: [
       {
@@ -50,7 +50,7 @@ test("negotiates and runs resolve, prepare, and evaluate in separate processes",
     artifacts: [],
     extensionData: prepared.extensionData,
   });
-  expect(graded.checks).toEqual([
+  expectUnknown(graded.checks).toEqual([
     {
       id: "example.extension.ready",
       status: "passed",
@@ -58,7 +58,6 @@ test("negotiates and runs resolve, prepare, and evaluate in separate processes",
     },
   ]);
 });
-
 test("refuses a changed extension source during the same session", async () => {
   const root = await mkdtemp(join(tmpdir(), "sevro-extension-source-"));
   roots.push(root);
@@ -73,11 +72,10 @@ test("refuses a changed extension source during the same session", async () => {
     hostCapabilities: [],
   });
   await writeFile(copied, "// changed\n");
-  await expect(session.resolve("file:///tmp/project", {})).rejects.toThrow(
+  expect(session.resolve("file:///tmp/project", {})).rejects.toThrow(
     /source changed/,
   );
 });
-
 test("command arguments affect identity and passed checks need evidence", async () => {
   const base = {
     sourceFiles: [source],
@@ -105,8 +103,8 @@ test("command arguments affect identity and passed checks need evidence", async 
     artifacts: [],
     extensionData: {},
   };
-  await expect(altered.evaluate(request)).rejects.toThrow(
+  expect(altered.evaluate(request)).rejects.toThrow(
     /invalid extension response/,
   );
-  await expect(normal.evaluate(request)).rejects.toThrow(/unknown evidence/);
+  expect(normal.evaluate(request)).rejects.toThrow(/unknown evidence/);
 });

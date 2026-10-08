@@ -11,29 +11,37 @@ import {
 const MAX_ARTIFACT_BYTES = 64 * 1024;
 
 export function validateArtifactPath(path: unknown): asserts path is string {
-  if (
-    typeof path !== "string" ||
-    !path.trim() ||
-    path.includes("\\") ||
-    isAbsolute(path) ||
-    path.split("/").some((part) => part === ".." || part === ".git") ||
-    dirname(path).includes("*") ||
-    !/^[^*]*\*?[^*]*$/.test(basename(path))
-  )
+  if (typeof path !== "string" || !validArtifactPath(path))
     throw new Error(
       "semantic artifact path must be relative with at most one basename *",
     );
 }
+
+function validArtifactPath(path: string): boolean {
+  return (
+    safeRelativePath(path) &&
+    !dirname(path).includes("*") &&
+    /^[^*]*\*?[^*]*$/.test(basename(path))
+  );
+}
+
+function safeRelativePath(path: string): boolean {
+  return (
+    Boolean(path.trim()) &&
+    !path.includes("\\") &&
+    !isAbsolute(path) &&
+    !path.split("/").some((part) => part === ".." || part === ".git")
+  );
+}
+
 function within(root: string, path: string): boolean {
   return path === root || path.startsWith(root + sep);
 }
 
-export async function readSemanticArtifact(
-  repoDir: string,
+async function artifactDirectory(
+  root: string,
   pattern: string,
-): Promise<{ path: string; content: string }> {
-  validateArtifactPath(pattern);
-  const root = await realpath(repoDir);
+): Promise<string> {
   const dir = resolve(root, dirname(pattern));
   if (!within(root, dir))
     throw new Error("semantic artifact directory escapes the fixture");
@@ -42,18 +50,30 @@ export async function readSemanticArtifact(
     throw new Error("semantic artifact directory escapes the fixture");
   if (relative(root, directory).split(sep).includes(".git"))
     throw new Error("semantic artifact directory resolves to Git metadata");
-  const name = basename(pattern);
-  const matches = name.includes("*")
-    ? (await readdir(directory)).filter((entry) => {
-        const [prefix, suffix] = name.split("*");
-        return entry.startsWith(prefix!) && entry.endsWith(suffix!);
-      })
-    : [name];
-  if (matches.length !== 1)
+  return directory;
+}
+
+async function artifactMatches(
+  directory: string,
+  name: string,
+): Promise<string[]> {
+  if (!name.includes("*")) return [name];
+  const [prefix = "", suffix = ""] = name.split("*");
+  return (await readdir(directory)).filter(
+    (entry) => entry.startsWith(prefix) && entry.endsWith(suffix),
+  );
+}
+
+function selectedArtifact(directory: string, matches: string[]): string {
+  const [name] = matches;
+  if (matches.length !== 1 || name === undefined)
     throw new Error(
       `semantic artifact pattern matched ${matches.length} files`,
     );
-  const path = join(directory, matches[0]!);
+  return join(directory, name);
+}
+
+async function resolveArtifact(root: string, path: string): Promise<string> {
   const stat = await lstat(path);
   if (!stat.isFile() || stat.size > MAX_ARTIFACT_BYTES)
     throw new Error(
@@ -64,6 +84,19 @@ export async function readSemanticArtifact(
     throw new Error("semantic artifact escapes the fixture");
   if (relative(root, resolved).split(sep).includes(".git"))
     throw new Error("semantic artifact resolves to Git metadata");
+  return resolved;
+}
+
+export async function readSemanticArtifact(
+  repoDir: string,
+  pattern: string,
+): Promise<{ path: string; content: string }> {
+  validateArtifactPath(pattern);
+  const root = await realpath(repoDir);
+  const directory = await artifactDirectory(root, pattern);
+  const matches = await artifactMatches(directory, basename(pattern));
+  const path = selectedArtifact(directory, matches);
+  const resolved = await resolveArtifact(root, path);
   return {
     path: relative(root, resolved),
     content: await readFile(resolved, "utf8"),

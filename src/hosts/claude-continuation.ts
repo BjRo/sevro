@@ -1,3 +1,4 @@
+import { isRecord } from "../value-guards";
 import { randomUUID } from "node:crypto";
 import { summarizeClaudeEvents } from "./claude-events";
 import { workspaceFingerprint } from "./workspace-fingerprint";
@@ -21,9 +22,15 @@ function boundResult(stream: string, session: string): boolean {
     const results = stream
       .split("\n")
       .filter((line) => line.trim())
-      .map((line) => JSON.parse(line))
-      .filter((entry) => entry?.type === "result");
-    return results.length === 1 && results[0].session_id === session;
+      .map((line): unknown => JSON.parse(line))
+      .filter(isRecord)
+      .filter((entry) => entry.type === "result");
+    const [result] = results;
+    return (
+      results.length === 1 &&
+      result !== undefined &&
+      result.session_id === session
+    );
   } catch {
     return false;
   }
@@ -59,10 +66,19 @@ export async function runClaudeTurns(options: {
     option: "--resume",
     id: sessionId,
   });
-  const followUpSummary = summarizeClaudeEvents(followUp.out, followUp.code);
-  const sessionResultsBound = boundResult(followUp.out, sessionId);
-  const bound = followUpSummary.complete && sessionResultsBound;
-  const measured = initialFingerprint !== null && beforeFollowUp !== null;
+  return combinedTurns(
+    initial,
+    followUp,
+    sessionId,
+    initialFingerprint,
+    beforeFollowUp,
+  );
+}
+
+function combinedOutput(
+  initial: ClaudeProcessResult,
+  followUp: ClaudeProcessResult,
+) {
   const out = `${initial.out.trimEnd()}\n${followUp.out.trimStart()}`;
   const err = [initial.err.trimEnd(), followUp.err.trimStart()]
     .filter(Boolean)
@@ -72,6 +88,40 @@ export async function runClaudeTurns(options: {
     Buffer.byteLength(err, "utf8") > 64 * 1024
   )
     throw new Error("Claude combined process output exceeds its limit");
+  return { out, err };
+}
+
+function continuationObservation(
+  bound: boolean,
+  sessionId: string,
+  initialFingerprint: string | null,
+  beforeFollowUp: string | null,
+): Observation {
+  const measured = initialFingerprint !== null && beforeFollowUp !== null;
+  return {
+    id: "sevro.claude.continuation",
+    completeness: bound && measured ? "complete" : "partial",
+    data: {
+      method: "same_session_resume",
+      sessionId,
+      preFollowUpWorktreeUnchanged: measured
+        ? initialFingerprint === beforeFollowUp
+        : null,
+    },
+  };
+}
+
+function combinedTurns(
+  initial: ClaudeProcessResult,
+  followUp: ClaudeProcessResult,
+  sessionId: string,
+  initialFingerprint: string | null,
+  beforeFollowUp: string | null,
+): ClaudeTurns {
+  const followUpSummary = summarizeClaudeEvents(followUp.out, followUp.code);
+  const sessionResultsBound = boundResult(followUp.out, sessionId);
+  const bound = followUpSummary.complete && sessionResultsBound;
+  const { out, err } = combinedOutput(initial, followUp);
   return {
     code: bound ? 0 : followUp.code || 1,
     out,
@@ -79,16 +129,11 @@ export async function runClaudeTurns(options: {
     initialOut: initial.out,
     followUpOut: followUp.out,
     sessionResultsBound,
-    continuation: {
-      id: "sevro.claude.continuation",
-      completeness: bound && measured ? "complete" : "partial",
-      data: {
-        method: "same_session_resume",
-        sessionId,
-        preFollowUpWorktreeUnchanged: measured
-          ? initialFingerprint === beforeFollowUp
-          : null,
-      },
-    },
+    continuation: continuationObservation(
+      bound,
+      sessionId,
+      initialFingerprint,
+      beforeFollowUp,
+    ),
   };
 }

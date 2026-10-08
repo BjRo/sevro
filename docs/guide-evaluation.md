@@ -1,47 +1,85 @@
 # Evaluate the repository guide
 
-Run `bun run eval:guide --host codex --dry` or the corresponding `claude` command
-to validate case inventory without launching a model. Live runs use fresh copied
-repository fixtures, actual native skill mounts, and existing host authentication.
-They retain output/events, source digests, launch versions, and individual checks
-under ignored `.guide-results/`. They do not publish results or modify user settings.
+Guide evals use Sevro's standard CLI, native hosts, built-in answer graders,
+and a small extension for guide-specific evidence and fixtures. The inventory and
+cases remain under `.agents/skills/sevro-guide/evals/`. The
+[extension modules](../scripts/guide/README.md) do not implement a second runner.
+
+From this checkout, validate fixture preparation without launching a model:
 
 ```sh
-bun run eval:guide --host codex
-bun run eval:guide --host claude
+bun run eval:guide --case-id orientation --host codex \
+  --codex-bin /bin/false --codex-auth-file /unused-auth.json \
+  --model dry-unverified --effort medium --json --dry
 ```
 
-Use `--case <id>` for a bounded rerun. These commands execute model calls and
-consume the selected host account's quota. Results distinguish native selection,
-answer checks, and absence of effects; a dry run never proves host support.
-The harness checks filesystem changes and tool calls and keeps expected outcomes
-out of participant prompts. Exact models, versions, and limits appear in results.
+The dry command's executable and auth paths are unused; it makes no native
+host call. The full quality gate dry-prepares every case.
 
+Live runs require the [native host prerequisites](native-hosts.md), macOS
+isolation, existing authentication, and an explicit model identifier:
+
+```sh
+bun run eval:guide --case-id orientation --host codex \
+  --codex-bin "$(command -v codex)" \
+  --codex-auth-file "${CODEX_HOME:-$HOME/.codex}/auth.json" \
+  --model <codex-model> --effort medium --json
+
+bun run eval:guide --case-id orientation --host claude \
+  --claude-bin "$(command -v claude)" --claude-project-settings \
+  --model <claude-model> --effort medium --json
+```
+
+These commands consume the selected account's model quota. The launcher forwards
+[Sevro's CLI options](development-cli.md); use `--case-id` for case selection,
+`--trials` for repeated trials, and `--jobs` for Sevro's trial concurrency.
+It defaults to one passive trial per selected case. Dry runs retain
+`not_run / not_requested / not_assessed`; they never establish native support.
+
+With `--json`, Sevro prints its standard CLI result and evidence path. Ignored
+`.guide-results/<run-id>/` directories contain Sevro's `run.json`, trial
+evidence and retained native event artifacts. Save stdout to a result file
+to use the [standard report command](report-v1.md):
+
+```sh
+sevro report --result-file /absolute/path/to/result.json
+```
+
+This assumes [Sevro is on `PATH`](installing.md#make-the-command-available).
+For a contributor checkout, use `bun src/cli.ts` in place of `sevro`.
+
+Sevro owns fixture isolation, native continuation, invocation receipts,
+cancellation, retention, and cleanup. Participant fixtures contain repository
+documentation and both skill mounts; the eval cases and grader code are withheld.
 The case matrix covers orientation, explicit invocation, unrelated requests,
-missing sources, conflicting identity, stale historical claims, same-session
-follow-ups, pressure to edit/install, extension/architecture boundaries,
-contributions, and licensing. Fixtures isolate global customizations
-where host controls permit; authentication remains private. Security restrictions
-remain in place, so absence of effects is evidence within the declared envelope,
-not proof that a malicious tool could never escape it.
+missing/conflicting/stale evidence, follow-ups, pressure for effects,
+extension boundaries, contributions, and licensing.
+Missing event artifacts, incomplete turns, missing dispatch receipts, or absent
+fresh follow-up reads cannot pass. Built-in `sevro.regex` checks assess answer
+assertions and contradictions. The `sevro.shell` check verifies Git status,
+hashes of ignored skill/assets, and visible directories. Custom grading is
+limited to selection observations, inspected citations, and attempted effects.
+The follow-up case also reuses Sevro's output grader for its initial answer.
 
-The [verification record](guide-verification.json) records actual checks and
-unverified support. Raw host output stays private/ignored. After guide or source
-changes, prior digests are historical until rerun. [Guide contract](specs/repository-guide.md)
-defines acceptance. The checkout's inventory at
-`.agents/skills/sevro-guide/evals/inventory.json` maps questions to sources and
-static destinations; it is not part of the npm package.
+The execution envelope now follows [Sevro's native hosts](native-hosts.md).
+Claude fixtures also deny editing, shell execution, delegation, and web tools.
+Codex uses Sevro's standard permission profile, which permits writes inside the
+isolated candidate workspace; guide graders reject attempted non-read commands
+and changed visible files. This differs from the old guide-only read-only launch.
+No-effects results are evidence within those restrictions, not proof that an
+arbitrary tool could never escape them.
 
-Automatic results are evidence signals, not a complete truth judgment. Acceptance
-also requires inspecting material claims against the sources actually read.
-File listings do not count as source inspection; follow-ups need fresh content.
-Claude explicit invocation requires a bound native command and matching mounted
-body in its private session receipt. A fallback body read is recorded separately.
+Automatic checks remain signals, not a complete truth judgment. Acceptance
+requires inspecting material claims against the sources actually read.
+File listings do not count as source inspection; follow-ups require fresh
+content. Explicit invocation requires Sevro's complete host dispatch receipt.
+See the [guide contract](specs/repository-guide.md).
 
-After a mechanical checker repair, `--recheck /absolute/path/to/evidence-directory`
-reclassifies the retained native events only when host and guide digest still
-match. It writes a separate `automatic-recheck.json`, preserves original outputs,
-and makes no new model calls. A changed guide body requires new native trials.
-Earlier failed outputs remain historical evidence, even when a later rerun passes.
-No pre-implementation native baseline was captured for this change; the record
-contains forward trials and independent counterexamples, not an invented baseline.
+The [earlier verification record](guide-verification.json) describes historical
+trials of the previous harness. Its outputs and recheck observations are preserved
+as history; they do not validate this conversion. The old `--recheck` command
+and custom evidence format have been removed. Rerun changed cases through Sevro
+and keep prior evidence intact.
+The inventory at `.agents/skills/sevro-guide/evals/inventory.json` still maps
+questions to sources and static destinations and remains outside the npm package.
+No pre-implementation native baseline was captured for the original guide change.

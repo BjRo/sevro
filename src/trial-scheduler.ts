@@ -9,8 +9,10 @@ export async function scheduleTrials(
     stopped = true;
   };
   let failure: { error: unknown } | undefined;
+  const admitting = () =>
+    !stopped && !options.signal?.aborted && nextTrial <= options.count;
   const worker = async () => {
-    while (!stopped && !options.signal?.aborted && nextTrial <= options.count) {
+    while (admitting()) {
       const trial = nextTrial++;
       try {
         if (!(await run(trial, stopAdmission))) stopAdmission();

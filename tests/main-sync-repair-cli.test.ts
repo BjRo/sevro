@@ -1,38 +1,29 @@
-import { afterEach, expect, test } from "bun:test";
+import { expectUnknown } from "./fixtures/assertions";
+import {
+  defined,
+  objectContaining,
+  parseCliResult,
+  parseRunEvidence,
+  record,
+} from "./fixtures/assertions";
+import { afterEach, test, expect } from "bun:test";
 import { chmod, cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
 const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
 });
-
-async function runFixture(
-  declaration: Record<string, unknown>,
-  options: {
-    peer?: string;
-    peerText?: string;
-    candidate?: string;
-    semantic?: string;
-    appServer?: boolean;
-  } = {},
-) {
-  const root = await mkdtemp(join(tmpdir(), "sevro-main-sync-repair-"));
-  roots.push(root);
-  const caseFile = join(root, "case.json");
-  await writeFile(
-    caseFile,
-    JSON.stringify({
-      id: "repair",
-      prompt: "Return ready",
-      checks: [],
-      requiredEvidence: [],
-      ...declaration,
-    }),
-  );
+type FixtureHostOptions = {
+  peer?: string;
+  peerText?: string;
+  candidate?: string;
+  semantic?: string;
+  appServer?: boolean;
+};
+function fixtureArguments(root: string, caseFile: string) {
   const argv = [
     process.execPath,
     join(import.meta.dir, "../src/cli.ts"),
@@ -51,30 +42,43 @@ async function runFixture(
     "--threshold",
     "1",
   ];
+  return argv;
+}
+async function configureNativePeer(
+  argv: string[],
+  root: string,
+  options: FixtureHostOptions,
+) {
+  const binRoot = await mkdtemp(join(tmpdir(), "sevro-main-sync-repair-bin-"));
+  roots.push(binRoot);
+  const binary = join(binRoot, "codex");
+  if (options.peerText) await writeFile(binary, options.peerText);
+  else
+    await cp(join(import.meta.dir, "fixtures", defined(options.peer)), binary);
+  await chmod(binary, 0o700);
+  const credential = join(root, "auth.json");
+  await writeFile(credential, "{}");
+  argv.push(
+    "--host",
+    "codex",
+    "--codex-bin",
+    binary,
+    "--codex-auth-file",
+    credential,
+    "--model",
+    "synthetic",
+    "--effort",
+    "low",
+  );
+  if (options.appServer) argv.push("--codex-entrypoint", "app-server");
+}
+async function configureFixtureHosts(
+  argv: string[],
+  root: string,
+  options: FixtureHostOptions,
+) {
   if (options.peer || options.peerText) {
-    const binRoot = await mkdtemp(
-      join(tmpdir(), "sevro-main-sync-repair-bin-"),
-    );
-    roots.push(binRoot);
-    const binary = join(binRoot, "codex");
-    if (options.peerText) await writeFile(binary, options.peerText);
-    else await cp(join(import.meta.dir, "fixtures", options.peer!), binary);
-    await chmod(binary, 0o700);
-    const credential = join(root, "auth.json");
-    await writeFile(credential, "{}");
-    argv.push(
-      "--host",
-      "codex",
-      "--codex-bin",
-      binary,
-      "--codex-auth-file",
-      credential,
-      "--model",
-      "synthetic",
-      "--effort",
-      "low",
-    );
-    if (options.appServer) argv.push("--codex-entrypoint", "app-server");
+    await configureNativePeer(argv, root, options);
   } else {
     const candidate = join(root, "candidate.ts");
     await writeFile(
@@ -89,15 +93,35 @@ async function runFixture(
     await writeFile(semantic, options.semantic);
     argv.push("--semantic-adapter-module", semantic);
   }
+}
+async function runFixture(
+  declaration: Record<string, unknown>,
+  options: FixtureHostOptions = {},
+) {
+  const root = await mkdtemp(join(tmpdir(), "sevro-main-sync-repair-"));
+  roots.push(root);
+  const caseFile = join(root, "case.json");
+  await writeFile(
+    caseFile,
+    JSON.stringify({
+      id: "repair",
+      prompt: "Return ready",
+      checks: [],
+      requiredEvidence: [],
+      ...declaration,
+    }),
+  );
+  const argv = fixtureArguments(root, caseFile);
+  await configureFixtureHosts(argv, root, options);
   const child = Bun.spawn(argv, { stdout: "pipe", stderr: "pipe" });
   const [out, err, code] = await Promise.all([
     new Response(child.stdout).text(),
     new Response(child.stderr).text(),
     child.exited,
   ]);
-  const result = JSON.parse(out);
+  const result = parseCliResult(out);
   const evidence = result.evidencePath
-    ? JSON.parse(await readFile(result.evidencePath, "utf8"))
+    ? parseRunEvidence(await readFile(result.evidencePath, "utf8"))
     : null;
   return {
     result,
@@ -106,7 +130,6 @@ async function runFixture(
     diagnostic: out + err + JSON.stringify(evidence?.diagnostic),
   };
 }
-
 test("public CLI rejects saved document aliases into Git metadata", async () => {
   const run = await runFixture(
     {
@@ -131,7 +154,6 @@ test("public CLI rejects saved document aliases into Git metadata", async () => 
   );
   expect(run.result.grading.status, run.diagnostic).toBe("error");
 });
-
 test("public CLI refuses fabricated completed executor output as a skill read", async () => {
   for (const mode of ["fabricated", "completed"]) {
     const run = await runFixture(
@@ -153,15 +175,14 @@ test("public CLI refuses fabricated completed executor output as a skill read", 
       { peer: "completed-read-peer.ts" },
     );
     expect(run.code, run.diagnostic).toBe(0);
-    const reads = run.evidence.trials[0].observations.find(
+    const reads = defined(defined(run.evidence).trials[0]).observations.find(
       (value: { id: string }) => value.id === "sevro.codex.skill-reads",
     );
-    expect(reads.data.observedSkills).toEqual(
+    expectUnknown(defined(reads).data.observedSkills).toEqual(
       mode === "fabricated" ? [] : ["probe"],
     );
   }
 });
-
 test("public CLI keeps recovered skill reads on their original feedback turn", async () => {
   const peer = await readFile(
     join(import.meta.dir, "fixtures/yielded-read-peer.ts"),
@@ -215,18 +236,17 @@ test("public CLI keeps recovered skill reads on their original feedback turn", a
     );
     expect(run.code, run.diagnostic).toBe(0);
     for (const observedTurn of ["initial", "follow-up"]) {
-      const read = run.evidence.trials[0].observations.find(
+      const read = defined(defined(run.evidence).trials[0]).observations.find(
         (value: { id: string }) =>
           value.id === `sevro.codex.${observedTurn}-skill-reads`,
       );
-      expect(read.data.observedSkills).toEqual(
+      expectUnknown(defined(read).data.observedSkills).toEqual(
         observedTurn === turn ? ["probe"] : [],
       );
-      expect(read.completeness).toBe("complete");
+      expect(defined(read).completeness).toBe("complete");
     }
   }
 });
-
 test("public CLI retains distinct bounded skill recovery sources", async () => {
   const expectations = {
     yielded: {
@@ -279,18 +299,17 @@ test("public CLI retains distinct bounded skill recovery sources", async () => {
       },
     );
     expect(run.code, run.diagnostic).toBe(0);
-    const calls = run.evidence.trials[0].observations.find(
+    const calls = defined(defined(run.evidence).trials[0]).observations.find(
       (value: { id: string }) => value.id === "sevro.codex.native-calls",
     );
-    expect(calls.data.parentReadDiagnostics.recoverySources).toEqual([
-      expect.objectContaining(expected),
-    ]);
-    expect(JSON.stringify(run.evidence.trials[0].observations)).not.toContain(
-      "PRIVATE_SKILL_BODY",
-    );
+    expectUnknown(
+      record(defined(calls).data.parentReadDiagnostics).recoverySources,
+    ).toEqual([objectContaining(expected)]);
+    expect(
+      JSON.stringify(defined(defined(run.evidence).trials[0]).observations),
+    ).not.toContain("PRIVATE_SKILL_BODY");
   }
 });
-
 test("public CLI observes native goal readback without update notifications", async () => {
   const peer = await readFile(
     join(import.meta.dir, "fixtures/app-server-peer.ts"),
@@ -311,15 +330,15 @@ test("public CLI observes native goal readback without update notifications", as
     { peerText, appServer: true },
   );
   expect(run.code, run.diagnostic).toBe(0);
-  const boundary = run.evidence.trials[0].observations.find(
+  const boundary = defined(defined(run.evidence).trials[0]).observations.find(
     (value: { id: string }) => value.id === "sevro.codex.continuation",
   );
-  expect(boundary.data).toMatchObject({
+  expect(defined(boundary).data).toMatchObject({
     threadId: "root",
     nativeGoalObserved: true,
     nativeGoalStatus: "active",
   });
-  expect(JSON.stringify(run.evidence.trials[0].observations)).not.toContain(
-    "PRIVATE_GOAL_OBJECTIVE",
-  );
+  expect(
+    JSON.stringify(defined(defined(run.evidence).trials[0]).observations),
+  ).not.toContain("PRIVATE_GOAL_OBJECTIVE");
 });

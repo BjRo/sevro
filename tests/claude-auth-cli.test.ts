@@ -1,18 +1,36 @@
-import { afterEach, expect, test } from "bun:test";
+import { parseCliResult, parseRunEvidence } from "./fixtures/assertions";
+import { afterEach, test, expect } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
 const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
 });
-
-async function invoke(
+function authEnvironment(
   environment: Record<string, string>,
-  files: Record<string, string> = {},
+  home: string,
+  root: string,
+) {
+  const env: Record<string, string> = {
+    ...(process.env as Record<string, string>),
+    HOME: home,
+    CLAUDE_CONFIG_DIR: join(home, ".claude"),
+    ...environment,
+  };
+  if (!Object.hasOwn(environment, "CLAUDE_CODE_OAUTH_TOKEN"))
+    delete env.CLAUDE_CODE_OAUTH_TOKEN;
+  if (!Object.hasOwn(environment, "ANTHROPIC_API_KEY"))
+    delete env.ANTHROPIC_API_KEY;
+  if (environment.CLAUDE_CONFIG_DIR === "custom")
+    env.CLAUDE_CONFIG_DIR = join(root, "custom");
+  return env;
+}
+async function authFixture(
+  environment: Record<string, string>,
+  files: Record<string, string>,
   explicit?: string,
 ) {
   const root = await mkdtemp(join(tmpdir(), "sevro-auth-parity-"));
@@ -61,18 +79,19 @@ process.exitCode = ready ? 0 : 1;
       ],
     }),
   );
-  const env: Record<string, string> = {
-    ...(process.env as Record<string, string>),
-    HOME: home,
-    CLAUDE_CONFIG_DIR: join(home, ".claude"),
-    ...environment,
-  };
-  if (!Object.hasOwn(environment, "CLAUDE_CODE_OAUTH_TOKEN"))
-    delete env.CLAUDE_CODE_OAUTH_TOKEN;
-  if (!Object.hasOwn(environment, "ANTHROPIC_API_KEY"))
-    delete env.ANTHROPIC_API_KEY;
-  if (environment.CLAUDE_CONFIG_DIR === "custom")
-    env.CLAUDE_CONFIG_DIR = join(root, "custom");
+  return { root, binary, caseFile, home };
+}
+async function invoke(
+  environment: Record<string, string>,
+  files: Record<string, string> = {},
+  explicit?: string,
+) {
+  const { root, binary, caseFile, home } = await authFixture(
+    environment,
+    files,
+    explicit,
+  );
+  const env = authEnvironment(environment, home, root);
   const child = Bun.spawn(
     [
       process.execPath,
@@ -110,9 +129,9 @@ process.exitCode = ready ? 0 : 1;
     new Response(child.stderr).text(),
     child.exited,
   ]);
-  const result = JSON.parse(stdout);
+  const result = parseCliResult(stdout);
   const evidence = result.evidencePath
-    ? JSON.parse(await readFile(result.evidencePath, "utf8"))
+    ? parseRunEvidence(await readFile(result.evidencePath, "utf8"))
     : null;
   return {
     code,
@@ -121,7 +140,6 @@ process.exitCode = ready ? 0 : 1;
     diagnostic: stderr + stdout + JSON.stringify(evidence?.diagnostic),
   };
 }
-
 test("public CLI reuses existing Claude environment authentication", async () => {
   for (const environment of [
     { CLAUDE_CODE_OAUTH_TOKEN: "AUTH_PARITY_OAUTH_SECRET" },
@@ -142,7 +160,6 @@ test("public CLI reuses existing Claude environment authentication", async () =>
     );
   }
 });
-
 test("public CLI reuses the saved Claude login before Keychain", async () => {
   const credential = JSON.stringify({
     test: "saved-login",
@@ -166,7 +183,6 @@ test("public CLI reuses the saved Claude login before Keychain", async () => {
     );
   }
 });
-
 test("public CLI preserves explicit credentials and refuses invalid selected files", async () => {
   const environment = {
     CLAUDE_CODE_OAUTH_TOKEN: "AUTH_PARITY_OAUTH_SECRET",

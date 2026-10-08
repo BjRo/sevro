@@ -23,11 +23,7 @@ test("Claude host settings deny private state to Bash and file tools", () => {
     allowUnsandboxedCommands: false,
     failIfUnavailable: true,
     filesystem: {
-      denyRead: [
-        "/private/sevro-state",
-        "/private/source",
-        "/private/results",
-      ],
+      denyRead: ["/private/sevro-state", "/private/source", "/private/results"],
       denyWrite: [
         "/private/sevro-state",
         "/private/workspace/plugin",

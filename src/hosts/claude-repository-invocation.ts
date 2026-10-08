@@ -1,3 +1,4 @@
+import type { Stats } from "node:fs";
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import type { HostAdapter } from "../engine";
@@ -42,18 +43,9 @@ export async function verifyClaudeRepositoryInvocation(
   request: Parameters<HostAdapter["run"]>[0],
 ): Promise<ClaudeRepositoryInvocation> {
   const selected = request.explicitSkillInvocation;
-  if (!selected || selected.scope !== "repository")
-    throw new Error("Claude repository invocation is not declared");
+  requireRepositorySelection(selected);
   const { skillName, token } = selected;
-  if (
-    !/^[A-Za-z0-9._-]+$/.test(skillName) ||
-    [".", ".."].includes(skillName) ||
-    token !== `/${skillName}` ||
-    request.prompt.split(token).length - 1 !== 1 ||
-    (request.prompt !== token &&
-      !request.prompt.startsWith(token + " ") &&
-      !request.prompt.startsWith(token + "\n"))
-  )
+  if (!validRepositoryDeclaration(skillName, token, request.prompt))
     throw new Error("invalid Claude repository skill invocation");
   let path = await realpath(request.workspace);
   for (const [index, part] of [
@@ -64,13 +56,7 @@ export async function verifyClaudeRepositoryInvocation(
   ].entries()) {
     path = join(path, part);
     const entry = await lstat(path).catch(() => null);
-    if (
-      !entry ||
-      entry.isSymbolicLink() ||
-      (index === 3
-        ? !entry.isFile() || entry.size > 1024 * 1024
-        : !entry.isDirectory())
-    )
+    if (!safeSkillEntry(entry, index))
       throw new Error(
         "invoked Claude repository skill is unavailable or unsafe",
       );
@@ -83,81 +69,185 @@ export async function verifyClaudeRepositoryInvocation(
   };
 }
 
+function requireRepositorySelection(
+  selected: Parameters<HostAdapter["run"]>[0]["explicitSkillInvocation"],
+): asserts selected is Extract<
+  NonNullable<Parameters<HostAdapter["run"]>[0]["explicitSkillInvocation"]>,
+  { scope: "repository" }
+> {
+  if (!selected || selected.scope !== "repository")
+    throw new Error("Claude repository invocation is not declared");
+}
+
+type Receipt = { accepted: boolean | null; reason: string };
+type MatchInput = ClaudeRepositoryInvocation & {
+  transcript: string;
+  sessionId: string;
+};
+type AssistantBoundary = { before: Entry[] } | { receipt: Receipt };
+type CommandBoundary = { called: Entry } | { receipt: Receipt };
+
+function validRepositoryDeclaration(
+  skillName: string,
+  token: string,
+  prompt: string,
+): boolean {
+  return (
+    validRepositorySkillName(skillName) &&
+    token === `/${skillName}` &&
+    prompt.split(token).length - 1 === 1 &&
+    repositoryPromptMatches(prompt, token)
+  );
+}
+function validRepositorySkillName(name: string): boolean {
+  return /^[A-Za-z0-9._-]+$/.test(name) && ![".", ".."].includes(name);
+}
+function repositoryPromptMatches(prompt: string, token: string): boolean {
+  return (
+    prompt === token ||
+    prompt.startsWith(token + " ") ||
+    prompt.startsWith(token + "\n")
+  );
+}
+function safeSkillEntry(entry: Stats | null, index: number): boolean {
+  if (!entry || entry.isSymbolicLink()) return false;
+  return index === 3
+    ? entry.isFile() && entry.size <= 1024 * 1024
+    : entry.isDirectory();
+}
+
 /** Match one exact command and complete body before the assistant starts. */
-export function matchClaudeRepositoryInvocation(
-  input: ClaudeRepositoryInvocation & {
-    transcript: string;
-    sessionId: string;
-  },
-): { accepted: boolean | null; reason: string } {
+export function matchClaudeRepositoryInvocation(input: MatchInput): Receipt {
   let native: Entry[];
   try {
     native = entries(input.transcript);
   } catch {
     return { accepted: null, reason: "malformed native session" };
   }
+  const boundary = assistantBoundary(native, input.sessionId);
+  if ("receipt" in boundary) return boundary.receipt;
+  return matchCommandAndBody(boundary.before, input);
+}
+
+function assistantBoundary(
+  native: Entry[],
+  sessionId: string,
+): AssistantBoundary {
   const firstAssistant = native.findIndex(
     (entry) => entry.type === "assistant",
   );
-  if (firstAssistant < 0)
-    return { accepted: null, reason: "missing assistant turn" };
-  const assistant = native[firstAssistant]!;
-  if (assistant.sessionId !== input.sessionId || assistant.isSidechain === true)
-    return { accepted: false, reason: "assistant session differs" };
-  const before = native.slice(0, firstAssistant);
-  const token = `/${input.skillName}`;
-  if (
-    input.prompt !== token &&
-    !input.prompt.startsWith(token + " ") &&
-    !input.prompt.startsWith(token + "\n")
-  )
-    return { accepted: false, reason: "prompt differs from mounted command" };
+  const assistant = native.at(firstAssistant);
+  if (firstAssistant < 0 || assistant === undefined)
+    return { receipt: { accepted: null, reason: "missing assistant turn" } };
+  if (assistant.sessionId !== sessionId || assistant.isSidechain === true)
+    return {
+      receipt: { accepted: false, reason: "assistant session differs" },
+    };
+  return { before: native.slice(0, firstAssistant) };
+}
+
+function nativeCommand(input: MatchInput, token: string): string {
   const args = input.prompt.slice(token.length).trim();
-  const command =
+  return (
     `<command-message>${input.skillName}</command-message>\n<command-name>${token}</command-name>` +
-    (args ? `\n<command-args>${args}</command-args>` : "");
+    (args ? `\n<command-args>${args}</command-args>` : "")
+  );
+}
+
+function matchCommandAndBody(before: Entry[], input: MatchInput): Receipt {
+  const token = `/${input.skillName}`;
+  if (!repositoryPromptMatches(input.prompt, token))
+    return { accepted: false, reason: "prompt differs from mounted command" };
+  const command = commandBoundary(before, input, token);
+  if ("receipt" in command) return command.receipt;
+  return mountedBodyReceipt(before, input, command.called);
+}
+
+function commandBoundary(
+  before: Entry[],
+  input: MatchInput,
+  token: string,
+): CommandBoundary {
   const commands = before.filter(
     (entry) =>
       entry.type === "user" &&
       content(entry).includes(`<command-name>${token}</command-name>`),
   );
-  if (commands.length !== 1)
-    return { accepted: false, reason: "missing or duplicate native command" };
-  const called = commands[0]!;
-  if (
-    called.sessionId !== input.sessionId ||
-    called.isMeta === true ||
-    called.isSidechain === true ||
-    content(called) !== command
-  )
-    return { accepted: false, reason: "command session or arguments differ" };
+  const [called] = commands;
+  if (commands.length !== 1 || called === undefined)
+    return {
+      receipt: {
+        accepted: false,
+        reason: "missing or duplicate native command",
+      },
+    };
+  if (!commandCorrelated(called, input, nativeCommand(input, token)))
+    return {
+      receipt: {
+        accepted: false,
+        reason: "command session or arguments differ",
+      },
+    };
+  return { called };
+}
+
+function commandCorrelated(
+  called: Entry,
+  input: MatchInput,
+  command: string,
+): boolean {
+  return (
+    called.sessionId === input.sessionId &&
+    called.isMeta !== true &&
+    called.isSidechain !== true &&
+    content(called) === command
+  );
+}
+
+function mountedBodyReceipt(
+  before: Entry[],
+  input: MatchInput,
+  called: Entry,
+): Receipt {
   const body = input.skillText
     .replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, "")
     .trim();
   if (!body) return { accepted: null, reason: "empty mounted body" };
   const prefix = `Base directory for this skill: ${input.skillDir}\n\n${body}`;
-  const expanded = before.filter(
-    (entry) =>
-      entry.type === "user" &&
-      (content(entry) === prefix || content(entry).startsWith(prefix + "\n")),
-  );
-  if (expanded.length !== 1)
+  const expanded = before.filter((entry) => mountedBodyMatches(entry, prefix));
+  const [loaded] = expanded;
+  if (expanded.length !== 1 || loaded === undefined)
     return {
       accepted: false,
       reason: "missing, partial, or duplicate mounted body",
     };
-  const loaded = expanded[0]!;
-  if (
-    loaded.sessionId !== input.sessionId ||
-    loaded.isMeta !== true ||
-    loaded.isSidechain === true ||
-    before.indexOf(loaded) <= before.indexOf(called)
-  )
+  if (!bodyCorrelated(loaded, input.sessionId, before, called))
     return { accepted: false, reason: "mounted body is uncorrelated" };
   return {
     accepted: true,
     reason: "native command and complete mounted body matched",
   };
+}
+
+function mountedBodyMatches(entry: Entry, prefix: string): boolean {
+  return (
+    entry.type === "user" &&
+    (content(entry) === prefix || content(entry).startsWith(prefix + "\n"))
+  );
+}
+
+function bodyCorrelated(
+  loaded: Entry,
+  sessionId: string,
+  before: Entry[],
+  called: Entry,
+): boolean {
+  return (
+    loaded.sessionId === sessionId &&
+    loaded.isMeta === true &&
+    loaded.isSidechain !== true &&
+    before.indexOf(loaded) > before.indexOf(called)
+  );
 }
 
 /** Read only the completed bound native session; retain no arguments or body. */
@@ -173,55 +263,18 @@ export async function claudeRepositoryInvocationObservation(input: {
     reason: "native session evidence unavailable",
   };
   try {
-    const sessions = [
-      ...new Set(
-        entries(input.stream)
-          .filter(
-            (entry) =>
-              entry.type === "result" ||
-              (entry.type === "system" && entry.subtype === "init"),
-          )
-          .map((entry) => entry.session_id),
-      ),
-    ];
-    if (
-      sessions.length === 1 &&
-      typeof sessions[0] === "string" &&
-      /^[A-Za-z0-9_-]{1,128}$/.test(sessions[0])
-    ) {
-      const workspace = await realpath(input.workspace);
-      const path = join(
-        await realpath(input.configRoot),
-        "projects",
-        workspace.replace(/[^A-Za-z0-9]/g, "-"),
-        `${sessions[0]}.jsonl`,
-      );
-      const entry = await lstat(path);
-      if (
-        entry.isFile() &&
-        !entry.isSymbolicLink() &&
-        entry.size <= 8 * 1024 * 1024 &&
-        (await realpath(path)) === path
-      ) {
-        receipt = matchClaudeRepositoryInvocation({
-          ...input.invocation,
-          sessionId: sessions[0],
-          transcript: await readFile(path, "utf8"),
-        });
-      }
-    }
+    receipt = await repositoryReceipt(input);
   } catch {
     /* Unavailable or malformed native evidence stays partial. */
   }
   const observed = input.tools.data.calls
     .filter((call) => call.name === "Skill")
     .map((call) => call.skill);
-  const observedSkills = [
-    ...new Set([
-      ...(receipt.accepted === true ? [input.invocation.skillName] : []),
-      ...observed,
-    ]),
-  ];
+  const observedSkills = repositoryObservedSkills(
+    receipt,
+    input.invocation.skillName,
+    observed,
+  );
   return {
     id: "sevro.claude.repository-invocation" as const,
     completeness:
@@ -236,4 +289,68 @@ export async function claudeRepositoryInvocationObservation(input: {
       observedSkills,
     },
   };
+}
+
+function repositoryObservedSkills(
+  receipt: Receipt,
+  skillName: string,
+  observed: string[],
+): string[] {
+  return [
+    ...new Set([
+      ...(receipt.accepted === true ? [skillName] : []),
+      ...observed,
+    ]),
+  ];
+}
+
+function repositorySessionId(stream: string): string | null {
+  const sessions = [
+    ...new Set(
+      entries(stream)
+        .filter(
+          (entry) =>
+            entry.type === "result" ||
+            (entry.type === "system" && entry.subtype === "init"),
+        )
+        .map((entry) => entry.session_id),
+    ),
+  ];
+  const [id] = sessions;
+  if (
+    sessions.length !== 1 ||
+    typeof id !== "string" ||
+    !/^[A-Za-z0-9_-]{1,128}$/.test(id)
+  )
+    return null;
+  return id;
+}
+
+async function repositoryReceipt(
+  input: Parameters<typeof claudeRepositoryInvocationObservation>[0],
+): Promise<Receipt> {
+  const sessionId = repositorySessionId(input.stream);
+  if (sessionId === null)
+    return { accepted: null, reason: "native session evidence unavailable" };
+  const workspace = await realpath(input.workspace);
+  const path = join(
+    await realpath(input.configRoot),
+    "projects",
+    workspace.replace(/[^A-Za-z0-9]/g, "-"),
+    `${sessionId}.jsonl`,
+  );
+  const entry = await lstat(path);
+  if (!regularTranscript(entry) || (await realpath(path)) !== path)
+    return { accepted: null, reason: "native session evidence unavailable" };
+  return matchClaudeRepositoryInvocation({
+    ...input.invocation,
+    sessionId,
+    transcript: await readFile(path, "utf8"),
+  });
+}
+
+function regularTranscript(entry: Stats): boolean {
+  return (
+    entry.isFile() && !entry.isSymbolicLink() && entry.size <= 8 * 1024 * 1024
+  );
 }

@@ -1,23 +1,23 @@
 import { runCodexAppServer } from "./codex-app-server";
+import { runCodexProcess } from "./codex-process";
+import { verifyCodexInvocation } from "./codex-invocation";
+import { installCodexPlugins } from "./codex-marketplace";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import {
-  lstat,
   mkdir,
   mkdtemp,
   readFile,
-  readdir,
   realpath,
   rm,
   stat,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { delimiter, dirname, isAbsolute, join, relative, sep } from "node:path";
-import type { HostAdapter } from "../engine";
+import { delimiter, dirname, isAbsolute, join, sep } from "node:path";
+import type { HostAdapter, HostResult } from "../engine";
 import { codexNativeControls } from "./native-controls";
-import { fixtureParts } from "../preparation";
-import { summarizeCodexEvents } from "./codex-events";
+import { summarizeCodexEvents, type CodexEventSummary } from "./codex-events";
 import {
   codexNativeCallObservation,
   codexNativeSkillReadRecovery,
@@ -32,59 +32,6 @@ const MAX_AUTH_BYTES = 1024 * 1024;
 const MAX_EVENT_BYTES = 8 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 10 * 60_000;
 const MAX_TIMEOUT_MS = 30 * 60_000;
-
-async function verifyCodexInvocation(
-  request: Parameters<HostAdapter["run"]>[0],
-): Promise<void> {
-  const selected = request.explicitSkillInvocation;
-  if (!selected) return;
-  const { skillName, token } = selected;
-  const tokenCount =
-    request.prompt.split(token).length -
-    1 +
-    (request.followUpPrompt?.split(token).length ?? 1) -
-    1;
-  if (
-    !/^[A-Za-z0-9._-]+$/.test(skillName) ||
-    skillName === "." ||
-    skillName === ".." ||
-    tokenCount !== 1
-  )
-    throw new Error("invalid Codex explicit skill invocation");
-  if (selected.scope === "repository") {
-    if (token !== `$${skillName}`)
-      throw new Error("invalid Codex explicit skill invocation");
-    let path = request.workspace;
-    for (const [index, part] of [
-      ".agents",
-      "skills",
-      skillName,
-      "SKILL.md",
-    ].entries()) {
-      path = join(path, part);
-      const entry = await lstat(path).catch(() => null);
-      if (
-        !entry ||
-        entry.isSymbolicLink() ||
-        (index === 3
-          ? !entry.isFile() || entry.size > 1024 * 1024
-          : !entry.isDirectory())
-      )
-        throw new Error(
-          "invoked Codex repository skill is unavailable or unsafe",
-        );
-    }
-    return;
-  }
-  const { pluginName } = selected;
-  if (
-    !request.codexMarketplace?.pluginNames.includes(pluginName) ||
-    !/^[a-z][a-z0-9-]*$/.test(pluginName) ||
-    token !== `$${pluginName}:${skillName}`
-  )
-    throw new Error("invalid Codex explicit skill invocation");
-}
-
 export interface CodexHostOptions {
   binary: string;
   authFile: string;
@@ -100,781 +47,776 @@ export interface CodexHostOptions {
   sandboxBinary?: string;
 }
 
-function stopProcess(proc: Bun.Subprocess): void {
-  if (process.platform !== "win32") {
-    try {
-      process.kill(-proc.pid, "SIGKILL");
-      return;
-    } catch {
-      // The group may have exited before cancellation.
-    }
-  }
-  try {
-    proc.kill("SIGKILL");
-  } catch {
-    // The process already exited.
-  }
-}
-
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", `'"'"'`)}'`;
-}
-
-async function boundedText(
-  stream: ReadableStream<Uint8Array>,
-  limit: number,
-): Promise<string> {
-  const reader = stream.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > limit)
-      throw new Error("Codex event stream exceeds the size limit");
-    chunks.push(value);
-  }
-  return new TextDecoder("utf-8", { fatal: true }).decode(
-    Buffer.concat(chunks),
-  );
-}
-
-async function runProcess(options: {
-  argv: string[];
-  cwd: string;
-  env: Record<string, string>;
-  input?: string;
-  timeoutMs: number;
-  signal?: AbortSignal;
-}): Promise<{ code: number; out: string }> {
-  if (options.signal?.aborted) throw new Error("Codex run cancelled");
-  const proc = Bun.spawn(options.argv, {
-    cwd: options.cwd,
-    env: options.env,
-    detached: process.platform !== "win32",
-    stdin: options.input === undefined ? "ignore" : "pipe",
-    stdout: "pipe",
-    stderr: "ignore",
-  });
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let cancel: (() => void) | undefined;
-  try {
-    const written = (async () => {
-      if (options.input === undefined) return;
-      if (!proc.stdin || typeof proc.stdin === "number")
-        throw new Error("Codex input pipe unavailable");
-      await proc.stdin.write(options.input);
-      await proc.stdin.end();
-    })();
-    const completed = Promise.all([
-      boundedText(proc.stdout, MAX_EVENT_BYTES),
-      proc.exited,
-      written,
-    ]).then(([out, code]) => ({ out, code }));
-    const timeout = new Promise<never>((_resolve, reject) => {
-      timer = setTimeout(
-        () => reject(new Error("Codex run timed out")),
-        options.timeoutMs,
-      );
-    });
-    const aborted = new Promise<never>((_resolve, reject) => {
-      if (!options.signal) return;
-      cancel = () => reject(new Error("Codex run cancelled"));
-      if (options.signal.aborted) cancel();
-      else options.signal.addEventListener("abort", cancel, { once: true });
-    });
-    return await Promise.race([completed, timeout, aborted]);
-  } catch (error) {
-    stopProcess(proc);
-    await proc.exited;
-    throw error;
-  } finally {
-    if (timer) clearTimeout(timer);
-    if (cancel) options.signal?.removeEventListener("abort", cancel);
-  }
-}
-
 async function copyAuth(source: string, target: string): Promise<void> {
   let bytes: Buffer;
   try {
     if ((await stat(source)).size > MAX_AUTH_BYTES)
       throw new Error("Codex auth file exceeds the size limit");
     bytes = await readFile(source);
-  } catch {
-    throw new Error("Codex auth file is unreadable or oversized");
+  } catch (error) {
+    throw new Error("Codex auth file is unreadable or oversized", {
+      cause: error,
+    });
   }
   if (bytes.byteLength > MAX_AUTH_BYTES)
     throw new Error("Codex auth file exceeds the size limit");
   await writeFile(target, bytes, { flag: "wx", mode: 0o600 });
 }
 
-function inside(root: string, path: string): boolean {
-  const child = relative(root, path);
-  return (
-    child === "" ||
-    (child !== ".." && !child.startsWith(`..${sep}`) && !isAbsolute(child))
-  );
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
-async function marketplaceRoot(
-  workspace: string,
-  declaration: NonNullable<
-    Parameters<HostAdapter["run"]>[0]["codexMarketplace"]
-  >,
-): Promise<string> {
-  const { artifactRoot, marketplaceName, pluginNames } = declaration;
-  const expectedPaths = new Set(declaration.artifactPaths);
-  if (
-    !/^[a-z][a-z0-9-]*$/.test(marketplaceName) ||
-    !pluginNames.length ||
-    pluginNames.some((name) => !/^[a-z][a-z0-9-]*$/.test(name)) ||
-    new Set(pluginNames).size !== pluginNames.length ||
-    !declaration.artifactPaths.length ||
-    expectedPaths.size !== declaration.artifactPaths.length ||
-    declaration.artifactPaths.some(
-      (path) =>
-        !path.startsWith(`${artifactRoot}/`) ||
-        fixtureParts(path).join("/") !== path,
-    )
-  )
-    throw new Error("invalid Codex marketplace declaration");
-  const root = join(workspace, ...fixtureParts(artifactRoot));
-  const actualWorkspace = await realpath(workspace);
-  const actualRoot = await realpath(root);
-  if (!inside(actualWorkspace, actualRoot) || actualRoot === actualWorkspace)
-    throw new Error("Codex marketplace escapes the workspace");
-  let manifest: unknown;
-  try {
-    manifest = JSON.parse(
-      await readFile(
-        join(actualRoot, ".claude-plugin", "marketplace.json"),
-        "utf8",
-      ),
-    );
-  } catch {
-    throw new Error("Codex marketplace manifest is unreadable");
-  }
-  if (!manifest || typeof manifest !== "object")
-    throw new Error("invalid Codex marketplace manifest");
-  const document = manifest as Record<string, unknown>;
-  const plugins = document.plugins;
-  if (
-    document.name !== marketplaceName ||
-    !Array.isArray(plugins) ||
-    plugins.length !== pluginNames.length
-  )
-    throw new Error("Codex marketplace manifest does not match declaration");
-  const found = new Set<string>();
-  for (const entry of plugins) {
-    if (!entry || typeof entry !== "object")
-      throw new Error("invalid Codex marketplace plugin");
-    const plugin = entry as Record<string, unknown>;
-    if (
-      typeof plugin.name !== "string" ||
-      !pluginNames.includes(plugin.name) ||
-      found.has(plugin.name) ||
-      typeof plugin.source !== "string" ||
-      !plugin.source.startsWith("./")
-    )
-      throw new Error(
-        "Codex marketplace plugin is not a declared local source",
-      );
-    found.add(plugin.name);
-    const source = join(actualRoot, ...fixtureParts(plugin.source.slice(2)));
-    if (!inside(actualRoot, await realpath(source)))
-      throw new Error("Codex marketplace plugin escapes its artifact root");
-  }
-  // The package is materialized from declared artifacts; links can otherwise
-  // pull files from outside that snapshot during the local CLI installation.
-  const pending = [actualRoot];
-  const seen = new Set<string>();
-  while (pending.length) {
-    const directory = pending.pop()!;
-    for (const entry of await readdir(directory, { withFileTypes: true })) {
-      if (entry.isSymbolicLink())
-        throw new Error("Codex marketplace package contains a symlink");
-      if (entry.isDirectory()) pending.push(join(directory, entry.name));
-      else if (!entry.isFile())
-        throw new Error("Codex marketplace package contains a special file");
-      else {
-        const path = `${artifactRoot}/${relative(actualRoot, join(directory, entry.name)).split(sep).join("/")}`;
-        if (!expectedPaths.has(path))
-          throw new Error(
-            "Codex marketplace package contains undeclared files",
-          );
-        seen.add(path);
-      }
-    }
-  }
-  if (seen.size !== expectedPaths.size)
-    throw new Error("Codex marketplace package is missing declared files");
-  return actualRoot;
+type Request = Parameters<HostAdapter["run"]>[0];
+type ProcessResult = Awaited<ReturnType<typeof runCodexProcess>>;
+type AppServerResult = Awaited<ReturnType<typeof runCodexAppServer>>;
+type Observation = {
+  id: string;
+  completeness: "complete" | "partial";
+  data: Record<string, unknown>;
+};
+type CodexState = Awaited<ReturnType<typeof prepareCodexState>>;
+interface ExecutionContext {
+  options: CodexHostOptions;
+  request: Request;
+  state: CodexState;
+  timeoutMs: number;
+  installedPluginRoots: string[];
+}
+interface TurnResult {
+  execution: ProcessResult;
+  summary: CodexEventSummary;
+  followUp: ProcessResult | null;
+  followUpSummary: CodexEventSummary | null;
+  appServer: AppServerResult | null;
+  continuation: Observation | undefined;
+  observedEvents: string;
+}
+
+function validCodexPaths(options: CodexHostOptions): boolean {
+  return (
+    [
+      options.binary,
+      options.authFile,
+      options.projectRoot,
+      options.resultsRoot,
+      ...options.additionalProtectedRoots,
+    ].every(isAbsolute) &&
+    (options.sandboxBinary === undefined || isAbsolute(options.sandboxBinary))
+  );
+}
+function validConcurrencyLimit(limit: number | null): boolean {
+  return limit === null || (Number.isSafeInteger(limit) && limit >= 1);
+}
+function validEntrypoint(entrypoint: CodexHostOptions["entrypoint"]): boolean {
+  return (
+    entrypoint === undefined || ["exec", "app-server"].includes(entrypoint)
+  );
+}
+function validCodexTimeout(timeoutMs: number): boolean {
+  return (
+    Number.isSafeInteger(timeoutMs) &&
+    timeoutMs >= 1 &&
+    timeoutMs <= MAX_TIMEOUT_MS
+  );
+}
+function validCodexIdentity(
+  options: CodexHostOptions,
+  limit: number | null,
+  timeoutMs: number,
+): boolean {
+  return (
+    !!options.model &&
+    !!options.effort &&
+    validEntrypoint(options.entrypoint) &&
+    validConcurrencyLimit(limit) &&
+    validCodexTimeout(timeoutMs)
+  );
+}
+function codexCapabilities(
+  entrypoint: CodexHostOptions["entrypoint"],
+): string[] {
+  return [
+    "sevro.host.continuation",
+    ...(entrypoint === "app-server" ? ["sevro.host.native-goal"] : []),
+    "sevro.codex.plugin-marketplace",
+    "sevro.codex.explicit-invocation",
+    "sevro.codex.repository-invocation",
+    "sevro.codex.native-calls",
+    "sevro.host.native-controls",
+    "sevro.codex.initial-skill-reads",
+    "sevro.codex.follow-up-skill-reads",
+  ];
+}
+function codexConfiguration(
+  limit: number | null,
+  entrypoint: CodexHostOptions["entrypoint"],
+) {
+  return {
+    "sevro.codex.agent-concurrency-limit": limit,
+    ...(entrypoint === "app-server"
+      ? { "sevro.codex.entrypoint": "app-server" }
+      : {}),
+  };
 }
 
 /** Construct one Codex route without inheriting user settings or credentials. */
 export function createCodexHost(options: CodexHostOptions): HostAdapter {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const agentConcurrencyLimit = options.agentConcurrencyLimit ?? null;
+  const limit = options.agentConcurrencyLimit ?? null;
   if (
-    !isAbsolute(options.binary) ||
-    !isAbsolute(options.authFile) ||
-    !isAbsolute(options.projectRoot) ||
-    !isAbsolute(options.resultsRoot) ||
-    options.additionalProtectedRoots.some((root) => !isAbsolute(root)) ||
-    (options.sandboxBinary !== undefined &&
-      !isAbsolute(options.sandboxBinary)) ||
-    !options.model ||
-    !options.effort ||
-    (options.entrypoint !== undefined &&
-      !["exec", "app-server"].includes(options.entrypoint)) ||
-    (agentConcurrencyLimit !== null &&
-      (!Number.isSafeInteger(agentConcurrencyLimit) ||
-        agentConcurrencyLimit < 1)) ||
-    !Number.isSafeInteger(timeoutMs) ||
-    timeoutMs < 1 ||
-    timeoutMs > MAX_TIMEOUT_MS
+    !validCodexPaths(options) ||
+    !validCodexIdentity(options, limit, timeoutMs)
   )
     throw new Error("invalid Codex host configuration");
   return {
     id: "sevro.host.codex",
-    hostCapabilities: [
-      "sevro.host.continuation",
-      ...(options.entrypoint === "app-server"
-        ? ["sevro.host.native-goal"]
-        : []),
-      "sevro.codex.plugin-marketplace",
-      "sevro.codex.explicit-invocation",
-      "sevro.codex.repository-invocation",
-      "sevro.codex.native-calls",
-      "sevro.host.native-controls",
-      "sevro.codex.initial-skill-reads",
-      "sevro.codex.follow-up-skill-reads",
-    ],
+    hostCapabilities: codexCapabilities(options.entrypoint),
     model: options.model,
     effort: options.effort,
-    configuration: {
-      "sevro.codex.agent-concurrency-limit": agentConcurrencyLimit,
-      ...(options.entrypoint === "app-server"
-        ? { "sevro.codex.entrypoint": "app-server" }
-        : {}),
+    configuration: codexConfiguration(limit, options.entrypoint),
+    run(request) {
+      return runCodexRequest(options, timeoutMs, limit, request);
     },
-    async run(request) {
-      if (
-        request.followUpPrompt !== undefined &&
-        (typeof request.followUpPrompt !== "string" ||
-          !request.followUpPrompt.trim())
-      )
-        throw new Error("Codex follow-up prompt must be nonempty");
-      if (
-        request.fixtureBinDir !== undefined &&
-        request.fixtureBinDir !== join(request.workspace, ".git", "fixture-bin")
-      )
-        throw new Error("fixture binary path is outside the workspace");
-      if (request.instrumentation?.length)
-        throw new Error("Codex instrumentation is unavailable");
-      if (request.condition !== "passive")
-        throw new Error("Codex enforcement instrumentation is unavailable");
-      await verifyCodexInvocation(request);
-      if (existsSync(join(request.workspace, ".codex")))
-        throw new Error("fixture Codex configuration is unsupported");
-      const stateRoot = await mkdtemp(join(tmpdir(), "sevro-codex-state-"));
-      try {
-        const codexHome = join(stateRoot, "codex-home");
-        const parentHome = join(stateRoot, "home");
-        const parentTemp = join(stateRoot, "tmp");
-        const commandHome = join(stateRoot, "command-home");
-        const commandTemp = join(stateRoot, "command-tmp");
-        const pluginCacheRoot = join(codexHome, "plugins", "cache");
-        await Promise.all(
-          [codexHome, parentHome, parentTemp, commandHome, commandTemp].map(
-            (path) => mkdir(path, { mode: 0o700 }),
-          ),
+  };
+}
+
+function requireCodexFollowUp(request: Request): void {
+  if (
+    request.followUpPrompt !== undefined &&
+    (typeof request.followUpPrompt !== "string" ||
+      !request.followUpPrompt.trim())
+  )
+    throw new Error("Codex follow-up prompt must be nonempty");
+}
+function requireCodexFixtureBin(request: Request): void {
+  if (
+    request.fixtureBinDir !== undefined &&
+    request.fixtureBinDir !== join(request.workspace, ".git", "fixture-bin")
+  )
+    throw new Error("fixture binary path is outside the workspace");
+}
+function requirePassiveCodexRequest(request: Request): void {
+  if (request.instrumentation?.length)
+    throw new Error("Codex instrumentation is unavailable");
+  if (request.condition !== "passive")
+    throw new Error("Codex enforcement instrumentation is unavailable");
+}
+async function runCodexRequest(
+  options: CodexHostOptions,
+  timeoutMs: number,
+  limit: number | null,
+  request: Request,
+): Promise<HostResult> {
+  requireCodexFollowUp(request);
+  requireCodexFixtureBin(request);
+  requirePassiveCodexRequest(request);
+  await verifyCodexInvocation(request);
+  if (existsSync(join(request.workspace, ".codex")))
+    throw new Error("fixture Codex configuration is unsupported");
+  const stateRoot = await mkdtemp(join(tmpdir(), "sevro-codex-state-"));
+  try {
+    const state = await prepareCodexState(stateRoot, options, limit, request);
+    const installedPluginRoots = await installCodexPlugins({
+      binary: options.binary,
+      env: state.env,
+      pluginCacheRoot: state.pluginCacheRoot,
+      request,
+    });
+    await codexPreflight(options, request, state);
+    const context: ExecutionContext = {
+      options,
+      request,
+      state,
+      timeoutMs,
+      installedPluginRoots,
+    };
+    const turns = await new CodexTurnExecution(context).run();
+    return await codexHostResult(context, turns);
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+  }
+}
+
+async function privateCodexDirectories(stateRoot: string) {
+  const codexHome = join(stateRoot, "codex-home"),
+    parentHome = join(stateRoot, "home"),
+    parentTemp = join(stateRoot, "tmp"),
+    commandHome = join(stateRoot, "command-home"),
+    commandTemp = join(stateRoot, "command-tmp");
+  await Promise.all(
+    [codexHome, parentHome, parentTemp, commandHome, commandTemp].map((path) =>
+      mkdir(path, { mode: 0o700 }),
+    ),
+  );
+  return {
+    codexHome,
+    parentHome,
+    parentTemp,
+    commandHome,
+    commandTemp,
+    pluginCacheRoot: join(codexHome, "plugins", "cache"),
+  };
+}
+function requireUnprotectedExecutables(
+  readRoots: string[],
+  protectedRoots: string[],
+): void {
+  if (
+    readRoots.some((readRoot) =>
+      protectedRoots.some(
+        (root) => readRoot === root || readRoot.startsWith(`${root}${sep}`),
+      ),
+    )
+  )
+    throw new Error("Codex executable resides inside a protected root");
+}
+function concurrencyConfiguration(limit: number | null): string {
+  return limit === null
+    ? ""
+    : `\n[agents]\nmax_concurrent_threads_per_session = ${limit}\n`;
+}
+async function writeCodexProfile(
+  paths: Awaited<ReturnType<typeof privateCodexDirectories>>,
+  profileId: string,
+  request: Request,
+  readRoots: string[],
+  protectedRoots: string[],
+  limit: number | null,
+): Promise<void> {
+  const profile = codexPermissionProfile({
+    id: profileId,
+    workspace: request.workspace,
+    commandHome: paths.commandHome,
+    commandTemp: paths.commandTemp,
+    executableReadRoots: readRoots,
+    ...(request.codexMarketplace
+      ? { pluginReadRoot: paths.pluginCacheRoot }
+      : {}),
+    protectedRoots,
+  });
+  await writeFile(
+    join(paths.codexHome, "config.toml"),
+    profile + concurrencyConfiguration(limit),
+    { flag: "wx", mode: 0o600 },
+  );
+}
+async function fixtureShellRoot(request: Request): Promise<string> {
+  const root = join(request.workspace, ".git", "sevro-shell");
+  if (request.fixtureBinDir) {
+    await mkdir(root, { mode: 0o700 });
+    await writeFile(
+      join(root, ".zprofile"),
+      `export PATH=${shellQuote(request.fixtureBinDir)}:"$PATH"\n`,
+      { flag: "wx", mode: 0o600 },
+    );
+  }
+  return root;
+}
+function codexPath(fixtureBin: string | undefined): string {
+  const path = process.env.PATH ?? "/usr/bin:/bin";
+  return fixtureBin ? `${fixtureBin}${delimiter}${path}` : path;
+}
+function codexEnvironment(
+  paths: Awaited<ReturnType<typeof privateCodexDirectories>>,
+  request: Request,
+  shellRoot: string,
+): Record<string, string> {
+  return {
+    PATH: codexPath(request.fixtureBinDir),
+    LANG: process.env.LANG ?? "C",
+    HOME: paths.parentHome,
+    TMPDIR: paths.parentTemp,
+    CODEX_HOME: paths.codexHome,
+    NO_COLOR: "1",
+    ...(request.fixtureBinDir ? { ZDOTDIR: shellRoot } : {}),
+  };
+}
+async function prepareCodexState(
+  stateRoot: string,
+  options: CodexHostOptions,
+  limit: number | null,
+  request: Request,
+) {
+  const paths = await privateCodexDirectories(stateRoot);
+  await copyAuth(options.authFile, join(paths.codexHome, "auth.json"));
+  const protectedRoots = await evaluationProtectedRoots({
+    workspace: request.workspace,
+    projectRoot: options.projectRoot,
+    resultsRoot: options.resultsRoot,
+    additionalRoots: [...options.additionalProtectedRoots, stateRoot],
+  });
+  const sandboxBinary = options.sandboxBinary ?? options.binary;
+  const readRoots = await Promise.all(
+    [options.binary, sandboxBinary].flatMap((binary) => [
+      realpath(dirname(binary)),
+      realpath(binary).then(dirname),
+    ]),
+  );
+  requireUnprotectedExecutables(readRoots, protectedRoots);
+  const profileId = `sevro_${randomUUID().replaceAll("-", "")}`;
+  await writeCodexProfile(
+    paths,
+    profileId,
+    request,
+    readRoots,
+    protectedRoots,
+    limit,
+  );
+  const shellRoot = await fixtureShellRoot(request);
+  const env = codexEnvironment(paths, request, shellRoot);
+  return { ...paths, sandboxBinary, profileId, env };
+}
+function sandboxArgs(
+  state: CodexState,
+  request: Request,
+  command: string[],
+): string[] {
+  return [
+    state.sandboxBinary,
+    "sandbox",
+    "-P",
+    state.profileId,
+    "-C",
+    request.workspace,
+    ...command,
+  ];
+}
+async function sandboxPreflight(
+  state: CodexState,
+  request: Request,
+  command: string[],
+) {
+  return runCodexProcess({
+    argv: sandboxArgs(state, request, command),
+    cwd: request.workspace,
+    env: state.env,
+    timeoutMs: 10_000,
+    signal: request.signal,
+  });
+}
+async function codexPreflight(
+  options: CodexHostOptions,
+  request: Request,
+  state: CodexState,
+): Promise<void> {
+  const probe = join(state.commandTemp, "isolation-probe");
+  await writeFile(probe, "probe\n", { flag: "wx", mode: 0o600 });
+  const checked = await sandboxPreflight(state, request, [
+    "/bin/sh",
+    "-c",
+    '/bin/cat "$1" >/dev/null && ! /bin/ls "$2" >/dev/null 2>&1 && ! /bin/cat "$3" >/dev/null 2>&1',
+    "sevro-probe",
+    probe,
+    options.projectRoot,
+    join(state.codexHome, "auth.json"),
+  ]);
+  if (checked.code !== 0) throw new Error("Codex isolation preflight failed");
+  const executable = await sandboxPreflight(state, request, [
+    state.sandboxBinary,
+    "--version",
+  ]);
+  if (executable.code !== 0)
+    throw new Error("Codex executable preflight failed");
+  await rm(probe);
+}
+
+function routeArgs(context: ExecutionContext): string[] {
+  return [
+    "-m",
+    context.options.model,
+    "-c",
+    `model_reasoning_effort=${JSON.stringify(context.options.effort)}`,
+    "-c",
+    `default_permissions=${JSON.stringify(context.state.profileId)}`,
+    "-c",
+    'approval_policy="never"',
+  ];
+}
+function initialTurnArgs(context: ExecutionContext): string[] {
+  return [
+    context.options.binary,
+    "exec",
+    "--json",
+    "--strict-config",
+    "--skip-git-repo-check",
+    ...(context.request.followUpPrompt ? [] : ["--ephemeral"]),
+    "--ignore-rules",
+    "-C",
+    context.request.workspace,
+    ...routeArgs(context),
+    "-",
+  ];
+}
+function followUpTurnArgs(
+  context: ExecutionContext,
+  threadId: string,
+): string[] {
+  return [
+    context.options.binary,
+    "exec",
+    "resume",
+    "--json",
+    "--strict-config",
+    "--skip-git-repo-check",
+    "--ignore-rules",
+    ...routeArgs(context),
+    threadId,
+    "-",
+  ];
+}
+async function codexProcessTurn(
+  context: ExecutionContext,
+  argv: string[],
+  input: string,
+): Promise<ProcessResult> {
+  return runCodexProcess({
+    argv,
+    cwd: context.request.workspace,
+    env: context.state.env,
+    input,
+    timeoutMs: context.timeoutMs,
+    signal: context.request.signal,
+  });
+}
+async function initialFingerprint(request: Request): Promise<string | null> {
+  return request.followUpPrompt
+    ? workspaceFingerprint(request.workspace)
+    : null;
+}
+async function continuationBoundary(
+  context: ExecutionContext,
+  threadId: string,
+  originalFingerprint: string | null,
+  goal: Record<string, unknown> = {},
+): Promise<Observation> {
+  const boundary = await workspaceFingerprint(context.request.workspace);
+  const measured = originalFingerprint !== null && boundary !== null;
+  return {
+    id: "sevro.codex.continuation",
+    completeness: measured ? "complete" : "partial",
+    data: {
+      method: "same_thread_resume",
+      ...goal,
+      threadId,
+      nativeAfterOrdinal: await codexNativeSessionLastOrdinal(
+        context.state.codexHome,
+        threadId,
+      ),
+      preFollowUpWorktreeUnchanged: measured
+        ? originalFingerprint === boundary
+        : null,
+    },
+  };
+}
+function requireInitialCompletion(
+  summary: CodexEventSummary,
+  appServer: AppServerResult | null,
+): void {
+  if (!summary.complete && !appServer)
+    throw new Error("Codex turn did not complete");
+}
+function requireFollowUpCompletion(
+  followUp: CodexEventSummary,
+  original: CodexEventSummary,
+): void {
+  if (!followUp.complete || followUp.threadId !== original.threadId)
+    throw new Error(
+      "Codex follow-up turn did not complete in the original thread",
+    );
+}
+async function appServerSummary(
+  result: AppServerResult,
+  workspace: string,
+): Promise<CodexEventSummary> {
+  return {
+    threadId: result.evidence.threadId ?? "",
+    complete: result.code === 0,
+    finalMessage:
+      result.code === 0
+        ? await readFile(join(workspace, ".git", "last-message.md"), "utf8")
+        : null,
+    inputTokens: null,
+    outputTokens: null,
+    usageComplete: false,
+  };
+}
+async function initialSummary(
+  appServer: AppServerResult | null,
+  execution: ProcessResult,
+  request: Request,
+): Promise<CodexEventSummary> {
+  return appServer
+    ? appServerSummary(appServer, request.workspace)
+    : summarizeCodexEvents(execution.out, execution.code);
+}
+function combinedEvents(
+  execution: ProcessResult,
+  followUp: ProcessResult | null,
+): string {
+  const out = followUp
+    ? `${execution.out.trimEnd()}\n${followUp.out.trimStart()}`
+    : execution.out;
+  if (Buffer.byteLength(out, "utf8") > MAX_EVENT_BYTES)
+    throw new Error("Codex combined event stream exceeds the size limit");
+  return out;
+}
+
+class CodexTurnExecution {
+  private appServerContinuation?: Observation;
+  constructor(private context: ExecutionContext) {}
+  async run(): Promise<TurnResult> {
+    const fingerprint = await initialFingerprint(this.context.request);
+    const appServer = await this.maybeAppServer(fingerprint);
+    const execution =
+      appServer ??
+      (await codexProcessTurn(
+        this.context,
+        initialTurnArgs(this.context),
+        this.context.request.prompt,
+      ));
+    const summary = await initialSummary(
+      appServer,
+      execution,
+      this.context.request,
+    );
+    requireInitialCompletion(summary, appServer);
+    const follow = await this.maybeFollowUp(summary, appServer, fingerprint);
+    return {
+      execution,
+      summary,
+      appServer,
+      ...follow,
+      observedEvents: combinedEvents(execution, follow.followUp),
+    };
+  }
+
+  private async maybeAppServer(
+    fingerprint: string | null,
+  ): Promise<AppServerResult | null> {
+    const { options, request, state, timeoutMs } = this.context;
+    if (options.entrypoint !== "app-server") return null;
+    return runCodexAppServer({
+      argv: [
+        options.binary,
+        "app-server",
+        "--stdio",
+        "--strict-config",
+        "-c",
+        `default_permissions=${JSON.stringify(state.profileId)}`,
+      ],
+      env: state.env,
+      permissionProfile: state.profileId,
+      request: {
+        repoDir: request.workspace,
+        prompt: request.prompt,
+        model: options.model,
+        effort: options.effort,
+        signal: request.signal,
+        control: {
+          appServerTimeoutMs: timeoutMs,
+          ...(request.followUpPrompt
+            ? { followUpPrompt: request.followUpPrompt }
+            : {}),
+        },
+      },
+      followUpBoundary: async (threadId, goal) => {
+        this.appServerContinuation = await continuationBoundary(
+          this.context,
+          threadId,
+          fingerprint,
+          goal,
         );
-        await copyAuth(options.authFile, join(codexHome, "auth.json"));
-        const protectedRoots = await evaluationProtectedRoots({
-          workspace: request.workspace,
-          projectRoot: options.projectRoot,
-          resultsRoot: options.resultsRoot,
-          additionalRoots: [...options.additionalProtectedRoots, stateRoot],
+        return JSON.stringify({
+          type: "sevro.codex.feedback-boundary",
+          ...this.appServerContinuation.data,
         });
-        const sandboxBinary = options.sandboxBinary ?? options.binary;
-        const executableReadRoots = await Promise.all(
-          [options.binary, sandboxBinary].flatMap((binary) => [
-            realpath(dirname(binary)),
-            realpath(binary).then(dirname),
-          ]),
-        );
-        if (
-          executableReadRoots.some((readRoot) =>
-            protectedRoots.some(
-              (protectedRoot) =>
-                readRoot === protectedRoot ||
-                readRoot.startsWith(`${protectedRoot}${sep}`),
-            ),
-          )
-        )
-          throw new Error("Codex executable resides inside a protected root");
-        const profileId = `sevro_${randomUUID().replaceAll("-", "")}`;
-        await writeFile(
-          join(codexHome, "config.toml"),
-          codexPermissionProfile({
-            id: profileId,
-            workspace: request.workspace,
-            commandHome,
-            commandTemp,
-            executableReadRoots,
-            ...(request.codexMarketplace
-              ? { pluginReadRoot: pluginCacheRoot }
-              : {}),
-            protectedRoots,
-          }) +
-            (agentConcurrencyLimit === null
-              ? ""
-              : `\n[agents]\nmax_concurrent_threads_per_session = ${agentConcurrencyLimit}\n`),
-          { flag: "wx", mode: 0o600 },
-        );
-        const shellRoot = join(request.workspace, ".git", "sevro-shell");
-        if (request.fixtureBinDir) {
-          await mkdir(shellRoot, { mode: 0o700 });
-          await writeFile(
-            join(shellRoot, ".zprofile"),
-            `export PATH=${shellQuote(request.fixtureBinDir)}:"$PATH"\n`,
-            { flag: "wx", mode: 0o600 },
-          );
-        }
-        const env: Record<string, string> = {
-          PATH: request.fixtureBinDir
-            ? `${request.fixtureBinDir}${delimiter}${process.env.PATH ?? "/usr/bin:/bin"}`
-            : (process.env.PATH ?? "/usr/bin:/bin"),
-          LANG: process.env.LANG ?? "C",
-          HOME: parentHome,
-          TMPDIR: parentTemp,
-          CODEX_HOME: codexHome,
-          NO_COLOR: "1",
-          ...(request.fixtureBinDir ? { ZDOTDIR: shellRoot } : {}),
-        };
-        const installedPluginRoots: string[] = [];
-        if (request.codexMarketplace) {
-          const root = await marketplaceRoot(
-            request.workspace,
-            request.codexMarketplace,
-          );
-          const added = await runProcess({
-            argv: [
-              options.binary,
-              "plugin",
-              "marketplace",
-              "add",
-              root,
-              "--json",
-            ],
-            cwd: request.workspace,
-            env,
-            timeoutMs: 30_000,
-            signal: request.signal,
-          });
-          if (added.code !== 0)
-            throw new Error("Codex local marketplace installation failed");
-          for (const pluginName of request.codexMarketplace.pluginNames) {
-            const installed = await runProcess({
-              argv: [
-                options.binary,
-                "plugin",
-                "add",
-                `${pluginName}@${request.codexMarketplace.marketplaceName}`,
-                "--json",
-              ],
-              cwd: request.workspace,
-              env,
-              timeoutMs: 30_000,
-              signal: request.signal,
-            });
-            if (installed.code !== 0)
-              throw new Error("Codex local plugin installation failed");
-            let receipt: unknown;
-            try {
-              receipt = JSON.parse(installed.out);
-            } catch {
-              throw new Error("Codex plugin installation receipt is invalid");
-            }
-            const entry = receipt as Record<string, unknown>;
-            const actualInstalledPath =
-              typeof entry?.installedPath === "string"
-                ? await realpath(entry.installedPath)
-                : null;
-            if (
-              !entry ||
-              entry.name !== pluginName ||
-              entry.marketplaceName !==
-                request.codexMarketplace.marketplaceName ||
-              !actualInstalledPath ||
-              !inside(await realpath(pluginCacheRoot), actualInstalledPath)
-            )
-              throw new Error("Codex plugin installation receipt is invalid");
-            installedPluginRoots.push(actualInstalledPath);
-            if (
-              request.explicitSkillInvocation?.pluginName === pluginName &&
-              !(
-                await stat(
-                  join(
-                    actualInstalledPath,
-                    "skills",
-                    request.explicitSkillInvocation.skillName,
-                    "SKILL.md",
-                  ),
-                ).catch(() => null)
-              )?.isFile()
-            )
-              throw new Error(
-                "invoked Codex skill is absent from the installation",
-              );
-          }
-        }
-        const probe = join(commandTemp, "isolation-probe");
-        await writeFile(probe, "probe\n", { flag: "wx", mode: 0o600 });
-        const checked = await runProcess({
-          argv: [
-            sandboxBinary,
-            "sandbox",
-            "-P",
-            profileId,
-            "-C",
-            request.workspace,
-            "/bin/sh",
-            "-c",
-            '/bin/cat "$1" >/dev/null && ! /bin/ls "$2" >/dev/null 2>&1 && ! /bin/cat "$3" >/dev/null 2>&1',
-            "sevro-probe",
-            probe,
-            options.projectRoot,
-            join(codexHome, "auth.json"),
-          ],
-          cwd: request.workspace,
-          env,
-          timeoutMs: 10_000,
-          signal: request.signal,
-        });
-        if (checked.code !== 0)
-          throw new Error("Codex isolation preflight failed");
-        const executableCheck = await runProcess({
-          argv: [
-            sandboxBinary,
-            "sandbox",
-            "-P",
-            profileId,
-            "-C",
-            request.workspace,
-            sandboxBinary,
-            "--version",
-          ],
-          cwd: request.workspace,
-          env,
-          timeoutMs: 10_000,
-          signal: request.signal,
-        });
-        if (executableCheck.code !== 0)
-          throw new Error("Codex executable preflight failed");
-        await rm(probe);
-        const initialWorkspaceFingerprint = request.followUpPrompt
-          ? await workspaceFingerprint(request.workspace)
-          : null;
-        const executionArgs = [
-          options.binary,
-          "exec",
-          "--json",
-          "--strict-config",
-          "--skip-git-repo-check",
-          ...(request.followUpPrompt ? [] : ["--ephemeral"]),
-          "--ignore-rules",
-          "-C",
-          request.workspace,
-          "-m",
-          options.model,
-          "-c",
-          `model_reasoning_effort=${JSON.stringify(options.effort)}`,
-          "-c",
-          `default_permissions=${JSON.stringify(profileId)}`,
-          "-c",
-          'approval_policy="never"',
-        ];
-        let appServerContinuation:
-          | {
-              id: string;
-              completeness: "complete" | "partial";
-              data: Record<string, unknown>;
-            }
-          | undefined;
-        const appServer =
-          options.entrypoint === "app-server"
-            ? await runCodexAppServer({
-                argv: [
-                  options.binary,
-                  "app-server",
-                  "--stdio",
-                  "--strict-config",
-                  "-c",
-                  `default_permissions=${JSON.stringify(profileId)}`,
-                ],
-                env,
-                permissionProfile: profileId,
-                request: {
-                  repoDir: request.workspace,
-                  prompt: request.prompt,
-                  model: options.model,
-                  effort: options.effort,
-                  signal: request.signal,
-                  control: {
-                    appServerTimeoutMs: timeoutMs,
-                    ...(request.followUpPrompt
-                      ? { followUpPrompt: request.followUpPrompt }
-                      : {}),
-                  },
-                },
-                followUpBoundary: async (threadId, goal) => {
-                  const boundary = await workspaceFingerprint(
-                    request.workspace,
-                  );
-                  const measured =
-                    initialWorkspaceFingerprint !== null && boundary !== null;
-                  appServerContinuation = {
-                    id: "sevro.codex.continuation",
-                    completeness: measured ? "complete" : "partial",
-                    data: {
-                      method: "same_thread_resume",
-                      ...goal,
-                      threadId,
-                      nativeAfterOrdinal: await codexNativeSessionLastOrdinal(
-                        codexHome,
-                        threadId,
-                      ),
-                      preFollowUpWorktreeUnchanged: measured
-                        ? initialWorkspaceFingerprint === boundary
-                        : null,
-                    },
-                  };
-                  return JSON.stringify({
-                    type: "sevro.codex.feedback-boundary",
-                    ...appServerContinuation.data,
-                  });
-                },
-              })
-            : null;
-        const execution =
-          appServer ??
-          (await runProcess({
-            argv: [...executionArgs, "-"],
-            cwd: request.workspace,
-            env,
-            input: request.prompt,
-            timeoutMs,
-            signal: request.signal,
-          }));
-        const summary = appServer
-          ? {
-              threadId: appServer.evidence.threadId ?? "",
-              complete: appServer.code === 0,
-              finalMessage:
-                appServer.code === 0
-                  ? await readFile(
-                      join(request.workspace, ".git", "last-message.md"),
-                      "utf8",
-                    )
-                  : null,
-              inputTokens: null,
-              outputTokens: null,
-              usageComplete: false,
-            }
-          : summarizeCodexEvents(execution.out, execution.code);
-        if (!summary.complete && !appServer)
-          throw new Error("Codex turn did not complete");
-        let followUp: { out: string; code: number } | null = null;
-        let followUpSummary: typeof summary | null = null;
-        let continuationObservation:
-          | {
-              id: string;
-              completeness: "complete" | "partial";
-              data: Record<string, unknown>;
-            }
-          | undefined = appServerContinuation;
-        if (request.followUpPrompt && !appServer) {
-          const beforeFollowUp = await workspaceFingerprint(request.workspace);
-          const nativeAfterOrdinal = await codexNativeSessionLastOrdinal(
-            codexHome,
-            summary.threadId,
-          );
-          const measured =
-            initialWorkspaceFingerprint !== null && beforeFollowUp !== null;
-          continuationObservation = {
-            id: "sevro.codex.continuation",
-            completeness: measured ? "complete" : "partial",
-            data: {
-              method: "same_thread_resume",
-              threadId: summary.threadId,
-              nativeAfterOrdinal,
-              preFollowUpWorktreeUnchanged: measured
-                ? initialWorkspaceFingerprint === beforeFollowUp
-                : null,
-            },
-          };
-          followUp = await runProcess({
-            argv: [
-              options.binary,
-              "exec",
-              "resume",
-              "--json",
-              "--strict-config",
-              "--skip-git-repo-check",
-              "--ignore-rules",
-              "-m",
-              options.model,
-              "-c",
-              `model_reasoning_effort=${JSON.stringify(options.effort)}`,
-              "-c",
-              `default_permissions=${JSON.stringify(profileId)}`,
-              "-c",
-              'approval_policy="never"',
-              summary.threadId,
-              "-",
-            ],
-            cwd: request.workspace,
-            env,
-            input: request.followUpPrompt,
-            timeoutMs,
-            signal: request.signal,
-          });
-          followUpSummary = summarizeCodexEvents(followUp.out, followUp.code);
-          if (
-            !followUpSummary.complete ||
-            followUpSummary.threadId !== summary.threadId
-          )
-            throw new Error(
-              "Codex follow-up turn did not complete in the original thread",
-            );
-        }
-        const observedEvents = followUp
-          ? `${execution.out.trimEnd()}\n${followUp.out.trimStart()}`
-          : execution.out;
-        if (Buffer.byteLength(observedEvents, "utf8") > MAX_EVENT_BYTES)
-          throw new Error("Codex combined event stream exceeds the size limit");
-        const recoveredReads = await codexNativeSkillReadRecovery(
-          codexHome,
-          summary.threadId,
-        );
-        const skillReads = await codexSkillReadObservation(
-          observedEvents,
-          request.workspace,
-          installedPluginRoots,
-          recoveredReads,
-        );
-        const initialSkillReads = followUp
-          ? {
-              ...(await codexSkillReadObservation(
-                execution.out,
-                request.workspace,
-                installedPluginRoots,
-                recoveredReads,
-              )),
-              id: "sevro.codex.initial-skill-reads",
-            }
-          : null;
-        const followUpSkillReads = followUp
-          ? {
-              ...(await codexSkillReadObservation(
-                followUp.out,
-                request.workspace,
-                installedPluginRoots,
-                recoveredReads,
-              )),
-              id: "sevro.codex.follow-up-skill-reads",
-            }
-          : null;
-        const nativeCalls = await codexNativeCallObservation(
-          codexHome,
-          summary.threadId,
+      },
+    });
+  }
+
+  private async maybeFollowUp(
+    summary: CodexEventSummary,
+    appServer: AppServerResult | null,
+    fingerprint: string | null,
+  ) {
+    const prompt = this.context.request.followUpPrompt;
+    if (!prompt || appServer)
+      return {
+        followUp: null,
+        followUpSummary: null,
+        continuation: this.appServerContinuation,
+      };
+    const continuation = await continuationBoundary(
+      this.context,
+      summary.threadId,
+      fingerprint,
+    );
+    const followUp = await codexProcessTurn(
+      this.context,
+      followUpTurnArgs(this.context, summary.threadId),
+      prompt,
+    );
+    const followUpSummary = summarizeCodexEvents(followUp.out, followUp.code);
+    requireFollowUpCompletion(followUpSummary, summary);
+    return { followUp, followUpSummary, continuation };
+  }
+}
+
+type SkillReads = Awaited<ReturnType<typeof codexSkillReadObservation>>;
+async function phaseSkillReads(
+  context: ExecutionContext,
+  turns: TurnResult,
+  recovered: Awaited<ReturnType<typeof codexNativeSkillReadRecovery>>,
+) {
+  if (!turns.followUp) return { initial: null, followUp: null };
+  const initial = {
+    ...(await codexSkillReadObservation(
+      turns.execution.out,
+      context.request.workspace,
+      context.installedPluginRoots,
+      recovered,
+    )),
+    id: "sevro.codex.initial-skill-reads",
+  };
+  const followUp = {
+    ...(await codexSkillReadObservation(
+      turns.followUp.out,
+      context.request.workspace,
+      context.installedPluginRoots,
+      recovered,
+    )),
+    id: "sevro.codex.follow-up-skill-reads",
+  };
+  return { initial, followUp };
+}
+function explicitInvocationReceipt(
+  selected: Request["explicitSkillInvocation"],
+  reads: SkillReads,
+) {
+  if (!selected) return null;
+  return {
+    id: "sevro.codex.explicit-invocation",
+    completeness: reads.completeness,
+    data: {
+      method: "explicit_invocation",
+      primarySkill: selected.skillName,
+      observedSkills: [
+        selected.skillName,
+        ...reads.data.observedSkills.filter(
+          (skill) => skill !== selected.skillName,
+        ),
+      ],
+    },
+  };
+}
+function nativeSkillContext(context: ExecutionContext) {
+  return {
+    workspace: context.request.workspace,
+    installedPluginRoots: context.installedPluginRoots,
+    ...(context.request.followUpPrompt
+      ? { followUpPrompt: context.request.followUpPrompt }
+      : {}),
+  };
+}
+function appServerObservation(result: AppServerResult | null): Observation[] {
+  return result
+    ? [
+        {
+          id: "sevro.host.native-goal",
+          completeness: result.code === 0 ? "complete" : "partial",
+          data: { ...result.evidence },
+        },
+      ]
+    : [];
+}
+async function codexObservations(context: ExecutionContext, turns: TurnResult) {
+  const recovered = await codexNativeSkillReadRecovery(
+    context.state.codexHome,
+    turns.summary.threadId,
+  );
+  const reads = await codexSkillReadObservation(
+    turns.observedEvents,
+    context.request.workspace,
+    context.installedPluginRoots,
+    recovered,
+  );
+  const phases = await phaseSkillReads(context, turns, recovered);
+  const native = await codexNativeCallObservation(
+    context.state.codexHome,
+    turns.summary.threadId,
+    nativeSkillContext(context),
+  );
+  const explicit = explicitInvocationReceipt(
+    context.request.explicitSkillInvocation,
+    reads,
+  );
+  return [
+    ...appServerObservation(turns.appServer),
+    reads,
+    ...(phases.initial ? [phases.initial] : []),
+    ...(phases.followUp ? [phases.followUp] : []),
+    native,
+    codexNativeControls(native),
+    ...(turns.continuation ? [turns.continuation] : []),
+    ...(explicit ? [explicit] : []),
+  ];
+}
+function codexArtifacts(turns: TurnResult) {
+  return [
+    {
+      id: "sevro.codex.events",
+      bytes: Buffer.from(turns.execution.out, "utf8"),
+    },
+    ...(turns.followUp
+      ? [
           {
-            workspace: request.workspace,
-            installedPluginRoots,
-            ...(request.followUpPrompt
-              ? { followUpPrompt: request.followUpPrompt }
-              : {}),
+            id: "sevro.codex.follow-up-events",
+            bytes: Buffer.from(turns.followUp.out, "utf8"),
           },
-        );
-        const explicit = request.explicitSkillInvocation;
-        const explicitReceipt = explicit
-          ? {
-              id: "sevro.codex.explicit-invocation",
-              completeness: skillReads.completeness,
-              data: {
-                method: "explicit_invocation",
-                primarySkill: explicit.skillName,
-                observedSkills: [
-                  explicit.skillName,
-                  ...skillReads.data.observedSkills.filter(
-                    (skill) => skill !== explicit.skillName,
-                  ),
-                ],
-              },
-            }
-          : null;
-        return {
-          finalMessage: (followUpSummary ?? summary).finalMessage,
-          ...(appServer ? { executionFailed: !summary.complete } : {}),
-          complete: (followUpSummary ?? summary).finalMessage !== null,
-          observations: [
-            ...(appServer
-              ? [
-                  {
-                    id: "sevro.host.native-goal",
-                    completeness:
-                      appServer.code === 0
-                        ? ("complete" as const)
-                        : ("partial" as const),
-                    data: { ...appServer.evidence },
-                  },
-                ]
-              : []),
-            skillReads,
-            ...(initialSkillReads ? [initialSkillReads] : []),
-            ...(followUpSkillReads ? [followUpSkillReads] : []),
-            nativeCalls,
-            codexNativeControls(nativeCalls),
-            ...(continuationObservation ? [continuationObservation] : []),
-            ...(explicitReceipt ? [explicitReceipt] : []),
-          ],
-          artifacts: [
-            {
-              id: "sevro.codex.events",
-              bytes: Buffer.from(execution.out, "utf8"),
-            },
-            ...(followUp
-              ? [
-                  {
-                    id: "sevro.codex.follow-up-events",
-                    bytes: Buffer.from(followUp.out, "utf8"),
-                  },
-                ]
-              : []),
-          ],
-          actualCondition: "passive" as const,
-          inputTokens: followUpSummary
-            ? summary.inputTokens !== null &&
-              followUpSummary.inputTokens !== null
-              ? summary.inputTokens + followUpSummary.inputTokens
-              : null
-            : summary.inputTokens,
-          outputTokens: followUpSummary
-            ? summary.outputTokens !== null &&
-              followUpSummary.outputTokens !== null
-              ? summary.outputTokens + followUpSummary.outputTokens
-              : null
-            : summary.outputTokens,
-          usageComplete:
-            summary.usageComplete && (followUpSummary?.usageComplete ?? true),
-          costUsd: null,
-        };
-      } finally {
-        await rm(stateRoot, { recursive: true, force: true });
-      }
-    },
+        ]
+      : []),
+  ];
+}
+function tokenCount(
+  initial: number | null,
+  followUp: number | null | undefined,
+): number | null {
+  if (followUp === undefined) return initial;
+  return initial !== null && followUp !== null ? initial + followUp : null;
+}
+function codexUsageComplete(
+  summary: CodexEventSummary,
+  followUp: CodexEventSummary | null,
+): boolean {
+  return summary.usageComplete && (followUp?.usageComplete ?? true);
+}
+function codexUsage(turns: TurnResult) {
+  return {
+    inputTokens: tokenCount(
+      turns.summary.inputTokens,
+      turns.followUpSummary?.inputTokens,
+    ),
+    outputTokens: tokenCount(
+      turns.summary.outputTokens,
+      turns.followUpSummary?.outputTokens,
+    ),
+    usageComplete: codexUsageComplete(turns.summary, turns.followUpSummary),
+    costUsd: null,
+  };
+}
+async function codexHostResult(
+  context: ExecutionContext,
+  turns: TurnResult,
+): Promise<HostResult> {
+  const final = turns.followUpSummary ?? turns.summary;
+  return {
+    finalMessage: final.finalMessage,
+    ...(turns.appServer ? { executionFailed: !turns.summary.complete } : {}),
+    complete: final.finalMessage !== null,
+    observations: await codexObservations(context, turns),
+    artifacts: codexArtifacts(turns),
+    actualCondition: "passive",
+    ...codexUsage(turns),
   };
 }

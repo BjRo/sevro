@@ -3,11 +3,35 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    "allowImportingTsExtensions": true,
     "types": ["bun"],
     "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": false,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "allowJs": true,
+    "checkJs": true,
     "noEmit": true,
     "resolveJsonModule": true,
     "skipLibCheck": true
   },
-  "include": ["src/**/*.ts", "scripts/**/*.ts", "tests/**/*.ts"]
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.cts",
+    "src/**/*.mts",
+    "scripts/**/*.ts",
+    "scripts/**/*.cts",
+    "scripts/**/*.mts",
+    "scripts/**/*.js",
+    "scripts/**/*.mjs",
+    "scripts/**/*.cjs",
+    "tests/**/*.ts",
+    "tests/**/*.cts",
+    "tests/**/*.mts",
+    "examples/**/*.ts",
+    "examples/**/*.cts",
+    "examples/**/*.mts",
+    "eslint.config.mjs"
+  ]
 }

@@ -1,4 +1,6 @@
-import { afterEach, expect, test } from "bun:test";
+import { expectUnknown } from "./fixtures/assertions";
+import { defined, parseRunEvidence } from "./fixtures/assertions";
+import { afterEach, test, expect } from "bun:test";
 import {
   chmod,
   mkdir,
@@ -13,7 +15,6 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runEvaluation } from "../src/engine";
 import { createClaudeHost } from "../src/hosts/claude";
-
 const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(
@@ -21,6 +22,114 @@ afterEach(async () => {
   );
 });
 
+function nativeGoalFixtureScript() {
+  return `#!${process.execPath}
+import { mkdir, symlink, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+const config = process.env.CLAUDE_CONFIG_DIR;
+if (!config) throw new Error("Missing synthetic Claude config");
+const mode = process.argv[process.argv.indexOf("-p") + 1];
+const session = "00000000-0000-4000-8000-000000000001";
+const projects = join(config, "projects");
+const directory = join(projects, "fixture");
+await mkdir(directory, { recursive: true });
+const user = {type:"user",sessionId:session,message:{content:"Return ready."}};
+const sidechain = {type:"attachment",sessionId:session,isSidechain:true,attachment:{type:"goal_status",condition:"PRIVATE_CHILD_GOAL",met:true}};
+let transcript = JSON.stringify(user);
+if (mode === "sidechain-only") transcript += "\\n" + JSON.stringify(sidechain);
+if (mode === "empty-transcript") transcript = "";
+if (mode === "oversized-transcript") transcript = JSON.stringify({...user,message:{content:"PRIVATE_TRANSCRIPT_TEXT" + "x".repeat(8*1024*1024)}});
+await writeFile(join(directory, session + ".jsonl"), transcript);
+if (mode === "metadata-file") await writeFile(join(directory,"index.txt"),"retained session index");
+if (mode === "linked-tree") await symlink(directory, join(projects,"linked"));
+if (mode === "many-files") await Promise.all(Array.from({length:1025},(_,index)=>writeFile(join(directory,index+".txt"),"index")));
+const failed = mode === "failed-turn";
+for(const entry of [{type:"system",subtype:"init",session_id:session},{type:"result",subtype:failed?"error_during_execution":"success",is_error:failed,session_id:session,result:failed?"model unavailable":"ready"}]) process.stdout.write(JSON.stringify(entry)+"\\n");
+`;
+}
+
+async function nativeGoalHostFixture() {
+  const root = await mkdtemp(join(tmpdir(), "sevro-claude-goal-retention-"));
+  roots.push(root);
+  const workspace = join(root, "workspace");
+  const projectRoot = join(root, "source");
+  const resultsRoot = join(root, "results");
+  await Promise.all(
+    [workspace, projectRoot, resultsRoot].map((path) => mkdir(path)),
+  );
+  const credentialFile = join(root, "credential.json");
+  await writeFile(credentialFile, '{"test":"private-login"}');
+  const binary = join(root, "fake-claude");
+  await writeFile(binary, nativeGoalFixtureScript(), { mode: 0o755 });
+  const host = createClaudeHost({
+    binary,
+    model: "synthetic",
+    effort: "low",
+    projectRoot,
+    resultsRoot,
+    additionalProtectedRoots: [],
+    credentialFile,
+  });
+  return { host, workspace };
+}
+
+test.each(["no-goal", "sidechain-only", "metadata-file"])(
+  "Claude complete native session records bounded goal absence: %s",
+  async (mode) => {
+    if (process.platform !== "darwin") return;
+    const { host, workspace } = await nativeGoalHostFixture();
+    const result = await host.run({
+      prompt: mode,
+      workspace,
+      condition: "passive",
+    });
+    expect(result.complete).toBe(true);
+    expect(
+      result.observations?.find((item) => item.id === "sevro.host.native-goal"),
+    ).toMatchObject({
+      completeness: "complete",
+      data: {
+        method: "native_session",
+        threadId: "00000000-0000-4000-8000-000000000001",
+        goals: [],
+        goalStatus: null,
+      },
+    });
+    expect(JSON.stringify(result.observations)).not.toContain(
+      "PRIVATE_CHILD_GOAL",
+    );
+  },
+);
+
+test.each([
+  ["empty-transcript", "Original native session not retained"],
+  ["oversized-transcript", "Native transcript is unsafe or oversized"],
+  ["linked-tree", "Native transcript tree contains a symlink"],
+  ["many-files", "Native transcript tree exceeds limit"],
+  ["failed-turn", "Native session did not finish successfully"],
+])(
+  "Claude unavailable native goal evidence cannot establish absence: %s",
+  async (mode, failure) => {
+    if (process.platform !== "darwin") return;
+    const { host, workspace } = await nativeGoalHostFixture();
+    const result = await host.run({
+      prompt: mode,
+      workspace,
+      condition: "passive",
+    });
+    expect(result.complete).toBe(mode !== "failed-turn");
+    expect(
+      result.observations?.find((item) => item.id === "sevro.host.native-goal"),
+    ).toMatchObject({
+      completeness: "unavailable",
+      data: { method: "native_session", failure },
+    });
+    expect(JSON.stringify(result.observations)).not.toContain(
+      "PRIVATE_TRANSCRIPT_TEXT",
+    );
+  },
+);
+// eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("failed Claude execution retains private evidence without grading", async () => {
   if (process.platform !== "darwin") return;
   const root = await mkdtemp(join(tmpdir(), "sevro-claude-failure-"));
@@ -81,28 +190,30 @@ test("failed Claude execution retains private evidence without grading", async (
     task: { verdict: "not_assessed" },
     exitCode: 2,
   });
-  expect(outcome.result.cases[0]?.trials).toHaveLength(1);
+  expect(defined(outcome.result.cases[0]).trials).toHaveLength(1);
   expect(JSON.stringify(outcome.result)).not.toContain(
     "private host diagnosis",
   );
-  const evidence = JSON.parse(
-    await readFile(outcome.result.evidencePath!, "utf8"),
+  const evidence = parseRunEvidence(
+    await readFile(outcome.result.evidencePath, "utf8"),
   );
-  expect(outcome.result.cases[0]?.trials[0]?.checks).toEqual([]);
+  expectUnknown(
+    defined(defined(outcome.result.cases[0]).trials[0]).checks,
+  ).toEqual([]);
   for (const [id, contents] of [
     ["sevro.claude.events", `${event}\n`],
     ["sevro.claude.stderr", "private host diagnosis\n"],
-  ]) {
-    const artifact = evidence.trials[0].artifactRefs.find(
+  ] as const) {
+    const artifact = defined(evidence.trials[0]).artifactRefs.find(
       (item: { id: string }) => item.id === id,
     );
     expect(artifact).toBeDefined();
-    const path = fileURLToPath(artifact.path);
+    const path = fileURLToPath(defined(artifact).path);
     expect(await readFile(path, "utf8")).toBe(contents);
     expect((await stat(path)).mode & 0o777).toBe(0o600);
   }
 });
-
+// eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("Claude host runs with native sandbox settings and declared plugins", async () => {
   if (process.platform !== "darwin") return;
   const root = await mkdtemp(join(tmpdir(), "sevro-claude-host-"));
@@ -190,7 +301,7 @@ test("Claude host runs with native sandbox settings and declared plugins", async
   expect(result.finalMessage).toBe("ready");
   expect(result.complete).toBe(true);
   expect(host.hostCapabilities).toContain("sevro.host.native-controls");
-  expect(result.observations).toContainEqual({
+  expectUnknown(result.observations).toContainEqual({
     id: "sevro.host.native-controls",
     completeness: "complete",
     data: {
@@ -213,7 +324,7 @@ test("Claude host runs with native sandbox settings and declared plugins", async
   expect(argv).not.toContain("--allowedTools");
   expect(argv).toContain("--tools\nBash,Read,Edit,Skill,Agent\n");
 });
-
+// eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("Claude host observes a bound native repository command without a plugin", async () => {
   if (process.platform !== "darwin") return;
   const root = await mkdtemp(join(tmpdir(), "sevro-claude-repository-host-"));
@@ -276,7 +387,7 @@ for (const entry of [{ type: "system", subtype: "init", session_id: "session-one
   };
   const completed = await host.run(request);
   expect(completed.finalMessage).toBe("ready");
-  expect(completed.observations).toContainEqual({
+  expectUnknown(completed.observations).toContainEqual({
     id: "sevro.claude.repository-invocation",
     completeness: "complete",
     data: {
@@ -295,9 +406,9 @@ for (const entry of [{ type: "system", subtype: "init", session_id: "session-one
       (observation) => observation.id === "sevro.claude.repository-invocation",
     ),
   ).toMatchObject({ completeness: "partial", data: { accepted: false } });
-  await expect(
-    host.run({ ...request, prompt: "/probe /probe" }),
-  ).rejects.toThrow(/invalid Claude repository skill invocation/);
+  expect(host.run({ ...request, prompt: "/probe /probe" })).rejects.toThrow(
+    /invalid Claude repository skill invocation/,
+  );
   const disabled = createClaudeHost({
     binary,
     model: "synthetic",
@@ -310,11 +421,10 @@ for (const entry of [{ type: "system", subtype: "init", session_id: "session-one
   expect(disabled.hostCapabilities).not.toContain(
     "sevro.claude.repository-invocation",
   );
-  await expect(disabled.run(request)).rejects.toThrow(
+  expect(disabled.run(request)).rejects.toThrow(
     /requires project setting sources/,
   );
 });
-
 test("Claude host refuses undeclared and escaping plugin packages", async () => {
   if (process.platform !== "darwin") return;
   const root = await mkdtemp(join(tmpdir(), "sevro-claude-host-invalid-"));
@@ -329,7 +439,7 @@ test("Claude host refuses undeclared and escaping plugin packages", async () => 
     resultsRoot: root,
     additionalProtectedRoots: [],
   });
-  await expect(
+  expect(
     host.run({
       prompt: "ready",
       workspace,

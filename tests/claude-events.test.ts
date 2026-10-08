@@ -126,3 +126,47 @@ test("Claude event streams have a hard byte limit", () => {
     summarizeClaudeEvents("x".repeat(8 * 1024 * 1024 + 1), 0),
   ).toThrow(ClaudeEventError);
 });
+
+test.each([
+  { type: "assistant", message: null },
+  { type: "assistant", message: { content: "private text" } },
+  { type: "assistant", message: { content: [null] } },
+  { type: "assistant", message: { content: [["text"]] } },
+])(
+  "malformed assistant envelopes cannot establish completed Claude evidence: %j",
+  (event) => {
+    const summary = summarizeClaudeEvents(
+      JSON.stringify(event) +
+        "\n" +
+        result("done", { input_tokens: 1, output_tokens: 2 }, 0.1),
+      0,
+    );
+    expect(summary).toMatchObject({
+      complete: false,
+      inputTokens: null,
+      outputTokens: null,
+      usageComplete: false,
+    });
+  },
+);
+
+test("ordinary assistant text blocks preserve the validated final Claude result", () => {
+  const assistant = JSON.stringify({
+    type: "assistant",
+    message: { content: [{ type: "text", text: "private commentary" }] },
+  });
+  const summary = summarizeClaudeEvents(
+    assistant +
+      "\n" +
+      result("done", { input_tokens: 1, output_tokens: 2 }, 0.1),
+    0,
+  );
+  expect(summary).toMatchObject({
+    complete: true,
+    finalMessage: "done",
+    inputTokens: 1,
+    outputTokens: 2,
+    usageComplete: true,
+  });
+  expect(JSON.stringify(summary)).not.toContain("private commentary");
+});

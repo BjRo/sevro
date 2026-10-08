@@ -7,6 +7,19 @@ function absoluteRule(root: string, tool: "Read" | "Edit"): string {
   return `${tool}(/${root}/**)`;
 }
 
+function validPrivatePaths(
+  privateRoot: string,
+  credentialFile: string,
+  roots: string[],
+): boolean {
+  return !(
+    !isAbsolute(privateRoot) ||
+    !isAbsolute(credentialFile) ||
+    !credentialFile.startsWith(`${privateRoot}/`) ||
+    roots.some((root) => !isAbsolute(root) || /[\r\n()]/.test(root))
+  );
+}
+
 /** Keep agent tools away from the CLI's private state while core auth works. */
 export function claudeHostSettings(
   privateRoot: string,
@@ -15,12 +28,10 @@ export function claudeHostSettings(
   protectedRoots: string[] = [],
 ): Record<string, unknown> {
   if (
-    !isAbsolute(privateRoot) ||
-    !isAbsolute(credentialFile) ||
-    !credentialFile.startsWith(`${privateRoot}/`) ||
-    [...pluginRoots, ...protectedRoots].some(
-      (root) => !isAbsolute(root) || /[\r\n()]/.test(root),
-    )
+    !validPrivatePaths(privateRoot, credentialFile, [
+      ...pluginRoots,
+      ...protectedRoots,
+    ])
   )
     throw new Error("Claude private state paths are invalid");
   return {

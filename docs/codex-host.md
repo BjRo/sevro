@@ -22,8 +22,10 @@ evidence and are available to extension grading; the stream bytes stay out of
 the run JSON.
 The host also retains a bounded `sevro.codex.skill-reads` observation. It
 records the first verified mounted skill and ordered skill names, without
-commands or skill bodies. A completed direct `cat` of a mounted `SKILL.md`
-counts only when the command output contains that file's exact body. Direct
+commands or skill bodies. A completed direct `cat` of one mounted `SKILL.md`,
+alone or alongside literal documentation paths, counts only when the command
+output contains that file's exact body. Batched reads naming multiple
+`SKILL.md` files or more than 64 paths remain partial. Direct
 `sed -n` pages count after their verified line ranges cover the whole body. An
 exact `cat` wrapped by `lean-ctx -c` is accepted only when its reported output
 still contains the full body; a compressed summary cannot prove the read. An

@@ -2,9 +2,8 @@
 import { appendFileSync, existsSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { join } from "node:path";
-
-if (process.argv[2] === "sandbox") process.exit(0);
-if (process.argv[2] !== "app-server") process.exit(99);
+if (defined(process.argv[2]) === "sandbox") process.exit(0);
+if (defined(process.argv[2]) !== "app-server") process.exit(99);
 const send = (value: unknown) =>
   process.stdout.write(JSON.stringify(value) + "\n");
 const goal = (status: string) => ({
@@ -23,7 +22,7 @@ const begin = (id: string) => {
   });
 };
 const finish = (id: string, text: string) => {
-  const turn = turns.find((row) => row.id === id)!;
+  const turn = defined(turns.find((row) => row.id === id));
   turn.status = "completed";
   turn.items = [
     { type: "agentMessage", id: "final-" + id, phase: "final_answer", text },
@@ -34,72 +33,108 @@ const finish = (id: string, text: string) => {
   });
 };
 createInterface({ input: process.stdin }).on("line", (line) => {
-  const message = JSON.parse(line);
+  const message = parseRecord(line);
   appendFileSync(
     join(process.cwd(), ".git", "requests.jsonl"),
     JSON.stringify(message) + "\n",
   );
   if (message.id === undefined) return;
   const reply = (result: unknown) => send({ id: message.id, result });
-  if (message.method === "initialize") reply({});
-  else if (message.method === "thread/start")
-    reply({
-      thread: { id: "root" },
-      model: "synthetic",
-      modelProvider: "openai",
-      reasoningEffort: "low",
+  dispatchMessage(message, reply);
+});
+function defined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined)
+    throw new Error("Missing peer fixture value");
+  return value;
+}
+function parseRecord(text: string): Record<string, unknown> {
+  const value: unknown = JSON.parse(text);
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    throw new Error("Expected a peer message object");
+  return value as Record<string, unknown>;
+}
+function startTurn(reply: (result: unknown) => void) {
+  clientTurns++;
+  reply({ turn: { id: "first", status: "inProgress" } });
+  begin("first");
+  if (clientTurns === 1 && existsSync(join(process.cwd(), "feedback.txt"))) {
+    finish("first", "waiting");
+    return;
+  }
+  if (existsSync(join(process.cwd(), "failure.txt"))) {
+    send({
+      method: "error",
+      params: {
+        threadId: "root",
+        turnId: "first",
+        willRetry: false,
+        error: { message: "Access expired", codexErrorInfo: "unauthorized" },
+      },
     });
-  else if (message.method === "turn/start") {
-    clientTurns++;
-    reply({ turn: { id: "first", status: "inProgress" } });
-    begin("first");
-    if (clientTurns === 1 && existsSync(join(process.cwd(), "feedback.txt"))) {
-      finish("first", "waiting");
-      return;
-    }
-    if (existsSync(join(process.cwd(), "failure.txt"))) {
+    return;
+  }
+  send({
+    method: "thread/goal/updated",
+    params: { threadId: "root", turnId: "first", goal: goal("active") },
+  });
+  finish("first", "checkpoint");
+}
+function getGoal(reply: (result: unknown) => void) {
+  if (clientTurns === 1 && existsSync(join(process.cwd(), "feedback.txt"))) {
+    reply({ goal: null });
+    return;
+  }
+  reply({ goal: goal(continued ? "complete" : "active") });
+  if (!continued) {
+    continued = true;
+    setTimeout(() => {
+      begin("native-2");
       send({
-        method: "error",
+        method: "thread/goal/updated",
         params: {
           threadId: "root",
-          turnId: "first",
-          willRetry: false,
-          error: { message: "Access expired", codexErrorInfo: "unauthorized" },
+          turnId: "native-2",
+          goal: goal("complete"),
         },
       });
-      return;
-    }
-    send({
-      method: "thread/goal/updated",
-      params: { threadId: "root", turnId: "first", goal: goal("active") },
-    });
-    finish("first", "checkpoint");
-  } else if (message.method === "thread/goal/get") {
-    if (clientTurns === 1 && existsSync(join(process.cwd(), "feedback.txt"))) {
-      reply({ goal: null });
-      return;
-    }
-    reply({ goal: goal(continued ? "complete" : "active") });
-    if (!continued) {
-      continued = true;
       setTimeout(() => {
-        begin("native-2");
-        send({
-          method: "thread/goal/updated",
-          params: {
-            threadId: "root",
-            turnId: "native-2",
-            goal: goal("complete"),
-          },
-        });
-        setTimeout(() => finish("native-2", "ready"), 30);
-      }, 10);
-    }
-  } else if (message.method === "thread/read")
-    reply({ thread: { id: "root", turns } });
+        finish("native-2", "ready");
+      }, 30);
+    }, 10);
+  }
+}
+function dispatchMessage(
+  message: Record<string, unknown>,
+  reply: (result: unknown) => void,
+) {
+  const handlers: Record<string, () => void> = {
+    initialize: () => {
+      reply({});
+    },
+    "thread/start": () => {
+      reply({
+        thread: { id: "root" },
+        model: "synthetic",
+        modelProvider: "openai",
+        reasoningEffort: "low",
+      });
+    },
+    "turn/start": () => {
+      startTurn(reply);
+    },
+    "thread/goal/get": () => {
+      getGoal(reply);
+    },
+    "thread/read": () => {
+      reply({ thread: { id: "root", turns } });
+    },
+  };
+  const handler =
+    typeof message.method === "string" ? handlers[message.method] : undefined;
+  if (handler) handler();
   else
     send({
       id: message.id,
       error: { code: -32601, message: "Unexpected operation" },
     });
-});
+}

@@ -1,4 +1,5 @@
-import { expect, test } from "bun:test";
+import { expectUnknown } from "./fixtures/assertions";
+import { test, expect } from "bun:test";
 import {
   mkdir,
   mkdtemp,
@@ -15,7 +16,6 @@ import {
   verifyClaudeRepositoryInvocation,
 } from "../src/hosts/claude-repository-invocation";
 import { claudeToolCallsObservation } from "../src/hosts/claude-tool-calls";
-
 const invocation = {
   skillName: "probe",
   skillDir: "/fixture/.claude/skills/probe",
@@ -48,6 +48,108 @@ const assistant = {
 const transcript = (items: unknown[]) =>
   items.map((item) => JSON.stringify(item)).join("\n");
 
+test("Claude repository dispatch accepts native text block arrays without retaining bodies", () => {
+  const receipt = matchClaudeRepositoryInvocation({
+    ...invocation,
+    sessionId: "session-one",
+    transcript: transcript([
+      {
+        ...command,
+        message: { content: [{ type: "text", text: command.message.content }] },
+      },
+      {
+        ...body,
+        message: { content: [{ type: "text", text: body.message.content }] },
+      },
+      assistant,
+    ]),
+  });
+  expect(receipt).toEqual({
+    accepted: true,
+    reason: "native command and complete mounted body matched",
+  });
+  expect(JSON.stringify(receipt)).not.toContain("Return ready");
+});
+
+test("Claude repository dispatch accepts a command with no arguments", () => {
+  const receipt = matchClaudeRepositoryInvocation({
+    ...invocation,
+    prompt: "/probe",
+    sessionId: "session-one",
+    transcript: transcript([
+      {
+        ...command,
+        message: {
+          content:
+            "<command-message>probe</command-message>\n<command-name>/probe</command-name>",
+        },
+      },
+      {
+        ...body,
+        message: {
+          content: body.message.content.replace(
+            "ARGUMENTS: Return ready.",
+            "ARGUMENTS: ",
+          ),
+        },
+      },
+      assistant,
+    ]),
+  });
+  expect(receipt.accepted).toBe(true);
+});
+
+test("Claude repository dispatch does not accept a command embedded after ordinary prompt text", () => {
+  const receipt = matchClaudeRepositoryInvocation({
+    ...invocation,
+    prompt: "Please run /probe Return ready.",
+    sessionId: "session-one",
+    transcript: transcript([command, body, assistant]),
+  });
+  expect(receipt).toEqual({
+    accepted: false,
+    reason: "prompt differs from mounted command",
+  });
+});
+
+test("Claude repository dispatch leaves a metadata-only mount unavailable", () => {
+  const receipt = matchClaudeRepositoryInvocation({
+    ...invocation,
+    skillText: "---\nname: probe\ndescription: Probe\n---\n",
+    sessionId: "session-one",
+    transcript: transcript([command, assistant]),
+  });
+  expect(receipt).toEqual({ accepted: null, reason: "empty mounted body" });
+});
+
+test("Claude repository mount accepts a newline-delimited leading command and refuses a missing skill", async () => {
+  const root = await mkdtemp(
+    join(tmpdir(), "sevro-claude-repository-newline-"),
+  );
+  try {
+    const directory = join(root, ".claude/skills/probe");
+    await mkdir(directory, { recursive: true });
+    await writeFile(join(directory, "SKILL.md"), invocation.skillText);
+    const request = {
+      workspace: root,
+      condition: "passive" as const,
+      prompt: "/probe\nReturn ready.",
+      explicitSkillInvocation: {
+        scope: "repository" as const,
+        skillName: "probe",
+        token: "/probe",
+      },
+    };
+    const verified = await verifyClaudeRepositoryInvocation(request);
+    expect(verified.prompt).toBe(request.prompt);
+    await rm(join(directory, "SKILL.md"));
+    expect(verifyClaudeRepositoryInvocation(request)).rejects.toThrow(
+      "invoked Claude repository skill is unavailable or unsafe",
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 test("Claude repository dispatch binds exact arguments, session, body, and order", () => {
   const receipt = (items: unknown[]) =>
     matchClaudeRepositoryInvocation({
@@ -115,7 +217,7 @@ test("Claude repository dispatch binds exact arguments, session, body, and order
     }).accepted,
   ).toBeNull();
 });
-
+// eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("Claude repository observation refuses unavailable, duplicate, or redirected evidence", async () => {
   const root = await realpath(
     await mkdtemp(join(tmpdir(), "sevro-claude-project-")),
@@ -180,7 +282,7 @@ test("Claude repository observation refuses unavailable, duplicate, or redirecte
     );
     const accepted = await observe();
     expect(accepted.completeness).toBe("complete");
-    expect(accepted.data.observedSkills).toEqual(["probe"]);
+    expectUnknown(accepted.data.observedSkills).toEqual(["probe"]);
     expect(JSON.stringify(accepted)).not.toContain("Return ready");
     expect(
       (
@@ -203,7 +305,7 @@ test("Claude repository observation refuses unavailable, duplicate, or redirecte
     const skill = join(workspace, ".claude/skills/probe/SKILL.md");
     await rm(skill);
     await symlink(target, skill);
-    await expect(
+    expect(
       verifyClaudeRepositoryInvocation({
         prompt: invocation.prompt,
         workspace,

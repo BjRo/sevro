@@ -69,16 +69,28 @@ async function sidecarChild(
     const metadata: unknown = JSON.parse(
       await readSession(join(directory, name)),
     );
-    if (
-      record(metadata) &&
-      metadata.toolUseId === toolUseId &&
-      (metadata.parentAgentId ?? null) === parentAgentId
-    )
+    if (metadataMatches(metadata, toolUseId, parentAgentId))
       matches.push(name.slice(6, -10));
   }
-  if (matches.length !== 1 || !identity(matches[0]))
+  return uniqueChildIdentity(matches);
+}
+
+function metadataMatches(
+  metadata: unknown,
+  toolUseId: string,
+  parentAgentId: string | null,
+): boolean {
+  return (
+    record(metadata) &&
+    metadata.toolUseId === toolUseId &&
+    (metadata.parentAgentId ?? null) === parentAgentId
+  );
+}
+function uniqueChildIdentity(matches: string[]): string {
+  const [id] = matches;
+  if (matches.length !== 1 || !identity(id))
     throw new Error("Claude child identity is unavailable");
-  return matches[0]!;
+  return id;
 }
 
 async function childId(
@@ -110,11 +122,18 @@ function skillCall(block: Entry, ancestorToolUseId: string | null) {
   return ancestorToolUseId
     ? {
         ancestorToolUseId,
-        skill: invocation.split(":").at(-1)!,
+        skill: invocation.slice(invocation.lastIndexOf(":") + 1),
         invocation,
       }
     : null;
 }
+
+type VisitContext = {
+  state: State;
+  agentId: string | null;
+  ancestorToolUseId: string | null;
+  pending: Set<string>;
+};
 
 async function visit(
   text: string,
@@ -122,51 +141,89 @@ async function visit(
   agentId: string | null,
   ancestorToolUseId: string | null,
 ): Promise<void> {
-  const pending = new Set<string>();
+  const context: VisitContext = {
+    state,
+    agentId,
+    ancestorToolUseId,
+    pending: new Set(),
+  };
   for (const entry of entries(text)) {
     if (entry.type !== "assistant" && entry.type !== "user") continue;
-    if (
-      entry.sessionId !== state.sessionId ||
-      (entry.agentId ?? null) !== agentId
-    )
-      throw new Error("Claude session identity mismatch");
-    for (const block of blocks(entry)) {
-      if (entry.type === "assistant" && block.type === "tool_use") {
-        if (block.name === "Skill") {
-          const call = skillCall(block, ancestorToolUseId);
-          if (call) state.calls.push(call);
-          if (state.calls.length > MAX_SKILLS)
-            throw new Error("excessive Claude Skill calls");
-        }
-        if (block.name === "Agent" || block.name === "Task") {
-          if (!identity(block.id) || pending.has(block.id))
-            throw new Error("invalid Claude Agent call");
-          pending.add(block.id);
-        }
-      }
-      if (
-        entry.type === "user" &&
-        block.type === "tool_result" &&
-        identity(block.tool_use_id) &&
-        pending.has(block.tool_use_id)
-      ) {
-        if (block.is_error === true)
-          throw new Error("Claude child call failed");
-        const child = await childId(entry, state, block.tool_use_id, agentId);
-        if (state.seen.has(child) || state.seen.size >= MAX_AGENTS)
-          throw new Error("repeated Claude child");
-        state.seen.add(child);
-        await visit(
-          await childSession(state, child),
-          state,
-          child,
-          ancestorToolUseId ?? block.tool_use_id,
-        );
-        pending.delete(block.tool_use_id);
-      }
-    }
+    await visitEntry(entry, context);
   }
-  if (pending.size) throw new Error("incomplete Claude Agent graph");
+  if (context.pending.size) throw new Error("incomplete Claude Agent graph");
+}
+
+async function visitEntry(entry: Entry, context: VisitContext): Promise<void> {
+  if (
+    entry.sessionId !== context.state.sessionId ||
+    (entry.agentId ?? null) !== context.agentId
+  )
+    throw new Error("Claude session identity mismatch");
+  for (const block of blocks(entry)) await visitBlock(entry, block, context);
+}
+
+async function visitBlock(
+  entry: Entry,
+  block: Entry,
+  context: VisitContext,
+): Promise<void> {
+  if (entry.type === "assistant" && block.type === "tool_use")
+    assistantBlock(block, context);
+  if (acceptedChildResult(block, entry, context.pending))
+    await visitChild(entry, block, context);
+}
+
+function acceptedChildResult(
+  block: Entry,
+  entry: Entry,
+  pending: Set<string>,
+): block is Entry & { tool_use_id: string } {
+  return (
+    entry.type === "user" &&
+    block.type === "tool_result" &&
+    identity(block.tool_use_id) &&
+    pending.has(block.tool_use_id)
+  );
+}
+
+function assistantBlock(block: Entry, context: VisitContext): void {
+  if (block.name === "Skill") retainSkill(block, context);
+  if (block.name === "Agent" || block.name === "Task")
+    registerAgent(block, context.pending);
+}
+
+function retainSkill(block: Entry, context: VisitContext): void {
+  const call = skillCall(block, context.ancestorToolUseId);
+  if (call) context.state.calls.push(call);
+  if (context.state.calls.length > MAX_SKILLS)
+    throw new Error("excessive Claude Skill calls");
+}
+
+function registerAgent(block: Entry, pending: Set<string>): void {
+  if (!identity(block.id) || pending.has(block.id))
+    throw new Error("invalid Claude Agent call");
+  pending.add(block.id);
+}
+
+async function visitChild(
+  entry: Entry,
+  block: Entry & { tool_use_id: string },
+  context: VisitContext,
+): Promise<void> {
+  if (block.is_error === true) throw new Error("Claude child call failed");
+  const { state, agentId, ancestorToolUseId, pending } = context;
+  const child = await childId(entry, state, block.tool_use_id, agentId);
+  if (state.seen.has(child) || state.seen.size >= MAX_AGENTS)
+    throw new Error("repeated Claude child");
+  state.seen.add(child);
+  await visit(
+    await childSession(state, child),
+    state,
+    child,
+    ancestorToolUseId ?? block.tool_use_id,
+  );
+  pending.delete(block.tool_use_id);
 }
 
 export async function claudeNestedSkillsObservation(

@@ -56,8 +56,14 @@ test("exit failure, turn failure, and missing usage cannot become complete evide
 test("the last completed agent message is the final response", () => {
   const events = [
     start,
-    JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: "first" } }),
-    JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: "last" } }),
+    JSON.stringify({
+      type: "item.completed",
+      item: { type: "agent_message", text: "first" },
+    }),
+    JSON.stringify({
+      type: "item.completed",
+      item: { type: "agent_message", text: "last" },
+    }),
     completed,
   ].join("\n");
   expect(summarizeCodexEvents(events, 0).finalMessage).toBe("last");
@@ -79,4 +85,47 @@ test("malformed, ambiguous, and oversized event streams fail closed", () => {
   expect(() =>
     summarizeCodexEvents("x".repeat(8 * 1024 * 1024 + 1), 0),
   ).toThrow(/exceeds/);
+});
+
+test.each([
+  { input_tokens: -1, output_tokens: 4 },
+  { input_tokens: 1.5, output_tokens: 4 },
+  { input_tokens: "12", output_tokens: 4 },
+  { input_tokens: 12, output_tokens: -1 },
+  { input_tokens: 12, output_tokens: "4" },
+])("malformed final cumulative usage stays unknown: %j", (usage) => {
+  const finish = JSON.stringify({ type: "turn.completed", usage });
+  expect(summarizeCodexEvents(`${start}\n${finish}`, 0)).toMatchObject({
+    complete: true,
+    inputTokens: null,
+    outputTokens: null,
+    usageComplete: false,
+  });
+});
+
+test.each([{ value: null }, { value: [] }, { value: { type: 42 } }])(
+  "nonobject or untyped serialized Codex event cannot complete: %j",
+  ({ value }) => {
+    expect(() =>
+      summarizeCodexEvents(
+        `${start}\n${JSON.stringify(value)}\n${completed}`,
+        0,
+      ),
+    ).toThrow("Codex event stream contains an invalid event");
+  },
+);
+
+test("a stream without any root start cannot claim a participant thread", () => {
+  expect(() => summarizeCodexEvents("\n", 0)).toThrow(
+    "Codex event stream has no thread start",
+  );
+  expect(() =>
+    summarizeCodexEvents(
+      JSON.stringify({
+        type: "item.completed",
+        item: { type: "agent_message", text: "done" },
+      }),
+      0,
+    ),
+  ).toThrow("Codex event stream has no thread start");
 });

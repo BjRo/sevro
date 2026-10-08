@@ -1,4 +1,10 @@
-import { afterEach, expect, test } from "bun:test";
+import { expectUnknown } from "./fixtures/assertions";
+import {
+  defined,
+  objectContaining,
+  parseRunEvidence,
+} from "./fixtures/assertions";
+import { afterEach, test, expect } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,8 +12,13 @@ import {
   materializeGeneratedFixture,
   prepareGeneratedFixture,
 } from "../src/generated-fixture";
-import { runEvaluation, type HostAdapter } from "../src/engine";
-
+import {
+  runEvaluation,
+  type EvaluationOptions,
+  type HostAdapter,
+} from "../src/engine";
+import { fixtureGit } from "./quality-fixtures/fixture-preparation-tools";
+import { gitHeadRevision, gitHeadState } from "../src/graders/git-head";
 const roots: string[] = [];
 const digest = "a".repeat(64);
 afterEach(async () => {
@@ -15,7 +26,6 @@ afterEach(async () => {
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
 });
-
 async function git(workspace: string, ...args: string[]): Promise<string> {
   const proc = Bun.spawn(["git", ...args], {
     cwd: workspace,
@@ -30,7 +40,6 @@ async function git(workspace: string, ...args: string[]): Promise<string> {
   if (code !== 0) throw new Error(error);
   return out.trim();
 }
-
 const fixture = {
   kind: "generated" as const,
   commits: [
@@ -40,6 +49,150 @@ const fixture = {
   files: { "README.md": "staged\n", "notes.txt": "untracked\n" },
   staged: ["README.md"],
 };
+
+test("Git HEAD capture with a live cancellation signal retains the real revision and ancestry", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "sevro-git-head-signal-"));
+  roots.push(workspace);
+  await materializeGeneratedFixture(
+    prepareGeneratedFixture({ kind: "generated", commits: fixture.commits }),
+    workspace,
+  );
+  const revision = await git(workspace, "rev-parse", "HEAD");
+  const controller = new AbortController();
+  expect(await gitHeadRevision(workspace, controller.signal)).toBe(revision);
+  expect(await gitHeadState(workspace, revision, controller.signal)).toEqual({
+    currentRevision: revision,
+    baseAncestor: true,
+  });
+  expect(controller.signal.aborted).toBe(false);
+  expect(await git(workspace, "status", "--porcelain=v1")).toBe("");
+});
+
+test.each(["before capture", "during metadata preflight"])(
+  "Git HEAD capture honours cancellation %s without changing fixture history",
+  async (timing) => {
+    const workspace = await mkdtemp(join(tmpdir(), "sevro-git-head-cancel-"));
+    roots.push(workspace);
+    await materializeGeneratedFixture(
+      prepareGeneratedFixture({ kind: "generated", commits: fixture.commits }),
+      workspace,
+    );
+    const revision = await git(workspace, "rev-parse", "HEAD");
+    const controller = new AbortController();
+    if (timing === "before capture") controller.abort();
+    const pending = gitHeadRevision(workspace, controller.signal);
+    if (timing === "during metadata preflight") controller.abort();
+    expect(pending).rejects.toThrow("Git HEAD check cancelled");
+    await pending.catch(() => undefined);
+    expect(await git(workspace, "rev-parse", "HEAD")).toBe(revision);
+    expect(await git(workspace, "status", "--porcelain=v1")).toBe("");
+  },
+);
+
+test.each(["HEAD", "", "a".repeat(39), "g".repeat(40)])(
+  "Git HEAD state refuses nonimmutable base revision %j before reading the fixture",
+  (revision) => {
+    expect(gitHeadState("/does/not/exist/fixture", revision)).rejects.toThrow(
+      "invalid base revision",
+    );
+  },
+);
+
+function gitFailureOptions(
+  projectRoot: string,
+  host: HostAdapter,
+): EvaluationOptions {
+  return {
+    projectRoot,
+    resultsRoot: join(projectRoot, "results"),
+    case: {
+      id: "git-state-failure",
+      prompt: "Update the repository.",
+      fixture: { kind: "generated", commits: fixture.commits },
+      checks: [
+        {
+          id: "history",
+          grader: "sevro.git-head",
+          configuration: { kind: "base-ancestor" },
+        },
+      ],
+      requiredEvidence: ["sevro.observation.git-head"],
+    },
+    host,
+    runnerBuildDigest: digest,
+    projectDigest: digest,
+    condition: "passive",
+    trialCount: 1,
+    passThreshold: 1,
+  };
+}
+
+async function replaceCandidateHistory(workspace: string): Promise<void> {
+  await rm(join(workspace, ".git"), { recursive: true });
+  await fixtureGit(workspace, "init", "--quiet", "--initial-branch=main");
+  await fixtureGit(workspace, "add", "README.md");
+  await fixtureGit(workspace, "commit", "--quiet", "-m", "Replacement root");
+}
+
+const gitStateFailures = [
+  {
+    name: "metadata replaced by a regular file",
+    async change(workspace: string) {
+      await rm(join(workspace, ".git"), { recursive: true });
+      await writeFile(join(workspace, ".git"), "candidate-owned metadata\n");
+    },
+  },
+  {
+    name: "missing HEAD",
+    change: (workspace: string) => rm(join(workspace, ".git", "HEAD")),
+  },
+  {
+    name: "replacement history without the captured base",
+    change: replaceCandidateHistory,
+  },
+];
+
+for (const failure of gitStateFailures) {
+  test(`Git HEAD grading reports an error after candidate ${failure.name}`, async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), "sevro-git-state-error-"));
+    roots.push(projectRoot);
+    let candidateWorkspace: string | undefined;
+    const host: HostAdapter = {
+      id: "sevro.host.synthetic",
+      model: "synthetic-v1",
+      effort: "none",
+      async run({ workspace }) {
+        candidateWorkspace = workspace;
+        await failure.change(workspace);
+        return { finalMessage: "ready", complete: true };
+      },
+    };
+    const { result } = await runEvaluation(
+      gitFailureOptions(projectRoot, host),
+    );
+    expect(result.execution.status).toBe("completed");
+    expect(result.grading.status).toBe("error");
+    expect(result.task.verdict).toBe("not_assessed");
+    expect(result.exitCode).toBe(3);
+    const evidence = parseRunEvidence(
+      await readFile(result.evidencePath, "utf8"),
+    );
+    expect(evidence.diagnostic).toEqual({
+      code: "sevro.grader.error",
+      message: "Git HEAD grading did not complete",
+    });
+    expect(evidence.trials).toHaveLength(1);
+    expect(defined(evidence.trials[0]).observations).not.toContainEqual(
+      objectContaining({
+        id: "sevro.observation.git-head",
+        completeness: "complete",
+      }),
+    );
+    expect(
+      await Bun.file(join(defined(candidateWorkspace), "README.md")).exists(),
+    ).toBeFalse();
+  });
+}
 
 test("generated fixture builds stable history and a declared index state", async () => {
   const prepared = prepareGeneratedFixture(fixture);
@@ -76,7 +229,6 @@ test("generated fixture builds stable history and a declared index state", async
   expect(() =>
     prepareGeneratedFixture({ ...fixture, staged: ["other.txt"] }),
   ).toThrow(/staging/);
-
   const scaffold = await mkdtemp(join(tmpdir(), "sevro-generated-scaffold-"));
   roots.push(scaffold);
   await materializeGeneratedFixture(
@@ -93,7 +245,7 @@ test("generated fixture builds stable history and a declared index state", async
   );
   expect(await git(scaffold, "status", "--porcelain=v1")).toBe("");
 });
-
+// eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("Git HEAD grading binds the base revision outside candidate control", async () => {
   const projectRoot = await mkdtemp(join(tmpdir(), "sevro-git-head-test-"));
   roots.push(projectRoot);
@@ -155,40 +307,43 @@ test("Git HEAD grading binds the base revision outside candidate control", async
       trialCount: 1,
       passThreshold: 1,
     });
-    const evidence = JSON.parse(
+    const evidence = parseRunEvidence(
       await readFile(outcome.result.evidencePath, "utf8"),
     );
     return { outcome, evidence };
   };
   const advanced = await run("advance");
   expect(advanced.outcome.result.exitCode).toBe(0);
-  expect(
-    advanced.outcome.result.cases[0]?.trials[0]?.checks.map(
+  expectUnknown(
+    defined(defined(advanced.outcome.result.cases[0]).trials[0]).checks.map(
       (check) => check.status,
     ),
   ).toEqual(["passed", "passed"]);
-  expect(advanced.evidence.trials[0].observations).toContainEqual(
-    expect.objectContaining({
+  expectUnknown(
+    defined(advanced.evidence.trials[0]).observations,
+  ).toContainEqual(
+    objectContaining({
       id: "sevro.observation.git-head",
       source: "sevro.git-head",
       completeness: "complete",
-      data: expect.objectContaining({ baseAncestor: true }),
+      data: objectContaining({ baseAncestor: true }),
     }),
   );
   const rewound = await run("rewind");
-  expect(
-    rewound.outcome.result.cases[0]?.trials[0]?.checks.map(
+  expectUnknown(
+    defined(defined(rewound.outcome.result.cases[0]).trials[0]).checks.map(
       (check) => check.status,
     ),
   ).toEqual(["passed", "failed"]);
   expect(rewound.outcome.result.task.verdict).toBe("failed");
   const unchanged = await run("unchanged");
   expect(unchanged.outcome.result.exitCode).toBe(0);
-  expect(unchanged.outcome.result.cases[0]?.trials[0]?.checks[0]?.status).toBe(
-    "passed",
-  );
+  expect(
+    defined(
+      defined(defined(unchanged.outcome.result.cases[0]).trials[0]).checks[0],
+    ).status,
+  ).toBe("passed");
 });
-
 test("Git HEAD checks reject invalid configuration and non-Git fixtures", async () => {
   const projectRoot = await mkdtemp(join(tmpdir(), "sevro-git-head-invalid-"));
   roots.push(projectRoot);
@@ -196,8 +351,8 @@ test("Git HEAD checks reject invalid configuration and non-Git fixtures", async 
     id: "sevro.host.synthetic",
     model: "synthetic-v1",
     effort: "none",
-    async run() {
-      throw new Error("host must not run");
+    run() {
+      return Promise.reject(new Error("host must not run"));
     },
   };
   const options = {
@@ -210,7 +365,7 @@ test("Git HEAD checks reject invalid configuration and non-Git fixtures", async 
     trialCount: 1,
     passThreshold: 1,
   };
-  await expect(
+  expect(
     runEvaluation({
       ...options,
       case: {
@@ -228,7 +383,7 @@ test("Git HEAD checks reject invalid configuration and non-Git fixtures", async 
       },
     }),
   ).rejects.toThrow(/require a Git fixture/);
-  await expect(
+  expect(
     runEvaluation({
       ...options,
       case: {
@@ -247,7 +402,6 @@ test("Git HEAD checks reject invalid configuration and non-Git fixtures", async 
     }),
   ).rejects.toThrow(/invalid Git HEAD check declaration/);
 });
-
 test("generated Git hooks run for host commits after fixture preparation", async () => {
   const projectRoot = await mkdtemp(join(tmpdir(), "sevro-hook-test-"));
   roots.push(projectRoot);
@@ -323,7 +477,6 @@ test("generated Git hooks run for host commits after fixture preparation", async
     }),
   ).toThrow(/invalid fixture hooks/);
 });
-
 test("fixture binaries reach the host and isolated shell checks", async () => {
   if (process.platform !== "darwin") return;
   const projectRoot = await mkdtemp(join(tmpdir(), "sevro-bin-test-"));
@@ -388,7 +541,6 @@ test("fixture binaries reach the host and isolated shell checks", async () => {
     }),
   ).toThrow(/invalid fixture binaries/);
 });
-
 test("engine gives each generated trial the same history and a fresh working tree", async () => {
   const projectRoot = await mkdtemp(join(tmpdir(), "sevro-generated-engine-"));
   roots.push(projectRoot);
@@ -434,5 +586,5 @@ test("engine gives each generated trial the same history and a fresh working tre
   });
   expect(result.exitCode).toBe(0);
   expect(revisions).toHaveLength(2);
-  expect(revisions[0]).toBe(revisions[1]);
+  expect(defined(revisions[0])).toBe(defined(revisions[1]));
 });

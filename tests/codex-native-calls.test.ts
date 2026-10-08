@@ -1,31 +1,38 @@
-import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { expectUnknown } from "./fixtures/assertions";
+import { defined } from "./fixtures/assertions";
+import { afterEach, test, expect } from "bun:test";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   codexNativeCallObservation,
   codexNativeSessionLastOrdinal,
+  codexNativeSkillReadRecovery,
 } from "../src/hosts/codex-native-calls";
-
 const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
 });
-
 async function home() {
   const root = await mkdtemp(join(tmpdir(), "sevro-native-calls-"));
   roots.push(root);
   return root;
 }
-
 async function session(root: string, content: string, suffix = "thread-1") {
   const directory = join(root, "sessions", "2026", "09", "27");
   await mkdir(directory, { recursive: true });
   await writeFile(join(directory, `rollout-${suffix}.jsonl`), content);
 }
-
 test("native boundary uses only a complete, unique session", async () => {
   const root = await home();
   expect(await codexNativeSessionLastOrdinal(root, "thread-1")).toBeNull();
@@ -41,7 +48,7 @@ test("native boundary uses only a complete, unique session", async () => {
   await session(root, '{"ordinal":0,"payload":{}}\n', "other-thread-1");
   expect(await codexNativeSessionLastOrdinal(root, "thread-1")).toBeNull();
 });
-
+// eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("native goal and agent calls retain names and order without private arguments", async () => {
   const root = await home();
   await session(
@@ -94,7 +101,7 @@ test("native goal and agent calls retain names and order without private argumen
       .join("\n") + "\n",
   );
   const observed = await codexNativeCallObservation(root, "thread-1");
-  expect(observed).toEqual({
+  expectUnknown(observed).toEqual({
     id: "sevro.codex.native-calls",
     completeness: "complete",
     data: {
@@ -135,7 +142,7 @@ test("native goal and agent calls retain names and order without private argumen
   });
   expect(JSON.stringify(observed)).not.toContain("private");
 });
-
+// eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("parent diagnostics cover sessions without a spawn", async () => {
   const root = await home();
   const workspace = await mkdtemp(
@@ -152,7 +159,7 @@ test("parent diagnostics cover sessions without a spawn", async () => {
     root,
     lines([{ type: "item_completed", item: { type: "AgentMessage" } }]),
   );
-  expect(
+  expectUnknown(
     (await codexNativeCallObservation(root, "thread-1", context)).data
       .parentReadDiagnostics,
   ).toEqual({
@@ -210,7 +217,7 @@ test("parent diagnostics cover sessions without a spawn", async () => {
       },
     ]),
   );
-  expect(
+  expectUnknown(
     (await codexNativeCallObservation(root, "thread-1", context)).data
       .parentReadDiagnostics?.completedReads,
   ).toEqual([
@@ -219,7 +226,6 @@ test("parent diagnostics cover sessions without a spawn", async () => {
   ]);
   expect(JSON.stringify(observed)).not.toContain("Private parent body.");
 });
-
 function lines(payloads: Array<Record<string, unknown>>) {
   return (
     payloads
@@ -227,7 +233,6 @@ function lines(payloads: Array<Record<string, unknown>>) {
       .join("\n") + "\n"
   );
 }
-
 const spawn = {
   type: "function_call",
   namespace: "collaboration",
@@ -256,13 +261,12 @@ const result = {
   call_id: "call_1",
   output: JSON.stringify({ task_name: "/root/reviewer" }),
 };
-
 test("native spawn acceptance binds one request, start, and result", async () => {
   const root = await home();
   await session(root, lines([spawn, started, result]));
   const observed = await codexNativeCallObservation(root, "thread-1");
   expect(observed.completeness).toBe("complete");
-  expect(observed.data.acceptedSpawns).toEqual([
+  expectUnknown(observed.data.acceptedSpawns).toEqual([
     {
       callId: "call_1",
       agentRef: "/root/reviewer",
@@ -277,11 +281,10 @@ test("native spawn acceptance binds one request, start, and result", async () =>
     },
   ]);
   expect(JSON.stringify(observed)).not.toContain("private review task");
-  expect(observed.data.childSessions).toEqual([
+  expectUnknown(observed.data.childSessions).toEqual([
     { threadId: "thread-child", status: "unavailable" },
   ]);
 });
-
 test("accepted child sessions distinguish available, malformed, and ambiguous rollouts", async () => {
   const root = await home();
   await session(root, lines([spawn, started, result]));
@@ -295,7 +298,7 @@ test("accepted child sessions distinguish available, malformed, and ambiguous ro
     ]),
     "thread-child",
   );
-  expect(
+  expectUnknown(
     (await codexNativeCallObservation(root, "thread-1")).data.childSessions,
   ).toEqual([
     {
@@ -307,7 +310,7 @@ test("accepted child sessions distinguish available, malformed, and ambiguous ro
     },
   ]);
   await session(root, "{broken\n", "thread-child");
-  expect(
+  expectUnknown(
     (await codexNativeCallObservation(root, "thread-1")).data.childSessions,
   ).toEqual([{ threadId: "thread-child", status: "partial" }]);
   await session(
@@ -315,11 +318,10 @@ test("accepted child sessions distinguish available, malformed, and ambiguous ro
     lines([{ type: "item_completed" }]),
     "other-thread-child",
   );
-  expect(
+  expectUnknown(
     (await codexNativeCallObservation(root, "thread-1")).data.childSessions,
   ).toEqual([{ threadId: "thread-child", status: "ambiguous" }]);
 });
-
 test("accepted child skill reads require the exact mounted body", async () => {
   const root = await home();
   const workspace = await mkdtemp(
@@ -346,7 +348,7 @@ test("accepted child skill reads require the exact mounted body", async () => {
   await session(root, lines([command]), "thread-child");
   const context = { workspace, installedPluginRoots: [] };
   const observed = await codexNativeCallObservation(root, "thread-1", context);
-  expect(observed.data.childSessions).toEqual([
+  expectUnknown(observed.data.childSessions).toEqual([
     {
       threadId: "thread-child",
       status: "available",
@@ -374,7 +376,6 @@ test("accepted child skill reads require the exact mounted body", async () => {
   ]);
   expect(JSON.stringify(observed)).not.toContain("Private skill body.");
   expect(JSON.stringify(observed)).not.toContain(skillPath);
-
   await session(
     root,
     lines([
@@ -383,14 +384,15 @@ test("accepted child skill reads require the exact mounted body", async () => {
     "thread-child",
   );
   expect(
-    (await codexNativeCallObservation(root, "thread-1", context)).data
-      .childSessions[0],
+    defined(
+      (await codexNativeCallObservation(root, "thread-1", context)).data
+        .childSessions[0],
+    ),
   ).toMatchObject({
     status: "available",
     readDiagnostics: { completeness: "partial", observedSkills: [] },
   });
 });
-
 test("accepted child completion binds one nonempty final message to its turn", async () => {
   const root = await home();
   await session(root, lines([spawn, started, result]));
@@ -410,7 +412,7 @@ test("accepted child completion binds one nonempty final message to its turn", a
   };
   await session(root, lines([final, completion]), "thread-child");
   const completed = await codexNativeCallObservation(root, "thread-1");
-  expect(completed.data.childSessions).toEqual([
+  expectUnknown(completed.data.childSessions).toEqual([
     {
       threadId: "thread-child",
       status: "available",
@@ -420,7 +422,6 @@ test("accepted child completion binds one nonempty final message to its turn", a
     },
   ]);
   expect(JSON.stringify(completed)).not.toContain("private child answer");
-
   for (const payloads of [
     [completion, final],
     [final, final, completion],
@@ -437,12 +438,14 @@ test("accepted child completion binds one nonempty final message to its turn", a
   ]) {
     await session(root, lines(payloads), "thread-child");
     expect(
-      (await codexNativeCallObservation(root, "thread-1")).data.childSessions[0]
-        ?.resultStatus,
+      defined(
+        (await codexNativeCallObservation(root, "thread-1")).data
+          .childSessions[0],
+      ).resultStatus,
     ).toBe("unavailable");
   }
 });
-
+// eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("nested spawn receipts bind the accepted reader and completed session", async () => {
   const root = await home();
   await session(root, lines([spawn, started, result]));
@@ -492,7 +495,7 @@ test("nested spawn receipts bind the accepted reader and completed session", asy
   };
   await session(root, lines([final, complete]), "thread-reader");
   const observed = await codexNativeCallObservation(root, "thread-1");
-  expect(observed.data.childSessions[0]).toMatchObject({
+  expect(defined(observed.data.childSessions[0])).toMatchObject({
     threadId: "thread-child",
     status: "available",
     nestedSpawns: [
@@ -513,11 +516,12 @@ test("nested spawn receipts bind the accepted reader and completed session", asy
   });
   expect(JSON.stringify(observed)).not.toContain("private reader instructions");
   expect(JSON.stringify(observed)).not.toContain("private reader conclusion");
-
   await session(root, lines([final]), "thread-reader");
   expect(
-    (await codexNativeCallObservation(root, "thread-1")).data.childSessions[0]
-      ?.nestedSpawns?.[0]?.readerResultStatus,
+    defined(
+      (await codexNativeCallObservation(root, "thread-1")).data
+        .childSessions[0],
+    ).nestedSpawns?.[0]?.readerResultStatus,
   ).toBe("unavailable");
   await session(
     root,
@@ -535,9 +539,11 @@ test("nested spawn receipts bind the accepted reader and completed session", asy
     ]),
     "thread-child",
   );
-  expect(
-    (await codexNativeCallObservation(root, "thread-1")).data.childSessions[0]
-      ?.nestedSpawns,
+  expectUnknown(
+    defined(
+      (await codexNativeCallObservation(root, "thread-1")).data
+        .childSessions[0],
+    ).nestedSpawns,
   ).toEqual([
     {
       requestedOrdinal: 0,
@@ -551,7 +557,6 @@ test("nested spawn receipts bind the accepted reader and completed session", asy
     },
   ]);
 });
-
 test("nested request truncation is explicit", async () => {
   const root = await home();
   await session(root, lines([spawn, started, result]));
@@ -566,13 +571,12 @@ test("nested request truncation is explicit", async () => {
     "thread-child",
   );
   const observed = await codexNativeCallObservation(root, "thread-1");
-  expect(observed.data.childSessions[0]).toMatchObject({
+  expect(defined(observed.data.childSessions[0])).toMatchObject({
     status: "available",
     requestsTruncated: true,
   });
-  expect(observed.data.childSessions[0]?.nestedSpawns).toHaveLength(8);
+  expect(defined(observed.data.childSessions[0]).nestedSpawns).toHaveLength(8);
 });
-
 test("child read diagnostics distinguish no read from an indirect attempt", async () => {
   const root = await home();
   const workspace = await mkdtemp(
@@ -586,9 +590,11 @@ test("child read diagnostics distinguish no read from an indirect attempt", asyn
     "thread-child",
   );
   const context = { workspace, installedPluginRoots: [] };
-  expect(
-    (await codexNativeCallObservation(root, "thread-1", context)).data
-      .childSessions[0]?.readDiagnostics,
+  expectUnknown(
+    defined(
+      (await codexNativeCallObservation(root, "thread-1", context)).data
+        .childSessions[0],
+    ).readDiagnostics,
   ).toEqual({
     completeness: "complete",
     observedSkills: [],
@@ -615,15 +621,16 @@ test("child read diagnostics distinguish no read from an indirect attempt", asyn
     "thread-child",
   );
   expect(
-    (await codexNativeCallObservation(root, "thread-1", context)).data
-      .childSessions[0]?.readDiagnostics,
+    defined(
+      (await codexNativeCallObservation(root, "thread-1", context)).data
+        .childSessions[0],
+    ).readDiagnostics,
   ).toMatchObject({
     completeness: "partial",
     observedSkills: [],
     readAttempts: 1,
   });
 });
-
 test("child session lookup is capped with an explicit truncation flag", async () => {
   const root = await home();
   const payloads = Array.from({ length: 9 }, (_, index) => {
@@ -657,7 +664,6 @@ test("child session lookup is capped with an explicit truncation flag", async ()
   expect(observed.data.childSessions).toHaveLength(8);
   expect(observed.data.childrenTruncated).toBe(true);
 });
-
 test("native spawn route fields stay bounded even when host acceptance succeeds", async () => {
   const root = await home();
   const oversized = "9".repeat(500);
@@ -679,10 +685,9 @@ test("native spawn route fields stay bounded even when host acceptance succeeds"
   );
   const observed = await codexNativeCallObservation(root, "thread-1");
   expect(observed.data.acceptedSpawns).toHaveLength(1);
-  expect(observed.data.acceptedSpawns[0]?.forkTurns).toBeUndefined();
+  expect(defined(observed.data.acceptedSpawns[0]).forkTurns).toBeUndefined();
   expect(JSON.stringify(observed)).not.toContain(oversized);
 });
-
 test("native tool calls retain order and feedback target without private input", async () => {
   const root = await home();
   await session(
@@ -705,7 +710,7 @@ test("native tool calls retain order and feedback target without private input",
     ]),
   );
   const observed = await codexNativeCallObservation(root, "thread-1");
-  expect(observed.data.toolCalls).toEqual([
+  expectUnknown(observed.data.toolCalls).toEqual([
     { ordinal: 0, namespace: "collaboration", name: "spawn_agent" },
     {
       ordinal: 3,
@@ -719,7 +724,7 @@ test("native tool calls retain order and feedback target without private input",
   expect(JSON.stringify(observed)).not.toContain("private feedback");
   expect(JSON.stringify(observed)).not.toContain("private code");
 });
-
+// eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("native feedback retains target and unique response without message text", async () => {
   const root = await home();
   const feedback = {
@@ -736,7 +741,7 @@ test("native feedback retains target and unique response without message text", 
   };
   await session(root, lines([feedback, response]));
   const observed = await codexNativeCallObservation(root, "thread-1");
-  expect(observed.data.feedbackCalls).toEqual([
+  expectUnknown(observed.data.feedbackCalls).toEqual([
     {
       ordinal: 0,
       tool: "followup_task",
@@ -806,6 +811,32 @@ test("native feedback retains target and unique response without message text", 
     },
   ]);
 });
+test("native feedback requires string labels in retained evidence", async () => {
+  const root = await home();
+  const feedback = {
+    type: "function_call",
+    namespace: "collaboration",
+    name: "followup_task",
+    arguments: JSON.stringify({ target: "owner", message: "private feedback" }),
+  };
+  await session(
+    root,
+    lines([
+      { ...feedback, name: ["followup_task"], call_id: "array-label" },
+      { ...feedback, call_id: "string-label" },
+    ]),
+  );
+  const observed = await codexNativeCallObservation(root, "thread-1");
+  expect(observed.completeness).toBe("complete");
+  expect(observed.data.toolCalls.map((call) => call.name)).toEqual([
+    "other",
+    "followup_task",
+  ]);
+  expect(observed.data.feedbackCalls.map((call) => call.tool)).toEqual([
+    "followup_task",
+  ]);
+  expect(JSON.stringify(observed)).not.toContain("private feedback");
+});
 
 test("ambiguous, mismatched, and malformed spawn evidence cannot establish acceptance", async () => {
   const root = await home();
@@ -817,16 +848,15 @@ test("ambiguous, mismatched, and malformed spawn evidence cannot establish accep
     [spawn, started, { ...result, output: '{"task_name":"/root/other"}' }],
   ]) {
     await session(root, lines(payloads));
-    expect(
+    expectUnknown(
       (await codexNativeCallObservation(root, "thread-1")).data.acceptedSpawns,
     ).toEqual([]);
   }
   await session(root, lines([spawn, started, result]) + "{bad\n");
   const partial = await codexNativeCallObservation(root, "thread-1");
   expect(partial.completeness).toBe("partial");
-  expect(partial.data.acceptedSpawns).toEqual([]);
+  expectUnknown(partial.data.acceptedSpawns).toEqual([]);
 });
-
 test("missing, ambiguous, and malformed native sessions cannot prove absence", async () => {
   const root = await home();
   expect(await codexNativeCallObservation(root, "thread-1")).toMatchObject({
@@ -847,7 +877,6 @@ test("missing, ambiguous, and malformed native sessions cannot prove absence", a
     completeness: "partial",
   });
 });
-
 test("native session traversal refuses links and oversized content", async () => {
   const root = await home();
   await session(root, `${" ".repeat(8 * 1024 * 1024)}\n`);
@@ -860,4 +889,267 @@ test("native session traversal refuses links and oversized content", async () =>
   expect(await codexNativeCallObservation(root, "thread-1")).toMatchObject({
     completeness: "partial",
   });
+});
+
+test.each([null, 42, "[]", "null"])(
+  "native malformed serialized spawn arguments cannot establish acceptance: %s",
+  async (argumentsValue) => {
+    const root = await home();
+    await session(
+      root,
+      lines([{ ...spawn, arguments: argumentsValue }, started, result]),
+    );
+    const observed = await codexNativeCallObservation(root, "thread-1");
+    expect(observed.completeness).toBe("complete");
+    expect(observed.data.acceptedSpawns).toEqual([]);
+    expect(observed.data.toolCalls).toMatchObject([{ name: "spawn_agent" }]);
+  },
+);
+
+test("accepted spawn identity survives absent optional requested route fields", async () => {
+  const root = await home();
+  await session(root, lines([{ ...spawn, arguments: "{}" }, started, result]));
+  const observed = await codexNativeCallObservation(root, "thread-1");
+  expect(observed.data.acceptedSpawns).toHaveLength(1);
+  expect(defined(observed.data.acceptedSpawns[0])).toMatchObject({
+    agentRef: "/root/reviewer",
+    threadId: "thread-child",
+  });
+  expect(defined(observed.data.acceptedSpawns[0]).taskName).toBeUndefined();
+});
+
+test.each([
+  { name: "nonarray", content: null },
+  { name: "empty blocks", content: [] },
+  { name: "nonstring text", content: [{ type: "Text", text: 42 }] },
+  {
+    name: "nontext block",
+    content: [{ type: "Image", text: "private answer" }],
+  },
+])(
+  "child completion cannot bind malformed final content: %j",
+  async ({ content }) => {
+    const root = await home();
+    await session(root, lines([spawn, started, result]));
+    await session(
+      root,
+      lines([
+        {
+          type: "item_completed",
+          turn_id: "turn-child",
+          item: { type: "AgentMessage", phase: "final_answer", content },
+        },
+        {
+          type: "task_complete",
+          turn_id: "turn-child",
+          last_agent_message: "private answer",
+        },
+      ]),
+      "thread-child",
+    );
+    const observed = await codexNativeCallObservation(root, "thread-1");
+    expect(defined(observed.data.childSessions[0])).toMatchObject({
+      status: "available",
+      resultStatus: "unavailable",
+    });
+    expect(JSON.stringify(observed)).not.toContain("private answer");
+  },
+);
+
+test.each(["thread-1", "thread-child"])(
+  "nested spawn cannot use its root or parent session as reader evidence: %s",
+  async (threadId) => {
+    const root = await home();
+    await session(root, lines([spawn, started, result]));
+    await session(
+      root,
+      lines([
+        { ...spawn, call_id: "nested", arguments: "{}" },
+        {
+          ...started,
+          item: {
+            ...started.item,
+            id: "nested",
+            agent_path: "/root/reviewer/reader",
+            agent_thread_id: threadId,
+          },
+        },
+        {
+          ...result,
+          call_id: "nested",
+          output: JSON.stringify({ task_name: "/root/reviewer/reader" }),
+        },
+      ]),
+      "thread-child",
+    );
+    const observed = await codexNativeCallObservation(root, "thread-1");
+    expect(defined(observed.data.childSessions[0]).nestedSpawns).toMatchObject([
+      {
+        status: "accepted",
+        sessionStatus: "partial",
+        readerResultStatus: "unavailable",
+      },
+    ]);
+  },
+);
+
+test("a spawn pointing back to the root cannot establish an independent child session", async () => {
+  const root = await home();
+  await session(
+    root,
+    lines([
+      spawn,
+      { ...started, item: { ...started.item, agent_thread_id: "thread-1" } },
+      result,
+    ]),
+  );
+  expect(
+    (await codexNativeCallObservation(root, "thread-1")).data.childSessions,
+  ).toEqual([{ threadId: "thread-1", status: "partial" }]);
+});
+
+test("a nested invocation with malformed arguments records an unaccepted reader attempt", async () => {
+  const root = await home();
+  await session(root, lines([spawn, started, result]));
+  await session(
+    root,
+    lines([{ ...spawn, call_id: "nested", arguments: "[]" }]),
+    "thread-child",
+  );
+  const observed = await codexNativeCallObservation(root, "thread-1");
+  expect(defined(observed.data.childSessions[0]).nestedSpawns).toEqual([
+    {
+      requestedOrdinal: 0,
+      status: "unaccepted",
+      sessionStatus: "unavailable",
+      readerResultStatus: "unavailable",
+    },
+  ]);
+});
+
+test("invalid UTF-8 and oversized child bytes preserve partial evidence without a completion", async () => {
+  const root = await home();
+  await session(root, lines([spawn, started, result]));
+  const path = join(root, "sessions/2026/09/27/rollout-thread-child.jsonl");
+  for (const bytes of [
+    new Uint8Array([255, 254]),
+    Buffer.alloc(8 * 1024 * 1024 + 1, 32),
+  ]) {
+    await writeFile(path, bytes);
+    expect(
+      (await codexNativeCallObservation(root, "thread-1")).data.childSessions,
+    ).toEqual([{ threadId: "thread-child", status: "partial" }]);
+  }
+  await session(root, " ".repeat(8 * 1024 * 1024 + 1));
+  expect(await codexNativeSessionLastOrdinal(root, "thread-1")).toBeNull();
+  await writeFile(
+    join(root, "sessions/2026/09/27/rollout-thread-1.jsonl"),
+    new Uint8Array([255, 254]),
+  );
+  expect(
+    (await codexNativeCallObservation(root, "thread-1")).completeness,
+  ).toBe("partial");
+  expect(await codexNativeSessionLastOrdinal(root, "thread-1")).toBeNull();
+});
+
+function recoveryPayloads(command: unknown): Record<string, unknown>[] {
+  return [
+    {
+      type: "custom_tool_call",
+      name: "exec",
+      call_id: "read-call",
+      input:
+        'const result = await tools.exec_command({cmd:"cat .agents/skills/example/SKILL.md"}); text(result.output);',
+    },
+    {
+      type: "custom_tool_call_output",
+      call_id: "read-call",
+      output: {
+        session_id: 101,
+        chunk_id: "part",
+        wall_time_seconds: 0,
+        output: "private recovered bytes",
+      },
+    },
+    {
+      type: "item_completed",
+      item: {
+        id: "read",
+        type: "CommandExecution",
+        source: "unified_exec_startup",
+        process_id: "101",
+        command,
+        status: "completed",
+        exit_code: 0,
+      },
+    },
+    { type: "item_completed", item: { type: "AgentMessage" } },
+  ];
+}
+
+test("native recovery requires one validated shell command even with process-bound yielded output", async () => {
+  const root = await home();
+  await session(
+    root,
+    lines(
+      recoveryPayloads([
+        "/bin/sh",
+        "-c",
+        "cat .agents/skills/example/SKILL.md",
+      ]),
+    ),
+  );
+  const recovered = await codexNativeSkillReadRecovery(root, "thread-1");
+  expect(recovered.get("read")).toEqual({
+    command: "cat .agents/skills/example/SKILL.md",
+    output: "private recovered bytes",
+  });
+  for (const command of [
+    "cat .agents/skills/example/SKILL.md",
+    ["cat", "SKILL.md"],
+    ["/bin/sh", "-x", "cat SKILL.md"],
+    ["/bin/sh", "-c", 42],
+  ]) {
+    await session(root, lines(recoveryPayloads(command)));
+    expect((await codexNativeSkillReadRecovery(root, "thread-1")).size).toBe(0);
+  }
+  await session(root, "{broken\n");
+  expect((await codexNativeSkillReadRecovery(root, "thread-1")).size).toBe(0);
+  await session(root, " ".repeat(8 * 1024 * 1024 + 1));
+  expect((await codexNativeSkillReadRecovery(root, "thread-1")).size).toBe(0);
+});
+
+test("an unavailable skill context cannot make valid native calls complete", async () => {
+  const root = await home();
+  await session(root, lines([spawn, started, result]));
+  expect(
+    (
+      await codexNativeCallObservation(root, "thread-1", {
+        workspace: join(root, "missing-workspace"),
+        installedPluginRoots: [],
+      })
+    ).completeness,
+  ).toBe("partial");
+});
+
+test("an unreadable owned native session cannot supply recovered command output", async () => {
+  const root = await home();
+  await session(
+    root,
+    lines(
+      recoveryPayloads([
+        "/bin/sh",
+        "-c",
+        "cat .agents/skills/example/SKILL.md",
+      ]),
+    ),
+  );
+  const path = join(root, "sessions/2026/09/27/rollout-thread-1.jsonl");
+  await chmod(path, 0);
+  try {
+    expect(readFile(path)).rejects.toMatchObject({ code: "EACCES" });
+    expect((await codexNativeSkillReadRecovery(root, "thread-1")).size).toBe(0);
+  } finally {
+    await chmod(path, 0o600);
+  }
 });
