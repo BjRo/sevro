@@ -7,7 +7,7 @@ import { ESLint } from "eslint";
 const rolePaths: Record<string, RegExp> = {
   production: /^src\/.*(?<!\.d)\.ts$/,
   generated:
-    /^src\/generated\/(?:cli-result|run-evidence|report|extension)\.cjs$/,
+    /^src\/generated\/(?:cli-result|run-evidence|report|extension|runtime)\.cjs$/,
   declarations: /\.d\.[cm]?ts$/,
   tooling: /^(?:scripts\/|eslint\.config\.mjs$)/,
   tests: /^tests\//,
@@ -18,6 +18,7 @@ const generatedFiles = [
   "extension",
   "report",
   "run-evidence",
+  "runtime",
 ].map((name) => `src/generated/${name}.cjs`);
 
 function checkRoles(inventory: Record<string, string[]>) {
@@ -37,7 +38,7 @@ function checkGeneratedScope(generated: string[] | undefined) {
     generated.length !== generatedFiles.length ||
     !generatedFiles.every((file) => generated.includes(file))
   )
-    throw new Error("Expected the four exact generated validators");
+    throw new Error("Expected the five exact generated validators");
 }
 
 async function checkLintDisposition(

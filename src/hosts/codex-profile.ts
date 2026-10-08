@@ -20,6 +20,9 @@ export function codexPermissionProfile(options: {
   executableReadRoots: string[];
   pluginReadRoot?: string;
   protectedRoots: string[];
+  commandEnvironment?: Record<string, string>;
+  runtimeReadRoots?: string[];
+  runtimeWriteRoot?: string;
 }): string {
   if (!/^[a-z][a-z0-9_]*$/.test(options.id))
     throw new Error("invalid Codex permission profile ID");
@@ -30,13 +33,15 @@ export function codexPermissionProfile(options: {
     `default_permissions = ${toml(name)}`,
     'approval_policy = "never"',
     "allow_login_shell = false",
+    "[features]",
+    "hooks = false",
     "",
     "[shell_environment_policy]",
     'inherit = "none"',
     "ignore_default_excludes = false",
     "",
     "[shell_environment_policy.set]",
-    'PATH = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"',
+    ...commandEnvironmentLines(options.commandEnvironment),
     `HOME = ${toml(options.commandHome)}`,
     `TMPDIR = ${toml(options.commandTemp)}`,
     "",
@@ -51,14 +56,10 @@ export function codexPermissionProfile(options: {
     ...[...new Set(options.protectedRoots)]
       .sort()
       .map((root) => `${toml(root)} = "deny"`),
-    ...[...new Set(options.executableReadRoots)]
-      .sort()
-      .map((path) => `${toml(path)} = "read"`),
-    ...(options.pluginReadRoot
-      ? [`${toml(options.pluginReadRoot)} = "read"`]
-      : []),
+    ...readRootLines(options),
     `${toml(options.commandHome)} = "write"`,
     `${toml(options.commandTemp)} = "write"`,
+    ...optionalRootLines(options.runtimeWriteRoot, "write"),
     "",
     `[permissions.${name}.filesystem.":workspace_roots"]`,
     '"." = "write"',
@@ -67,6 +68,39 @@ export function codexPermissionProfile(options: {
     "enabled = false",
     "",
   ].join("\n");
+}
+
+function commandEnvironmentLines(
+  environment: Record<string, string> = {},
+): string[] {
+  return [
+    `PATH = ${toml(environment.PATH ?? "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin")}`,
+    ...Object.entries(environment)
+      .filter(([name]) => !["PATH", "HOME", "TMPDIR"].includes(name))
+      .map(([name, value]) => `${toml(name)} = ${toml(value)}`),
+  ];
+}
+
+function optionalRootLines(
+  root: string | undefined,
+  permission: string,
+): string[] {
+  return root ? [`${toml(root)} = ${toml(permission)}`] : [];
+}
+
+function readRootLines(
+  options: Parameters<typeof codexPermissionProfile>[0],
+): string[] {
+  const roots = [
+    ...new Set([
+      ...options.executableReadRoots,
+      ...(options.runtimeReadRoots ?? []),
+    ]),
+  ];
+  return [
+    ...roots.sort().map((path) => `${toml(path)} = "read"`),
+    ...optionalRootLines(options.pluginReadRoot, "read"),
+  ];
 }
 
 function readRoot(path: string): boolean {

@@ -63,3 +63,9 @@ adapter authors must keep secrets out of this object. Bundled Codex roles record
 for the host default. Configuration paths and unrelated TOML bytes are not
 imported settings; a relocated configuration with the same effective values
 keeps this component unchanged.
+
+Selected [runtime configuration](runtime-v1.md) is retained under
+`configuration.redacted.runtimePolicy` and enters `configurationDigest`.
+It includes declared non-secret environment values, canonical read roots,
+private seed digests, and hook authority. Per-role output paths are resolved
+only during execution; runtime placeholders remain symbolic in identity.

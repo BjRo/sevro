@@ -27,6 +27,15 @@ import {
 import { claudeHostSettings } from "./claude-settings";
 import { claudeToolCallsObservation } from "./claude-tool-calls";
 import { evaluationProtectedRoots } from "./isolation-roots";
+import { prepareRuntimeState, runtimeObservations } from "../runtime-state";
+import { runtimeExecutableProtection } from "../runtime-paths";
+import {
+  prepareHookMounts,
+  runtimeHookObservation,
+  runtimeHooksEnabled,
+  releaseRuntimeHooks,
+  type HookMounts,
+} from "../runtime-hooks";
 import { runClaudeTurns, type ClaudeSession } from "./claude-continuation";
 
 const DEFAULT_TIMEOUT_MS = 10 * 60_000;
@@ -60,6 +69,9 @@ function minimalRoots(roots: string[]): string[] {
 }
 
 type Request = Parameters<HostAdapter["run"]>[0];
+function runtimeSeedSources(request: Request): string[] {
+  return (request.runtimePolicy?.seeds ?? []).map((seed) => seed.source);
+}
 type PluginDeclaration = NonNullable<Request["claudePluginDirs"]>;
 type PluginInvocation = NonNullable<Request["explicitSkillInvocation"]> & {
   scope?: "plugin";
@@ -253,6 +265,8 @@ export function createClaudeHost(options: ClaudeHostOptions): HostAdapter {
     effort: options.effort,
     hostCapabilities: [
       "sevro.host.native-goal",
+      "sevro.host.runtime",
+      "sevro.host.hooks",
       "sevro.claude.plugin-dirs",
       "sevro.claude.explicit-invocation",
       ...(options.projectSettings
@@ -315,8 +329,10 @@ async function runClaudeRequest(
     ? await pluginDirectories(request.workspace, request.claudePluginDirs)
     : [];
   await verifyInvocation(request, pluginDirs);
+  requireIsolatedHookSources(request, options);
   const repositoryInvocation = await repositoryMount(request, options);
   const stateRoot = await mkdtemp(join(tmpdir(), "sevro-claude-state-"));
+  let hooks: HookMounts | undefined;
   try {
     const state = await prepareClaudeState(
       stateRoot,
@@ -324,6 +340,7 @@ async function runClaudeRequest(
       request,
       pluginDirs,
     );
+    hooks = state.hooks;
     const run = (prompt: string, session?: ClaudeSession) =>
       runClaudeProcess({
         argv: claudeTurnArgs(
@@ -331,7 +348,7 @@ async function runClaudeRequest(
           prompt,
           session,
           state.settingsPath,
-          pluginDirs,
+          state.pluginDirs,
         ),
         cwd: request.workspace,
         env: state.env,
@@ -344,15 +361,34 @@ async function runClaudeRequest(
       workspace: request.workspace,
       run,
     });
-    return await claudeResult(
+    const result = await claudeResult(
       execution,
       state.credential,
       request,
       repositoryInvocation,
     );
+    await addHookObservation(result, state.hooks);
+    return result;
   } finally {
+    await releaseRuntimeHooks(hooks);
     await rm(stateRoot, { recursive: true, force: true });
   }
+}
+
+function requireIsolatedHookSources(
+  request: Request,
+  options: ClaudeHostOptions,
+): void {
+  if (runtimeHooksEnabled(request.runtimePolicy) && options.projectSettings)
+    throw new Error("native goals require isolated hook sources");
+}
+
+async function addHookObservation(
+  result: HostResult,
+  hooks: Awaited<ReturnType<typeof prepareHookMounts>> | undefined,
+): Promise<void> {
+  if (!hooks) return;
+  result.observations?.push(await runtimeHookObservation(hooks));
 }
 
 async function createClaudePrivateState(
@@ -382,18 +418,25 @@ async function protectedClaudeRoots(
   options: ClaudeHostOptions,
   credential: string,
 ) {
-  const roots = minimalRoots(
-    await evaluationProtectedRoots({
-      workspace: request.workspace,
-      projectRoot: options.projectRoot,
-      resultsRoot: options.resultsRoot,
-      additionalRoots: options.additionalProtectedRoots,
-    }),
-  );
+  const candidates = await evaluationProtectedRoots({
+    workspace: request.workspace,
+    projectRoot: options.projectRoot,
+    resultsRoot: options.resultsRoot,
+    additionalRoots: [
+      ...options.additionalProtectedRoots,
+      ...runtimeSeedSources(request),
+    ],
+  });
+  const roots = request.runtimePolicy ? candidates : minimalRoots(candidates);
   if (roots.some((root) => inside(root, credential)))
     throw new Error("Claude private state overlaps a protected root");
   const binary = await realpath(options.binary);
-  if (roots.some((root) => inside(root, binary)))
+  const executableRoots = runtimeExecutableProtection(
+    [dirname(binary)],
+    roots,
+    Boolean(request.runtimePolicy),
+  );
+  if (executableRoots.some((root) => inside(root, binary)))
     throw new Error("Claude executable resides inside a protected root");
   return roots;
 }
@@ -444,14 +487,9 @@ function claudeEnvironment(
 ) {
   return {
     ...state.authentication.environment,
+    ...request.runtimePolicy?.environment,
     CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1",
-    PATH: [
-      request.fixtureBinDir,
-      toolchain,
-      process.env.PATH ?? "/usr/bin:/bin",
-    ]
-      .filter(Boolean)
-      .join(delimiter),
+    PATH: claudePath(request, toolchain),
     LANG: process.env.LANG ?? "C",
     HOME: runtime ? join(runtime, "host-home") : state.home,
     TMPDIR: state.temp,
@@ -459,6 +497,16 @@ function claudeEnvironment(
     NO_COLOR: "1",
     ...claudeRuntimeEnvironment(runtime),
   };
+}
+
+function claudePath(request: Request, toolchain: string | null): string {
+  const path =
+    request.runtimePolicy?.environment.PATH ??
+    process.env.PATH ??
+    "/usr/bin:/bin";
+  return [request.fixtureBinDir, toolchain, path]
+    .filter(Boolean)
+    .join(delimiter);
 }
 
 function claudeRuntimeEnvironment(
@@ -485,21 +533,77 @@ async function prepareClaudeState(
   const toolchain = await claudeToolchainDirectory(options, roots);
   const runtime = await prepareClaudeRuntime(options, roots, request.workspace);
   const settingsPath = join(state.privateRoot, "settings.json");
+  const hooks = await claudeHookMounts(
+    request,
+    stateRoot,
+    state.privateRoot,
+    pluginDirs,
+    roots,
+  );
+  const effectivePlugins = hooks?.directories ?? pluginDirs;
   await writeFile(
     settingsPath,
     JSON.stringify(
       claudeHostSettings(
         state.privateRoot,
         state.credential,
-        pluginDirs,
+        [...pluginDirs, ...effectivePlugins],
         roots,
+        request.runtimePolicy,
       ),
     ),
     { flag: "wx", mode: 0o600 },
   );
   const env = claudeEnvironment(state, request, toolchain, runtime);
+  await applyClaudeRuntimeEnvironment(request, env);
   if (runtime) await mkdir(env.HOME, { mode: 0o700 });
-  return { credential: state.credential, settingsPath, env };
+  return {
+    credential: state.credential,
+    settingsPath,
+    env,
+    hooks,
+    pluginDirs: effectivePlugins,
+  };
+}
+
+async function claudeHookMounts(
+  request: Request,
+  stateRoot: string,
+  privateRoot: string,
+  pluginDirs: string[],
+  roots: string[],
+) {
+  const policy = request.runtimePolicy;
+  if (!policy || !runtimeHooksEnabled(policy)) return undefined;
+  return prepareHookMounts({
+    workspace: request.workspace,
+    stateRoot,
+    privateRoot,
+    pluginRoots: pluginDirs,
+    protectedRoots: [
+      privateRoot,
+      ...roots,
+      ...(policy.seeds ?? []).map((seed) => seed.source),
+    ],
+    policy,
+  });
+}
+
+async function applyClaudeRuntimeEnvironment(
+  request: Request,
+  env: Record<string, string>,
+): Promise<void> {
+  if (request.runtimePolicy) {
+    const isolated = await prepareRuntimeState(
+      request.workspace,
+      request.runtimePolicy,
+      request.runtimeRole ?? "candidate",
+    );
+    Object.assign(env, isolated.environment);
+    env.PATH = [request.fixtureBinDir, isolated.environment.PATH ?? env.PATH]
+      .filter(Boolean)
+      .join(delimiter);
+  }
 }
 
 function claudeTurnArgs(
@@ -577,6 +681,7 @@ async function claudeObservations(
   );
   return [
     tools,
+    ...runtimeObservations(request.runtimePolicy, request.runtimeRole),
     await observeClaudeNativeGoal(
       dirname(credential),
       execution.followUpOut ?? execution.out,

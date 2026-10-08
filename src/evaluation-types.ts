@@ -8,6 +8,8 @@ import type { RepositoryFixture } from "./repository-fixture";
 import type { EvaluationResult, ExtensionCase } from "./extension-session";
 import type { openExtensionSession } from "./extension-session";
 import type { Assessment, CheckOutcome } from "./results";
+import type { RuntimePolicy } from "./runtime-config";
+import type { RuntimeRole } from "./runtime-state";
 
 export class EvaluationConfigurationError extends Error {
   constructor(message: string, options?: ErrorOptions) {
@@ -42,6 +44,8 @@ export interface HostAdapter {
   hostCapabilities?: string[];
   configuration?: Record<string, unknown>;
   run(request: {
+    runtimePolicy?: RuntimePolicy;
+    runtimeRole?: RuntimeRole;
     prompt: string;
     followUpPrompt?: string;
     workspace: string;
@@ -92,6 +96,7 @@ export interface ResolvedCase {
 }
 
 export interface EvaluationOptions {
+  runtimePolicy?: RuntimePolicy;
   projectRoot: string;
   resultsRoot: string;
   runStateRoot?: string;

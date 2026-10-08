@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:sevro:schema:runtime:v1",
+  "title": "Sevro runtime policy v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format"],
+  "properties": {
+    "hooks": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "nativeGoal": { "type": "boolean" },
+        "plugins": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$",
+            "maxLength": 128
+          }
+        }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "seedDirectories": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["source", "target"],
+            "properties": {
+              "source": { "type": "string", "minLength": 1, "maxLength": 4096 },
+              "target": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,63}$",
+                "not": { "enum": ["home", "tmp"] }
+              }
+            }
+          }
+        }
+      }
+    },
+    "format": { "const": "sevro.runtime.v1" },
+    "filesystem": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "readOnlyRoots": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 4096 }
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "inherit": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$"
+          }
+        },
+        "set": {
+          "type": "object",
+          "maxProperties": 64,
+          "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$" },
+          "additionalProperties": { "type": "string", "maxLength": 8192 }
+        }
+      }
+    }
+  }
+}

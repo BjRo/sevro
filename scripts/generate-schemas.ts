@@ -8,7 +8,7 @@ const check = process.argv.slice(2);
 if (check.length && (check.length !== 1 || check[0] !== "--check"))
   throw new Error("expected no arguments or --check");
 
-const names = ["cli-result", "run-evidence", "report", "extension"];
+const names = ["cli-result", "run-evidence", "report", "extension", "runtime"];
 const ajv = new Ajv2020({
   strict: true,
   strictRequired: false,

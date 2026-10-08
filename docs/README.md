@@ -12,6 +12,7 @@ Start with the task you want to complete. These pages work without an agent.
 | Create cases and reusable policy              | [Cases and extensions](creating-cases.md)                |
 | Interpret verdicts, evidence, and comparisons | [Reading results](reading-results.md)                    |
 | Run Codex or Claude with isolation            | [Native hosts](native-hosts.md)                          |
+| Reuse host tools or enable goals and hooks    | [Runtime configuration](runtime-v1.md)                   |
 | Resolve a symptom                             | [Troubleshooting](troubleshooting.md)                    |
 | Understand runner responsibilities            | [Architecture](architecture.md)                          |
 | Change Sevro or its documentation             | [Contributing](../CONTRIBUTING.md)                       |
