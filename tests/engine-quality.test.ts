@@ -301,6 +301,10 @@ async function cancelReadySetup(options: EvaluationOptions) {
   const observer = watch(options.projectRoot, (_event, name) => {
     if (name === "setup-ready.json") ready.resolve(undefined);
   });
+  const poll = setInterval(() => {
+    if (existsSync(join(options.projectRoot, "setup-ready.json")))
+      ready.resolve(undefined);
+  }, 20);
   const timer = setTimeout(() => {
     ready.reject(new Error("Fixture setup did not publish readiness"));
   }, 5000);
@@ -321,6 +325,7 @@ async function cancelReadySetup(options: EvaluationOptions) {
   } finally {
     abort.abort("SIGINT");
     observer.close();
+    clearInterval(poll);
     clearTimeout(timer);
     await pending.catch(() => undefined);
   }

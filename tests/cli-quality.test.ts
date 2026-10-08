@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { mkdtemp, writeFile, rm, access, readFile } from "node:fs/promises";
-import { watch } from "node:fs";
+import { existsSync, watch } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import baseline from "../examples/basic/graded.json";
@@ -259,6 +259,9 @@ async function interruptReadyCli(
   const observer = watch(root, (_event, name) => {
     if (name === "setup-ready.json") ready.resolve(undefined);
   });
+  const poll = setInterval(() => {
+    if (existsSync(join(root, "setup-ready.json"))) ready.resolve(undefined);
+  }, 20);
   const timer = setTimeout(() => {
     ready.reject(new Error("Setup readiness was not published"));
   }, 5000);
@@ -283,6 +286,7 @@ async function interruptReadyCli(
     return { result: parseCliResult(out), stderr: err, code, receipt };
   } finally {
     observer.close();
+    clearInterval(poll);
     clearTimeout(timer);
     if (child.exitCode === null) child.kill("SIGTERM");
     await child.exited;

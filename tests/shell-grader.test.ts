@@ -129,7 +129,7 @@ test("active shell cancellation stops only the receipt-bound owned process", asy
   let running: Promise<unknown> | undefined;
   try {
     const check = outputCheck({
-      run: 'printf "%s\\n" "$$" > ready; exec sleep 30',
+      run: 'printf "%s\\n" "$$" > ready; while :; do printf . >> heartbeat; sleep 0.05; done',
       timeoutMs: 5000,
     });
     running = runShellCheck(check, {
@@ -142,9 +142,16 @@ test("active shell cancellation stops only the receipt-bound owned process", asy
     );
     expect(Number.isSafeInteger(pid)).toBe(true);
     expect(pid).toBeGreaterThan(0);
+    const heartbeat = join(options.workspace, "heartbeat");
+    await Bun.sleep(100);
+    expect(existsSync(heartbeat)).toBe(true);
     controller.abort();
     expect(await running).toMatchObject({ message: "shell check cancelled" });
-    expect(() => process.kill(pid, 0)).toThrow(/ESRCH|No such process/);
+    const stoppedAt = await readFile(heartbeat, "utf8");
+    await Bun.sleep(150);
+    expect(await readFile(heartbeat, "utf8")).toBe(stoppedAt);
+    if (process.platform === "darwin")
+      expect(() => process.kill(pid, 0)).toThrow(/ESRCH|No such process/);
   } finally {
     controller.abort();
     if (running) await running;
