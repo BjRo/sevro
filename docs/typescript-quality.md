@@ -73,8 +73,8 @@ Named integration callbacks may use a documented, local function-length
 exception to keep one fixture/invocation/assertion story together. The independent
 `sevro/test-callback-lines` rule bounds every direct or chained Bun `test`/`it`
 callback at 200 lines; helpers remain at 80 and complexity remains five.
-[`typescript-test-callback-exceptions.json`](typescript-test-callback-exceptions.json)
-records the exact assessed scenarios. The maintained CommonJS capture hook has
+Each exception is explained in an ESLint comment beside the affected test.
+The maintained CommonJS capture hook has
 one import-style exception for its synchronous Node filesystem/path `require`
 calls. Instrumented authored modules import it to register process capture; the
 Bun test preload uses its exported handle to flush completion at teardown. The
@@ -151,13 +151,8 @@ CI invokes the canonical gate, uploads `.quality` even when coverage fails, and
 publishes the stable aggregate `TypeScript quality` status. A cancelled, skipped
 or failed gate cannot turn that status green.
 
-[`typescript-coverage-discovery.json`](typescript-coverage-discovery.json) retains
-one portable machine-readable summary of the discovery observations and the
-digest of the original external record. The maintained prototype-derived harness
-is in `scripts/coverage/`; fresh CI reports provide candidate-specific evidence.
-Original raw discovery evidence remains outside the repository. Discovery
-included generated validators; the current authored-only scope is defined above.
-Its targeted feasibility results are not a full-suite baseline or 95% acceptance evidence.
+The maintained coverage harness is in `scripts/coverage/`; fresh CI reports
+provide candidate-specific evidence.
 
 References: [Darrow's Python quality contract](https://github.com/BjRo/darrow/blob/main/docs/specs/python-quality.md),
 [typescript-eslint presets](https://typescript-eslint.io/users/configs/),

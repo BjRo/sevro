@@ -12,7 +12,6 @@ Read these human contracts and their schemas together:
 [Guide specification](specs/repository-guide.md) governs the repository assistant.
 [LICENSE](../LICENSE) governs licensing. The
 [TypeScript quality contract](typescript-quality.md) defines source inventories,
-development checks, and coverage policy for [issue #1](https://github.com/BjRo/sevro/issues/1).
-There is no accepted Rust migration decision here.
+development checks, and coverage policy.
 [Architecture](architecture.md) explains implementation context;
 [historical validation](evidence.md) records past observations. Return to the [hub](README.md).
