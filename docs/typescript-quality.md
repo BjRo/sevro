@@ -139,7 +139,8 @@ graceful SIGINT/SIGTERM cancellation, filesystem isolation and owned-child paths
 ## Environment and CI
 
 The discovery backend was observed with Bun 1.3.13, macOS arm64 and Node 24.13.0.
-Implementation also ran on macOS arm64 (Darwin kernel 27.0.0). No additional Bun
+Implementation also ran on macOS arm64 (Darwin kernel 27.0.0). CI pins
+Codex 0.160.1 and Claude Code 2.1.284 for deterministic native hook tests. No additional Bun
 version or operating system is claimed from that evidence. Hosted CI targets
 `macos-26` arm64 with the same Bun/Node versions; its first successful hosted run
 is required before describing that specific OS as validated. GitHub documents

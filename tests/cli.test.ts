@@ -1456,7 +1456,7 @@ printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_token
     "[agents]\nmax_concurrent_threads_per_session = 9\n",
   );
   const changed = await invoke([...selectedArgs, "--dry"]);
-  expect(changed.code).toBe(0);
+  expect(changed.code, JSON.stringify(changed.result.diagnostic)).toBe(0);
   const changedEvidence = parseRunEvidence(
     await readFile(defined(changed.result.evidencePath), "utf8"),
   );
@@ -1470,7 +1470,7 @@ printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_token
     "[agents]\nmax_concurrent_threads_per_session = 7\n",
   );
   const restored = await invoke([...selectedArgs, "--dry"]);
-  expect(restored.code).toBe(0);
+  expect(restored.code, JSON.stringify(restored.result.diagnostic)).toBe(0);
   const restoredEvidence = parseRunEvidence(
     await readFile(defined(restored.result.evidencePath), "utf8"),
   );

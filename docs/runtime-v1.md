@@ -1,9 +1,8 @@
 # Runtime configuration v1
 
 Configure access to existing host tools, private writable caches, native goals,
-and selected plugin hooks in `<project-root>/sevro.json`. This is checkout
-behavior newer than published `0.1.0-rc.2`; use this checkout or a package built
-from it until a release includes it.
+and selected plugin hooks in `<project-root>/sevro.json`. This interface is
+available in `0.1.0-rc.3` and later.
 
 `--runtime-config-file /absolute/path/runtime.json` selects a replacement file.
 Sevro reads exactly one file before execution, including dry runs. It does not

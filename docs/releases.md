@@ -7,9 +7,9 @@ exact semantic version; development versions containing `-dev` are not release
 candidates. Darrow pins the published version in development dependencies and
 its lockfile. Marketplace plugins do not depend on Sevro.
 
-This checkout's new [licensing terms](licensing.md) are unreleased. Published
-`rc.1` and `rc.2` retain their original BSL grants. Select a new version before
-publishing these changes; a local development tarball does not replace an
+Release candidate `0.1.0-rc.3` uses the current [licensing terms](licensing.md).
+Published `rc.1` and `rc.2` retain their original BSL grants. Always select a new
+version for publication; a local development tarball does not replace an
 already published artifact.
 
 ## Candidate contract
@@ -53,7 +53,7 @@ metadata in the installed package.
 4. Run Darrow's public integration against that same tarball:
 
    ```sh
-   SEVRO_PACKAGE_TARBALL="/absolute/new/release-directory/bjoernrochel-sevro-${SEVRO_RELEASE_VERSION}.tgz" bun run test:eval-runner-sevro-package
+   SEVRO_PACKAGE_TARBALL="/absolute/new/release-directory/bjoernrochel-sevro-${SEVRO_RELEASE_VERSION}.tgz" bun run test:eval-package
    ```
 
 5. Review the changes, file inventory, retained checks, and compatibility

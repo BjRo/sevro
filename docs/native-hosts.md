@@ -19,7 +19,7 @@ Select `--host claude`, an absolute `--claude-bin`, and the desired model/effort
 The route supports passive candidate turns. Explicit `--claude-credential-file`
 takes precedence. Otherwise this checkout forwards inherited API/OAuth
 credentials, then tries a saved credential file and macOS Keychain.
-These improvements are newer than published `rc.2`; check the exact installed
+These improvements require `rc.3` or later; check the exact installed
 release before relying on them.
 
 Repository skill mounts under `.claude/skills` require explicit
@@ -27,7 +27,7 @@ Repository skill mounts under `.claude/skills` require explicit
 launch. The bundled route disables hooks by default and omits candidate Write
 access. [Runtime configuration](runtime-v1.md) enables native goals and selected
 plugin hooks and reuses declared host tools with private caches. These changes
-are newer than published `rc.2`. The CLI reference covers credential scrubbing
+require `rc.3` or later. The CLI reference covers credential scrubbing
 and follow-ups.
 
 ## Keep sources and credentials separate
