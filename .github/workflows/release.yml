@@ -12,6 +12,11 @@ on:
         required: true
         default: false
         type: boolean
+      expected_sha256:
+        description: Reviewed tarball SHA-256 (required when publishing)
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -44,6 +49,22 @@ jobs:
       - run: bun test --timeout 15000
       - name: Prepare the tagged package
         run: bun run release:prepare --tag "$RELEASE_TAG" --output "$RUNNER_TEMP/sevro-release"
+      - name: Bind publication to the reviewed archive
+        if: inputs.publish || inputs.expected_sha256 != ''
+        env:
+          EXPECTED_SHA256: ${{ inputs.expected_sha256 }}
+        run: |
+          bun -e '
+            const expected = process.env.EXPECTED_SHA256;
+            if (!expected || !/^[0-9a-f]{64}$/.test(expected))
+              throw new Error("Publishing requires the reviewed tarball SHA-256");
+            const record = await Bun.file(process.env.RUNNER_TEMP + "/sevro-release/release.json").json();
+            const actual = new Bun.CryptoHasher("sha256")
+              .update(await Bun.file(record.archive).arrayBuffer()).digest("hex");
+            if (actual !== expected)
+              throw new Error("Release archive differs from the reviewed tarball");
+            console.log("Reviewed release archive SHA-256 verified: " + actual);
+          '
       - name: Install and verify that exact tarball
         run: bun run test:package-install --tarball "$RUNNER_TEMP/sevro-release/bjoernrochel-sevro-${RELEASE_TAG#v}.tgz"
       - uses: actions/upload-artifact@v7
