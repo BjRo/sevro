@@ -7,7 +7,7 @@ exact semantic version; development versions containing `-dev` are not release
 candidates. Darrow pins the published version in development dependencies and
 its lockfile. Marketplace plugins do not depend on Sevro.
 
-Release candidate `0.1.0-rc.3` uses the current [licensing terms](licensing.md).
+The [current release](installing.md#current-release) uses the current [licensing terms](licensing.md).
 Published `rc.1` and `rc.2` retain their original BSL grants. Always select a new
 version for publication; a local development tarball does not replace an
 already published artifact.
@@ -38,7 +38,7 @@ metadata in the installed package.
 ## Maintainer workflow
 
 1. Select the license, update `package.json` to the intended release version,
-   and commit those changes. Preserve the existing public schemas and document
+   run `bun run docs:sync`, and commit those changes. Preserve the existing public schemas and document
    behavior changes. Set `publishConfig.tag` to `latest` for the recommended
    default or `next` for an opt-in preview. A prerelease does not establish full
    Darrow migration completion.

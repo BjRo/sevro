@@ -16,7 +16,7 @@ account is required.
 ## Status and environments
 
 Sevro is under active development. The npm package is `@bjoernrochel/sevro`;
-its command is `sevro`. Release candidate `0.1.0-rc.3` includes runtime
+its command is `sevro`. The [current release](docs/installing.md#current-release) includes runtime
 configuration, native goals, selected plugin hooks, and the current licensing terms.
 Earlier `rc.1` and `rc.2` packages retain their original BSL grants.
 See [installation and release differences](docs/installing.md).
@@ -33,9 +33,9 @@ deterministic adapter and needs no native model credentials.
 mkdir sevro-demo
 cd sevro-demo
 bun init -y
-bun add --exact @bjoernrochel/sevro@0.1.0-rc.3
 ```
 
+Install the [current release](docs/installing.md#current-release) in that directory.
 Continue with [your first evaluation](docs/getting-started.md): the exact command,
 expected `passed` result, and retained evidence. Read [installation](docs/installing.md)
 for updates, removal, and source checkouts.
@@ -72,7 +72,7 @@ environment.
 
 ## License and acknowledgements
 
-Release candidate `0.1.0-rc.3` uses the [Sevro Source Available License 1.0](LICENSE).
+The [current release](docs/installing.md#current-release) uses the [Sevro Source Available License 1.0](LICENSE).
 Use is free in every context, including commercial work and paid education.
 Selling copies, rebranded versions, or hosted access to Sevro's functionality
 requires a separate license. Modification and free redistribution remain allowed.

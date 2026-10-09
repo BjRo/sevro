@@ -30,6 +30,15 @@ async function fixture() {
     resolve(import.meta.dir, "../scripts/prepare-release.ts"),
     command,
   );
+  await copyFile(
+    resolve(import.meta.dir, "../scripts/release-documentation.ts"),
+    join(source, "scripts/release-documentation.ts"),
+  );
+  await mkdir(join(source, "src"));
+  await copyFile(
+    resolve(import.meta.dir, "../src/value-guards.ts"),
+    join(source, "src/value-guards.ts"),
+  );
   const manifest = {
     name: "@bjoernrochel/sevro",
     version: "0.1.0-rc.1",
@@ -51,6 +60,8 @@ async function fixture() {
     "package.json": JSON.stringify(manifest),
     LICENSE: "Synthetic test fixture license.\n",
     "README.md": "Fixture documentation.\n",
+    "docs/installing.md":
+      "<!-- sevro-current-release:start -->\n\n## Current release\n\nThe current release is `0.1.0-rc.1`. Install this exact version:\n\n```sh\nbun add --exact @bjoernrochel/sevro@0.1.0-rc.1\n```\n\n<!-- sevro-current-release:end -->\n",
     "src/cli.ts": "#!/usr/bin/env bun\nconsole.log('READY');\n",
     "schemas/run-evidence-v1.schema.json": "{}\n",
     "schemas/report-v1.schema.json": "{}\n",
@@ -84,6 +95,28 @@ test("scoped package installation retains the sevro command and release provenan
   );
   expect(checked.code, checked.stderr).toBe(0);
 }, 60000);
+test("release preparation refuses stale documentation before creating an artifact", async () => {
+  const { source, command, output } = await fixture();
+  const path = join(source, "docs/installing.md");
+  const stale = (await readFile(path, "utf8")).replaceAll(
+    "0.1.0-rc.1",
+    "0.1.0-rc.2",
+  );
+  await writeFile(path, stale);
+  const run = await invoke(command, [
+    "--tag",
+    "v0.1.0-rc.1",
+    "--output",
+    output,
+  ]);
+  expect(run.stderr).toContain(
+    "Current release is stale; run bun run docs:sync",
+  );
+  expect(run.code).toBe(1);
+  expect(existsSync(output)).toBe(false);
+  expect(await readFile(path, "utf8")).toBe(stale);
+});
+
 test.each(["next", "latest"])(
   "release preparation retains a real tarball, identity, inventory, and checksums (%s)",
   async (distTag) => {
@@ -214,6 +247,14 @@ test("the package installation gate rejects a different candidate version", asyn
   const { source, command, output, manifest } = await fixture();
   manifest.version = "9.8.7-rc.1";
   await writeFile(join(source, "package.json"), JSON.stringify(manifest));
+  const documentation = join(source, "docs/installing.md");
+  await writeFile(
+    documentation,
+    (await readFile(documentation, "utf8")).replaceAll(
+      "0.1.0-rc.1",
+      "9.8.7-rc.1",
+    ),
+  );
   const prepared = await invoke(command, [
     "--tag",
     "v9.8.7-rc.1",

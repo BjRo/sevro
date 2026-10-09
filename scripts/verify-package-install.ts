@@ -10,6 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
+import { checkReleaseDocumentation } from "./release-documentation";
 
 const sourceRoot = resolve(import.meta.dir, "..");
 const { values } = parseArgs({
@@ -39,6 +40,9 @@ try {
   const sourceManifest = JSON.parse(
     await readFile(join(sourceRoot, "package.json"), "utf8"),
   ) as { version: string };
+  const documentationErrors = await checkReleaseDocumentation(sourceRoot);
+  if (documentationErrors.length)
+    throw new Error(documentationErrors.join("\n"));
   const archive =
     values.tarball ??
     join(root, `bjoernrochel-sevro-${sourceManifest.version}.tgz`);
@@ -88,6 +92,10 @@ try {
     manifest.version !== sourceManifest.version
   )
     throw new Error("installed package identity differs from source metadata");
+  const installedDocumentationErrors =
+    await checkReleaseDocumentation(installed);
+  if (installedDocumentationErrors.length)
+    throw new Error(installedDocumentationErrors.join("\n"));
   async function installedRun(caseName: string) {
     const output = await run(
       [

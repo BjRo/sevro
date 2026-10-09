@@ -107,5 +107,8 @@ native trials or remote CI results.
 
 Follow [releases](docs/releases.md): choose a new version, prepare and inspect
 the exact tarball, verify its license/provenance, and validate that artifact.
+After changing `package.json.version`, run `bun run docs:sync` to refresh the
+[current release](docs/installing.md#current-release). `check:docs`, release
+preparation, and package-install validation reject stale release documentation.
 Publication, tags, registry changes, and alternative licensing are separate
 maintainer actions; preparing a contribution does not authorize them.
