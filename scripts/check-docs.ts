@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { inspectMarkdown, type Page } from "./documentation-markdown";
 import { externalLinks, localLink, markdownFiles } from "./documentation-links";
 import { guideChecks } from "./documentation-inventory";
+import { checkReleaseDocumentation } from "./release-documentation";
 export { inspectMarkdown } from "./documentation-markdown";
 
 async function pageChecks(
@@ -33,6 +34,7 @@ export async function checkDocs(
   for (const page of pages.values())
     errors.push(...(await pageChecks(root, page, pages, remote)));
   errors.push(...(await guideChecks(root)));
+  errors.push(...(await checkReleaseDocumentation(root)));
   if (external) errors.push(...(await externalLinks(remote)));
   return errors;
 }

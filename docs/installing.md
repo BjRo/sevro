@@ -10,12 +10,25 @@ Linux and Windows are unverified.
 mkdir sevro-demo
 cd sevro-demo
 bun init -y
-bun add --exact @bjoernrochel/sevro@0.1.0-rc.3
 ```
+
+Then install the [current release](#current-release) in that directory.
 
 Run the [packaged deterministic example](getting-started.md#from-an-installed-package)
 to verify installation. It needs neither model credentials nor Darrow.
 Local installation records the selected version in the project lockfile.
+
+<!-- sevro-current-release:start -->
+
+## Current release
+
+The current release is `0.1.0-rc.3`. Install this exact version:
+
+```sh
+bun add --exact @bjoernrochel/sevro@0.1.0-rc.3
+```
+
+<!-- sevro-current-release:end -->
 
 ## Make the command available
 
@@ -33,10 +46,11 @@ no adjustment is needed. Bun must also be on `PATH`: the executable uses
 
 ## Published package and checkout
 
-The commands above pin release candidate `0.1.0-rc.3`, which includes runtime
+The [current release](#current-release) includes runtime
 configuration, native goals, selected plugin hooks, current onboarding, and
 [source-available licensing terms](licensing.md). Earlier `rc.1` and `rc.2`
-packages retain BUSL-1.1. Source checkouts can include changes beyond their
+packages retain BUSL-1.1. The license transition began with `0.1.0-rc.3`.
+Source checkouts can include changes beyond their
 package version; compare the exact release tag when establishing provenance.
 
 The candidate npm package contains sources, schemas, examples, documentation,
@@ -57,14 +71,10 @@ directories; it does not publish. [Contributing](../CONTRIBUTING.md) lists check
 
 ## Update
 
-Review a release's license and compatibility, then install its exact version:
-
-```sh
-bun add --exact @bjoernrochel/sevro@0.1.0-rc.3
-```
-
-This selects `rc.3` explicitly. For later updates, substitute the intended
-published version, then rerun the example.
+Review a release's license and compatibility, then use the exact installation
+command for the [current release](#current-release) from your existing project.
+To select a different published version, substitute that exact version in the
+command, then rerun the [packaged example](getting-started.md#from-an-installed-package).
 Rollback uses the prior exact version and another verification run.
 [Releases](releases.md) explains artifact provenance.
 

@@ -119,8 +119,10 @@
     "scripts/guide/extension.ts",
     "scripts/guide/fixture.ts",
     "scripts/prepare-release.ts",
+    "scripts/release-documentation.ts",
     "scripts/setup-ci-codex.ts",
     "scripts/sync-guide.ts",
+    "scripts/sync-release-docs.ts",
     "scripts/typescript-inventory.ts",
     "scripts/verify-doc-examples.ts",
     "scripts/verify-package-install.ts"
@@ -197,6 +199,7 @@
     "tests/quality-fixtures/schema-boundaries.ts",
     "tests/quality-fixtures/schema-constraints.ts",
     "tests/release.test.ts",
+    "tests/release-docs.test.ts",
     "tests/report-quality.test.ts",
     "tests/report.test.ts",
     "tests/repository-fixture.test.ts",

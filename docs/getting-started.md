@@ -7,17 +7,17 @@ This teaches the runner lifecycle, not the quality of an actual model.
 
 ## From an installed package
 
-Install the release candidate in a new directory:
+Prepare a new directory:
 
 ```sh
 mkdir sevro-demo
 cd sevro-demo
 bun init -y
-bun add --exact @bjoernrochel/sevro@0.1.0-rc.3
 ```
 
-Version `rc.3` includes the current docs and source-available license; earlier
-`rc.2` packages retain their original BSL terms. Read [version differences](installing.md#published-package-and-checkout).
+Install the [current release](installing.md#current-release) there, then return
+here to run the example. Read [version differences](installing.md#published-package-and-checkout)
+for the current docs, source-available license, and earlier BSL releases.
 
 Make the local installation available on `PATH` for this shell, then call
 `sevro` directly. Bun must also be on `PATH`.

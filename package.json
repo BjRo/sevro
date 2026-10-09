@@ -37,6 +37,7 @@
     "schemas:check": "bun scripts/generate-schemas.ts --check",
     "test:package-install": "bun scripts/verify-package-install.ts",
     "check:docs": "bun scripts/check-docs.ts",
+    "docs:sync": "bun scripts/sync-release-docs.ts",
     "check:docs:external": "bun scripts/check-docs.ts --external",
     "test:docs-examples": "bun scripts/verify-doc-examples.ts",
     "guide:sync": "bun scripts/sync-guide.ts",

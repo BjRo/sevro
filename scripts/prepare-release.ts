@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { basename, isAbsolute, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
+import { checkReleaseDocumentation } from "./release-documentation";
 
 const sourceRoot = resolve(import.meta.dir, "..");
 const releaseVersion =
@@ -143,6 +144,9 @@ async function prepare() {
   await validateLicense(manifest);
   validateRepository(manifest);
   validateRegistry(manifest);
+  const documentationErrors = await checkReleaseDocumentation(sourceRoot);
+  if (documentationErrors.length)
+    throw new Error(documentationErrors.join("\n"));
 
   const output = resolve(values.output);
   await mkdir(output, { mode: 0o700 });
