@@ -1,6 +1,6 @@
 import { lstat, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { sha256 } from "./evaluation-fixture";
+import { sha256 } from "./identity";
 import type { HostResult } from "./evaluation-types";
 import type { RuntimeRole } from "./runtime-state";
 import type { RuntimePolicy } from "./runtime-config";

@@ -1,19 +1,14 @@
 import type { Stats } from "node:fs";
-import { createHash } from "node:crypto";
 import { lstat, readFile, readdir, readlink, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import packageJson from "../package.json";
-import { hashJson } from "./identity";
+import { hashJson, sha256 } from "./identity";
 
 const MAX_DIRTY_BYTES = 32 * 1024 * 1024;
 const MAX_BUILD_BYTES = 64 * 1024 * 1024;
 const MAX_BUILD_FILES = 4096;
-
-function sha256(bytes: Uint8Array): string {
-  return createHash("sha256").update(bytes).digest("hex");
-}
 
 type BuildFile = { path: string; sha256: string };
 type ProjectFile = BuildFile & { executable: boolean };

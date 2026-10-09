@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { allocateNativeState } from "./native-transcript-state";
 import { fixtureParts } from "./preparation";
 import { isRecord, isUnknownArray } from "./value-guards";
-import { sha256 } from "./evaluation-fixture";
+import { sha256 } from "./identity";
 
 export async function materializeNativeTranscriptView(
   bytes: Uint8Array,

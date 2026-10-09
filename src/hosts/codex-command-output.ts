@@ -1,6 +1,6 @@
 import { isAbsolute, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
-import { isUnknownArray } from "../value-guards";
+import { isRecord, isUnknownArray } from "../value-guards";
 import {
   literalExecutorCommand,
   type LiteralExecutorCommand,
@@ -22,10 +22,6 @@ export interface RecoveredCommandOutput {
   chunks: number;
   completedCall?: boolean;
   literalCommandCall?: boolean;
-}
-
-function record(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function processId(value: unknown): string | undefined {
@@ -75,7 +71,7 @@ function textEnvelope(value: unknown): boolean {
 function containerChunks(value: unknown, depth: number): YieldedChunk[] {
   if (Array.isArray(value))
     return value.flatMap((part: unknown) => resultChunks(part, depth + 1));
-  if (!record(value)) return [];
+  if (!isRecord(value)) return [];
   if (textEnvelope(value.type)) return resultChunks(value.text, depth + 1);
   const chunk = yieldedChunk(value);
   return chunk ? [chunk] : [];
@@ -113,7 +109,7 @@ function chunksAtEntry(
 
 function commandProcess(entry: NativeEntry): string | undefined {
   const { payload } = entry;
-  if (payload.type !== "item_completed" || !record(payload.item))
+  if (payload.type !== "item_completed" || !isRecord(payload.item))
     return undefined;
   if (
     payload.item.type !== "CommandExecution" ||
@@ -134,7 +130,7 @@ function executorEnvelope(value: unknown): unknown {
 }
 function executorTextBlock(block: unknown): string | undefined {
   if (
-    !record(block) ||
+    !isRecord(block) ||
     !["input_text", "text"].includes(String(block.type)) ||
     typeof block.text !== "string"
   )
@@ -156,7 +152,7 @@ function executorTextBlocks(value: unknown): string[] | undefined {
 function structuredExecResult(text: string): boolean {
   try {
     const value: unknown = JSON.parse(text);
-    return record(value) && ("output" in value || "session_id" in value);
+    return isRecord(value) && ("output" in value || "session_id" in value);
   } catch {
     return false;
   }
@@ -210,7 +206,7 @@ function uniqueCommandIdentity(
     entries.filter(
       ({ payload }) =>
         payload.type === "item_completed" &&
-        record(payload.item) &&
+        isRecord(payload.item) &&
         payload.item.id === item.id,
     ).length === 1
   );
@@ -233,7 +229,7 @@ function soleCompletedCommand(
   const commands = between.filter(
     ({ payload }) =>
       payload.type === "item_completed" &&
-      record(payload.item) &&
+      isRecord(payload.item) &&
       payload.item.type === "CommandExecution",
   );
   return soleUniqueCommand(commands, entries);
