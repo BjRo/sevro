@@ -89,6 +89,38 @@ test("runtime roots preserve lexical symlink lookup and canonical targets", asyn
   ]);
 });
 
+test.skipIf(process.getuid?.() === 0)(
+  "PATH ignores inaccessible symlink tools while resolving readable aliases",
+  async () => {
+    const root = await fixture({ format: "sevro.runtime.v1" });
+    const bin = join(root, "tools"),
+      blocked = join(root, "blocked"),
+      readable = join(root, "readable");
+    await mkdir(bin);
+    await mkdir(blocked);
+    await mkdir(readable);
+    await writeFile(join(blocked, "hidden-tool"), "", { mode: 0o755 });
+    await writeFile(join(readable, "visible-tool"), "", { mode: 0o755 });
+    await symlink(join(blocked, "hidden-tool"), join(bin, "hidden-tool"));
+    await symlink(join(readable, "visible-tool"), join(bin, "visible-tool"));
+    await chmod(blocked, 0);
+    await writeFile(
+      join(root, "sevro.json"),
+      JSON.stringify({
+        format: "sevro.runtime.v1",
+        environment: { set: { PATH: bin } },
+      }),
+    );
+    try {
+      const policy = defined(await loadRuntimeConfiguration(root));
+      expect(policy.readOnlyRoots).toContain(readable);
+      expect(policy.readOnlyRoots).not.toContain(blocked);
+    } finally {
+      await chmod(blocked, 0o700);
+    }
+  },
+);
+
 test("declared PATH discovers bounded Homebrew support from metadata", async () => {
   const root = await fixture({ format: "sevro.runtime.v1" });
   const prefix = join(root, "unusual-brew"),
