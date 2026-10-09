@@ -121,6 +121,25 @@ test.skipIf(process.getuid?.() === 0)(
   },
 );
 
+test("runtime filesystem diagnostics bound paths and retain their cause", async () => {
+  const root = await fixture({ format: "sevro.runtime.v1" });
+  const selected = join(root, `bad\n\u007f${"x".repeat(300)}`);
+  try {
+    await loadRuntimeConfiguration(root, selected);
+    throw new Error("expected an oversized runtime file path to fail");
+  } catch (error) {
+    expect(error).toBeInstanceOf(Error);
+    if (!(error instanceof Error)) throw error;
+    expect(error.message).toContain("ENAMETOOLONG");
+    expect(error.message).toContain(`${root}/bad??`);
+    expect(error.message).not.toContain("\n");
+    expect(error.message).not.toContain("\u007f");
+    expect(defined(error.message.split(" at ")[1])).toHaveLength(256);
+    expect(error.cause).toBeInstanceOf(Error);
+    expect(error.cause).toMatchObject({ code: "ENAMETOOLONG", path: selected });
+  }
+});
+
 test("declared PATH discovers bounded Homebrew support from metadata", async () => {
   const root = await fixture({ format: "sevro.runtime.v1" });
   const prefix = join(root, "unusual-brew"),

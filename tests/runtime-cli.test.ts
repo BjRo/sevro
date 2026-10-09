@@ -219,7 +219,7 @@ test.skipIf(process.getuid?.() === 0)(
       expect(run.result.diagnostic?.code).toBe("sevro.invocation.invalid");
       expect(run.result.diagnostic?.message).toContain("EACCES");
       expect(run.result.diagnostic?.message).toMatch(
-        /filesystem (?:access|lstat|stat|realpath) failed/,
+        /filesystem (?:access|lstat|stat|statx|realpath) failed/,
       );
       expect(run.result.diagnostic?.message).toContain(blocked);
     } finally {
@@ -244,7 +244,7 @@ test.skipIf(process.getuid?.() === 0)(
       expect(run.result.diagnostic?.code).toBe("sevro.invocation.invalid");
       expect(run.result.diagnostic?.message).toContain("EACCES");
       expect(run.result.diagnostic?.message).toMatch(
-        /filesystem (?:access|lstat|stat|realpath) failed/,
+        /filesystem (?:access|lstat|stat|statx|realpath) failed/,
       );
       expect(run.result.diagnostic?.message).toContain(selected);
     } finally {
