@@ -170,9 +170,22 @@ GitHub documents the [Ubuntu runner labels](https://docs.github.com/en/actions/r
 Ubuntu installs `bubblewrap` and `socat` and runs the same native isolation cases;
 local macOS runs retain `sandbox-exec`. Windows remains unverified.
 
-CI invokes the canonical gate, uploads `.quality` even when coverage fails, and
-publishes the stable aggregate `TypeScript quality` status. A cancelled, skipped
-or failed gate cannot turn that status green.
+Ordinary changes and explicit workflow dispatches invoke the canonical gate,
+upload `.quality` even when coverage fails, and publish the stable aggregate
+`TypeScript quality` status. A cancelled or failed gate cannot turn that status
+green.
+
+Release metadata changes follow [the release workflow](releases.md) and reuse a
+successful full gate from an ancestor on `main`, with identical code,
+dependencies, schemas, tests, and other quality inputs. The selector permits
+only version/distribution-tag changes and its exact release-file inventory.
+It verifies the original full-gate step, so a reused release run cannot serve
+as fresh test evidence. Release CI runs `check:typescript --fast`, records the
+tested source and CI run URL, and skips the test/coverage job. The aggregate
+status requires both verified prior evidence and successful static checks;
+missing, cancelled, failed, or ambiguous evidence cannot establish a pass.
+Reused results remain attributed to their original run rather than being
+reported as newly measured coverage. Releases perform no local test reruns.
 
 The [coverage tooling README](../scripts/coverage/README.md) explains the maintained
 pipeline and file responsibilities. Fresh CI reports provide candidate-specific evidence.
