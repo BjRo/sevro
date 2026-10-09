@@ -1,4 +1,16 @@
 import { isAbsolute, sep } from "node:path";
+import { insideRuntimeRoot, isRuntimeHomeRoot } from "../runtime-paths";
+
+const LINUX_MINIMAL_READ_ROOTS = [
+  "/bin",
+  "/sbin",
+  "/usr",
+  "/etc",
+  "/lib",
+  "/lib64",
+  "/nix/store",
+  "/run/current-system/sw",
+];
 
 function toml(value: string): string {
   if (
@@ -57,7 +69,7 @@ export function codexPermissionProfile(options: {
     ...(process.platform === "linux"
       ? []
       : ['":tmpdir" = "deny"', '":slash_tmp" = "deny"']),
-    ...minimalProtectedRoots(options.protectedRoots)
+    ...minimalProtectedRoots(profileProtectedRoots(options))
       .sort()
       .map((root) => `${toml(root)} = "deny"`),
     ...readRootLines(options),
@@ -72,6 +84,39 @@ export function codexPermissionProfile(options: {
     "enabled = false",
     "",
   ].join("\n");
+}
+
+function profileProtectedRoots(
+  options: Parameters<typeof codexPermissionProfile>[0],
+): string[] {
+  const readRoots = profileReadRoots(options);
+  const baselines = [
+    ...LINUX_MINIMAL_READ_ROOTS,
+    ...readRoots,
+    options.workspace,
+    options.commandHome,
+    options.commandTemp,
+    ...(options.runtimeWriteRoot ? [options.runtimeWriteRoot] : []),
+  ];
+  return options.protectedRoots.filter(
+    (root) =>
+      !implicitLinuxHomeBoundary(root, readRoots, baselines) ||
+      process.platform !== "linux",
+  );
+}
+
+/** Codex masks deny ancestors after read mounts; the empty-root policy already hides safe HOME ancestors. */
+function implicitLinuxHomeBoundary(
+  root: string,
+  readRoots: string[],
+  baselines: string[],
+): boolean {
+  if (!isRuntimeHomeRoot(root)) return false;
+  const descendant = readRoots.some((read) => insideRuntimeRoot(root, read));
+  return (
+    descendant &&
+    !baselines.some((baseline) => insideRuntimeRoot(baseline, root))
+  );
 }
 
 function minimalProtectedRoots(roots: string[]): string[] {
@@ -112,16 +157,20 @@ function optionalRootLines(
 function readRootLines(
   options: Parameters<typeof codexPermissionProfile>[0],
 ): string[] {
+  return profileReadRoots(options)
+    .sort()
+    .map((path) => `${toml(path)} = "read"`);
+}
+
+function profileReadRoots(
+  options: Parameters<typeof codexPermissionProfile>[0],
+): string[] {
   const roots = [
-    ...new Set([
-      ...options.executableReadRoots,
-      ...(options.runtimeReadRoots ?? []),
-    ]),
+    ...options.executableReadRoots,
+    ...(options.runtimeReadRoots ?? []),
   ];
-  return [
-    ...roots.sort().map((path) => `${toml(path)} = "read"`),
-    ...optionalRootLines(options.pluginReadRoot, "read"),
-  ];
+  if (options.pluginReadRoot) roots.push(options.pluginReadRoot);
+  return [...new Set(roots)];
 }
 
 function readRoot(path: string): boolean {

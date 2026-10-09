@@ -59,6 +59,19 @@ Python installations. A mise shim may also need explicitly declared mise data
 and configuration; inheriting `PATH` does not change the shim's own discovery
 rules. Fixture binaries keep precedence over declared host tools.
 
+When `PATH` is declared, Sevro also queries available installation metadata
+before execution. Homebrew's `--prefix` and `--cellar` identify its existing
+`Cellar`, `opt`, and `etc` support trees on macOS and Linux. The whole Homebrew
+prefix is not granted. On macOS, selected Apple tool shims (including Git,
+Python, and compiler tools) use `xcode-select --print-path` to locate their
+developer support tree. A declared `DEVELOPER_DIR` participates in that query;
+an unrelated ambient override does not. Installation locations are not assumed.
+Each query has a three-second deadline and an 8 KiB combined output limit.
+Absent providers and the known no-active-Apple-installation result add no roots.
+Other query failures, invalid metadata, or a missing declared developer override
+fail before execution. Diagnostics identify the provider and operation without
+retaining arbitrary command output.
+
 Declare supporting directories outside `PATH` with `filesystem.readOnlyRoots`:
 
 ```json
@@ -76,6 +89,43 @@ Existing directory paths and symlink targets are canonicalized. Reads under
 the real home are allowed only through bounded runtime grants. Source and
 configuration worktrees, evaluator inputs, credentials, results, run ownership
 state, and peer fixtures remain protected. A conflicting or broad grant fails.
+
+Use `filesystem.optionalReadOnlyRoots` for supporting directories that may not
+be installed on every host, with the same path rules as `readOnlyRoots`:
+
+```json
+{
+  "format": "sevro.runtime.v1",
+  "filesystem": {
+    "optionalReadOnlyRoots": [
+      "../public-python-installations",
+      "../public-tool-cache"
+    ]
+  }
+}
+```
+
+With `sevro.json` at the repository root, these paths name sibling support
+directories outside the protected repository. Keep them bounded to public tool
+data; directories inside the repository remain protected even when absent.
+
+Only absent directories are skipped. Invalid variables or paths, unreadable
+directories, regular files, and protected overlaps remain errors. Required roots
+still fail when absent. Effective roots retain both lexical directory paths and
+canonical targets, and both are checked against protected inputs. Native aliases
+inside granted support trees (for example, `opt/package` pointing into `Cellar`)
+remain usable. Codex may canonicalize a standalone symlink-root permission under
+protected home, denying its lexical lookup; declare the intended bounded parent
+support tree and its target rather than relying on that standalone alias.
+
+On Linux, Codex starts candidate commands from an empty filesystem with bounded
+read mounts. Sevro keeps a normal home ancestor denied by that empty-root policy
+rather than adding a native deny mount that would hide its read-only descendants.
+Protected source and credential descendants remain explicitly denied, and no
+home ancestor receives content access. If the operator's home lies inside a
+minimal system read tree such as `/usr` or `/etc`, Sevro retains its explicit deny;
+the native preflight may refuse that overlapping setup rather than expose home
+contents.
 
 ## Private writable state
 
@@ -139,6 +189,12 @@ execution uses per-role paths. This binds declared setup and seed contents;
 it does not claim that every external installation file or OS dependency is
 immutable.
 
+The retained policy also records metadata providers, their selected executables
+and effective support roots, plus skipped optional paths. These values and the
+actual effective roots enter identity; private execution paths and external tool
+file contents do not. The same discovery and skip evidence reaches
+`sevro.host.runtime` observations.
+
 Bundled hosts supply `sevro.host.runtime` with the applied policy digest, role,
 environment names, read roots, and seed slots. `sevro.host.hooks` records source
 and effective plugin digests plus observed executions and their exit codes.
@@ -158,3 +214,5 @@ Programmatic consumers can import `RuntimeConfiguration`, `RuntimePolicy`, and
 `loadRuntimeConfiguration` from `src/engine.ts`, then pass the resolved policy
 to `runEvaluation` or a bundled host request. They must provide the same
 protected-source declarations required by their execution route.
+`loadRuntimeConfiguration` accepts those canonical protected roots as its third
+argument, so provider queries themselves cannot run from protected source trees.

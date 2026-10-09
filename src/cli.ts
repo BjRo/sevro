@@ -389,14 +389,15 @@ async function secondaryHost(
 async function prepareRunInvocation(argv: string[]) {
   const invocation = parseInvocation(argv);
   warnDeprecatedRuntimeOptions(invocation);
+  const preparationSources = await loadPreparationSources(invocation);
+  protectMappedSources(invocation, preparationSources);
   const runtimePolicy = await loadRuntimeConfiguration(
     invocation.projectRoot,
     invocation.runtimeConfigFile,
+    await invocationProtectedRuntimeRoots(invocation),
   );
   requireRuntimeOptionCompatibility(invocation, runtimePolicy);
   selectRuntimeTransport(invocation, runtimePolicy);
-  const preparationSources = await loadPreparationSources(invocation);
-  protectMappedSources(invocation, preparationSources);
   const configRoot = await configurationRoot(invocation.configRoot);
   await validateInvocationRuntime(invocation, runtimePolicy);
   const agentConcurrencyLimit = await selectedConcurrency(
@@ -470,6 +471,17 @@ async function validateInvocationRuntime(
   policy: Awaited<ReturnType<typeof loadRuntimeConfiguration>>,
 ): Promise<void> {
   if (!policy) return;
+  const protectedRoots = await invocationProtectedRuntimeRoots(invocation);
+  requireRuntimeReadRoots(policy.readOnlyRoots, protectedRoots);
+  requireRuntimeReadRoots(
+    (policy.seeds ?? []).map((seed) => seed.source),
+    protectedRoots,
+  );
+}
+
+async function invocationProtectedRuntimeRoots(
+  invocation: Invocation,
+): Promise<string[]> {
   const native = [
     invocation.codex,
     invocation.claude,
@@ -485,14 +497,7 @@ async function validateInvocationRuntime(
     ...native.flatMap((host) => host?.additionalProtectedRoots ?? []),
     ...(invocation.shellIsolation?.protectedRoots ?? []),
   ];
-  requireRuntimeReadRoots(
-    policy.readOnlyRoots,
-    await Promise.all(protectedRoots.map(canonicalRuntimeRoot)),
-  );
-  requireRuntimeReadRoots(
-    (policy.seeds ?? []).map((seed) => seed.source),
-    await Promise.all(protectedRoots.map(canonicalRuntimeRoot)),
-  );
+  return Promise.all(protectedRoots.map(canonicalRuntimeRoot));
 }
 
 async function resolveSelectedExtension(

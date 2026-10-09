@@ -51,6 +51,12 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "optionalReadOnlyRoots": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 4096 }
+        },
         "readOnlyRoots": {
           "type": "array",
           "maxItems": 64,
