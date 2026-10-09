@@ -183,7 +183,7 @@ async function setupCancellationArguments(root: string): Promise<string[]> {
   const setupCode = `
     const fs = require("node:fs"), path = require("node:path");
     const root = process.argv[1];
-    fs.writeFileSync(path.join(root, "setup-ready.tmp"), JSON.stringify({pid: process.pid, workspace: process.cwd(), home: process.env.HOME}));
+    fs.writeFileSync(path.join(root, "setup-ready.tmp"), JSON.stringify({pid: process.pid, workspace: process.cwd(), home: process.env.HOME, lang: process.env.LANG}));
     fs.renameSync(path.join(root, "setup-ready.tmp"), path.join(root, "setup-ready.json"));
     setInterval(() => {}, 1000);
   `;
@@ -265,9 +265,11 @@ async function interruptReadyCli(
   const timer = setTimeout(() => {
     ready.reject(new Error("Setup readiness was not published"));
   }, 5000);
+  const env = { ...process.env };
+  delete env.LANG;
   const child = Bun.spawn(
     [process.execPath, resolve(import.meta.dir, "../src/cli.ts"), ...args],
-    { stdout: "pipe", stderr: "pipe" },
+    { env, stdout: "pipe", stderr: "pipe" },
   );
   const stdout = new Response(child.stdout).text();
   const stderr = new Response(child.stderr).text();
@@ -310,6 +312,7 @@ test.each([
       expect(run.result.execution.status).toBe("cancelled");
       expect(run.result.grading.status).toBe("not_requested");
       expect(run.result.task.verdict).toBe("not_assessed");
+      expect(run.receipt.lang).toBe("C");
       expect(
         await Bun.file(join(root, "candidate-called")).exists(),
       ).toBeFalse();
