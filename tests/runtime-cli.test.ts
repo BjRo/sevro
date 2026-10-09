@@ -95,6 +95,101 @@ async function invoke(
   return { code, stderr, result: parseCliResult(stdout) };
 }
 
+const localeCases = [
+  { name: "unset", lang: undefined, expected: "C", pattern: "^C$" },
+  {
+    name: "set",
+    lang: "C.UTF-8",
+    expected: "C.UTF-8",
+    pattern: "^C\\.UTF-8$",
+  },
+];
+
+test.each(localeCases)(
+  "CLI isolated shell locale uses the caller default when LANG is $name",
+  async ({ lang, expected }) => {
+    const { args } = await fixture([
+      {
+        id: "locale",
+        grader: "sevro.shell",
+        configuration: { run: 'printf "%s" "$LANG"', expectExact: expected },
+      },
+    ]);
+    const run = await invoke([...args, "--shell-isolation"], { LANG: lang });
+    expect(run.code, JSON.stringify(run.result)).toBe(0);
+    expect(run.result.task.verdict).toBe("passed");
+  },
+);
+
+async function localeHostArguments(
+  route: "codex" | "claude",
+  root: string,
+): Promise<string[]> {
+  const binary = join(root, route);
+  const credential = join(root, "credential.json");
+  await writeFile(credential, '{"test":"synthetic"}');
+  if (route === "claude") {
+    await writeFile(
+      binary,
+      '#!/bin/sh\nprintf \'{"type":"result","subtype":"success","is_error":false,"result":"%s"}\\n\' "$LANG"\n',
+      { mode: 0o755 },
+    );
+    return ["--claude-bin", binary, "--claude-credential-file", credential];
+  }
+  const codex = defined(Bun.which("codex"));
+  if (process.platform === "linux")
+    await symlink(codex, join(root, "codex-linux-sandbox"));
+  await writeFile(
+    binary,
+    `#!/bin/sh
+if [ "$1" = --version ]; then printf 'synthetic-codex\\n'; exit 0; fi
+if [ "$1" = sandbox ]; then shift; exec '${codex}' sandbox "$@"; fi
+test "$1" = exec || exit 99
+printf '%s\\n' '{"type":"thread.started","thread_id":"locale-test"}'
+printf '{"type":"item.completed","item":{"type":"agent_message","text":"%s"}}\\n' "$LANG"
+printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'
+`,
+    { mode: 0o755 },
+  );
+  return ["--codex-bin", binary, "--codex-auth-file", credential];
+}
+
+for (const route of ["codex", "claude"] as const) {
+  test.each(localeCases)(
+    `CLI ${route} candidate locale uses the caller default when LANG is $name`,
+    async ({ lang, pattern }) => {
+      const { root, args } = await fixture([
+        {
+          id: "locale",
+          grader: "sevro.regex",
+          configuration: { pattern },
+        },
+      ]);
+      const native = args.filter(
+        (_value, index) =>
+          index !== args.indexOf("--adapter-module") &&
+          index !== args.indexOf("--adapter-module") + 1,
+      );
+      const hostArguments = await localeHostArguments(route, root);
+      const run = await invoke(
+        [
+          ...native,
+          "--host",
+          route,
+          ...hostArguments,
+          "--model",
+          "synthetic",
+          "--effort",
+          "low",
+        ],
+        { LANG: lang },
+      );
+      expect(run.code, JSON.stringify(run.result)).toBe(0);
+      expect(run.result.task.verdict).toBe("passed");
+    },
+  );
+}
+
 test("CLI rejects malformed repository runtime configuration before execution", async () => {
   const { project, args } = await fixture();
   await writeFile(join(project, "sevro.json"), "{");
@@ -718,6 +813,212 @@ test("CLI refuses runtime access to protected source before candidate execution"
   expect(run.code).toBe(64);
   expect(run.result.execution.status).toBe("not_run");
   expect(run.result.diagnostic?.message).toContain("protected");
+});
+
+test.each(["lexical", "canonical"])(
+  "CLI protects both optional-root alias boundaries: %s",
+  async (kind) => {
+    const { root, project, args } = await fixture();
+    const support = join(root, "support");
+    await mkdir(support);
+    const alias =
+      kind === "lexical" ? join(project, "escape") : join(root, "alias");
+    await symlink(kind === "lexical" ? support : project, alias);
+    await writeFile(
+      join(project, "sevro.json"),
+      JSON.stringify({
+        format: "sevro.runtime.v1",
+        filesystem: { optionalReadOnlyRoots: [alias] },
+      }),
+    );
+    const run = await invoke(args);
+    expect(run.code).toBe(64);
+    expect(run.result.execution.status).toBe("not_run");
+    expect(run.result.diagnostic?.message).toContain("protected");
+  },
+);
+
+test("CLI never queries metadata providers inside protected source", async () => {
+  const { root, project, args } = await fixture();
+  const bin = join(project, "bin"),
+    marker = join(root, "query-ran");
+  await mkdir(bin);
+  await writeFile(
+    join(bin, "brew"),
+    `#!/bin/sh\n/usr/bin/touch '${marker}'\nexit 8\n`,
+    { mode: 0o755 },
+  );
+  await writeFile(
+    join(project, "sevro.json"),
+    JSON.stringify({
+      format: "sevro.runtime.v1",
+      environment: { set: { PATH: bin } },
+    }),
+  );
+  const run = await invoke(args);
+  expect(run.code).toBe(64);
+  expect(await Bun.file(marker).exists()).toBe(false);
+});
+
+test("CLI rejects whole-home PATH before querying a provider", async () => {
+  const { root, project, args } = await fixture();
+  const home = join(root, "host-home"),
+    marker = join(root, "query-ran");
+  await mkdir(home);
+  await writeFile(
+    join(home, "brew"),
+    `#!/bin/sh\n/usr/bin/touch '${marker}'\nexit 8\n`,
+    { mode: 0o755 },
+  );
+  await writeFile(
+    join(project, "sevro.json"),
+    JSON.stringify({
+      format: "sevro.runtime.v1",
+      environment: { inherit: ["PATH"] },
+    }),
+  );
+  const run = await invoke(args, { HOME: home, PATH: home });
+  expect(run.code).toBe(64);
+  expect(await Bun.file(marker).exists()).toBe(false);
+});
+
+test.each(["project", "alias", "dangling"])(
+  "CLI rejects absent optional roots across protected boundaries: %s",
+  async (kind) => {
+    const { root, project, args } = await fixture();
+    const alias = join(root, "protected-alias");
+    await symlink(
+      kind === "dangling" ? join(project, "absent") : project,
+      alias,
+    );
+    const missing = join(
+      kind === "project" ? project : alias,
+      "missing",
+      "child",
+    );
+    await writeFile(
+      join(project, "sevro.json"),
+      JSON.stringify({
+        format: "sevro.runtime.v1",
+        filesystem: { optionalReadOnlyRoots: [missing] },
+      }),
+    );
+    const run = await invoke(args);
+    expect(run.code).toBe(64);
+    expect(run.result.execution.status).toBe("not_run");
+    expect(run.result.diagnostic?.message).toContain("protected");
+  },
+);
+
+test.each(["present", "absent"])(
+  "CLI protects canonical credential directories through unrelated aliases: %s",
+  async (kind) => {
+    const { root, project, args } = await fixture();
+    const home = join(root, "host-home"),
+      credentials = join(root, "credential-target"),
+      alias = join(root, "innocent-alias");
+    await mkdir(home);
+    if (kind === "present") await mkdir(credentials);
+    await symlink(credentials, join(home, ".ssh"));
+    await symlink(credentials, alias);
+    await writeFile(
+      join(project, "sevro.json"),
+      JSON.stringify({
+        format: "sevro.runtime.v1",
+        filesystem: { optionalReadOnlyRoots: [alias] },
+      }),
+    );
+    const run = await invoke(args, { HOME: home });
+    expect(run.code).toBe(64);
+    expect(run.result.execution.status).toBe("not_run");
+  },
+);
+
+test("CLI resolves optional home paths without granting the whole home", async () => {
+  const { root, project, args } = await fixture();
+  const home = join(root, "operator-home"),
+    support = join(home, "support");
+  await mkdir(support, { recursive: true });
+  await writeFile(
+    join(project, "sevro.json"),
+    JSON.stringify({
+      format: "sevro.runtime.v1",
+      filesystem: { optionalReadOnlyRoots: ["~/support"] },
+    }),
+  );
+  const run = await invoke(args, { HOME: home });
+  expect(run.code, run.stderr).toBe(0);
+  const evidence = parseRunEvidence(
+    await readFile(defined(run.result.evidencePath), "utf8"),
+  );
+  expect(evidence.configuration.redacted.runtimePolicy).toMatchObject({
+    readOnlyRoots: [support],
+  });
+});
+
+test("CLI rejects malformed runtime bytes before executing", async () => {
+  const { project, args } = await fixture();
+  await writeFile(join(project, "sevro.json"), Buffer.alloc(30000, 0xff));
+  const run = await invoke(args);
+  expect(run.code).toBe(64);
+  expect(run.result.execution.status).toBe("not_run");
+});
+
+test.skipIf(process.getuid?.() === 0)(
+  "CLI rejects unresolved credential protections under an unreadable home",
+  async () => {
+    const { root, project, args } = await fixture();
+    const home = join(root, "unreadable-home"),
+      support = join(root, "support");
+    await Promise.all([home, support].map((path) => mkdir(path)));
+    await writeFile(
+      join(project, "sevro.json"),
+      JSON.stringify({
+        format: "sevro.runtime.v1",
+        filesystem: { optionalReadOnlyRoots: [support] },
+      }),
+    );
+    await chmod(home, 0);
+    try {
+      const run = await invoke(args, { HOME: home });
+      expect(run.code).toBe(64);
+      expect(run.result.execution.status).toBe("not_run");
+    } finally {
+      await chmod(home, 0o700);
+    }
+  },
+);
+
+test("CLI identity binds actual optional grants and skipped evidence", async () => {
+  const { root, project, args } = await fixture();
+  const support = join(root, "support");
+  await writeFile(
+    join(project, "sevro.json"),
+    JSON.stringify({
+      format: "sevro.runtime.v1",
+      filesystem: { optionalReadOnlyRoots: [support] },
+    }),
+  );
+  const first = await invoke([...args, "--dry"]);
+  expect(first.code, first.stderr).toBe(0);
+  const before = parseRunEvidence(
+    await readFile(defined(first.result.evidencePath), "utf8"),
+  );
+  expect(before.configuration.redacted.runtimePolicy).toMatchObject({
+    readOnlyRoots: [],
+    skippedOptionalReadOnlyRoots: [support],
+  });
+  await mkdir(support);
+  const second = await invoke([...args, "--dry"]);
+  expect(second.code, second.stderr).toBe(0);
+  const after = parseRunEvidence(
+    await readFile(defined(second.result.evidencePath), "utf8"),
+  );
+  expect(after.configuration.redacted.runtimePolicy).toMatchObject({
+    readOnlyRoots: [support],
+    skippedOptionalReadOnlyRoots: [],
+  });
+  expect(after.configuration.digest).not.toBe(before.configuration.digest);
 });
 
 test("CLI applies declared read-only roots outside PATH", async () => {

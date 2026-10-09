@@ -52,9 +52,11 @@ shared TypeScript types, and it remains linted and typechecked.
 
 [`typescript-sources.json`](../../typescript-sources.json) declares the checked
 source inventory. Coverage counts every platform-reachable authored production
-file, including unimported files. Ubuntu excludes the macOS sandbox and Keychain
-modules; macOS excludes the Linux sandbox module. Shared code remains covered
-on both platforms. Branch outcomes made impossible by a static
+file, including unimported files. Ubuntu excludes the macOS sandbox, Keychain,
+and Darwin-only Apple metadata module, whose public caller has an explicit
+platform guard. macOS measures that metadata module; shared provider/query/path
+code remains measured on both platforms. Both still lint and typecheck the complete
+source inventory. macOS excludes the Linux sandbox module. Branch outcomes made impossible by a static
 `process.platform` condition are omitted after raw report validation; any
 nonzero excluded counter fails. Reachable outcomes stay in the denominator.
 The five generated AJV validators load normally and stay

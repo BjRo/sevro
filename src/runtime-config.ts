@@ -1,13 +1,22 @@
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { declaredRuntimeRoots, runtimePathDirectories } from "./runtime-paths";
+import {
+  declaredRuntimeRoots,
+  optionalRuntimeRoots,
+  runtimePathDirectories,
+  requireRuntimeReadRoots,
+} from "./runtime-paths";
 import validate from "./generated/runtime.cjs";
 import { runtimeSeedDigest } from "./runtime-seeds";
+import {
+  discoverRuntimeSupport,
+  type RuntimeDiscoverySource,
+} from "./runtime-discovery";
 
 export interface RuntimeConfiguration {
   format: "sevro.runtime.v1";
   environment?: { inherit?: string[]; set?: Record<string, string> };
-  filesystem?: { readOnlyRoots?: string[] };
+  filesystem?: { readOnlyRoots?: string[]; optionalReadOnlyRoots?: string[] };
   runtime?: { seedDirectories?: { source: string; target: string }[] };
   hooks?: { nativeGoal?: boolean; plugins?: string[] };
 }
@@ -16,6 +25,8 @@ export interface RuntimePolicy {
   format: "sevro.runtime.v1";
   environment: Record<string, string>;
   readOnlyRoots: string[];
+  discovery?: RuntimeDiscoverySource[];
+  skippedOptionalReadOnlyRoots?: string[];
   seeds?: { source: string; target: string; sha256: string }[];
   hooks?: { nativeGoal?: boolean; plugins?: string[] };
 }
@@ -35,6 +46,7 @@ export function runtimePolicySnapshot(
   const snapshot = structuredClone(policy);
   Object.freeze(snapshot.environment);
   Object.freeze(snapshot.readOnlyRoots);
+  freezeDiscovery(snapshot);
   for (const seed of snapshot.seeds ?? []) Object.freeze(seed);
   Object.freeze(snapshot.seeds);
   const hooks = snapshot.hooks;
@@ -43,6 +55,15 @@ export function runtimePolicySnapshot(
     Object.freeze(hooks);
   }
   return Object.freeze(snapshot);
+}
+
+function freezeDiscovery(snapshot: RuntimePolicy): void {
+  for (const source of snapshot.discovery ?? []) {
+    Object.freeze(source.readOnlyRoots);
+    Object.freeze(source);
+  }
+  Object.freeze(snapshot.discovery);
+  Object.freeze(snapshot.skippedOptionalReadOnlyRoots);
 }
 
 function assertRuntimeConfiguration(
@@ -112,6 +133,7 @@ export function requireRuntimeSeedTargets(
 export async function loadRuntimeConfiguration(
   projectRoot: string,
   explicitFile?: string,
+  protectedRoots: string[] = [],
 ): Promise<RuntimePolicy | undefined> {
   const path = await selectedRuntimeFile(projectRoot, explicitFile);
   if (path === undefined) return undefined;
@@ -123,10 +145,20 @@ export async function loadRuntimeConfiguration(
     return await resolveRuntimeConfiguration(
       JSON.parse(source),
       dirname(canonical),
+      protectedRoots,
     );
   } catch (cause) {
-    throw new Error("invalid runtime configuration", { cause });
+    throw new Error(runtimeConfigurationDiagnostic(cause), { cause });
   }
+}
+
+function runtimeConfigurationDiagnostic(cause: unknown): string {
+  if (
+    cause instanceof Error &&
+    /^(runtime |declared runtime |selected Apple )/.test(cause.message)
+  )
+    return `invalid runtime configuration: ${cause.message}`;
+  return "invalid runtime configuration";
 }
 
 async function selectedRuntimeFile(
@@ -180,24 +212,40 @@ async function resolvedSeeds(
 async function resolveRuntimeConfiguration(
   value: unknown,
   base: string,
+  protectedRoots: string[],
 ): Promise<RuntimePolicy> {
   assertRuntimeConfiguration(value);
   const environment = snapshotEnvironment(
     configurationEnvironment(value).inherit,
     configurationEnvironment(value).set,
   );
+  const optional = await optionalRuntimeRoots(
+    value.filesystem?.optionalReadOnlyRoots ?? [],
+    environment,
+    base,
+    protectedRoots,
+  );
+  const pathRoots = await runtimePathDirectories(environment.PATH);
+  requireRuntimeReadRoots(pathRoots, protectedRoots);
+  requireRuntimeReadRoots(optional.roots, protectedRoots);
+  const discovery = await discoverRuntimeSupport(environment, protectedRoots);
   const readOnlyRoots = [
-    ...(await runtimePathDirectories(environment.PATH)),
+    ...optional.roots,
+    ...discovery.sources.flatMap((source) => source.readOnlyRoots),
+    ...pathRoots.filter((root) => !discovery.excludedPrefixes.includes(root)),
     ...(await declaredRuntimeRoots(
       configurationReadRoots(value),
       environment,
       base,
     )),
   ];
+  requireRuntimeReadRoots(readOnlyRoots, protectedRoots);
   return {
     format: value.format,
     environment,
     readOnlyRoots: [...new Set(readOnlyRoots)].sort(),
+    discovery: discovery.sources,
+    skippedOptionalReadOnlyRoots: optional.skipped,
     seeds: await resolvedSeeds(configurationSeeds(value), environment, base),
     hooks: resolvedHooks(value.hooks),
   };

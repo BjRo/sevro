@@ -6,6 +6,7 @@ import {
   readFile,
   realpath,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
@@ -13,7 +14,11 @@ import { join } from "node:path";
 import { createCodexHost } from "../src/hosts/codex";
 import { createClaudeHost } from "../src/hosts/claude";
 import { runtimeSeedDigest } from "../src/runtime-seeds";
-import { runEvaluation, type HostAdapter } from "../src/engine";
+import {
+  loadRuntimeConfiguration,
+  runEvaluation,
+  type HostAdapter,
+} from "../src/engine";
 import { parseRunEvidence } from "./fixtures/assertions";
 import { defined } from "./fixtures/assertions";
 
@@ -106,7 +111,10 @@ test("Claude refuses direct read access to an original seed source", async () =>
   ).rejects.toThrow("protected data");
 });
 
-async function codexFixture(command = "probe") {
+async function codexFixture(
+  command = "probe",
+  additionalProtectedRoots: string[] = [],
+) {
   const root = await realpath(
     await mkdtemp(join(tmpdir(), "sevro-runtime-host-")),
   );
@@ -145,7 +153,7 @@ printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_token
     authFile: auth,
     projectRoot: project,
     resultsRoot: results,
-    additionalProtectedRoots: [auth],
+    additionalProtectedRoots: [auth, ...additionalProtectedRoots],
     model: "synthetic",
     effort: "low",
   });
@@ -173,6 +181,142 @@ test("Codex candidate commands use the declared runtime environment", async () =
     await readFile(join(workspace, "sandbox-error"), "utf8"),
   ).toBe("from caller");
 });
+
+test("Codex resolved support-tree aliases grant reads and refuse writes", async () => {
+  const support = await realpath(
+    await mkdtemp(join(homedir(), ".sevro-runtime-alias-")),
+  );
+  roots.push(support);
+  const source = join(support, "protected-source"),
+    privateSibling = join(support, "private-sibling"),
+    deniedFile = join(support, "protected-login.json");
+  await Promise.all([source, privateSibling].map((path) => mkdir(path)));
+  await writeFile(join(source, "value"), "source marker");
+  await writeFile(join(privateSibling, "value"), "private sibling marker");
+  await writeFile(deniedFile, "login marker");
+  const { host, workspace, root } = await codexFixture(
+    '/bin/cat "$SUPPORT_ALIAS/value"; if printf changed > "$SUPPORT_ALIAS/value" 2>/dev/null; then printf writable; fi; for path in "$SUPPORT_SOURCE/value" "$SUPPORT_PRIVATE/value" "$SUPPORT_DENIED_FILE"; do if /bin/cat "$path" >/dev/null 2>&1; then printf private-readable; fi; done',
+    [source, deniedFile],
+  );
+  const cellar = join(support, "Cellar"),
+    opt = join(support, "opt");
+  const target = join(cellar, "package"),
+    alias = join(opt, "package");
+  await mkdir(target, { recursive: true });
+  await mkdir(opt);
+  await writeFile(join(target, "value"), "alias support");
+  await symlink(target, alias);
+  await writeFile(
+    join(root, "runtime.json"),
+    JSON.stringify({
+      format: "sevro.runtime.v1",
+      environment: {
+        set: {
+          SUPPORT_ALIAS: alias,
+          SUPPORT_SOURCE: source,
+          SUPPORT_PRIVATE: privateSibling,
+          SUPPORT_DENIED_FILE: deniedFile,
+        },
+      },
+      filesystem: { optionalReadOnlyRoots: [opt, cellar] },
+    }),
+  );
+  const policy = await loadRuntimeConfiguration(
+    join(root, "project"),
+    join(root, "runtime.json"),
+  );
+  const result = await host.run({
+    prompt: "Read support",
+    workspace,
+    condition: "passive",
+    runtimePolicy: policy,
+  });
+  expect(
+    result.finalMessage,
+    await readFile(join(workspace, "sandbox-error"), "utf8"),
+  ).toBe("alias support");
+  expect(await readFile(join(target, "value"), "utf8")).toBe("alias support");
+});
+
+test.skipIf(process.platform !== "linux")(
+  "Codex retains protected home denial inside platform read baselines",
+  async () => {
+    const { root, workspace } = await codexFixture(
+      "if /bin/cat /usr/bin/env >/dev/null 2>&1; then printf exposed; else printf blocked; fi",
+    );
+    const peer = join(root, "baseline-peer.ts");
+    const options = {
+      binary: join(root, "candidate"),
+      sandboxBinary: defined(Bun.which("codex")),
+      authFile: join(root, "auth.json"),
+      projectRoot: join(root, "project"),
+      resultsRoot: join(root, "results"),
+      additionalProtectedRoots: [join(root, "auth.json")],
+      model: "synthetic",
+      effort: "low",
+    };
+    const request = {
+      prompt: "Inspect runtime",
+      workspace,
+      condition: "passive",
+      runtimePolicy: {
+        format: "sevro.runtime.v1",
+        environment: {},
+        readOnlyRoots: ["/usr/local/bin"],
+      },
+    };
+    await writeFile(
+      peer,
+      `import {createCodexHost} from ${JSON.stringify(join(import.meta.dir, "../src/hosts/codex.ts"))};
+try { const result = await createCodexHost(${JSON.stringify(options)}).run(${JSON.stringify(request)}); console.log(result.finalMessage); }
+catch (cause) { if (!(cause instanceof Error) || !/Codex (?:isolation|executable) preflight failed/.test(cause.message)) throw cause; console.log("blocked-before-execution"); }
+`,
+    );
+    const child = Bun.spawn([process.execPath, peer], {
+      env: { ...process.env, HOME: "/usr" },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+    expect(code, stderr).toBe(0);
+    expect(["blocked", "blocked-before-execution"]).toContain(stdout.trim());
+  },
+);
+
+test.skipIf(process.platform !== "darwin")(
+  "Codex selected Apple Git can query configuration",
+  async () => {
+    const { host, root, workspace } = await codexFixture(
+      'git config --system --get sevro.nonexistent.runtimeprobe; code=$?; test "$code" -eq 1 && printf accessible',
+    );
+    await writeFile(
+      join(root, "runtime.json"),
+      JSON.stringify({
+        format: "sevro.runtime.v1",
+        environment: { set: { PATH: "/usr/bin:/bin" } },
+      }),
+    );
+    const runtimePolicy = await loadRuntimeConfiguration(
+      join(root, "project"),
+      join(root, "runtime.json"),
+    );
+    const result = await host.run({
+      prompt: "Query Git",
+      workspace,
+      condition: "passive",
+      runtimePolicy,
+    });
+    expect(
+      result.finalMessage,
+      await readFile(join(workspace, "sandbox-error"), "utf8"),
+    ).toBe("accessible");
+  },
+  15000,
+);
 
 test("Codex candidate commands use private runtime seeds", async () => {
   const { host, workspace, root } = await codexFixture(

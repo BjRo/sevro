@@ -26,6 +26,7 @@ export function runtimeObservations(
         policyDigest: runtimeDigest(policy),
         environmentNames: Object.keys(policy.environment).sort(),
         readOnlyRoots: policy.readOnlyRoots,
+        ...discoveryObservations(policy),
         seeds: (policy.seeds ?? []).map((seed) => ({
           target: seed.target,
           sha256: seed.sha256,
@@ -33,6 +34,13 @@ export function runtimeObservations(
       },
     },
   ];
+}
+
+function discoveryObservations(policy: RuntimePolicy) {
+  return {
+    discovery: policy.discovery ?? [],
+    skippedOptionalReadOnlyRoots: policy.skippedOptionalReadOnlyRoots ?? [],
+  };
 }
 
 function runtimeDigest(policy: RuntimePolicy): string {

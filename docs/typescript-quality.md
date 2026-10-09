@@ -116,9 +116,19 @@ the real SIGKILL run-owner test and exempts no reachable production file.
 
 Statements and branches must each reach 95% using the exact covered/total ratio
 over the platform-reachable authored production inventory. On Ubuntu, the
-macOS `sandbox-exec` and Keychain modules are excluded; on macOS, the Linux
+macOS `sandbox-exec`, Keychain and Apple metadata modules are excluded; on macOS, the Linux
 `bubblewrap` module is excluded. Shared isolation and credential code is counted
-on both. A static TypeScript analysis also omits only branch outcomes made
+on both.
+
+Apple developer-tool discovery lives in `src/runtime-discovery-apple.ts`, which
+the public loader imports only under its explicit Darwin guard. Linux excludes
+that exact native module; macOS measures it, and both platforms still typecheck
+and lint it. The provider lookup, bounded query and read-root safeguards remain
+shared production code measured on both platforms. A Linux loader fixture with
+available Apple shims confirms that its metadata executable is never queried.
+Both platforms retain the Apple module in the complete checked source inventory.
+
+The static TypeScript analysis omits only branch outcomes made
 impossible by `process.platform` on the current host. It leaves reachable
 outcomes and their raw counts intact, refuses any excluded outcome with a
 nonzero count, and records each file, line and branch outcome. The unprojected

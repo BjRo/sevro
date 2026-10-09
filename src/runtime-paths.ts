@@ -1,4 +1,12 @@
-import { readdir, realpath, stat } from "node:fs/promises";
+import {
+  access,
+  lstat,
+  readdir,
+  readlink,
+  realpath,
+  stat,
+} from "node:fs/promises";
+import { constants, lstatSync, readlinkSync, realpathSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import {
   basename,
@@ -31,7 +39,10 @@ export function requireRuntimeReadRoots(
 ): void {
   const hardRoots = [
     ...protectedRoots.filter((root) => !isRuntimeHomeRoot(root)),
-    ...credentialRoots(),
+    ...credentialRoots().flatMap((root) => [
+      root,
+      canonicalCredentialRoot(root),
+    ]),
   ];
   for (const root of readRoots) {
     if (root === "/" || isRuntimeHomeRoot(root))
@@ -43,6 +54,28 @@ export function requireRuntimeReadRoots(
       )
     )
       throw new Error("runtime read root overlaps protected data");
+  }
+}
+
+function canonicalCredentialRoot(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
+    const target = missingCredentialLink(path);
+    if (target) return canonicalCredentialRoot(target);
+    return join(canonicalCredentialRoot(dirname(path)), basename(path));
+  }
+}
+
+function missingCredentialLink(path: string): string | null {
+  try {
+    return lstatSync(path).isSymbolicLink()
+      ? resolve(dirname(path), readlinkSync(path))
+      : null;
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw cause;
   }
 }
 
@@ -74,7 +107,20 @@ export async function canonicalRuntimeRoot(path: string): Promise<string> {
     return await realpath(path);
   } catch (cause) {
     if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
+    const target = await missingRuntimeLink(path);
+    if (target) return canonicalRuntimeRoot(target);
     return join(await canonicalRuntimeRoot(dirname(path)), basename(path));
+  }
+}
+
+async function missingRuntimeLink(path: string): Promise<string | null> {
+  try {
+    return (await lstat(path)).isSymbolicLink()
+      ? resolve(dirname(path), await readlink(path))
+      : null;
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw cause;
   }
 }
 
@@ -146,6 +192,7 @@ async function pathEntryRoots(entry: string): Promise<string[]> {
   if (!directory) return [];
   const installation = installationRoot(directory);
   return [
+    resolve(entry),
     directory,
     ...(installation ? [installation] : []),
     ...(await linkedToolRoots(directory)),
@@ -157,6 +204,7 @@ async function existingDirectory(path: string): Promise<string | null> {
     const canonical = await realpath(path);
     if (!(await stat(canonical)).isDirectory())
       throw new Error("runtime PATH entry is not a directory");
+    await access(canonical, constants.R_OK | constants.X_OK);
     return canonical;
   } catch (cause) {
     if ((cause as NodeJS.ErrnoException).code === "ENOENT") return null;
@@ -190,13 +238,38 @@ export async function declaredRuntimeRoots(
   environment: Record<string, string>,
   base: string,
 ): Promise<string[]> {
-  return Promise.all(
+  const roots = await Promise.all(
     paths.map(async (path) => {
       const directory = await existingDirectory(
         runtimeDeclaredPath(path, environment, base),
       );
       if (!directory) throw new Error("declared runtime read root is missing");
-      return directory;
+      return [directory, runtimeDeclaredPath(path, environment, base)];
     }),
   );
+  return [...new Set(roots.flat())];
+}
+
+export async function optionalRuntimeRoots(
+  paths: string[],
+  environment: Record<string, string>,
+  base: string,
+  protectedRoots: string[] = [],
+): Promise<{ roots: string[]; skipped: string[] }> {
+  const roots: string[] = [],
+    skipped: string[] = [];
+  for (const path of paths) {
+    const declared = runtimeDeclaredPath(path, environment, base);
+    requireRuntimeReadRoots(
+      [declared, await canonicalRuntimeRoot(declared)],
+      protectedRoots,
+    );
+    const directory = await existingDirectory(declared);
+    if (directory) roots.push(directory, declared);
+    else skipped.push(declared);
+  }
+  return {
+    roots: [...new Set(roots)].sort(),
+    skipped: [...new Set(skipped)].sort(),
+  };
 }

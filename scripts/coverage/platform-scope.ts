@@ -1,6 +1,10 @@
 const unreachable: Partial<Record<NodeJS.Platform, string[]>> = {
   darwin: ["src/hosts/linux-sandbox.ts"],
-  linux: ["src/hosts/claude-keychain.ts", "src/hosts/mac-sandbox.ts"],
+  linux: [
+    "src/hosts/claude-keychain.ts",
+    "src/hosts/mac-sandbox.ts",
+    "src/runtime-discovery-apple.ts",
+  ],
 };
 
 /** Keep the complete inventory checked while measuring executable host code. */

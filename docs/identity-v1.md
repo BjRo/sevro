@@ -69,3 +69,8 @@ Selected [runtime configuration](runtime-v1.md) is retained under
 It includes declared non-secret environment values, canonical read roots,
 private seed digests, and hook authority. Per-role output paths are resolved
 only during execution; runtime placeholders remain symbolic in identity.
+Runtime roots also retain lexical aliases, metadata discovery sources,
+and skipped optional directories. Moving or
+changing the effective host grants changes identity, even when the portable
+configuration file is unchanged. External installation contents remain outside
+this digest unless explicitly captured as private seed inputs.
