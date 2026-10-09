@@ -158,7 +158,39 @@ function runtimeConfigurationDiagnostic(cause: unknown): string {
     /^(runtime |declared runtime |selected Apple )/.test(cause.message)
   )
     return `invalid runtime configuration: ${cause.message}`;
+  const filesystem = runtimeFilesystemDiagnostic(cause);
+  if (filesystem) return filesystem;
   return "invalid runtime configuration";
+}
+
+function runtimeFilesystemDiagnostic(cause: unknown): string | undefined {
+  if (!(cause instanceof Error)) return undefined;
+  const error = cause as NodeJS.ErrnoException;
+  if (
+    !validFilesystemCode(error.code) ||
+    !validFilesystemOperation(error.syscall) ||
+    typeof error.path !== "string"
+  )
+    return undefined;
+  const path = safeFilesystemPath(error.path);
+  return `invalid runtime configuration: filesystem ${error.syscall} failed (${error.code}) at ${path}`;
+}
+
+function validFilesystemCode(code: string | undefined): boolean {
+  return code !== undefined && /^E[A-Z0-9]+$/.test(code);
+}
+
+function validFilesystemOperation(operation: string | undefined): boolean {
+  return (
+    operation !== undefined && /^[A-Za-z][A-Za-z0-9_]*$/.test(operation)
+  );
+}
+
+function safeFilesystemPath(path: string): string {
+  return Array.from(path.slice(0, 256), (character) => {
+    const code = character.charCodeAt(0);
+    return code < 0x20 || code === 0x7f ? "?" : character;
+  }).join("");
 }
 
 async function selectedRuntimeFile(
@@ -181,7 +213,10 @@ async function selectedRuntimeStat(path: string, explicit: boolean) {
   } catch (cause) {
     if (!explicit && (cause as NodeJS.ErrnoException).code === "ENOENT")
       return undefined;
-    throw new Error("invalid runtime configuration", { cause });
+    throw new Error(
+      runtimeFilesystemDiagnostic(cause) ?? "invalid runtime configuration",
+      { cause },
+    );
   }
 }
 

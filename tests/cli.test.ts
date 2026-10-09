@@ -931,8 +931,11 @@ test("CLI executes a declared repository fixture", async () => {
   ).toEqual(["ready", "repository-overlay", "example.extension.ready"]);
 });
 for (const route of ["shell", "native"] as const) {
-  // eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
-  test(`CLI isolates mapped repository worktrees for ${route} execution`, async () => {
+  // The native route launches candidate, semantic, and advisory processes.
+  test(
+    `CLI isolates mapped repository worktrees for ${route} execution`,
+    // eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
+    async () => {
     const installedCodex = availableNativeCodex();
     if (!installedCodex) return;
     const { args, caseFile } = await fixture();
@@ -1111,7 +1114,9 @@ printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_token
         "repository fixture\n",
       );
     }
-  });
+    },
+    route === "native" ? 30_000 : undefined,
+  );
 }
 test("CLI accepts generated Git history from a case or extension", async () => {
   const { args, caseFile } = await fixture();

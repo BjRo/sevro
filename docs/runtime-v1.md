@@ -53,6 +53,8 @@ shell startup overrides, subprocess injection flags, and `UV_OFFLINE` are refuse
 An inherited or explicit `PATH` must contain nonempty absolute entries. Missing
 entries are inert. Sevro grants read-only access to existing directories,
 resolved symlinked tools, and bounded installation prefixes above `bin`.
+An inaccessible individual symlink target is inert; an unreadable PATH directory
+still fails configuration. Explicitly declared read roots must remain readable.
 It does not widen a `bin` grant to the whole home, `/usr`, `/usr/local`, or
 `/opt/homebrew`. Direct versioned mise paths can reuse their existing Node or
 Python installations. A mise shim may also need explicitly declared mise data
