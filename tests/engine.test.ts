@@ -21,6 +21,9 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { runEvaluation, type HostAdapter } from "../src/engine";
 const roots: string[] = [];
+const isolatedNativeHost =
+  process.platform === "darwin" ||
+  (process.platform === "linux" && Boolean(Bun.which("bwrap")));
 afterEach(async () => {
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
@@ -874,7 +877,7 @@ test("cancellation retains prior trial evidence and finalizes interruption", asy
   ).toBeTrue();
 });
 test("stores checkpoints apart from results and hides run state from shell checks", async () => {
-  if (process.platform !== "darwin") return;
+  if (!isolatedNativeHost) return;
   const paths = await rootsForRun();
   const runStateRoot = await mkdtemp(join(tmpdir(), "sevro-state-test-"));
   roots.push(runStateRoot);
@@ -1034,7 +1037,7 @@ test("rejects fixture paths that could escape their workspace", async () => {
   ).rejects.toThrow(/invalid repository fixture/);
 });
 test("shell checks grade fixture effects and retain exit observations", async () => {
-  if (process.platform !== "darwin") return;
+  if (!isolatedNativeHost) return;
   const paths = await rootsForRun();
   const host: HostAdapter = {
     id: "sevro.host.synthetic",
@@ -1104,7 +1107,7 @@ test("shell checks grade fixture effects and retain exit observations", async ()
 });
 // eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("shell failures and timeouts remain distinct from host completion", async () => {
-  if (process.platform !== "darwin") return;
+  if (!isolatedNativeHost) return;
   const paths = await rootsForRun();
   const host: HostAdapter = {
     id: "sevro.host.synthetic",
@@ -1195,7 +1198,7 @@ test("shell failures and timeouts remain distinct from host completion", async (
   ).rejects.toThrow(/explicit protected source roots/);
 });
 test("engine shell isolation hides project sources and peer fixtures", async () => {
-  if (process.platform !== "darwin") return;
+  if (!isolatedNativeHost) return;
   const paths = await rootsForRun();
   const peer = await mkdtemp(join(tmpdir(), "sevro-case-peer-"));
   roots.push(peer);

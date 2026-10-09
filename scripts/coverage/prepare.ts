@@ -15,6 +15,7 @@ import { createInstrumenter } from "istanbul-lib-instrument";
 import { transformSync } from "@babel/core";
 import transformTypescript from "@babel/plugin-transform-typescript";
 import { productionSources } from "../typescript-inventory";
+import { platformCoverageScope } from "./platform-scope";
 
 function git(command: string[], cwd: string) {
   const result = Bun.spawnSync(["git", ...command], {
@@ -163,11 +164,11 @@ export function instrumentFile(
 }
 
 export function prepare(repo: string, root: string) {
-  const files = productionSources(repo);
+  const scope = platformCoverageScope(productionSources(repo));
   const snapshot = copySnapshot(repo, root);
 
   const baseline: CoverageMapData = {};
-  for (const file of files) {
+  for (const file of scope.included) {
     const path = join(snapshot.source, file);
     baseline[path] = instrumentFile(
       path,
@@ -179,5 +180,5 @@ export function prepare(repo: string, root: string) {
     .update(JSON.stringify(baseline))
     .digest("hex");
   writeFileSync(join(root, "baseline.json"), JSON.stringify(baseline));
-  return { ...snapshot, baseline, layout };
+  return { ...snapshot, baseline, layout, scope };
 }

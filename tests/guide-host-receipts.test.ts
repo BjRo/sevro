@@ -7,6 +7,9 @@ import { createCodexHost } from "../src/hosts/codex";
 import { defined, parseRunEvidence } from "./fixtures/assertions";
 
 const roots: string[] = [];
+const isolatedNativeHost =
+  process.platform === "darwin" ||
+  (process.platform === "linux" && Boolean(Bun.which("bwrap")));
 const body =
   "---\nname: probe\ndescription: Mounted guide probe\n---\nRead repository sources.\n";
 afterEach(async () => {
@@ -58,7 +61,7 @@ async function hostFixture() {
 
 test("Sevro retains complete evidence for batched mounted-skill reads", async () => {
   const sandboxBinary = Bun.which("codex");
-  if (process.platform !== "darwin" || !sandboxBinary) return;
+  if (!isolatedNativeHost || !sandboxBinary) return;
   const paths = await hostFixture();
   const host = createCodexHost({
     ...paths,

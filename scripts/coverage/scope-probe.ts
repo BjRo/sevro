@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { prepare, copySnapshot } from "./prepare";
 import { mergeChecked } from "./gate";
 import { loadReports } from "./run";
+import { platformBranchCoverage } from "./platform-branches";
 
 function pristineCandidate(repo: string, root: string) {
   const original = process.env.SEVRO_COVERAGE_SOURCE_ROOT;
@@ -55,13 +56,15 @@ export function coverageScopeProbe(repo: string) {
   const identity = { version: 1, runId: randomUUID(), layout: prepared.layout };
   exerciseScope(prepared, root, reports, identity);
   const collection = loadReports(reports, prepared.baseline, identity);
-  const map = mergeChecked(
+  const raw = mergeChecked(
     prepared.baseline,
     collection.records,
     collection.started,
     identity,
     collection.killed,
   );
+  const projected = platformBranchCoverage(raw, prepared.source);
+  const map = projected.map;
   const output = join(repo, ".quality/coverage-scope");
   mkdirSync(output, { recursive: true });
   writeFileSync(
@@ -75,7 +78,13 @@ export function coverageScopeProbe(repo: string) {
   writeFileSync(
     join(output, "run.json"),
     JSON.stringify(
-      { root, ...identity, summary: map.getCoverageSummary().toJSON() },
+      {
+        root,
+        ...identity,
+        scope: { ...prepared.scope, branchExclusions: projected.exclusions },
+        summary: map.getCoverageSummary().toJSON(),
+        rawSummary: raw.getCoverageSummary().toJSON(),
+      },
       null,
       2,
     ),

@@ -16,6 +16,9 @@ import { fileURLToPath } from "node:url";
 import { runEvaluation } from "../src/engine";
 import { createClaudeHost } from "../src/hosts/claude";
 const roots: string[] = [];
+const isolatedNativeHost =
+  process.platform === "darwin" ||
+  (process.platform === "linux" && Boolean(Bun.which("bwrap")));
 afterEach(async () => {
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
@@ -76,7 +79,7 @@ async function nativeGoalHostFixture() {
 test.each(["no-goal", "sidechain-only", "metadata-file"])(
   "Claude complete native session records bounded goal absence: %s",
   async (mode) => {
-    if (process.platform !== "darwin") return;
+    if (!isolatedNativeHost) return;
     const { host, workspace } = await nativeGoalHostFixture();
     const result = await host.run({
       prompt: mode,
@@ -110,7 +113,7 @@ test.each([
 ])(
   "Claude unavailable native goal evidence cannot establish absence: %s",
   async (mode, failure) => {
-    if (process.platform !== "darwin") return;
+    if (!isolatedNativeHost) return;
     const { host, workspace } = await nativeGoalHostFixture();
     const result = await host.run({
       prompt: mode,
@@ -131,7 +134,7 @@ test.each([
 );
 // eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("failed Claude execution retains private evidence without grading", async () => {
-  if (process.platform !== "darwin") return;
+  if (!isolatedNativeHost) return;
   const root = await mkdtemp(join(tmpdir(), "sevro-claude-failure-"));
   roots.push(root);
   const projectRoot = join(root, "source");
@@ -215,7 +218,7 @@ test("failed Claude execution retains private evidence without grading", async (
 });
 // eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("Claude host runs with native sandbox settings and declared plugins", async () => {
-  if (process.platform !== "darwin") return;
+  if (!isolatedNativeHost) return;
   const root = await mkdtemp(join(tmpdir(), "sevro-claude-host-"));
   roots.push(root);
   const workspace = join(root, "workspace");
@@ -326,7 +329,7 @@ test("Claude host runs with native sandbox settings and declared plugins", async
 });
 // eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("Claude host observes a bound native repository command without a plugin", async () => {
-  if (process.platform !== "darwin") return;
+  if (!isolatedNativeHost) return;
   const root = await mkdtemp(join(tmpdir(), "sevro-claude-repository-host-"));
   roots.push(root);
   const workspace = join(root, "workspace");
@@ -426,7 +429,7 @@ for (const entry of [{ type: "system", subtype: "init", session_id: "session-one
   );
 });
 test("Claude host refuses undeclared and escaping plugin packages", async () => {
-  if (process.platform !== "darwin") return;
+  if (!isolatedNativeHost) return;
   const root = await mkdtemp(join(tmpdir(), "sevro-claude-host-invalid-"));
   roots.push(root);
   const workspace = join(root, "workspace");

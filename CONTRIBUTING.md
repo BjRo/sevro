@@ -26,8 +26,9 @@ by applicable law.
 
 ## Set up development
 
-Use Bun 1.3.13, Git, Node 24, and npm. Full suite isolation needs macOS and
-`sandbox-exec`; Linux/Windows acceptance is unverified. From a fresh checkout:
+Use Bun 1.3.13, Git, Node 24, and npm. Full suite isolation uses `sandbox-exec`
+on macOS or `bubblewrap` and `socat` on Ubuntu. Windows acceptance is unverified.
+From a fresh checkout:
 
 ```sh
 bun install --frozen-lockfile
@@ -51,8 +52,10 @@ bun run check:typescript
 It performs frozen installation, schema freshness, formatting, lint, typing,
 documentation and guide dry-run checks, tutorial examples, the real Bun suite,
 coverage integrity and thresholds, and installed-package validation. Statements
-and branches must each reach at least 95% using raw exact counts over the complete
-authored production inventory, including unimported files. The five explicitly
+and branches must each reach at least 95% using raw exact counts over the
+platform-reachable authored production inventory, including unimported files.
+The macOS and Ubuntu gates each measure their reachable host modules; the exact
+module and branch-outcome exclusions are recorded in coverage artifacts. The five explicitly
 inventoried generated AJV validators are excluded from coverage because this
 target measures authored runner behavior; their syntax, schema freshness, typed
 boundaries and runtime tests remain checked. Tests and fixtures remain linted and
@@ -70,7 +73,7 @@ Documentation checks supplement #1 rather than replacing its contract.
 
 ## Tests, fixtures, and schemas
 
-Preserve real Bun filesystem/process integration tests and macOS isolation.
+Preserve real Bun filesystem/process integration tests and native isolation.
 Use deterministic fixtures under `tests/fixtures/`; keep evaluator-only inputs
 outside candidate workspaces. Keep credentials and raw trial evidence out of Git.
 Add meaningful regression coverage for reproducible bugs. Fixtures should

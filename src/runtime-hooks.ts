@@ -12,12 +12,15 @@ import { insideRuntimeRoot, requireRuntimeReadRoots } from "./runtime-paths";
 import { runtimeSeedDigest } from "./runtime-seeds";
 import { prepareRuntimeState } from "./runtime-state";
 import { macSandboxProfile } from "./hosts/mac-sandbox";
+import type { IsolatedCommand } from "./hosts/mac-sandbox";
+import { prepareLinuxSandboxCommand } from "./hosts/linux-sandbox";
 import { isRecord, isUnknownArray } from "./value-guards";
 import { hookExecutions, releaseHookProcesses } from "./runtime-hook-processes";
 
 export interface HookMounts {
   directories: string[];
   receipts: string;
+  isolation: IsolatedCommand[];
   plugins: {
     name: string;
     allowed: boolean;
@@ -30,7 +33,8 @@ interface HookRewrite {
   root: string;
   privateRoot: string;
   environment: Record<string, string>;
-  profile: string;
+  profile?: string;
+  isolation?: IsolatedCommand;
   ordinal: number;
   files: Set<string>;
 }
@@ -78,6 +82,7 @@ export async function prepareHookMounts(options: {
   );
   const selected = selectedPlugins(options.policy);
   const plugins: HookMounts["plugins"] = [],
+    isolation: IsolatedCommand[] = [],
     directories: string[] = [];
   for (const [index, source] of options.pluginRoots.entries()) {
     const root = join(mountRoot, `plugin-${index}`);
@@ -97,18 +102,13 @@ export async function prepareHookMounts(options: {
     const allowed = selected.delete(name);
     const readRoots = [...options.policy.readOnlyRoots, root];
     requireRuntimeReadRoots(readRoots, options.protectedRoots);
-    const profile = join(options.privateRoot, `hooks-${index}.sb`);
-    await writeFile(
-      profile,
-      macSandboxProfile(options.protectedRoots, true, readRoots, runtime.root) +
-        "\n(deny process-info* (require-not (target self)))\n",
-      { mode: 0o600 },
-    );
+    const boundary = await prepareHookIsolation(options, index, readRoots, runtime.root);
+    if (boundary.isolation) isolation.push(boundary.isolation);
     const rewrite: HookRewrite = {
       root,
       allowed,
       privateRoot: options.privateRoot,
-      profile,
+      ...boundary,
       ordinal: index * 10000,
       files: new Set(),
       environment: {
@@ -129,7 +129,35 @@ export async function prepareHookMounts(options: {
   }
   if (selected.size)
     throw new Error("runtime hook policy selects an unavailable plugin");
-  return { directories, receipts, plugins };
+  return { directories, receipts, plugins, isolation };
+}
+
+async function prepareHookIsolation(
+  options: Parameters<typeof prepareHookMounts>[0],
+  index: number,
+  readRoots: string[],
+  runtimeRoot: string,
+): Promise<{ profile?: string; isolation?: IsolatedCommand }> {
+  if (process.platform === "linux")
+    return {
+      isolation: await prepareLinuxSandboxCommand({
+        argv: ["/bin/true"],
+        workspace: options.workspace,
+        protectedRoots: options.protectedRoots,
+        privateStateRoot: options.privateRoot,
+        denyNetwork: true,
+        readOnlyRoots: readRoots,
+        writableRuntimeRoot: runtimeRoot,
+      }),
+    };
+  const profile = join(options.privateRoot, `hooks-${index}.sb`);
+  await writeFile(
+    profile,
+    macSandboxProfile(options.protectedRoots, true, readRoots, runtimeRoot) +
+      "\n(deny process-info* (require-not (target self)))\n",
+    { mode: 0o600 },
+  );
+  return { profile };
 }
 
 function hookPath(environment: Record<string, string>): string {
@@ -256,9 +284,9 @@ async function commandHook(
     throw new Error("runtime hook command is invalid or oversized");
   const wrapper = join(state.privateRoot, `hook-${state.ordinal++}.sh`);
   const environment = Object.entries(state.environment)
-    .map(([name, content]) => quote(`${name}=${content}`))
-    .join(" ");
+    .map(([name, content]) => `${name}=${content}`);
   const receipts = join(state.privateRoot, "hook-receipts");
+  const command = isolatedHookCommand(state, environment, handler.command);
   await writeFile(
     wrapper,
     `#!/bin/sh
@@ -266,7 +294,7 @@ set -u
 receipt=$(/usr/bin/mktemp ${quote(join(receipts, "call.XXXXXX"))}) || exit 125
 test ! -f ${quote(join(receipts, "stopped"))} || exit 125
 printf '{"status":"running","pid":%s,"wrapper":%s}\\n' "$$" ${quote(JSON.stringify(wrapper))} > "$receipt"
-/usr/bin/sandbox-exec -f ${quote(state.profile)} /usr/bin/env -i ${environment} /bin/sh -c ${quote(handler.command)}
+${command}
 code=$?
 printf '{"status":"completed","pid":%s,"exitCode":%s,"wrapper":%s}\\n' "$$" "$code" ${quote(JSON.stringify(wrapper))} > "$receipt"
 exit "$code"
@@ -274,6 +302,19 @@ exit "$code"
     { mode: 0o700 },
   );
   return { ...handler, command: `/bin/sh ${quote(wrapper)}` };
+}
+
+function isolatedHookCommand(
+  state: HookRewrite,
+  environment: string[],
+  command: string,
+): string {
+  const prefix = state.isolation
+    ? state.isolation.argv.slice(0, -1)
+    : ["/usr/bin/sandbox-exec", "-f", state.profile ?? ""];
+  return [...prefix, "/usr/bin/env", "-i", ...environment, "/bin/sh", "-c", command]
+    .map(quote)
+    .join(" ");
 }
 
 function commandHandler(
@@ -345,5 +386,7 @@ export async function runtimeHookObservation(mounts: HookMounts) {
 export async function releaseRuntimeHooks(
   mounts: HookMounts | undefined,
 ): Promise<void> {
-  if (mounts) await releaseHookProcesses(mounts.receipts);
+  if (!mounts) return;
+  await releaseHookProcesses(mounts.receipts);
+  await Promise.all(mounts.isolation.map((item) => item.release()));
 }

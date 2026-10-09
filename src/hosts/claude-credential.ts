@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -64,62 +63,6 @@ function authenticationEnvironment(sourceFile: string | undefined) {
   return environment;
 }
 
-function keychainProcess() {
-  if (process.platform !== "darwin" || !existsSync("/usr/bin/security"))
-    throw new Error("Claude keychain credential is unavailable");
-  const account = process.env.USER ?? process.env.LOGNAME;
-  return Bun.spawn(
-    [
-      "/usr/bin/security",
-      "find-generic-password",
-      "-s",
-      "Claude Code-credentials",
-      ...(account ? ["-a", account] : []),
-      "-w",
-    ],
-    { stdout: "pipe", stderr: "ignore" },
-  );
-}
-
-async function boundedCredentialStream(
-  reader: ReadableStreamDefaultReader<Uint8Array>,
-): Promise<Buffer> {
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > MAX_CREDENTIAL_BYTES)
-      throw new Error("Claude credential exceeds the size limit");
-    chunks.push(value);
-  }
-  return Buffer.concat(chunks);
-}
-
-async function keychainCredential(): Promise<Buffer> {
-  const proc = keychainProcess();
-  const timer = setTimeout(() => {
-    proc.kill("SIGKILL");
-  }, 10_000);
-  const reader = proc.stdout.getReader();
-  try {
-    const credential = await boundedCredentialStream(reader);
-    if ((await proc.exited) !== 0)
-      throw new Error("Claude keychain credential is unavailable");
-    return credential;
-  } catch (error) {
-    proc.kill("SIGKILL");
-    await proc.exited;
-    throw new Error("Claude keychain credential is unavailable", {
-      cause: error,
-    });
-  } finally {
-    clearTimeout(timer);
-    reader.releaseLock();
-  }
-}
-
 /** Copy only a bounded login credential into one private host state. */
 export async function stageClaudeCredential(
   configRoot: string,
@@ -142,7 +85,12 @@ export async function stageClaudeCredential(
 }
 
 async function readCredential(sourceFile: string | undefined) {
-  if (!sourceFile) return keychainCredential();
+  if (!sourceFile) {
+    if (process.platform !== "darwin")
+      throw new Error("Claude keychain credential is unavailable");
+    const { keychainCredential } = await import("./claude-keychain");
+    return keychainCredential();
+  }
   if ((await stat(sourceFile)).size > MAX_CREDENTIAL_BYTES)
     throw new Error("oversized credential");
   return readFile(sourceFile);

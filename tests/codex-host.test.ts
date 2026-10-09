@@ -20,6 +20,9 @@ import { dirname, join, resolve } from "node:path";
 import { runEvaluation } from "../src/engine";
 import { createCodexHost } from "../src/hosts/codex";
 const roots: string[] = [];
+const isolatedNativeHost =
+  process.platform === "darwin" ||
+  (process.platform === "linux" && Boolean(Bun.which("bwrap")));
 const digest = "a".repeat(64);
 const ordinaryCodexOptions = {
   binary: "/bin/true",
@@ -77,6 +80,7 @@ const nativeFeedbackResponse = JSON.stringify({
   },
 });
 function codexFixtureScript(quotedCodex: string) {
+  const loginShell = process.platform === "linux" ? "/bin/bash" : "/bin/zsh";
   return `#!/bin/sh
 if [ "$1" = plugin ]; then exec ${quotedCodex} "$@"; fi
 if [ "$1" != exec ]; then exit 99; fi
@@ -116,7 +120,7 @@ printf '%s\\n' "$@" > "$capture_root/argv.txt"
 if [ -n "\${OPENAI_API_KEY:-}" ]; then exit 97; fi
 /bin/cat > "$capture_root/prompt.txt"
 if [ -x "$workspace/.git/fixture-bin/fixture-tool" ]; then
-  /bin/zsh -lc 'fixture-tool' > "$workspace/fixture-tool-output.txt" || exit 96
+  ${loginShell} -lc 'fixture-tool' > "$workspace/fixture-tool-output.txt" || exit 96
 fi
 if [ -f "$workspace/malformed.flag" ]; then printf '{broken\\n'; exit 0; fi
 if [ -f "$workspace/slow.flag" ]; then printf '%s' "$$" > "$workspace/child.pid"; /bin/sleep 10; fi
@@ -300,7 +304,7 @@ test.each([
 );
 
 test("Codex installed plugin refuses an invoked skill missing from its declared package", async () => {
-  if (process.platform !== "darwin" || !Bun.which("codex")) return;
+  if (!isolatedNativeHost || !Bun.which("codex")) return;
   const selected = await ordinaryMarketplace();
   expect(
     selected.host.run({
@@ -414,7 +418,7 @@ test("CLI refuses a Codex configuration directory that is a regular file", async
 });
 
 test("Codex host refuses an otherwise valid stream without a completed turn", async () => {
-  if (process.platform !== "darwin" || !Bun.which("codex")) return;
+  if (!isolatedNativeHost || !Bun.which("codex")) return;
   const selected = await ordinaryCodexRequest();
   await writeFile(join(selected.workspace, "incomplete.flag"), "");
   expect(selected.host.run(selected.request)).rejects.toThrow(
@@ -426,7 +430,7 @@ test("Codex host refuses an otherwise valid stream without a completed turn", as
 });
 
 test("Codex continuation keeps combined usage unknown when the initial turn omits usage", async () => {
-  if (process.platform !== "darwin" || !Bun.which("codex")) return;
+  if (!isolatedNativeHost || !Bun.which("codex")) return;
   const selected = await ordinaryCodexRequest();
   await writeFile(join(selected.workspace, "unknown-usage.flag"), "");
   const result = await selected.host.run({
@@ -441,7 +445,7 @@ test("Codex continuation keeps combined usage unknown when the initial turn omit
 });
 test("Codex host binds bounded native calls to its completed thread", async () => {
   const installedCodex = Bun.which("codex");
-  if (process.platform !== "darwin" || !installedCodex) return;
+  if (!isolatedNativeHost || !installedCodex) return;
   const paths = await fixture();
   const workspace = await mkdtemp(join(tmpdir(), "sevro-codex-native-"));
   roots.push(workspace);
@@ -510,7 +514,7 @@ test("Codex host binds bounded native calls to its completed thread", async () =
 // eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("Codex host resumes a second prompt in the initial thread", async () => {
   const installedCodex = Bun.which("codex");
-  if (process.platform !== "darwin" || !installedCodex) return;
+  if (!isolatedNativeHost || !installedCodex) return;
   const paths = await fixture();
   const workspace = await mkdtemp(join(tmpdir(), "sevro-codex-continuation-"));
   roots.push(workspace);
@@ -601,7 +605,7 @@ test("Codex host resumes a second prompt in the initial thread", async () => {
 });
 test("Codex continuation ignores Git-private fixture state at the boundary", async () => {
   const installedCodex = Bun.which("codex");
-  if (process.platform !== "darwin" || !installedCodex) return;
+  if (!isolatedNativeHost || !installedCodex) return;
   const paths = await fixture();
   const workspace = await mkdtemp(join(tmpdir(), "sevro-codex-unchanged-"));
   roots.push(workspace);
@@ -636,7 +640,7 @@ test("Codex continuation ignores Git-private fixture state at the boundary", asy
 });
 test("Codex host refuses a continuation from another thread", async () => {
   const installedCodex = Bun.which("codex");
-  if (process.platform !== "darwin" || !installedCodex) return;
+  if (!isolatedNativeHost || !installedCodex) return;
   const paths = await fixture();
   const workspace = await mkdtemp(join(tmpdir(), "sevro-codex-wrong-thread-"));
   roots.push(workspace);
@@ -663,7 +667,7 @@ test("Codex host refuses a continuation from another thread", async () => {
 // eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("Codex host installs a declared local plugin in its isolated home", async () => {
   const installedCodex = Bun.which("codex");
-  if (process.platform !== "darwin" || !installedCodex) return;
+  if (!isolatedNativeHost || !installedCodex) return;
   const paths = await fixture();
   const workspace = await mkdtemp(join(tmpdir(), "sevro-codex-plugin-"));
   roots.push(workspace);
@@ -804,7 +808,7 @@ test("Codex host installs a declared local plugin in its isolated home", async (
 });
 test("Codex host dispatches a verified repository skill without a plugin", async () => {
   const installedCodex = Bun.which("codex");
-  if (process.platform !== "darwin" || !installedCodex) return;
+  if (!isolatedNativeHost || !installedCodex) return;
   const paths = await fixture();
   const workspace = await mkdtemp(join(tmpdir(), "sevro-codex-repository-"));
   roots.push(workspace);
@@ -878,7 +882,7 @@ test("Codex host dispatches a verified repository skill without a plugin", async
 });
 test("Codex host verifies its permission profile and feeds the engine", async () => {
   const installedCodex = Bun.which("codex");
-  if (process.platform !== "darwin" || !installedCodex) return;
+  if (!isolatedNativeHost || !installedCodex) return;
   const paths = await fixture();
   const host = createCodexHost({
     binary: paths.fakeBinary,
@@ -958,7 +962,7 @@ test("Codex host verifies its permission profile and feeds the engine", async ()
 });
 test("Codex fixture tools survive login-shell PATH setup", async () => {
   const installedCodex = Bun.which("codex");
-  if (process.platform !== "darwin" || !installedCodex) return;
+  if (!isolatedNativeHost || !installedCodex) return;
   const paths = await fixture();
   const host = createCodexHost({
     binary: paths.fakeBinary,
@@ -1007,7 +1011,7 @@ test("Codex fixture tools survive login-shell PATH setup", async () => {
 });
 test("Codex host rejects malformed streams and unsupported enforcement", async () => {
   const installedCodex = Bun.which("codex");
-  if (process.platform !== "darwin" || !installedCodex) return;
+  if (!isolatedNativeHost || !installedCodex) return;
   const paths = await fixture();
   const workspace = await mkdtemp(join(tmpdir(), "sevro-case-codex-"));
   roots.push(workspace);
@@ -1036,7 +1040,7 @@ test("Codex host rejects malformed streams and unsupported enforcement", async (
 });
 test("Codex host terminates a timed out turn", async () => {
   const installedCodex = Bun.which("codex");
-  if (process.platform !== "darwin" || !installedCodex) return;
+  if (!isolatedNativeHost || !installedCodex) return;
   const paths = await fixture();
   const workspace = await mkdtemp(join(tmpdir(), "sevro-case-codex-slow-"));
   roots.push(workspace);
@@ -1058,7 +1062,7 @@ test("Codex host terminates a timed out turn", async () => {
 });
 test("Codex host kills its process group when cancelled", async () => {
   const installedCodex = Bun.which("codex");
-  if (process.platform !== "darwin" || !installedCodex) return;
+  if (!isolatedNativeHost || !installedCodex) return;
   const paths = await fixture();
   const workspace = await mkdtemp(
     join(tmpdir(), "sevro-case-codex-cancelled-"),
@@ -1095,7 +1099,7 @@ test("Codex host kills its process group when cancelled", async () => {
 });
 test("Codex host refuses an executable inside a protected project", async () => {
   const installedCodex = Bun.which("codex");
-  if (process.platform !== "darwin" || !installedCodex) return;
+  if (!isolatedNativeHost || !installedCodex) return;
   const paths = await fixture();
   const workspace = await mkdtemp(join(tmpdir(), "sevro-case-codex-rejected-"));
   roots.push(workspace);

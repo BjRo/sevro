@@ -21,10 +21,10 @@ configuration, native goals, selected plugin hooks, and the current licensing te
 Earlier `rc.1` and `rc.2` packages retain their original BSL grants.
 See [installation and release differences](docs/installing.md).
 
-Use Bun 1.3.13. The full deterministic suite and native isolation target macOS;
-bundled Codex/Claude routes and isolated shell checks need `sandbox-exec`.
+Use Bun 1.3.13. The development checkout runs native isolation on macOS with
+`sandbox-exec` and on Ubuntu with `bubblewrap` and `socat`.
 Contributor package/release checks also need Node 24 and npm.
-Linux and Windows support is unverified. The basic example uses an injected
+Windows support is unverified. The basic example uses an injected
 deterministic adapter and needs no native model credentials.
 
 ## Install and get a first result

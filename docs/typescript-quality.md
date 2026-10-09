@@ -20,15 +20,18 @@ first. Quality dependencies are development dependencies pinned in `bun.lock`.
 TypeScript and JavaScript source. The guard refuses new, missing or duplicated
 files and declarations outside the configured TypeScript project. Changing a
 source disposition requires review; adding a glob is not a substitute for the
-inventory. The coverage baseline includes exactly `inventory.production`, whose
-current instrumentation supports authored `.ts`. The five exact generated
+inventory. The coverage baseline includes the platform-reachable subset of
+`inventory.production`; `scripts/coverage/platform-scope.ts` names each excluded
+host-specific file. Every production file remains inventoried, typed and linted,
+and the opposite platform measures it. Current instrumentation supports authored
+`.ts`. The five exact generated
 validators in `inventory.generated` are excluded from instrumentation and the
 coverage denominator. New `.tsx`, `.mts`, `.cts` or JavaScript
 production requires an explicit instrumentation and quality-policy change first.
 
 | Inventory      | Lint and typing                                                                                      | Test and coverage disposition                                                                                                                                                                        |
 | -------------- | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `production`   | Type-aware strict lint and strict compiler                                                           | All authored executable `src` statements and branch outcomes in the declared inventory, including unimported files                                                                                   |
+| `production`   | Type-aware strict lint and strict compiler                                                           | All platform-reachable authored executable `src` statements and branch outcomes, including unimported files in that scope                                                                            |
 | `generated`    | CommonJS syntax parsing, exact `schemas:check` freshness, and checked `.d.cts` boundary declarations | Real Bun schema tests; the five declared generated validators are outside the coverage denominator                                                                                                   |
 | `declarations` | Type-aware lint and compiler                                                                         | Declaration-only files have no executable counters                                                                                                                                                   |
 | `tooling`      | Same type-aware lint and strict compiler; `.mjs`/`.cjs` use `checkJs` and explicit JSDoc contracts   | Durable public gate probes, schema freshness, release and installed-package tests; outside the runner-production denominator                                                                         |
@@ -101,20 +104,27 @@ workspaces. Production imports register capture even when a child changes
 working directory. Bun teardown writes the test-runner completion; normal CLI
 exit writes child completion. A ledger records participants and checks run ID,
 layout, file scope, counter keys, nonnegative integer values, branch array lengths
-and completion before merging. Every declared executable production file is
-seeded with zero metadata without importing it to manufacture coverage.
+and completion before merging. Every platform-reachable executable production
+file is seeded with zero metadata without importing it to manufacture coverage.
 
 Intentionally force-killed owned children use periodic conservative checkpoints.
 The test preload declares the exact registered child killed by its parent.
 Ordinary children still require completion; an undeclared or mismatched parent
 cannot excuse a missing report. Missing checkpoints fail. No final counters are
 estimated: a lost tail can lower coverage and cannot increase it. This retains
-the real SIGKILL run-owner test and exempts no production file.
+the real SIGKILL run-owner test and exempts no reachable production file.
 
 Statements and branches must each reach 95% using the exact covered/total ratio
-over the complete declared authored production inventory. Rounded display
-percentages never determine success. The gate enforces raw counters without
-compiler exemptions, adjusted denominators or counter rewriting. It validates
+over the platform-reachable authored production inventory. On Ubuntu, the
+macOS `sandbox-exec` and Keychain modules are excluded; on macOS, the Linux
+`bubblewrap` module is excluded. Shared isolation and credential code is counted
+on both. A static TypeScript analysis also omits only branch outcomes made
+impossible by `process.platform` on the current host. It leaves reachable
+outcomes and their raw counts intact, refuses any excluded outcome with a
+nonzero count, and records each file, line and branch outcome. The unprojected
+report is retained for audit. Rounded display percentages never determine
+success. The gate enforces the projected exact counters without compiler
+exemptions or changing count values. It validates
 source classifications before preparing coverage, including direct `--coverage`
 runs, so unregistered authored TypeScript or CommonJS, missing sources and
 overlapping dispositions refuse the gate. Generated validators retain normal
@@ -122,7 +132,10 @@ CommonJS loading, schema freshness checks and real schema/runtime tests.
 
 Artifacts under `.quality/coverage` include the exact merged counters, baseline,
 summary, process ledger, Bun test log, unmodified source snapshot, LCOV and HTML.
-`enforcement.json` records the authored production scope and raw exact counts.
+`run.json` and `enforcement.json` record the platform, included and excluded
+production files, branch exclusions, and exact projected counts.
+`coverage-raw.json` and the raw summary preserve all validated counters before
+platform projection.
 `--coverage [Bun test arguments]` is a diagnostic measurement; it still enforces
 both thresholds and writes `.quality/coverage-targeted`, keeping it distinct from
 the full-suite evidence. Sparse runs are expected to fail the full denominator.
@@ -140,13 +153,12 @@ graceful SIGINT/SIGTERM cancellation, filesystem isolation and owned-child paths
 
 The discovery backend was observed with Bun 1.3.13, macOS arm64 and Node 24.13.0.
 Implementation also ran on macOS arm64 (Darwin kernel 27.0.0). CI pins
-Codex 0.160.1 and Claude Code 2.1.284 for deterministic native hook tests. No additional Bun
-version or operating system is claimed from that evidence. Hosted CI targets
-`macos-26` arm64 with the same Bun/Node versions; its first successful hosted run
-is required before describing that specific OS as validated. GitHub documents
-the [macOS arm64 runner labels](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
-The existing macOS `sandbox-exec` prerequisite and isolation tests are retained.
-Linux/Windows are not added as an unverified portable matrix.
+Codex 0.160.1 and Claude Code 2.1.284 for deterministic native hook tests. Hosted
+CI targets `ubuntu-24.04` x64 with Bun 1.3.13 and Node 24.13.0. Its first
+successful hosted run is required before describing that environment as validated.
+GitHub documents the [Ubuntu runner labels](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
+Ubuntu installs `bubblewrap` and `socat` and runs the same native isolation cases;
+local macOS runs retain `sandbox-exec`. Windows remains unverified.
 
 CI invokes the canonical gate, uploads `.quality` even when coverage fails, and
 publishes the stable aggregate `TypeScript quality` status. A cancelled, skipped

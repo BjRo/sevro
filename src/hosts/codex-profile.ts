@@ -1,4 +1,4 @@
-import { isAbsolute } from "node:path";
+import { isAbsolute, sep } from "node:path";
 
 function toml(value: string): string {
   if (
@@ -41,7 +41,10 @@ export function codexPermissionProfile(options: {
     "ignore_default_excludes = false",
     "",
     "[shell_environment_policy.set]",
-    ...commandEnvironmentLines(options.commandEnvironment),
+    ...commandEnvironmentLines(
+      options.commandEnvironment,
+      options.executableReadRoots,
+    ),
     `HOME = ${toml(options.commandHome)}`,
     `TMPDIR = ${toml(options.commandTemp)}`,
     "",
@@ -51,9 +54,10 @@ export function codexPermissionProfile(options: {
     `[permissions.${name}.filesystem]`,
     '":root" = "deny"',
     '":minimal" = "read"',
-    '":tmpdir" = "deny"',
-    '":slash_tmp" = "deny"',
-    ...[...new Set(options.protectedRoots)]
+    ...(process.platform === "linux"
+      ? []
+      : ['":tmpdir" = "deny"', '":slash_tmp" = "deny"']),
+    ...minimalProtectedRoots(options.protectedRoots)
       .sort()
       .map((root) => `${toml(root)} = "deny"`),
     ...readRootLines(options),
@@ -70,11 +74,28 @@ export function codexPermissionProfile(options: {
   ].join("\n");
 }
 
+function minimalProtectedRoots(roots: string[]): string[] {
+  return [...new Set(roots)].filter(
+    (root) =>
+      !roots.some(
+        (other) => other !== root && root.startsWith(`${other}${sep}`),
+      ),
+  );
+}
+
 function commandEnvironmentLines(
   environment: Record<string, string> = {},
+  executableReadRoots: string[],
 ): string[] {
+  const systemPath =
+    environment.PATH ??
+    "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
+  const path =
+    process.platform === "linux"
+      ? [...executableReadRoots, systemPath].join(":")
+      : systemPath;
   return [
-    `PATH = ${toml(environment.PATH ?? "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin")}`,
+    `PATH = ${toml(path)}`,
     ...Object.entries(environment)
       .filter(([name]) => !["PATH", "HOME", "TMPDIR"].includes(name))
       .map(([name, value]) => `${toml(name)} = ${toml(value)}`),

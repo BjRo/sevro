@@ -228,7 +228,12 @@ function validClaudeOptions(
   );
 }
 function availableClaudeSandbox(): boolean {
-  return process.platform === "darwin" && existsSync("/usr/bin/sandbox-exec");
+  if (process.platform === "darwin") return existsSync("/usr/bin/sandbox-exec");
+  return (
+    process.platform === "linux" &&
+    existsSync("/usr/bin/bwrap") &&
+    existsSync("/usr/bin/socat")
+  );
 }
 function requiredClaudePaths(options: ClaudeHostOptions): boolean {
   return [

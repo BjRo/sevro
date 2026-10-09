@@ -1,21 +1,27 @@
 import { appendFile, mkdir, mkdtemp, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const version = "0.160.1";
 const claudeVersion = "2.1.284";
 const targets = {
-  arm64: "aarch64-apple-darwin",
-  x64: "x86_64-apple-darwin",
+  darwin: { arm64: "aarch64-apple-darwin", x64: "x86_64-apple-darwin" },
+  linux: { arm64: "aarch64-unknown-linux-musl", x64: "x86_64-unknown-linux-musl" },
 };
-if (process.platform !== "darwin" || !(process.arch in targets))
-  throw new Error("CI sandbox setup requires macOS arm64 or x64");
+const target = (targets as Record<string, Record<string, string>>)[process.platform]?.[
+  process.arch
+];
+if (!target)
+  throw new Error("CI native host setup requires macOS or Linux arm64 or x64");
 const githubPath = process.env.GITHUB_PATH;
 const githubEnv = process.env.GITHUB_ENV;
 if (!githubPath || !githubEnv)
   throw new Error("CI sandbox setup requires GITHUB_PATH and GITHUB_ENV");
 
 // Hosted runner homes and tool caches are protected from candidate commands.
-const root = await mkdtemp("/private/tmp/sevro-ci-");
+const root = await mkdtemp(
+  join(process.platform === "darwin" ? "/private/tmp" : tmpdir(), "sevro-ci-"),
+);
 try {
   const prefix = join(root, "tools");
   const temporary = join(root, "tmp");
@@ -35,11 +41,10 @@ try {
     { stdout: "inherit", stderr: "inherit" },
   );
   if ((await install.exited) !== 0) throw new Error("CI Codex install failed");
-  const target = targets[process.arch as keyof typeof targets];
   const bin = join(
     prefix,
     "node_modules/@openai",
-    `codex-darwin-${process.arch}`,
+    `codex-${process.platform}-${process.arch}`,
     "vendor",
     target,
     "bin",
@@ -62,7 +67,7 @@ try {
   const claudeBin = join(
     prefix,
     "node_modules/@anthropic-ai",
-    `claude-code-darwin-${process.arch}`,
+    `claude-code-${process.platform}-${process.arch}`,
   );
   await checkClaudeVersion(join(claudeBin, "claude"));
   await appendFile(githubPath, `${claudeBin}\n`);

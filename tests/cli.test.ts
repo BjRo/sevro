@@ -31,6 +31,9 @@ import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { extensionFixtureCommand } from "./fixtures/extension-command";
 const roots: string[] = [];
+const isolatedNativeHost =
+  process.platform === "darwin" ||
+  (process.platform === "linux" && Boolean(Bun.which("bwrap")));
 const cli = join(import.meta.dir, "..", "src", "cli.ts");
 const adapter = join(import.meta.dir, "fixtures", "host-adapter.ts");
 const instrumentedAdapter = join(
@@ -175,7 +178,11 @@ function lockedFixtureMode(location: string) {
   return location === "readable root" ? "0o500" : "0o000";
 }
 function availableNativeCodex() {
-  return process.platform === "darwin" ? Bun.which("codex") : null;
+  return isolatedNativeHost ? Bun.which("codex") : null;
+}
+async function installLinuxCodexHelper(binary: string, codex: string) {
+  if (process.platform === "linux")
+    await symlink(codex, join(dirname(binary), "codex-linux-sandbox"));
 }
 function expectedContinuationState(scenario: string) {
   return {
@@ -990,6 +997,7 @@ for (const route of ["shell", "native"] as const) {
       });
       const authFile = join(projectRoot, "auth.json");
       const binary = join(siblingRoot, "codex-wrapper");
+      await installLinuxCodexHelper(binary, defined(installedCodex));
       await writeFile(authFile, "test-only-auth\n", { mode: 0o600 });
       const semantic = JSON.stringify({
         type: "item.completed",
@@ -1079,7 +1087,10 @@ printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_token
     const retained = parseRunEvidence(
       await readFile(defined(run.result.evidencePath), "utf8"),
     );
-    expect(run.code, JSON.stringify(retained.trials[0])).toBe(0);
+    expect(
+      run.code,
+      JSON.stringify({ result: run.result, trial: retained.trials[0] }),
+    ).toBe(0);
     expect(run.result.task.verdict).toBe("passed");
     expectUnknown(
       defined(defined(run.result.cases[0]).trials[0]).checks.map(
@@ -1264,7 +1275,7 @@ test.each(invalidExternalFlags.map((entry) => [entry.name, entry] as const))(
   },
 );
 test("CLI runs shell checks only with explicit isolation roots", async () => {
-  if (process.platform !== "darwin") return;
+  if (!isolatedNativeHost) return;
   const { args, caseFile } = await fixture();
   await writeFile(
     caseFile,
@@ -1388,13 +1399,14 @@ export default {
 // eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("CLI imports only the Codex limit from its separate configuration root", async () => {
   const installedCodex = Bun.which("codex");
-  if (process.platform !== "darwin" || !installedCodex) return;
+  if (!isolatedNativeHost || !installedCodex) return;
   const { args, caseFile } = await fixture();
   const projectRoot = join(caseFile, "..");
   const configRoot = await mkdtemp(join(tmpdir(), "sevro-config-root-"));
   const binRoot = await mkdtemp(join(tmpdir(), "sevro-config-bin-"));
   roots.push(configRoot, binRoot);
   const binary = join(binRoot, "codex-wrapper");
+  await installLinuxCodexHelper(binary, installedCodex);
   const authFile = join(projectRoot, "auth.json");
   await mkdir(join(configRoot, ".codex"));
   await mkdir(join(projectRoot, ".codex"));
@@ -1442,7 +1454,7 @@ printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_token
     configRoot,
   ];
   const run = await invoke(selectedArgs);
-  expect(run.code, JSON.stringify(run.result.diagnostic)).toBe(0);
+  expect(run.code, JSON.stringify(run.result)).toBe(0);
   expect(run.result.task.verdict).toBe("passed");
   const evidence = parseRunEvidence(
     await readFile(defined(run.result.evidencePath), "utf8"),
@@ -1479,7 +1491,7 @@ printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_token
   );
 });
 test("CLI isolates a separate configuration repository and its linked worktree", async () => {
-  if (process.platform !== "darwin" || !Bun.which("codex")) return;
+  if (!isolatedNativeHost || !Bun.which("codex")) return;
   const { args, caseFile } = await fixture();
   const configRoot = await mkdtemp(join(tmpdir(), "sevro-config-repo-"));
   const worktreeParent = await mkdtemp(
@@ -1737,13 +1749,14 @@ test("CLI rejects malformed Codex settings and unusable configuration roots", as
 // eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("CLI runs its bundled Codex route with explicit auth and model", async () => {
   const installedCodex = Bun.which("codex");
-  if (process.platform !== "darwin" || !installedCodex) return;
+  if (!isolatedNativeHost || !installedCodex) return;
   const { args, caseFile } = await fixture();
   const projectRoot = join(caseFile, "..");
   const authFile = join(projectRoot, "auth.json");
   const binRoot = await mkdtemp(join(tmpdir(), "sevro-codex-bin-"));
   roots.push(binRoot);
   const binary = join(binRoot, "codex-wrapper");
+  await installLinuxCodexHelper(binary, installedCodex);
   const semanticEvent = JSON.stringify({
     type: "item.completed",
     item: {
@@ -1825,7 +1838,7 @@ printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_token
     "low",
   ];
   const run = await invoke(codexArgs);
-  expect(run.code).toBe(0);
+  expect(run.code, JSON.stringify(run.result)).toBe(0);
   expect(run.result.task.verdict).toBe("passed");
   const trial = parseTrial(
     await readFile(
@@ -2054,7 +2067,7 @@ process.stdout.write(JSON.stringify({ type: "result", subtype: "success", is_err
   };
 }
 test("CLI curated Claude runtime leaves repository caches to tools", async () => {
-  if (process.platform !== "darwin") return;
+  if (!isolatedNativeHost) return;
   const { command } = await claudeCacheFixture();
   const proc = Bun.spawn(command, {
     stdout: "pipe",
@@ -2075,7 +2088,7 @@ test("CLI curated Claude runtime leaves repository caches to tools", async () =>
   });
 });
 test("CLI curated shell grading leaves repository caches to tools", async () => {
-  if (process.platform !== "darwin") return;
+  if (!isolatedNativeHost) return;
   const { command, caseFile } = await claudeCacheFixture();
   const definition = fixtureCase();
   definition.checks.push({
@@ -2098,7 +2111,7 @@ test("CLI curated shell grading leaves repository caches to tools", async () => 
   );
 });
 test("CLI resumes Claude in the same isolated session and grades its final turn", async () => {
-  if (process.platform !== "darwin") return;
+  if (!isolatedNativeHost) return;
   const { command, launches } = await claudeContinuationFixture();
   const run = await invoke(command);
   expect(run.code, run.stderr + JSON.stringify(run.result)).toBe(0);
@@ -2151,7 +2164,7 @@ test.each([
 ])(
   "Claude continuation never grades failed or unbound native results: %s",
   async (scenario) => {
-    if (process.platform !== "darwin") return;
+    if (!isolatedNativeHost) return;
     const { command, launches } = await claudeContinuationFixture(scenario);
     const run = await invoke(command);
     expect(run.code, scenario + JSON.stringify(run.result)).toBe(2);
@@ -2187,7 +2200,7 @@ test.each([
   10000,
 );
 test("CLI leaves Claude usage unmeasured when a resumed result belongs to another session", async () => {
-  if (process.platform !== "darwin") return;
+  if (!isolatedNativeHost) return;
   const { command } = await claudeContinuationFixture("foreign-follow-up");
   const run = await invoke(command);
   expect(run.code).toBe(2);
@@ -2203,7 +2216,7 @@ test("CLI leaves Claude usage unmeasured when a resumed result belongs to anothe
   });
 });
 test("Claude continuation keeps workspace and usage uncertainty explicit", async () => {
-  if (process.platform !== "darwin") return;
+  if (!isolatedNativeHost) return;
   for (const scenario of [
     "changed-worktree",
     "unmeasured-worktree",
@@ -2232,7 +2245,7 @@ test("Claude continuation keeps workspace and usage uncertainty explicit", async
   }
 });
 test("CLI runs its bundled Claude route with isolated credentials", async () => {
-  if (process.platform !== "darwin") return;
+  if (!isolatedNativeHost) return;
   const { args, caseFile } = await fixture();
   const projectRoot = join(caseFile, "..");
   const credentialFile = join(projectRoot, "claude-credentials.json");

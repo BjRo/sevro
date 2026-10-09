@@ -12,6 +12,7 @@ import {
   realpath,
   rm,
   stat,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -231,10 +232,25 @@ async function runCodexRequest(
   await verifyCodexInvocation(request);
   if (existsSync(join(request.workspace, ".codex")))
     throw new Error("fixture Codex configuration is unsupported");
-  const stateRoot = await mkdtemp(join(tmpdir(), "sevro-codex-state-"));
+  const stateRoot = await mkdtemp(
+    join(
+      process.platform === "linux" ? "/var/tmp" : tmpdir(),
+      "sevro-codex-state-",
+    ),
+  );
+  const helperRoot =
+    process.platform === "linux"
+      ? await mkdtemp(join(tmpdir(), "sevro-codex-helper-"))
+      : undefined;
   let activeHooks: HookMounts | undefined;
   try {
-    const state = await prepareCodexState(stateRoot, options, limit, request);
+    const state = await prepareCodexState(
+      stateRoot,
+      options,
+      limit,
+      request,
+      helperRoot,
+    );
     const installedPluginRoots = await installCodexPlugins({
       binary: options.binary,
       env: state.env,
@@ -257,6 +273,7 @@ async function runCodexRequest(
   } finally {
     await releaseRuntimeHooks(activeHooks);
     await rm(stateRoot, { recursive: true, force: true });
+    if (helperRoot) await rm(helperRoot, { recursive: true, force: true });
   }
 }
 
@@ -305,6 +322,11 @@ async function privateCodexDirectories(stateRoot: string) {
       mkdir(path, { mode: 0o700 }),
     ),
   );
+  if (process.platform === "linux")
+    await mkdir(join(codexHome, "tmp", "arg0"), {
+      recursive: true,
+      mode: 0o700,
+    });
   return {
     codexHome,
     parentHome,
@@ -345,21 +367,37 @@ async function writeCodexProfile(
   const profile = codexPermissionProfile({
     commandEnvironment: codexCommandEnvironment(request, commandEnvironment),
     runtimeWriteRoot,
-    runtimeReadRoots: request.runtimePolicy?.readOnlyRoots,
+    runtimeReadRoots: [
+      ...(request.runtimePolicy?.readOnlyRoots ?? []),
+      ...linuxArg0ReadRoots(paths.codexHome),
+    ],
     id: profileId,
     workspace: request.workspace,
     commandHome: paths.commandHome,
     commandTemp: paths.commandTemp,
     executableReadRoots: readRoots,
-    ...(request.codexMarketplace
-      ? { pluginReadRoot: paths.pluginCacheRoot }
-      : {}),
+    ...codexPluginReadRoot(request, paths.pluginCacheRoot),
     protectedRoots,
   });
   await writeFile(
     join(paths.codexHome, "config.toml"),
     profile + concurrencyConfiguration(limit),
     { flag: "wx", mode: 0o600 },
+  );
+}
+
+function linuxArg0ReadRoots(codexHome: string): string[] {
+  return process.platform === "linux" ? [join(codexHome, "tmp", "arg0")] : [];
+}
+
+function codexPluginReadRoot(request: Request, root: string) {
+  return request.codexMarketplace ? { pluginReadRoot: root } : {};
+}
+
+function codexHelperBinary(options: CodexHostOptions, sandboxBinary: string) {
+  const sibling = join(dirname(options.binary), "codex-linux-sandbox");
+  return (
+    options.sandboxBinary ?? (existsSync(sibling) ? sibling : sandboxBinary)
   );
 }
 
@@ -376,12 +414,17 @@ function codexCommandEnvironment(
     PATH: [request.fixtureBinDir, path].filter(Boolean).join(delimiter),
   };
 }
-async function fixtureShellRoot(request: Request): Promise<string> {
+async function fixtureShellRoot(
+  request: Request,
+  parentHome: string,
+): Promise<string> {
   const root = join(request.workspace, ".git", "sevro-shell");
   if (request.fixtureBinDir) {
     await mkdir(root, { mode: 0o700 });
     await writeFile(
-      join(root, ".zprofile"),
+      process.platform === "linux"
+        ? join(parentHome, ".bash_profile")
+        : join(root, ".zprofile"),
       `export PATH=${shellQuote(request.fixtureBinDir)}:"$PATH"\n`,
       { flag: "wx", mode: 0o600 },
     );
@@ -405,7 +448,9 @@ function codexEnvironment(
     TMPDIR: paths.parentTemp,
     CODEX_HOME: paths.codexHome,
     NO_COLOR: "1",
-    ...(request.fixtureBinDir ? { ZDOTDIR: shellRoot } : {}),
+    ...(request.fixtureBinDir && process.platform === "darwin"
+      ? { ZDOTDIR: shellRoot }
+      : {}),
   };
 }
 
@@ -456,6 +501,7 @@ async function prepareCodexState(
   options: CodexHostOptions,
   limit: number | null,
   request: Request,
+  helperRoot?: string,
 ) {
   const paths = await privateCodexDirectories(stateRoot);
   const runtime = await codexRuntime(request, paths);
@@ -466,17 +512,21 @@ async function prepareCodexState(
     resultsRoot: options.resultsRoot,
     additionalRoots: [
       ...options.additionalProtectedRoots,
-      stateRoot,
+      ...(process.platform === "linux" ? [] : [stateRoot]),
       ...codexSeedSources(request),
     ],
   });
   const sandboxBinary = options.sandboxBinary ?? options.binary;
+  const helperBinary = codexHelperBinary(options, sandboxBinary);
+  if (helperRoot)
+    await symlink(helperBinary, join(helperRoot, "codex-linux-sandbox"));
   const readRoots = await Promise.all(
-    [options.binary, sandboxBinary].flatMap((binary) => [
+    [options.binary, sandboxBinary, helperBinary].flatMap((binary) => [
       realpath(dirname(binary)),
       realpath(binary).then(dirname),
     ]),
   );
+  if (helperRoot) readRoots.push(helperRoot);
   requireCodexRuntimeReadRoots(request, protectedRoots);
   requireUnprotectedExecutables(
     readRoots,
@@ -498,7 +548,7 @@ async function prepareCodexState(
     runtimeProfile.environment,
     runtimeProfile.root,
   );
-  const shellRoot = await fixtureShellRoot(request);
+  const shellRoot = await fixtureShellRoot(request, paths.parentHome);
   const env = codexEnvironment(paths, request, shellRoot);
   applyCodexRuntime(runtime, env, paths);
   return { ...paths, sandboxBinary, profileId, env, protectedRoots };
@@ -551,11 +601,12 @@ async function codexPreflight(
   const checked = await sandboxPreflight(state, request, [
     "/bin/sh",
     "-c",
-    '/bin/cat "$1" >/dev/null && ! /bin/ls "$2" >/dev/null 2>&1 && ! /bin/cat "$3" >/dev/null 2>&1',
+    '/bin/cat "$1" >/dev/null && ! /bin/ls "$2" >/dev/null 2>&1 && ! /bin/cat "$3" >/dev/null 2>&1 && ! /bin/cat "$4" >/dev/null 2>&1',
     "sevro-probe",
     probe,
     options.projectRoot,
     join(state.codexHome, "auth.json"),
+    join(state.codexHome, "config.toml"),
   ]);
   if (checked.code !== 0) throw new Error("Codex isolation preflight failed");
   const executable = await sandboxPreflight(state, request, [

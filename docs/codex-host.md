@@ -130,16 +130,16 @@ available through the engine's injected host interface and the development
 CLI's explicit `--host codex` route. Its protocol and evidence host ID is
 `sevro.host.codex`; `codex` remains the CLI route selector.
 
-`prepareMacSandboxCommand` provides the macOS shell-grading boundary. Callers
+`prepareMacSandboxCommand` and `prepareLinuxSandboxCommand` provide the shell-grading boundary. Callers
 provide absolute protected roots and a private state root; the primitive
 canonicalizes them, refuses overlap with the fixture workspace, and creates a
-temporary `sandbox-exec` profile that denies reads and writes. It fails if
-macOS isolation is unavailable. The caller releases the profile after the
+temporary native sandbox that denies reads and writes. It fails if
+isolation is unavailable. The caller releases the sandbox resources after the
 process exits. The runner assembles the same protected-root set for Codex
 candidate commands and shell grading.
 
 Codex cannot start its native sandbox inside an outer `sandbox-exec` process
-on this host. Its runner-generated permission profile therefore sets an
+on macOS. Its runner-generated permission profile therefore sets an
 explicit workspace rule, denies all other filesystem roots except minimal
 runtime files and the selected executable's install directories, and
 specifically denies protected roots and the private Codex home. An executable
