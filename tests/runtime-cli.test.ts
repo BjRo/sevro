@@ -95,6 +95,101 @@ async function invoke(
   return { code, stderr, result: parseCliResult(stdout) };
 }
 
+const localeCases = [
+  { name: "unset", lang: undefined, expected: "C", pattern: "^C$" },
+  {
+    name: "set",
+    lang: "C.UTF-8",
+    expected: "C.UTF-8",
+    pattern: "^C\\.UTF-8$",
+  },
+];
+
+test.each(localeCases)(
+  "CLI isolated shell locale uses the caller default when LANG is $name",
+  async ({ lang, expected }) => {
+    const { args } = await fixture([
+      {
+        id: "locale",
+        grader: "sevro.shell",
+        configuration: { run: 'printf "%s" "$LANG"', expectExact: expected },
+      },
+    ]);
+    const run = await invoke([...args, "--shell-isolation"], { LANG: lang });
+    expect(run.code, JSON.stringify(run.result)).toBe(0);
+    expect(run.result.task.verdict).toBe("passed");
+  },
+);
+
+async function localeHostArguments(
+  route: "codex" | "claude",
+  root: string,
+): Promise<string[]> {
+  const binary = join(root, route);
+  const credential = join(root, "credential.json");
+  await writeFile(credential, '{"test":"synthetic"}');
+  if (route === "claude") {
+    await writeFile(
+      binary,
+      '#!/bin/sh\nprintf \'{"type":"result","subtype":"success","is_error":false,"result":"%s"}\\n\' "$LANG"\n',
+      { mode: 0o755 },
+    );
+    return ["--claude-bin", binary, "--claude-credential-file", credential];
+  }
+  const codex = defined(Bun.which("codex"));
+  if (process.platform === "linux")
+    await symlink(codex, join(root, "codex-linux-sandbox"));
+  await writeFile(
+    binary,
+    `#!/bin/sh
+if [ "$1" = --version ]; then printf 'synthetic-codex\\n'; exit 0; fi
+if [ "$1" = sandbox ]; then shift; exec '${codex}' sandbox "$@"; fi
+test "$1" = exec || exit 99
+printf '%s\\n' '{"type":"thread.started","thread_id":"locale-test"}'
+printf '{"type":"item.completed","item":{"type":"agent_message","text":"%s"}}\\n' "$LANG"
+printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'
+`,
+    { mode: 0o755 },
+  );
+  return ["--codex-bin", binary, "--codex-auth-file", credential];
+}
+
+for (const route of ["codex", "claude"] as const) {
+  test.each(localeCases)(
+    `CLI ${route} candidate locale uses the caller default when LANG is $name`,
+    async ({ lang, pattern }) => {
+      const { root, args } = await fixture([
+        {
+          id: "locale",
+          grader: "sevro.regex",
+          configuration: { pattern },
+        },
+      ]);
+      const native = args.filter(
+        (_value, index) =>
+          index !== args.indexOf("--adapter-module") &&
+          index !== args.indexOf("--adapter-module") + 1,
+      );
+      const hostArguments = await localeHostArguments(route, root);
+      const run = await invoke(
+        [
+          ...native,
+          "--host",
+          route,
+          ...hostArguments,
+          "--model",
+          "synthetic",
+          "--effort",
+          "low",
+        ],
+        { LANG: lang },
+      );
+      expect(run.code, JSON.stringify(run.result)).toBe(0);
+      expect(run.result.task.verdict).toBe("passed");
+    },
+  );
+}
+
 test("CLI rejects malformed repository runtime configuration before execution", async () => {
   const { project, args } = await fixture();
   await writeFile(join(project, "sevro.json"), "{");
