@@ -16,6 +16,10 @@ import type { IsolatedCommand } from "./hosts/mac-sandbox";
 import { prepareLinuxSandboxCommand } from "./hosts/linux-sandbox";
 import { isRecord, isUnknownArray } from "./value-guards";
 import { hookExecutions, releaseHookProcesses } from "./runtime-hook-processes";
+import {
+  nativeStateParent,
+  requireNativeHookRoots,
+} from "./native-transcript-state";
 
 export interface HookMounts {
   directories: string[];
@@ -100,9 +104,13 @@ export async function prepareHookMounts(options: {
     );
     const name = uniquePluginName(manifest, plugins);
     const allowed = selected.delete(name);
-    const readRoots = [...options.policy.readOnlyRoots, root];
-    requireRuntimeReadRoots(readRoots, options.protectedRoots);
-    const boundary = await prepareHookIsolation(options, index, readRoots, runtime.root);
+    const readRoots = await hookReadRoots(options, root);
+    const boundary = await prepareHookIsolation(
+      options,
+      index,
+      readRoots,
+      runtime.root,
+    );
     if (boundary.isolation) isolation.push(boundary.isolation);
     const rewrite: HookRewrite = {
       root,
@@ -135,7 +143,7 @@ export async function prepareHookMounts(options: {
 async function prepareHookIsolation(
   options: Parameters<typeof prepareHookMounts>[0],
   index: number,
-  readRoots: string[],
+  roots: { ordinary: string[]; curated: string[] },
   runtimeRoot: string,
 ): Promise<{ profile?: string; isolation?: IsolatedCommand }> {
   if (process.platform === "linux")
@@ -146,18 +154,39 @@ async function prepareHookIsolation(
         protectedRoots: options.protectedRoots,
         privateStateRoot: options.privateRoot,
         denyNetwork: true,
-        readOnlyRoots: readRoots,
+        readOnlyRoots: roots.ordinary,
+        hookReadRoots: roots.curated,
         writableRuntimeRoot: runtimeRoot,
       }),
     };
   const profile = join(options.privateRoot, `hooks-${index}.sb`);
   await writeFile(
     profile,
-    macSandboxProfile(options.protectedRoots, true, readRoots, runtimeRoot) +
-      "\n(deny process-info* (require-not (target self)))\n",
+    macSandboxProfile(
+      options.protectedRoots,
+      true,
+      roots.ordinary,
+      runtimeRoot,
+      roots.curated,
+    ) + "\n(deny process-info* (require-not (target self)))\n",
     { mode: 0o600 },
   );
   return { profile };
+}
+
+async function hookReadRoots(
+  options: Parameters<typeof prepareHookMounts>[0],
+  root: string,
+) {
+  const trusted = insideRuntimeRoot(await nativeStateParent(), root);
+  const ordinary = [
+    ...options.policy.readOnlyRoots,
+    ...(trusted ? [] : [root]),
+  ];
+  const curated = trusted ? [root] : [];
+  requireRuntimeReadRoots(ordinary, options.protectedRoots);
+  await requireNativeHookRoots(curated);
+  return { ordinary, curated };
 }
 
 function hookPath(environment: Record<string, string>): string {
@@ -283,8 +312,9 @@ async function commandHook(
   if (handler.command.includes("\0") || handler.command.length > 65536)
     throw new Error("runtime hook command is invalid or oversized");
   const wrapper = join(state.privateRoot, `hook-${state.ordinal++}.sh`);
-  const environment = Object.entries(state.environment)
-    .map(([name, content]) => `${name}=${content}`);
+  const environment = Object.entries(state.environment).map(
+    ([name, content]) => `${name}=${content}`,
+  );
   const receipts = join(state.privateRoot, "hook-receipts");
   const command = isolatedHookCommand(state, environment, handler.command);
   await writeFile(
@@ -312,7 +342,15 @@ function isolatedHookCommand(
   const prefix = state.isolation
     ? state.isolation.argv.slice(0, -1)
     : ["/usr/bin/sandbox-exec", "-f", state.profile ?? ""];
-  return [...prefix, "/usr/bin/env", "-i", ...environment, "/bin/sh", "-c", command]
+  return [
+    ...prefix,
+    "/usr/bin/env",
+    "-i",
+    ...environment,
+    "/bin/sh",
+    "-c",
+    command,
+  ]
     .map(quote)
     .join(" ");
 }

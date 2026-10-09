@@ -46,6 +46,7 @@ export interface HostAdapter {
   run(request: {
     runtimePolicy?: RuntimePolicy;
     runtimeRole?: RuntimeRole;
+    candidateTranscriptRoot?: string;
     prompt: string;
     followUpPrompt?: string;
     workspace: string;

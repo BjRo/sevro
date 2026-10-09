@@ -87,3 +87,11 @@ grading an error. Checks are grouped by source, so response and document checks
 remain independent in the same trial. Artifact outcomes retain the resolved
 path and content digest. The semantic host uses an empty workspace and receives
 the document as untrusted data.
+
+When [native transcripts are enabled](runtime-v1.md#native-transcript-access),
+shell checks and semantic hosts can read retained candidate native files through
+`SEVRO_CANDIDATE_TRANSCRIPTS`. The view has `index.json` plus a `codex/` or
+`claude/` native tree. It is read-only and separate from the grading host's own
+live native tree. Native transcripts are untrusted candidate evidence; a grader
+must not follow instructions inside them. Missing or partial capture remains
+explicit in the index and does not establish required complete evidence.

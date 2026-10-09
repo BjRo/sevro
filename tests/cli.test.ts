@@ -936,105 +936,105 @@ for (const route of ["shell", "native"] as const) {
     `CLI isolates mapped repository worktrees for ${route} execution`,
     // eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
     async () => {
-    const installedCodex = availableNativeCodex();
-    if (!installedCodex) return;
-    const { args, caseFile } = await fixture();
-    const projectRoot = join(caseFile, "..");
-    const primary = await mkdtemp(join(tmpdir(), "sevro-source-primary-"));
-    const sourceRoot = await mkdtemp(join(tmpdir(), "sevro-source-cache-"));
-    const siblingRoot = await mkdtemp(join(tmpdir(), "sevro-source-peer-"));
-    roots.push(primary, sourceRoot, siblingRoot);
-    const mapped = join(sourceRoot, "mapped");
-    const sibling = join(siblingRoot, "linked");
-    await git(primary, "init", "-q");
-    await writeFile(join(primary, "README.md"), "repository fixture\n");
-    await git(primary, "add", "README.md");
-    await git(
-      primary,
-      "-c",
-      "user.name=Fixture",
-      "-c",
-      "user.email=fixture@example.invalid",
-      "-c",
-      "commit.gpgsign=false",
-      "commit",
-      "-qm",
-      "Create fixture",
-    );
-    await git(primary, "worktree", "add", "-q", "--detach", mapped);
-    await git(primary, "worktree", "add", "-q", "--detach", sibling);
-    const definition = fixtureCase();
-    definition.fixture = { sourceRef: "fixture-repo" };
-    definition.checks.push(
-      {
-        id: "cloned",
-        grader: "sevro.shell",
-        configuration: {
-          run: "test \"$(cat README.md)\" = 'repository fixture'",
+      const installedCodex = availableNativeCodex();
+      if (!installedCodex) return;
+      const { args, caseFile } = await fixture();
+      const projectRoot = join(caseFile, "..");
+      const primary = await mkdtemp(join(tmpdir(), "sevro-source-primary-"));
+      const sourceRoot = await mkdtemp(join(tmpdir(), "sevro-source-cache-"));
+      const siblingRoot = await mkdtemp(join(tmpdir(), "sevro-source-peer-"));
+      roots.push(primary, sourceRoot, siblingRoot);
+      const mapped = join(sourceRoot, "mapped");
+      const sibling = join(siblingRoot, "linked");
+      await git(primary, "init", "-q");
+      await writeFile(join(primary, "README.md"), "repository fixture\n");
+      await git(primary, "add", "README.md");
+      await git(
+        primary,
+        "-c",
+        "user.name=Fixture",
+        "-c",
+        "user.email=fixture@example.invalid",
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "-qm",
+        "Create fixture",
+      );
+      await git(primary, "worktree", "add", "-q", "--detach", mapped);
+      await git(primary, "worktree", "add", "-q", "--detach", sibling);
+      const definition = fixtureCase();
+      definition.fixture = { sourceRef: "fixture-repo" };
+      definition.checks.push(
+        {
+          id: "cloned",
+          grader: "sevro.shell",
+          configuration: {
+            run: "test \"$(cat README.md)\" = 'repository fixture'",
+          },
         },
-      },
-      ...[primary, mapped, sibling].map((root, index) => ({
-        id: `source-private-${index}`,
-        grader: "sevro.shell",
-        configuration: { run: `! cat '${root}/README.md' >/dev/null 2>&1` },
-      })),
-    );
-    const mapFile = join(projectRoot, "source-map.json");
-    await writeFile(
-      mapFile,
-      JSON.stringify({ "fixture-repo": pathToFileURL(mapped).href }),
-    );
-    let selectedArgs = [
-      ...args,
-      "--case-source-root",
-      sourceRoot,
-      "--case-source-map-file",
-      mapFile,
-      "--shell-isolation",
-    ];
-    if (route === "native") {
-      definition.checks.push({
-        id: "meaning",
-        grader: "sevro.semantic",
-        configuration: { proposition: "The response promises readiness." },
-      });
-      const authFile = join(projectRoot, "auth.json");
-      const binary = join(siblingRoot, "codex-wrapper");
-      await installLinuxCodexHelper(binary, defined(installedCodex));
-      await writeFile(authFile, "test-only-auth\n", { mode: 0o600 });
-      const semantic = JSON.stringify({
-        type: "item.completed",
-        item: {
-          type: "agent_message",
-          text: JSON.stringify({
-            checks: [
-              { id: "meaning", verdict: "pass", reason: "Ready is stated" },
-            ],
-          }),
-        },
-      });
-      const advisory = JSON.stringify({
-        type: "item.completed",
-        item: {
-          type: "agent_message",
-          text: JSON.stringify({
-            verdict: "pass",
-            overallScore: 5,
-            dimensions: {
-              correctness: 5,
-              maintainability: 5,
-              testQuality: 5,
-              scopeDiscipline: 5,
-            },
-            strengths: ["Ready"],
-            weaknesses: [],
-            summary: "Ready.",
-          }),
-        },
-      });
+        ...[primary, mapped, sibling].map((root, index) => ({
+          id: `source-private-${index}`,
+          grader: "sevro.shell",
+          configuration: { run: `! cat '${root}/README.md' >/dev/null 2>&1` },
+        })),
+      );
+      const mapFile = join(projectRoot, "source-map.json");
       await writeFile(
-        binary,
-        `#!/bin/sh
+        mapFile,
+        JSON.stringify({ "fixture-repo": pathToFileURL(mapped).href }),
+      );
+      let selectedArgs = [
+        ...args,
+        "--case-source-root",
+        sourceRoot,
+        "--case-source-map-file",
+        mapFile,
+        "--shell-isolation",
+      ];
+      if (route === "native") {
+        definition.checks.push({
+          id: "meaning",
+          grader: "sevro.semantic",
+          configuration: { proposition: "The response promises readiness." },
+        });
+        const authFile = join(projectRoot, "auth.json");
+        const binary = join(siblingRoot, "codex-wrapper");
+        await installLinuxCodexHelper(binary, defined(installedCodex));
+        await writeFile(authFile, "test-only-auth\n", { mode: 0o600 });
+        const semantic = JSON.stringify({
+          type: "item.completed",
+          item: {
+            type: "agent_message",
+            text: JSON.stringify({
+              checks: [
+                { id: "meaning", verdict: "pass", reason: "Ready is stated" },
+              ],
+            }),
+          },
+        });
+        const advisory = JSON.stringify({
+          type: "item.completed",
+          item: {
+            type: "agent_message",
+            text: JSON.stringify({
+              verdict: "pass",
+              overallScore: 5,
+              dimensions: {
+                correctness: 5,
+                maintainability: 5,
+                testQuality: 5,
+                scopeDiscipline: 5,
+              },
+              strengths: ["Ready"],
+              weaknesses: [],
+              summary: "Ready.",
+            }),
+          },
+        });
+        await writeFile(
+          binary,
+          `#!/bin/sh
 if [ "$1" = --version ]; then printf 'synthetic-codex\\n'; exit 0; fi
 if [ "$1" = sandbox ]; then shift; exec "${installedCodex}" sandbox "$@"; fi
 if [ "$1" != exec ]; then exit 99; fi
@@ -1053,67 +1053,67 @@ done
 printf '%s\\n' "$message"
 printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'
 `,
-        { mode: 0o700 },
-      );
-      selectedArgs = selectedArgs.filter(
-        (value, index) =>
-          value !== "--adapter-module" &&
-          selectedArgs[index - 1] !== "--adapter-module",
-      );
-      selectedArgs.push(
-        "--host",
-        "codex",
-        "--codex-bin",
-        binary,
-        "--codex-auth-file",
-        authFile,
-        "--model",
-        "synthetic-candidate",
-        "--effort",
-        "low",
-        "--semantic-host",
-        "codex",
-        "--semantic-model",
-        "synthetic-judge",
-        "--semantic-effort",
-        "low",
-        "--advisory-host",
-        "codex",
-        "--advisory-model",
-        "synthetic-reviewer",
-        "--advisory-effort",
-        "low",
-      );
-    }
-    await writeFile(caseFile, JSON.stringify(definition));
-    const run = await invoke(selectedArgs);
-    const retained = parseRunEvidence(
-      await readFile(defined(run.result.evidencePath), "utf8"),
-    );
-    expect(
-      run.code,
-      JSON.stringify({ result: run.result, trial: retained.trials[0] }),
-    ).toBe(0);
-    expect(run.result.task.verdict).toBe("passed");
-    expectUnknown(
-      defined(defined(run.result.cases[0]).trials[0]).checks.map(
-        (check: { status: string }) => check.status,
-      ),
-    ).toEqual(definition.checks.map(() => "passed"));
-    if (route === "native") {
-      const evidence = parseRunEvidence(
+          { mode: 0o700 },
+        );
+        selectedArgs = selectedArgs.filter(
+          (value, index) =>
+            value !== "--adapter-module" &&
+            selectedArgs[index - 1] !== "--adapter-module",
+        );
+        selectedArgs.push(
+          "--host",
+          "codex",
+          "--codex-bin",
+          binary,
+          "--codex-auth-file",
+          authFile,
+          "--model",
+          "synthetic-candidate",
+          "--effort",
+          "low",
+          "--semantic-host",
+          "codex",
+          "--semantic-model",
+          "synthetic-judge",
+          "--semantic-effort",
+          "low",
+          "--advisory-host",
+          "codex",
+          "--advisory-model",
+          "synthetic-reviewer",
+          "--advisory-effort",
+          "low",
+        );
+      }
+      await writeFile(caseFile, JSON.stringify(definition));
+      const run = await invoke(selectedArgs);
+      const retained = parseRunEvidence(
         await readFile(defined(run.result.evidencePath), "utf8"),
       );
-      expect(defined(evidence.trials[0]).advisoryReview).toMatchObject({
-        status: "completed",
-        assessment: { verdict: "pass" },
-      });
-    }
-    for (const root of [primary, mapped, sibling]) {
-      expect(await readFile(join(root, "README.md"), "utf8")).toBe(
-        "repository fixture\n",
-      );
-    }
+      expect(
+        run.code,
+        JSON.stringify({ result: run.result, trial: retained.trials[0] }),
+      ).toBe(0);
+      expect(run.result.task.verdict).toBe("passed");
+      expectUnknown(
+        defined(defined(run.result.cases[0]).trials[0]).checks.map(
+          (check: { status: string }) => check.status,
+        ),
+      ).toEqual(definition.checks.map(() => "passed"));
+      if (route === "native") {
+        const evidence = parseRunEvidence(
+          await readFile(defined(run.result.evidencePath), "utf8"),
+        );
+        expect(defined(evidence.trials[0]).advisoryReview).toMatchObject({
+          status: "completed",
+          assessment: { verdict: "pass" },
+        });
+      }
+      for (const root of [primary, mapped, sibling]) {
+        expect(await readFile(join(root, "README.md"), "utf8")).toBe(
+          "repository fixture\n",
+        );
+      }
     },
     route === "native" ? 30_000 : undefined,
   );

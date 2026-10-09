@@ -17,6 +17,8 @@ export interface IsolationOptions {
   privateStateRoot: string;
   denyNetwork?: boolean;
   readOnlyRoots?: string[];
+  transcriptReadRoots?: string[];
+  hookReadRoots?: string[];
   writableRuntimeRoot?: string;
 }
 

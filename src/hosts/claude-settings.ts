@@ -30,6 +30,7 @@ export function claudeHostSettings(
   pluginRoots: string[] = [],
   protectedRoots: string[] = [],
   runtimePolicy?: RuntimePolicy,
+  transcriptReadRoots: string[] = [],
 ): Record<string, unknown> {
   if (
     !validPrivatePaths(privateRoot, credentialFile, [
@@ -48,12 +49,13 @@ export function claudeHostSettings(
       failIfUnavailable: true,
       filesystem: {
         denyRead: [privateRoot, ...protectedRoots],
-        allowRead: readRoots,
+        allowRead: [...readRoots, ...transcriptReadRoots, ...pluginRoots],
         denyWrite: [
           privateRoot,
           ...pluginRoots,
           ...protectedRoots,
           ...readRoots,
+          ...transcriptReadRoots,
         ],
       },
       credentials: {
@@ -66,6 +68,7 @@ export function claudeHostSettings(
       protectedRoots,
       pluginRoots,
       runtimePolicy,
+      transcriptReadRoots,
     ),
   };
 }
@@ -75,12 +78,13 @@ function claudePermissions(
   protectedRoots: string[],
   pluginRoots: string[],
   policy: RuntimePolicy | undefined,
+  transcriptReadRoots: string[],
 ) {
   const roots = [privateRoot, ...protectedRoots];
   const readRoots = policy
     ? roots.filter((root) => !isRuntimeHomeRoot(root))
     : roots;
-  const toolRoots = runtimeReadRoots(policy);
+  const toolRoots = [...runtimeReadRoots(policy), ...transcriptReadRoots];
   return {
     allow: policy
       ? ["Bash", "Edit", "Skill", "Agent"]
@@ -93,7 +97,13 @@ function claudePermissions(
       : {}),
     deny: [
       ...roots.flatMap((root) =>
-        protectedToolRules(root, readRoots.includes(root)),
+        protectedToolRules(
+          root,
+          readRoots.includes(root) &&
+            ![...transcriptReadRoots, ...pluginRoots].some((path) =>
+              path.startsWith(`${root}/`),
+            ),
+        ),
       ),
       ...[...pluginRoots, ...toolRoots].map((root) =>
         absoluteRule(root, "Edit"),

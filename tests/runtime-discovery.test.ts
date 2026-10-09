@@ -14,6 +14,49 @@ import { loadRuntimeConfiguration, runEvaluation } from "../src/engine";
 import { defined } from "./fixtures/assertions";
 
 const roots: string[] = [];
+test.each(["required", "optional", "provider", "discovery"])(
+  "portable runtime declarations retain lexical native namespace protection: %s",
+  async (kind) => {
+    const root = await fixture({ format: "sevro.runtime.v1" });
+    const namespace = join(
+      process.platform === "linux" ? "/var/tmp" : tmpdir(),
+      "sevro-native-private",
+    );
+    await mkdir(namespace, { recursive: true, mode: 0o700 });
+    const privateRoot = await mkdtemp(
+      join(namespace, "discovery-alias-probe-"),
+    );
+    roots.push(privateRoot);
+    const support = join(root, "support"),
+      bin = join(root, "bin"),
+      marker = join(root, "query-ran");
+    await Promise.all([support, bin].map((path) => mkdir(path)));
+    const alias = join(privateRoot, "public-alias");
+    await symlink(kind === "provider" ? bin : support, alias);
+    await writeFile(
+      join(bin, "brew"),
+      `#!/bin/sh\nif [ "$1" = --prefix ]; then printf '%s\\n' '${alias}'; else /usr/bin/touch '${marker}'; exit 8; fi\n`,
+      { mode: 0o755 },
+    );
+    await writeFile(
+      join(root, "sevro.json"),
+      JSON.stringify({
+        format: "sevro.runtime.v1",
+        nativeTranscripts: true,
+        ...nativeAliasConfiguration(kind, alias, bin),
+      }),
+    );
+    expect(loadRuntimeConfiguration(root)).rejects.toThrow("protected data");
+    expect(await Bun.file(marker).exists()).toBe(false);
+  },
+);
+function nativeAliasConfiguration(kind: string, alias: string, bin: string) {
+  return kind === "required"
+    ? { filesystem: { readOnlyRoots: [alias] } }
+    : kind === "optional"
+      ? { filesystem: { optionalReadOnlyRoots: [alias] } }
+      : { environment: { set: { PATH: kind === "provider" ? alias : bin } } };
+}
 afterEach(async () => {
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
