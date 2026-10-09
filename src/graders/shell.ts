@@ -263,6 +263,7 @@ function stopProcess(proc: Bun.Subprocess): void {
 }
 
 interface ShellRunOptions {
+  candidateTranscriptRoot?: string;
   runtimePolicy?: RuntimePolicy;
   workspace: string;
   fixtureBinDir?: string;
@@ -324,6 +325,9 @@ function shellEnvironment(
 ): Record<string, string> {
   return {
     ...runtime.environment,
+    ...(options.candidateTranscriptRoot
+      ? { SEVRO_CANDIDATE_TRANSCRIPTS: options.candidateTranscriptRoot }
+      : {}),
     PATH: [
       options.fixtureBinDir,
       options.toolchainBinDir,
@@ -441,6 +445,9 @@ export async function runShellCheck(
     privateStateRoot: options.privateStateRoot,
     denyNetwork: true,
     readOnlyRoots: options.runtimePolicy?.readOnlyRoots,
+    transcriptReadRoots: options.candidateTranscriptRoot
+      ? [options.candidateTranscriptRoot]
+      : [],
     writableRuntimeRoot: runtime.privateRuntimeRoot,
   });
   await requireShellRuntimeCache(options, runtime);

@@ -8,6 +8,7 @@ import {
 } from "node:fs/promises";
 import { constants, lstatSync, readlinkSync, realpathSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
+import { nativeStateProtectedRoots } from "./native-transcript-state";
 import {
   basename,
   delimiter,
@@ -43,6 +44,7 @@ export function requireRuntimeReadRoots(
       root,
       canonicalCredentialRoot(root),
     ]),
+    ...nativeStateProtectedRoots(),
   ];
   for (const root of readRoots) {
     if (root === "/" || isRuntimeHomeRoot(root))

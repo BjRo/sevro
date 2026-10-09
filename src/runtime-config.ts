@@ -15,6 +15,7 @@ import {
 
 export interface RuntimeConfiguration {
   format: "sevro.runtime.v1";
+  nativeTranscripts?: boolean;
   environment?: { inherit?: string[]; set?: Record<string, string> };
   filesystem?: { readOnlyRoots?: string[]; optionalReadOnlyRoots?: string[] };
   runtime?: { seedDirectories?: { source: string; target: string }[] };
@@ -23,6 +24,7 @@ export interface RuntimeConfiguration {
 
 export interface RuntimePolicy {
   format: "sevro.runtime.v1";
+  nativeTranscripts?: boolean;
   environment: Record<string, string>;
   readOnlyRoots: string[];
   discovery?: RuntimeDiscoverySource[];
@@ -73,7 +75,7 @@ function assertRuntimeConfiguration(
 }
 
 const RESERVED_ENVIRONMENT =
-  /^(HOME|TMPDIR|TMP|TEMP|CODEX_HOME|CLAUDE_CONFIG_DIR|BASH_ENV|ENV|ZDOTDIR|NODE_OPTIONS|BUN_OPTIONS|UV_OFFLINE|GIT_CONFIG.*|LD_.*|DYLD_.*|CLAUDE_CODE_.*)$/i;
+  /^(HOME|TMPDIR|TMP|TEMP|CODEX_HOME|CODEX_THREAD_ID|CLAUDE_CONFIG_DIR|CLAUDE_EFFORT|BASH_ENV|ENV|ZDOTDIR|NODE_OPTIONS|BUN_OPTIONS|UV_OFFLINE|GIT_CONFIG.*|LD_.*|DYLD_.*|CLAUDE_CODE_.*|SEVRO_NATIVE_.*|SEVRO_CANDIDATE_.*)$/i;
 
 function requireEnvironmentName(name: string): void {
   if (!/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(name))
@@ -192,11 +194,13 @@ async function resolvedSeeds(
 ) {
   const resolved = await Promise.all(
     seeds.map(async (seed) => {
-      const [source] = await declaredRuntimeRoots(
+      const roots = await declaredRuntimeRoots(
         [seed.source],
         environment,
         base,
       );
+      requireRuntimeReadRoots(roots, []);
+      const [source] = roots;
       if (!source) throw new Error("runtime seed source is missing");
       return {
         source,
@@ -242,6 +246,9 @@ async function resolveRuntimeConfiguration(
   requireRuntimeReadRoots(readOnlyRoots, protectedRoots);
   return {
     format: value.format,
+    ...(value.nativeTranscripts === undefined
+      ? {}
+      : { nativeTranscripts: value.nativeTranscripts }),
     environment,
     readOnlyRoots: [...new Set(readOnlyRoots)].sort(),
     discovery: discovery.sources,

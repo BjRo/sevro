@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { requireNativeTranscriptViews } from "../native-transcript-state";
 import {
   insideRuntimeRoot,
   isRuntimeHomeRoot,
@@ -38,6 +39,7 @@ export function macSandboxProfile(
   denyNetwork = false,
   readOnlyRoots: string[] = [],
   writableRuntimeRoot?: string,
+  transcriptReadRoots: string[] = [],
 ): string {
   requireProfileRoots(deniedRoots);
   return [
@@ -47,10 +49,10 @@ export function macSandboxProfile(
     ...[...new Set(deniedRoots)]
       .sort()
       .flatMap((path) => [
-        `(deny file-read* ${readFilter(path, readOnlyRoots, writableRuntimeRoot)})`,
+        `(deny file-read* ${readFilter(path, readOnlyRoots, writableRuntimeRoot, transcriptReadRoots)})`,
         `(deny file-write* ${rootFilter(path, ownedException(path, writableRuntimeRoot))})`,
       ]),
-    ...readOnlyRoots.map(
+    ...[...readOnlyRoots, ...transcriptReadRoots].map(
       (path) => `(deny file-write* (subpath "${quoted(path)}"))`,
     ),
     "",
@@ -66,11 +68,13 @@ function readFilter(
   root: string,
   readRoots: string[],
   writableRuntimeRoot: string | undefined,
+  transcriptReadRoots: string[],
 ): string {
   const exceptions = isRuntimeHomeRoot(root)
     ? readRoots.filter((path) => insideRuntimeRoot(root, path))
     : [];
   return rootFilter(root, [
+    ...transcriptReadRoots.filter((path) => insideRuntimeRoot(root, path)),
     ...exceptions,
     ...ownedException(root, writableRuntimeRoot),
   ]);
@@ -92,6 +96,7 @@ export async function prepareMacSandboxCommand(
   options: IsolationOptions,
 ): Promise<IsolatedCommand> {
   requireSandboxAvailable();
+  await requireNativeTranscriptViews(options.transcriptReadRoots);
   requireIsolationPaths(options);
   const workspace = await realpath(options.workspace);
   const roots = options.protectedRootsCanonical
@@ -114,6 +119,7 @@ export async function prepareMacSandboxCommand(
       options.denyNetwork,
       readRoots,
       ownedRoot,
+      options.transcriptReadRoots,
     ),
     { flag: "wx", mode: 0o600 },
   );

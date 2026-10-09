@@ -6,6 +6,7 @@ import {
   type RuntimePolicy,
 } from "./runtime-config";
 import { runtimeSeedDigest } from "./runtime-seeds";
+import { requireRuntimeReadRoots } from "./runtime-paths";
 import { hashJson } from "./identity";
 
 export type RuntimeRole =
@@ -103,10 +104,12 @@ async function copyRuntimeSeed(
   target: string,
   digest: string,
 ): Promise<void> {
+  const canonical = await realpath(source);
+  requireRuntimeReadRoots([source, canonical], []);
   if (await seedTargetExists(target)) return;
-  if ((await runtimeSeedDigest(source)) !== digest)
+  if ((await runtimeSeedDigest(canonical)) !== digest)
     throw new Error("runtime seed changed after configuration snapshot");
-  await cp(source, target, {
+  await cp(canonical, target, {
     recursive: true,
     dereference: true,
     force: false,

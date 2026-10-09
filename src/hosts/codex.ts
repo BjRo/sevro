@@ -1,4 +1,14 @@
 import { runCodexAppServer } from "./codex-app-server";
+import {
+  retainEnabledNativeTranscripts,
+  failedNativeTranscripts,
+  candidateTranscriptRoots,
+  candidateTranscriptEnvironment,
+} from "../native-transcripts";
+import {
+  allocateNativeState,
+  requireNativeTranscriptView,
+} from "../native-transcript-state";
 import { runCodexProcess } from "./codex-process";
 import { verifyCodexInvocation } from "./codex-invocation";
 import { installCodexPlugins } from "./codex-marketplace";
@@ -154,6 +164,7 @@ function codexCapabilities(
   return [
     "sevro.host.continuation",
     "sevro.host.runtime",
+    "sevro.host.native-transcripts",
     "sevro.host.hooks",
     ...(entrypoint === "app-server" ? ["sevro.host.native-goal"] : []),
     "sevro.codex.plugin-marketplace",
@@ -226,18 +237,14 @@ async function runCodexRequest(
   request: Request,
 ): Promise<HostResult> {
   requireCodexFollowUp(request);
+  await requireNativeTranscriptView(request.candidateTranscriptRoot);
   requireCodexFixtureBin(request);
   requirePassiveCodexRequest(request);
   requireCodexGoalRoute(request, options);
   await verifyCodexInvocation(request);
   if (existsSync(join(request.workspace, ".codex")))
     throw new Error("fixture Codex configuration is unsupported");
-  const stateRoot = await mkdtemp(
-    join(
-      process.platform === "linux" ? "/var/tmp" : tmpdir(),
-      "sevro-codex-state-",
-    ),
-  );
+  const stateRoot = await allocateNativeState("codex-");
   const helperRoot =
     process.platform === "linux"
       ? await mkdtemp(join(tmpdir(), "sevro-codex-helper-"))
@@ -269,7 +276,24 @@ async function runCodexRequest(
       hooks,
     };
     const turns = await new CodexTurnExecution(context).run();
-    return await codexHostResult(context, turns);
+    const result = await codexHostResult(context, turns);
+    await retainEnabledNativeTranscripts(
+      result,
+      request.runtimePolicy,
+      join(state.codexHome, "sessions"),
+      "codex",
+      request.runtimeRole,
+      turns.summary.threadId,
+    );
+    return result;
+  } catch (cause) {
+    return await failedNativeTranscripts(
+      cause,
+      request.runtimePolicy,
+      join(stateRoot, "codex-home", "sessions"),
+      "codex",
+      request.runtimeRole,
+    );
   } finally {
     await releaseRuntimeHooks(activeHooks);
     await rm(stateRoot, { recursive: true, force: true });
@@ -365,12 +389,14 @@ async function writeCodexProfile(
   runtimeWriteRoot?: string,
 ): Promise<void> {
   const profile = codexPermissionProfile({
-    commandEnvironment: codexCommandEnvironment(request, commandEnvironment),
+    commandEnvironment: codexProfileEnvironment(
+      request,
+      paths,
+      commandEnvironment,
+    ),
     runtimeWriteRoot,
-    runtimeReadRoots: [
-      ...(request.runtimePolicy?.readOnlyRoots ?? []),
-      ...linuxArg0ReadRoots(paths.codexHome),
-    ],
+    runtimeReadRoots: request.runtimePolicy?.readOnlyRoots,
+    nativeReadRoots: codexNativeReadRoots(request, paths.codexHome),
     id: profileId,
     workspace: request.workspace,
     commandHome: paths.commandHome,
@@ -384,6 +410,41 @@ async function writeCodexProfile(
     profile + concurrencyConfiguration(limit),
     { flag: "wx", mode: 0o600 },
   );
+}
+
+function codexProfileEnvironment(
+  request: Request,
+  paths: Awaited<ReturnType<typeof privateCodexDirectories>>,
+  environment: Record<string, string> | undefined,
+) {
+  return {
+    ...codexCommandEnvironment(request, environment),
+    ...codexTranscriptEnvironment(request, paths.codexHome),
+    ...candidateTranscriptEnvironment(request.candidateTranscriptRoot),
+  };
+}
+
+function codexTranscriptEnvironment(
+  request: Request,
+  home: string,
+): Record<string, string> {
+  return request.runtimePolicy?.nativeTranscripts === true
+    ? { CODEX_HOME: home, SEVRO_NATIVE_TRANSCRIPT_ROOT: join(home, "sessions") }
+    : {};
+}
+
+function codexNativeReadRoots(request: Request, home: string) {
+  return [
+    ...linuxArg0ReadRoots(home),
+    ...codexTranscriptRoots(request, home),
+    ...candidateTranscriptRoots(request.candidateTranscriptRoot),
+  ];
+}
+
+function codexTranscriptRoots(request: Request, home: string) {
+  return request.runtimePolicy?.nativeTranscripts === true
+    ? [join(home, "sessions")]
+    : [];
 }
 
 function linuxArg0ReadRoots(codexHome: string): string[] {
@@ -639,7 +700,10 @@ function initialTurnArgs(context: ExecutionContext): string[] {
     "--json",
     "--strict-config",
     "--skip-git-repo-check",
-    ...(context.request.followUpPrompt ? [] : ["--ephemeral"]),
+    ...(context.request.followUpPrompt ||
+    context.request.runtimePolicy?.nativeTranscripts
+      ? []
+      : ["--ephemeral"]),
     "--ignore-rules",
     ...(context.hooks ? ["--dangerously-bypass-hook-trust"] : []),
     "-C",

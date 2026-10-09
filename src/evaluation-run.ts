@@ -1,4 +1,5 @@
 import type { RunEvidenceData } from "./schema-types";
+import { materializeNativeTranscriptView } from "./native-transcript-view";
 import { runtimePolicySnapshot } from "./runtime-config";
 import { readSemanticArtifact } from "./graders/artifact";
 import {
@@ -495,6 +496,7 @@ function selectedTrialTaskPolicy(
 }
 
 class EvaluationTrial {
+  private candidateTranscriptRoot?: string;
   private diagnostic: { code: string; message: string } | undefined = undefined;
   private persisted: boolean = false;
   private gitHeadBase: string | null = null;
@@ -660,8 +662,12 @@ class EvaluationTrial {
     try {
       ensureNotCancelled(this.options.signal);
       this.hostResult = await this.options.host.run(this.candidateRequest());
-      ensureNotCancelled(this.options.signal);
       this.acceptCandidateResult(this.hostResult);
+      if (this.options.signal?.aborted) {
+        this.execution = "cancelled";
+        this.stopAdmission();
+        this.diagnostic = hostFailureDiagnostic("cancelled", undefined);
+      }
     } catch (error) {
       this.failCandidate(error);
     } finally {
@@ -705,6 +711,13 @@ class EvaluationTrial {
     this.trialArtifactRefs = [...this.context.artifactRefs];
     await this.retainArtifacts(this.producedArtifacts, "host-");
     await verifyRetainedArtifacts(this.trialArtifactRefs);
+    const bundle = this.producedArtifacts.find(
+      (item) => item.id === "sevro.native-transcripts.bundle",
+    );
+    if (this.options.runtimePolicy?.nativeTranscripts && bundle)
+      this.candidateTranscriptRoot = await materializeNativeTranscriptView(
+        bundle.bytes,
+      );
   }
 
   private observeCandidate(): void {
@@ -793,6 +806,7 @@ class EvaluationTrial {
     protectedRoots: string[],
   ): Promise<void> {
     const result = await runShellCheck(check, {
+      candidateTranscriptRoot: this.candidateTranscriptRoot,
       workspace: this.fixture.workspace,
       fixtureBinDir: this.fixture.fixtureBinDir,
       toolchainBinDir: this.options.shellIsolation?.toolchainBinDir,
@@ -922,6 +936,7 @@ class EvaluationTrial {
       const host = this.options.semanticHost;
       if (!host) throw new Error("semantic host is unavailable");
       const response = await host.run({
+        candidateTranscriptRoot: this.candidateTranscriptRoot,
         prompt: semanticHostPrompt(message, group, artifact),
         runtimePolicy: gradingRuntimePolicy(this.options),
         runtimeRole: "semantic",
@@ -1207,6 +1222,7 @@ class EvaluationTrial {
         excludedPaths: this.options.advisoryExcludedPaths,
       });
       const response = await host.run({
+        candidateTranscriptRoot: this.candidateTranscriptRoot,
         prompt: advisoryPrompt(this.fixture.trialPrompt, this.checks),
         runtimePolicy: gradingRuntimePolicy(this.options),
         runtimeRole: "advisory",
@@ -1331,6 +1347,8 @@ class EvaluationTrial {
     );
   }
   private async cleanup(): Promise<void> {
+    if (this.candidateTranscriptRoot)
+      await rm(this.candidateTranscriptRoot, { recursive: true, force: true });
     if (this.persisted) {
       try {
         await clearFixtureContents(this.fixture.workspace);

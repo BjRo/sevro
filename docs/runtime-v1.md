@@ -179,6 +179,61 @@ cases on their explicit project-settings route with hooks disabled. Unrelated
 user settings and hooks are not imported. Sevro does not use Claude's `--bare`
 mode, which would change authentication and behavior.
 
+## Native transcript access
+
+Set top-level `"nativeTranscripts": true` to enable live, read-only access to
+the current role's full native root and subagent transcript tree. Absent or
+`false` leaves this access and capture disabled. The selection is snapshotted
+with the runtime policy and enters configuration identity; temporary native
+homes and transcript views do not enter that identity. Codex `exec` persists
+sessions when enabled, including runs without continuation.
+
+Commands discover their own tree through `SEVRO_NATIVE_TRANSCRIPT_ROOT`.
+Codex commands also receive runner-owned `CODEX_HOME`; native
+`CODEX_THREAD_ID` selects `sessions/**/rollout-*-<thread>.jsonl`. Read the latest
+native `turn_context` for that session's `model` and `effort`. Claude shell
+commands receive a credential-free `CLAUDE_CONFIG_DIR` view whose `projects/`
+tree contains `projects/*/<CLAUDE_CODE_SESSION_ID>.jsonl` and subagent files.
+The latest native assistant `message.model` records the observed model.
+Claude supplies `CLAUDE_CODE_SESSION_ID` and `CLAUDE_EFFORT` itself; Sevro does
+not replace these with the root's requested route. Requested CLI effort is
+configuration, and is not proof of an effective child effort. Missing native
+route evidence stays unknown.
+
+Observed with Claude Code 2.1.284: a native Agent's Bash may receive the parent's
+`CLAUDE_CODE_SESSION_ID` and no `CLAUDE_EFFORT`. In that situation the environment
+pair selects the parent transcript. Analyze the child's native JSONL and
+`.meta.json` sidecar to establish its own model/session association; the
+parent's model is not the child's observed model, and missing effort remains
+unknown. Sevro preserves these native values without synthesizing a child
+context or copying the root's requested effort into the child.
+
+Native hosts keep their credential-bearing homes. Claude's host writes through
+a runner-created, canonical-bound `projects` link into the isolated source;
+runner-owned Bash and zsh startup files supply the shell compatibility view.
+These sources and startup files sit outside candidate-writable state. Commands
+cannot modify transcripts or read credential/settings siblings, evaluator
+inputs, or peer role/trial state. A fixed private namespace is protected before
+commands start, including peers created later. Pre-existing namespaces must be
+owned private directories; links and unsafe permissions fail. Ordinary
+filesystem declarations cannot authorize access to this namespace.
+Namespace read roots and seed sources, including declaration symlinks into it,
+are refused before private trees are hashed or copied.
+On Linux, Codex keeps this namespace hidden through its empty-root policy and
+mounts only runner-owned session/helper trees and retained views. It avoids an
+ancestor deny mount that would mask these narrower read-only grants. Ordinary
+declarations cannot select this exception; parent content, credentials, and
+present or future peer state receive no grants.
+
+After candidate execution, isolated shell checks and semantic/advisory hosts
+receive `SEVRO_CANDIDATE_TRANSCRIPTS`, a separate read-only retained view with
+`index.json` and `codex/` or `claude/` native relative file paths. This does not
+replace a grading host's own native home or live tree. Trusted injected adapters
+receive the same view through request `candidateTranscriptRoot`. The temporary
+view is removed after grading; stable retained artifact references remain in
+run evidence. Extensions and external benchmarks consume the
+[native transcript bundles](results-v1.md#native-transcript-bundles).
+
 ## Evidence and compatibility
 
 `configuration.redacted.runtimePolicy` retains the selected environment,

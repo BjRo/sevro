@@ -1,18 +1,28 @@
 import { isRecord } from "../value-guards";
+import {
+  retainEnabledNativeTranscripts,
+  failedNativeTranscripts,
+  candidateTranscriptRoots,
+  candidateTranscriptEnvironment,
+} from "../native-transcripts";
+import {
+  allocateNativeState,
+  nativeStateParent,
+  requireNativeTranscriptView,
+} from "../native-transcript-state";
 import { runClaudeProcess } from "./claude-process";
 import { observeClaudeNativeGoal } from "./claude-native-goal";
 import { existsSync } from "node:fs";
 import {
   cp,
   mkdir,
-  mkdtemp,
   readFile,
   realpath,
   rm,
   stat,
+  symlink,
   writeFile,
 } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { delimiter, dirname, isAbsolute, join, relative, sep } from "node:path";
 import type { HostAdapter, HostResult } from "../engine";
 import { claudeNativeControls } from "./native-controls";
@@ -271,6 +281,7 @@ export function createClaudeHost(options: ClaudeHostOptions): HostAdapter {
     hostCapabilities: [
       "sevro.host.native-goal",
       "sevro.host.runtime",
+      "sevro.host.native-transcripts",
       "sevro.host.hooks",
       "sevro.claude.plugin-dirs",
       "sevro.claude.explicit-invocation",
@@ -329,6 +340,7 @@ async function runClaudeRequest(
   request: Request,
 ): Promise<HostResult> {
   requireClaudeFollowUp(request);
+  await requireNativeTranscriptView(request.candidateTranscriptRoot);
   requirePassiveClaudeRequest(request);
   const pluginDirs = request.claudePluginDirs
     ? await pluginDirectories(request.workspace, request.claudePluginDirs)
@@ -336,7 +348,7 @@ async function runClaudeRequest(
   await verifyInvocation(request, pluginDirs);
   requireIsolatedHookSources(request, options);
   const repositoryInvocation = await repositoryMount(request, options);
-  const stateRoot = await mkdtemp(join(tmpdir(), "sevro-claude-state-"));
+  const stateRoot = await allocateNativeState("claude-");
   let hooks: HookMounts | undefined;
   try {
     const state = await prepareClaudeState(
@@ -368,12 +380,27 @@ async function runClaudeRequest(
     });
     const result = await claudeResult(
       execution,
-      state.credential,
+      claudeObservationRoot(stateRoot, state.credential, request),
       request,
       repositoryInvocation,
     );
     await addHookObservation(result, state.hooks);
+    await retainEnabledNativeTranscripts(
+      result,
+      request.runtimePolicy,
+      join(stateRoot, "native-home", "projects"),
+      "claude",
+      request.runtimeRole,
+    );
     return result;
+  } catch (cause) {
+    return await failedNativeTranscripts(
+      cause,
+      request.runtimePolicy,
+      join(stateRoot, "native-home", "projects"),
+      "claude",
+      request.runtimeRole,
+    );
   } finally {
     await releaseRuntimeHooks(hooks);
     await rm(stateRoot, { recursive: true, force: true });
@@ -424,6 +451,7 @@ async function protectedClaudeRoots(
   credential: string,
 ) {
   const candidates = await evaluationProtectedRoots({
+    ownedStateRoot: dirname(dirname(dirname(credential))),
     workspace: request.workspace,
     projectRoot: options.projectRoot,
     resultsRoot: options.resultsRoot,
@@ -433,7 +461,8 @@ async function protectedClaudeRoots(
     ],
   });
   const roots = request.runtimePolicy ? candidates : minimalRoots(candidates);
-  if (roots.some((root) => inside(root, credential)))
+  const namespace = await nativeStateParent();
+  if (roots.some((root) => root !== namespace && inside(root, credential)))
     throw new Error("Claude private state overlaps a protected root");
   const binary = await realpath(options.binary);
   const executableRoots = runtimeExecutableProtection(
@@ -489,7 +518,7 @@ function claudeEnvironment(
   request: Request,
   toolchain: string | null,
   runtime: string | null,
-) {
+): Record<string, string> {
   return {
     ...state.authentication.environment,
     ...request.runtimePolicy?.environment,
@@ -534,6 +563,11 @@ async function prepareClaudeState(
   pluginDirs: string[],
 ) {
   const state = await createClaudePrivateState(stateRoot, options);
+  const transcripts = await claudeTranscriptAccess(
+    stateRoot,
+    state.credential,
+    request,
+  );
   const roots = await protectedClaudeRoots(request, options, state.credential);
   const toolchain = await claudeToolchainDirectory(options, roots);
   const runtime = await prepareClaudeRuntime(options, roots, request.workspace);
@@ -554,20 +588,56 @@ async function prepareClaudeState(
         state.credential,
         [...pluginDirs, ...effectivePlugins],
         roots,
-        request.runtimePolicy,
+        transcripts.policy,
+        [
+          ...transcripts.readRoots,
+          ...candidateTranscriptRoots(request.candidateTranscriptRoot),
+        ],
       ),
     ),
     { flag: "wx", mode: 0o600 },
   );
   const env = claudeEnvironment(state, request, toolchain, runtime);
-  await applyClaudeRuntimeEnvironment(request, env);
-  if (runtime) await mkdir(env.HOME, { mode: 0o700 });
+  await applyClaudeRuntimeEnvironment(request, env, runtime);
+  Object.assign(env, transcripts.environment);
+  Object.assign(
+    env,
+    candidateTranscriptEnvironment(request.candidateTranscriptRoot),
+  );
+  if (runtime) await mkdir(join(runtime, "host-home"), { mode: 0o700 });
   return {
     credential: state.credential,
     settingsPath,
     env,
     hooks,
     pluginDirs: effectivePlugins,
+  };
+}
+
+async function claudeTranscriptAccess(
+  stateRoot: string,
+  credential: string,
+  request: Request,
+) {
+  const policy = request.runtimePolicy;
+  if (!policy?.nativeTranscripts)
+    return { policy, environment: {}, readRoots: [] };
+  const view = join(stateRoot, "native-home");
+  const projects = join(view, "projects");
+  await mkdir(projects, { recursive: true, mode: 0o700 });
+  await symlink(projects, join(dirname(credential), "projects"));
+  const startup = join(view, "shell-env");
+  const script = `export CLAUDE_CONFIG_DIR='${view.replaceAll("'", `'"'"'`)}'\n`;
+  await writeFile(startup, script, { flag: "wx", mode: 0o600 });
+  await writeFile(join(view, ".zshenv"), script, { flag: "wx", mode: 0o600 });
+  return {
+    policy,
+    readRoots: [projects, view],
+    environment: {
+      SEVRO_NATIVE_TRANSCRIPT_ROOT: projects,
+      BASH_ENV: startup,
+      ZDOTDIR: view,
+    },
   };
 }
 
@@ -597,18 +667,32 @@ async function claudeHookMounts(
 async function applyClaudeRuntimeEnvironment(
   request: Request,
   env: Record<string, string>,
+  runtime: string | null,
 ): Promise<void> {
+  const isolated = await prepareRuntimeState(
+    request.workspace,
+    claudeCommandPolicy(request),
+    request.runtimeRole ?? "candidate",
+  );
   if (request.runtimePolicy) {
-    const isolated = await prepareRuntimeState(
-      request.workspace,
-      request.runtimePolicy,
-      request.runtimeRole ?? "candidate",
-    );
     Object.assign(env, isolated.environment);
     env.PATH = [request.fixtureBinDir, isolated.environment.PATH ?? env.PATH]
       .filter(Boolean)
       .join(delimiter);
+  } else {
+    if (!runtime) env.HOME = isolated.home;
+    env.TMPDIR = isolated.temp;
   }
+}
+
+function claudeCommandPolicy(request: Request) {
+  return (
+    request.runtimePolicy ?? {
+      format: "sevro.runtime.v1" as const,
+      environment: {},
+      readOnlyRoots: [],
+    }
+  );
 }
 
 function claudeTurnArgs(
@@ -646,9 +730,19 @@ function claudeTurnArgs(
   ];
 }
 
+function claudeObservationRoot(
+  stateRoot: string,
+  credential: string,
+  request: Request,
+): string {
+  return request.runtimePolicy?.nativeTranscripts === true
+    ? join(stateRoot, "native-home")
+    : dirname(credential);
+}
+
 async function repositoryObservation(
   execution: Execution,
-  credential: string,
+  configRoot: string,
   request: Request,
   invocation: RepositoryInvocation | null,
   tools: ReturnType<typeof claudeToolCallsObservation>,
@@ -657,7 +751,7 @@ async function repositoryObservation(
   return claudeRepositoryInvocationObservation({
     invocation,
     stream: execution.initialOut ?? execution.out,
-    configRoot: dirname(credential),
+    configRoot: configRoot,
     workspace: request.workspace,
     tools: execution.initialOut
       ? claudeToolCallsObservation(execution.initialOut, 0)
@@ -667,19 +761,19 @@ async function repositoryObservation(
 
 async function claudeObservations(
   execution: Execution,
-  credential: string,
+  configRoot: string,
   request: Request,
   invocation: RepositoryInvocation | null,
 ) {
   const nested = await claudeNestedSkillsObservation(
     execution.out,
-    dirname(credential),
+    configRoot,
     request.workspace,
   );
   const tools = claudeToolCallsObservation(execution.out, execution.code);
   const repository = await repositoryObservation(
     execution,
-    credential,
+    configRoot,
     request,
     invocation,
     tools,
@@ -688,7 +782,7 @@ async function claudeObservations(
     tools,
     ...runtimeObservations(request.runtimePolicy, request.runtimeRole),
     await observeClaudeNativeGoal(
-      dirname(credential),
+      configRoot,
       execution.followUpOut ?? execution.out,
     ),
     nested,
@@ -745,14 +839,14 @@ function measuredClaudeUsage(
 
 async function claudeResult(
   execution: Execution,
-  credential: string,
+  configRoot: string,
   request: Request,
   invocation: RepositoryInvocation | null,
 ): Promise<HostResult> {
   const summary = summarizeClaudeEvents(execution.out, execution.code);
   const observations = await claudeObservations(
     execution,
-    credential,
+    configRoot,
     request,
     invocation,
   );

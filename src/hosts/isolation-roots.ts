@@ -3,6 +3,7 @@ import { readdir, realpath } from "node:fs/promises";
 import { homedir, tmpdir, userInfo } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { protectedWorktrees } from "./protected-worktrees";
+import { nativeStateParent } from "../native-transcript-state";
 
 /** Include source, results, host configuration, and every active peer fixture. */
 interface ProtectedRootsOptions {
@@ -10,6 +11,7 @@ interface ProtectedRootsOptions {
   projectRoot: string;
   resultsRoot: string;
   additionalRoots: string[];
+  ownedStateRoot?: string;
 }
 
 async function protectedRootCandidates(options: ProtectedRootsOptions) {
@@ -18,6 +20,7 @@ async function protectedRootCandidates(options: ProtectedRootsOptions) {
     process.env.CLAUDE_CONFIG_DIR,
   ].filter((value): value is string => Boolean(value));
   const candidates = [
+    await nativeStateParent(),
     resolve(import.meta.dir, "../.."),
     options.projectRoot,
     options.resultsRoot,
@@ -30,9 +33,14 @@ async function protectedRootCandidates(options: ProtectedRootsOptions) {
     throw new Error("evaluation protected roots must be absolute");
   const peers = (await readdir(tmpdir(), { withFileTypes: true }))
     .filter(
-      (entry) => entry.isDirectory() && entry.name.startsWith("sevro-case-"),
+      (entry) =>
+        entry.isDirectory() &&
+        /^(sevro-case-|sevro-codex-state-|sevro-claude-state-|sevro-transcript-view-)/.test(
+          entry.name,
+        ),
     )
-    .map((entry) => join(tmpdir(), entry.name));
+    .map((entry) => join(tmpdir(), entry.name))
+    .filter((path) => path !== options.ownedStateRoot);
   return { candidates, peers, optionalConfigRoots };
 }
 
@@ -49,7 +57,8 @@ export async function evaluationProtectedRoots(
       ...peers,
       ...optionalConfigRoots,
     ]);
-    if (canonical === null || canonical === workspace) continue;
+    if (!includedProtectedRoot(canonical, workspace, options.ownedStateRoot))
+      continue;
     {
       roots.push(canonical);
       // Peers are denied directly; their Git preparation may still be in progress.
@@ -62,6 +71,14 @@ export async function evaluationProtectedRoots(
     }
   }
   return [...new Set(roots)];
+}
+
+function includedProtectedRoot(
+  root: string | null,
+  workspace: string,
+  state: string | undefined,
+): root is string {
+  return root !== null && root !== workspace && root !== state;
 }
 
 async function canonicalProtectedRoot(

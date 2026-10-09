@@ -116,3 +116,46 @@ reports `failed` / `not_requested` / `not_assessed` with exit code `2`. A final
 message that happens to match a check cannot turn that failure into a pass.
 Claude retains its bounded event stream and, when present, up to 64 KiB of
 stderr as private host artifacts. Failure bodies do not appear in CLI diagnostics.
+
+## Native transcript bundles
+
+With [runtime transcript opt-in](runtime-v1.md#native-transcript-access), each
+bundled host captures full native files before removing its private state.
+Candidate artifact `sevro.native-transcripts.bundle` has format
+`sevro.native-transcripts.v1`. It contains `host` (`codex` or `claude`), `role`,
+native `rootSessionId` (or `null`), `completeness`, `issues`, and `files`.
+Each file records its native relative `path`, SHA-256 `sha256`, and exact bytes
+as `bytesBase64`. Decode the bytes without rewriting native records. Native
+session paths, root/child records and sidecar metadata preserve associations;
+the bundle does not normalize model, effort, timing, token, or cost statistics.
+Existing unknown metrics remain unknown.
+
+`sevro.host.native-transcripts` records the same capture state and file hashes
+without raw bytes. Semantic and advisory bundles retain their role in the
+bundle and use the existing `sevro.semantic[.<source digest>].` and
+`sevro.advisory.` artifact ID prefixes. Run/trial artifact references supply
+stable private file URLs and whole-bundle hashes after native home cleanup.
+Extensions receive these references through the existing `evaluate` protocol;
+benchmarks can use the same references and decode the native files.
+
+Capture includes native transcript-tree sidecars and refuses descendant links,
+special files and escaping paths. It is bounded to 4,096 directory entries,
+5 MiB of native file bytes and 7 MiB of encoded file metadata/content. The
+bundle remains inside the existing 8 MiB item and 32 MiB host artifact budgets;
+it groups sessions instead of spending an artifact per child. Limits produce
+`byte_limit`, `entry_limit`, or `bundle_limit` issues. Unreadable, unsafe or
+changing entries, malformed/empty native records, malformed JSON sidecars,
+an unknown/missing original session, or incomplete host
+execution produce explicit partial/unavailable capture. `complete` means the
+identified root's tree was captured within those bounds after completed host
+execution and generic syntax/basic record validation. JSONL must contain
+nonempty JSON object records with a nonempty string `type`; JSON sidecars must
+parse as JSON. UTF-8 decoding is strict. One trailing newline and CRLF are
+accepted; blank interior records, invalid encoding and truncated JSON are
+malformed. Unknown native fields and record types remain valid. Issues
+`empty_transcript`, `malformed_transcript` and `malformed_sidecar` downgrade
+capture without rewriting or discarding retained bytes. This validates basic
+structure, not native semantic correctness.
+An empty/missing native JSONL tree is `unavailable`. Failure, cancellation and
+timeout retain available native bytes with incomplete capture state. Raw
+bundles and views are private evidence and must stay out of Git.

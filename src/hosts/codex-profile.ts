@@ -1,5 +1,6 @@
 import { isAbsolute, sep } from "node:path";
 import { insideRuntimeRoot, isRuntimeHomeRoot } from "../runtime-paths";
+import { nativeStatePath } from "../native-transcript-state";
 
 const LINUX_MINIMAL_READ_ROOTS = [
   "/bin",
@@ -34,6 +35,7 @@ export function codexPermissionProfile(options: {
   protectedRoots: string[];
   commandEnvironment?: Record<string, string>;
   runtimeReadRoots?: string[];
+  nativeReadRoots?: string[];
   runtimeWriteRoot?: string;
 }): string {
   if (!/^[a-z][a-z0-9_]*$/.test(options.id))
@@ -100,8 +102,28 @@ function profileProtectedRoots(
   ];
   return options.protectedRoots.filter(
     (root) =>
-      !implicitLinuxHomeBoundary(root, readRoots, baselines) ||
+      (!implicitLinuxHomeBoundary(root, readRoots, baselines) &&
+        !implicitLinuxNativeBoundary(
+          root,
+          options.nativeReadRoots ?? [],
+          baselines,
+        )) ||
       process.platform !== "linux",
+  );
+}
+
+function implicitLinuxNativeBoundary(
+  root: string,
+  trustedReadRoots: string[],
+  baselines: string[],
+): boolean {
+  if (root !== nativeStatePath()) return false;
+  const descendant = trustedReadRoots.some(
+    (read) => read !== root && insideRuntimeRoot(root, read),
+  );
+  return (
+    descendant &&
+    !baselines.some((baseline) => insideRuntimeRoot(baseline, root))
   );
 }
 
@@ -168,6 +190,7 @@ function profileReadRoots(
   const roots = [
     ...options.executableReadRoots,
     ...(options.runtimeReadRoots ?? []),
+    ...(options.nativeReadRoots ?? []),
   ];
   if (options.pluginReadRoot) roots.push(options.pluginReadRoot);
   return [...new Set(roots)];

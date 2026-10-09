@@ -6,6 +6,7 @@
   "additionalProperties": false,
   "required": ["format"],
   "properties": {
+    "nativeTranscripts": { "type": "boolean" },
     "hooks": {
       "type": "object",
       "additionalProperties": false,

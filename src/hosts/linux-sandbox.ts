@@ -2,6 +2,10 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import {
+  requireNativeTranscriptViews,
+  requireNativeHookRoots,
+} from "../native-transcript-state";
 import { requireRuntimeReadRoots } from "../runtime-paths";
 import {
   commandRuntimeRoot,
@@ -47,6 +51,8 @@ export async function prepareLinuxSandboxCommand(
   options: IsolationOptions,
 ): Promise<IsolatedCommand> {
   requireLinuxSandbox();
+  await requireNativeTranscriptViews(options.transcriptReadRoots);
+  await requireNativeHookRoots(options.hookReadRoots);
   requireIsolationPaths(options);
   const workspace = await realpath(options.workspace);
   const roots = options.protectedRootsCanonical
@@ -94,6 +100,8 @@ export async function prepareLinuxSandboxCommand(
         workspace,
         ...masks,
         ...readRoots.flatMap((path) => ["--ro-bind", path, path]),
+        ...transcriptMounts(options),
+        ...hookMounts(options),
         ...(ownedRoot ? ["--bind", ownedRoot, ownedRoot] : []),
         "--chdir",
         workspace,
@@ -108,4 +116,20 @@ export async function prepareLinuxSandboxCommand(
     await rm(blockedFile, { force: true });
     throw error;
   }
+}
+
+function transcriptMounts(options: IsolationOptions): string[] {
+  return (options.transcriptReadRoots ?? []).flatMap((path) => [
+    "--ro-bind",
+    path,
+    path,
+  ]);
+}
+
+function hookMounts(options: IsolationOptions): string[] {
+  return (options.hookReadRoots ?? []).flatMap((path) => [
+    "--ro-bind",
+    path,
+    path,
+  ]);
 }

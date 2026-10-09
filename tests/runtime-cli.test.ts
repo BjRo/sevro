@@ -19,6 +19,99 @@ import {
 } from "./fixtures/assertions";
 
 const roots: string[] = [];
+test("CLI refuses lexical native seed aliases before hashing public targets", async () => {
+  const { root, project, args } = await fixture();
+  const namespace = join(
+    process.platform === "linux" ? "/var/tmp" : tmpdir(),
+    "sevro-native-private",
+  );
+  await mkdir(namespace, { recursive: true, mode: 0o700 });
+  const privateRoot = await mkdtemp(join(namespace, "seed-alias-probe-"));
+  roots.push(privateRoot);
+  const source = join(root, "public-cache");
+  await mkdir(source);
+  await writeFile(join(source, "value"), "public dependency");
+  const alias = join(privateRoot, "public-alias");
+  await symlink(source, alias);
+  await writeFile(
+    join(project, "sevro.json"),
+    JSON.stringify({
+      format: "sevro.runtime.v1",
+      nativeTranscripts: true,
+      runtime: { seedDirectories: [{ source: alias, target: "cache" }] },
+    }),
+  );
+  const result = await invoke([...args, "--dry"]);
+  expect(result.code).toBe(64);
+  expect(result.result.evidencePath).toBeNull();
+  expect(await readFile(join(source, "value"), "utf8")).toBe(
+    "public dependency",
+  );
+});
+test.each(["seed", "read"])(
+  "CLI refuses runner native state as public seed input: %s",
+  async (kind) => {
+    const { root, project, args } = await fixture();
+    const namespace = join(
+      process.platform === "linux" ? "/var/tmp" : tmpdir(),
+      "sevro-native-private",
+    );
+    await mkdir(namespace, { recursive: true, mode: 0o700 });
+    const source = await realpath(
+      await mkdtemp(join(namespace, "seed-probe-")),
+    );
+    roots.push(source);
+    await writeFile(join(source, "private.txt"), "peer private input");
+    const alias = join(root, "native-state-alias");
+    await symlink(source, alias);
+    await writeFile(
+      join(project, "sevro.json"),
+      JSON.stringify({
+        format: "sevro.runtime.v1",
+        nativeTranscripts: true,
+        ...(kind === "seed"
+          ? {
+              runtime: {
+                seedDirectories: [{ source: alias, target: "cache" }],
+              },
+            }
+          : { filesystem: { readOnlyRoots: [alias] } }),
+      }),
+    );
+    const result = await invoke([...args, "--dry"]);
+    expect(result.code).toBe(64);
+    expect(result.result.evidencePath).toBeNull();
+    expect(await readFile(join(source, "private.txt"), "utf8")).toBe(
+      "peer private input",
+    );
+  },
+);
+test("CLI snapshots explicit native transcript opt-in and binds identity", async () => {
+  const { project, args } = await fixture();
+  const path = join(project, "sevro.json");
+  await writeFile(
+    path,
+    JSON.stringify({ format: "sevro.runtime.v1", nativeTranscripts: true }),
+  );
+  const enabled = await invoke([...args, "--dry"]);
+  expect(enabled.code, enabled.stderr).toBe(0);
+  const first = parseRunEvidence(
+    await readFile(defined(enabled.result.evidencePath), "utf8"),
+  );
+  expect(first.configuration.redacted.runtimePolicy).toMatchObject({
+    nativeTranscripts: true,
+  });
+  await writeFile(
+    path,
+    JSON.stringify({ format: "sevro.runtime.v1", nativeTranscripts: false }),
+  );
+  const disabled = await invoke([...args, "--dry"]);
+  expect(disabled.code, disabled.stderr).toBe(0);
+  const second = parseRunEvidence(
+    await readFile(defined(disabled.result.evidencePath), "utf8"),
+  );
+  expect(second.configuration.digest).not.toBe(first.configuration.digest);
+});
 afterEach(async () => {
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
