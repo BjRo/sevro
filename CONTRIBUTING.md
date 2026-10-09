@@ -105,10 +105,16 @@ native trials or remote CI results.
 
 ## Maintainer releases
 
-Follow [releases](docs/releases.md): choose a new version, prepare and inspect
-the exact tarball, verify its license/provenance, and validate that artifact.
+Follow [releases](docs/releases.md): reuse successful source CI, choose a new
+version, and submit the release commit through a PR. Release PRs reuse the
+existing full quality gate and run static metadata checks; releases do not
+rerun local or CI tests. After the PR merges, prepare and inspect the exact
+tarball and verify its license, provenance, and checksums before publication.
 After changing `package.json.version`, run `bun run docs:sync` to refresh the
 [current release](docs/installing.md#current-release). `check:docs`, release
 preparation, and package-install validation reject stale release documentation.
+Package-install, native, and Darrow compatibility tests belong to development
+or an explicitly requested diagnostic, not the release process. Darrow's
+dependency update is a separate PR.
 Publication, tags, registry changes, and alternative licensing are separate
 maintainer actions; preparing a contribution does not authorize them.

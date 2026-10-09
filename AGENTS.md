@@ -18,6 +18,10 @@ linked contract. Before changing documentation or guide files, read
 Before changing licensing or branding, read `LICENSE`, `docs/licensing.md`,
 and `docs/assets/README.md`; maintainer decisions govern changes to those terms.
 For development checks and release responsibilities, read `CONTRIBUTING.md`.
+For releases, follow `docs/releases.md`: reuse successful source CI and do not
+rerun tests locally or in CI unless explicitly requested. Submit every release
+commit through a PR; never push release commits directly to `main`. Darrow
+dependency updates and compatibility checks are separate work.
 
 Do not add `Co-authored-by` or AI attribution trailers. Never change commit
 authorship metadata without explicit instruction. Do not publish, push, tag,
