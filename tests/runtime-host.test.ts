@@ -262,10 +262,14 @@ const peerRoot = process.env.SEVRO_RUNTIME_PEER;
 const peerDenied = !peerRoot || fs.denyRead.includes(peerRoot);
 const namespace = root ? root.split('/').slice(0, -3).join('/') : '';
 const namespaceDenied = namespace.endsWith('/sevro-native-private') && fs.denyRead.includes(namespace);
-const child = Bun.spawn(['/bin/zsh', '-c', 'printf "%s" "$CLAUDE_CONFIG_DIR"'], {env: {...process.env, CLAUDE_CONFIG_DIR: ''}, stdout:'pipe'});
-const shellConfig = await new Response(child.stdout).text();
-await child.exited;
-const valid = namespaceDenied && peerDenied && root && shellConfig + '/projects' === root && fs.allowRead.includes(root) && fs.denyWrite.includes(root) && fs.denyRead.some(path => config.startsWith(path)) && script.includes('CLAUDE_CONFIG_DIR=');
+const shells = ['/bin/bash'];
+const zsh = Bun.which('zsh');
+if (zsh) shells.push(zsh);
+const discoveries = await Promise.all(shells.map(async shell => {
+  const child = Bun.spawn([shell, '-c', 'printf "%s" "$CLAUDE_CONFIG_DIR"'], {env: {...process.env, CLAUDE_CONFIG_DIR: ''}, stdout:'pipe'});
+  return {config: await new Response(child.stdout).text(), exitCode: await child.exited};
+}));
+const valid = namespaceDenied && peerDenied && root && discoveries.every(shell => shell.exitCode === 0 && shell.config + '/projects' === root) && fs.allowRead.includes(root) && fs.denyWrite.includes(root) && fs.denyRead.some(path => config.startsWith(path)) && script.includes('CLAUDE_CONFIG_DIR=');
 console.log(JSON.stringify({type: 'result', subtype: 'success', is_error: false, result: valid ? 'available' : 'missing'}));
 `,
     { mode: 0o700 },

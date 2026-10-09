@@ -163,7 +163,12 @@ async function linkedTarget(path: string): Promise<string | null> {
     const target = await realpath(path);
     return (await stat(target)).isFile() ? target : null;
   } catch (cause) {
-    if ((cause as NodeJS.ErrnoException).code === "ENOENT") return null;
+    if (
+      ["EACCES", "EPERM", "ENOENT"].includes(
+        (cause as NodeJS.ErrnoException).code ?? "",
+      )
+    )
+      return null;
     throw cause;
   }
 }

@@ -292,6 +292,82 @@ test("CLI rejects malformed repository runtime configuration before execution", 
   expect(run.result.diagnostic?.message).toContain("runtime configuration");
 });
 
+test.skipIf(process.getuid?.() === 0)(
+  "CLI reports operation and path for an unreadable selected PATH directory",
+  async () => {
+    const { root, project, args } = await fixture();
+    const blocked = join(root, "blocked-path");
+    await mkdir(blocked);
+    await chmod(blocked, 0);
+    await writeFile(
+      join(project, "sevro.json"),
+      JSON.stringify({
+        format: "sevro.runtime.v1",
+        environment: { inherit: ["PATH"] },
+      }),
+    );
+    try {
+      const run = await invoke([...args, "--dry"], { PATH: blocked });
+      expect(run.code).toBe(64);
+      expect(run.result.diagnostic?.code).toBe("sevro.invocation.invalid");
+      expect(run.result.diagnostic?.message).toContain("EACCES");
+      expect(run.result.diagnostic?.message).toMatch(
+        /filesystem (?:access|lstat|stat|statx|realpath) failed/,
+      );
+      expect(run.result.diagnostic?.message).toContain(blocked);
+    } finally {
+      await chmod(blocked, 0o700);
+    }
+  },
+);
+
+test.skipIf(process.getuid?.() === 0)(
+  "CLI reports operation and path when an explicit runtime file is inaccessible",
+  async () => {
+    const { root, args } = await fixture();
+    const blocked = join(root, "blocked-config"),
+      selected = join(blocked, "runtime.json");
+    await mkdir(blocked);
+    await chmod(blocked, 0);
+    try {
+      const run = await invoke([
+        ...args,
+        "--runtime-config-file",
+        selected,
+        "--dry",
+      ]);
+      expect(run.code).toBe(64);
+      expect(run.result.diagnostic?.code).toBe("sevro.invocation.invalid");
+      expect(run.result.diagnostic?.message).toContain("EACCES");
+      expect(run.result.diagnostic?.message).toMatch(
+        /filesystem (?:access|lstat|stat|statx|realpath) failed/,
+      );
+      expect(run.result.diagnostic?.message).toContain(selected);
+    } finally {
+      await chmod(blocked, 0o700);
+    }
+  },
+);
+
+test.skipIf(process.platform !== "darwin" || process.getuid?.() === 0)(
+  "CLI accepts inherited macOS PATH with an inaccessible individual tool alias",
+  async () => {
+    const { project, args } = await fixture();
+    await writeFile(
+      join(project, "sevro.json"),
+      JSON.stringify({
+        format: "sevro.runtime.v1",
+        environment: { inherit: ["PATH"] },
+      }),
+    );
+    const run = await invoke([...args, "--dry"], {
+      PATH: "/usr/bin:/bin:/usr/sbin:/sbin",
+    });
+    expect(run.code, JSON.stringify(run.result)).toBe(0);
+    expect(run.result.execution.status).toBe("not_run");
+  },
+);
+
 test("CLI warns when using deprecated toolchain options", async () => {
   const { root, args } = await fixture();
   const bin = join(root, "tools");
