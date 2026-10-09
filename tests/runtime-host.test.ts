@@ -31,6 +31,188 @@ type NativeBundle = {
 const roots: string[] = [];
 const nativeRoot =
   '{"type":"session_meta","payload":{"id":"runtime-test"},"future":"preserved"}';
+const retainedNativeBundle = {
+  format: "sevro.native-transcripts.v1",
+  host: "codex",
+  role: "candidate",
+  rootSessionId: "runtime-test",
+  completeness: "complete",
+  issues: [],
+  files: [
+    {
+      path: "rollout-runtime-test.jsonl",
+      sha256: createHash("sha256").update(nativeRoot).digest("hex"),
+      bytesBase64: Buffer.from(nativeRoot).toString("base64"),
+    },
+  ],
+};
+test.each([
+  {
+    label: "unsupported format",
+    bundle: { ...retainedNativeBundle, format: "unknown" },
+  },
+  {
+    label: "unsupported host",
+    bundle: { ...retainedNativeBundle, host: "unknown" },
+  },
+  {
+    label: "non-array files",
+    bundle: { ...retainedNativeBundle, files: {} },
+  },
+  {
+    label: "invalid file record",
+    bundle: { ...retainedNativeBundle, files: [null] },
+  },
+  {
+    label: "tampered native bytes",
+    bundle: {
+      ...retainedNativeBundle,
+      files: [
+        {
+          ...defined(retainedNativeBundle.files[0]),
+          bytesBase64: Buffer.from("altered evidence").toString("base64"),
+        },
+      ],
+    },
+  },
+])(
+  "evaluation refuses $label retained native evidence before grading",
+  async ({ bundle }) => {
+    const { root } = await codexFixture();
+    const graderCalls: string[] = [];
+    const host: HostAdapter = {
+      id: "native-evidence.fixture",
+      model: "fixture",
+      effort: "low",
+      run() {
+        return Promise.resolve({
+          complete: true,
+          finalMessage: "ready",
+          artifacts: [
+            {
+              id: "sevro.native-transcripts.bundle",
+              bytes: Buffer.from(JSON.stringify(bundle)),
+            },
+          ],
+        });
+      },
+    };
+    const semanticHost: HostAdapter = {
+      ...host,
+      id: "native-evidence.grader",
+      run() {
+        graderCalls.push("called");
+        return Promise.reject(
+          new Error("invalid native evidence reached grading"),
+        );
+      },
+    };
+    const evaluation = runEvaluation(
+      retainedNativeEvaluation(root, host, semanticHost),
+    );
+    expect(evaluation).rejects.toThrow(/native transcript/);
+    await evaluation.catch(() => undefined);
+    expect(graderCalls).toEqual([]);
+  },
+);
+
+test("evaluation supplies verified Claude native bytes to a retained-evidence consumer", async () => {
+  const { root } = await codexFixture();
+  const bytes =
+    '{"type":"assistant","message":{"model":"fixture","content":[]}}';
+  const host: HostAdapter = {
+    id: "claude-evidence.fixture",
+    model: "fixture",
+    effort: "low",
+    run() {
+      return Promise.resolve({
+        complete: true,
+        finalMessage: "ready",
+        artifacts: [
+          {
+            id: "sevro.native-transcripts.bundle",
+            bytes: Buffer.from(
+              JSON.stringify({
+                ...retainedNativeBundle,
+                host: "claude",
+                files: [
+                  {
+                    path: "project/runtime-test.jsonl",
+                    sha256: createHash("sha256").update(bytes).digest("hex"),
+                    bytesBase64: Buffer.from(bytes).toString("base64"),
+                  },
+                ],
+              }),
+            ),
+          },
+        ],
+      });
+    },
+  };
+  const semanticHost: HostAdapter = {
+    ...host,
+    id: "claude-evidence.consumer",
+    async run(request) {
+      const view = defined(request.candidateTranscriptRoot);
+      expect(
+        await readFile(join(view, "claude/project/runtime-test.jsonl"), "utf8"),
+      ).toBe(bytes);
+      return {
+        complete: true,
+        finalMessage: JSON.stringify({
+          checks: [
+            {
+              id: "native-evidence",
+              verdict: "pass",
+              reason: "Verified native bytes",
+            },
+          ],
+        }),
+      };
+    },
+  };
+  const { result } = await runEvaluation(
+    retainedNativeEvaluation(root, host, semanticHost),
+  );
+  expect(result.task.verdict).toBe("passed");
+});
+
+function retainedNativeEvaluation(
+  root: string,
+  host: HostAdapter,
+  semanticHost: HostAdapter,
+) {
+  return {
+    projectRoot: join(root, "project"),
+    resultsRoot: join(root, "results"),
+    runnerBuildDigest: "a".repeat(64),
+    projectDigest: "b".repeat(64),
+    condition: "passive" as const,
+    trialCount: 1,
+    passThreshold: 1,
+    host,
+    semanticHost,
+    runtimePolicy: {
+      format: "sevro.runtime.v1" as const,
+      environment: {},
+      readOnlyRoots: [],
+      nativeTranscripts: true,
+    },
+    case: {
+      id: "retained-native-integrity",
+      prompt: "Return ready",
+      fixture: { files: {} },
+      requiredEvidence: [],
+      checks: [
+        {
+          id: "native-evidence",
+          grader: "sevro.semantic",
+          configuration: { proposition: "Native evidence is verified" },
+        },
+      ],
+    },
+  };
+}
 test("public Codex Linux profile keeps trusted native trees visible under an empty root", async () => {
   const { root, workspace } = await codexFixture();
   const sourceRoot =
