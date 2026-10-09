@@ -9,10 +9,35 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
+  quality-plan:
+    name: Select quality evidence
+    runs-on: ubuntu-24.04
+    outputs:
+      reuse: ${{ steps.plan.outputs.reuse }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Select existing CI for release metadata
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/release-ci.py
+      - name: Retain reused quality evidence
+        if: steps.plan.outputs.reuse == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-ci-${{ github.sha }}
+          path: .quality/release-ci.json
+          include-hidden-files: true
+          if-no-files-found: error
   verify:
     name: TypeScript gate (Ubuntu x64)
+    needs: quality-plan
+    if: needs.quality-plan.outputs.reuse != 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -37,13 +62,42 @@ jobs:
           path: .quality/
           include-hidden-files: true
           if-no-files-found: warn
+  release-metadata:
+    name: Release metadata checks
+    needs: quality-plan
+    if: needs.quality-plan.outputs.reuse == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.13.0"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+      - run: bun install --frozen-lockfile
+      - name: Check release workflow syntax
+        run: python3 -c 'import ast, pathlib; ast.parse(pathlib.Path(".github/scripts/release-ci.py").read_text())'
+      - name: Static release metadata checks
+        run: bun run check:typescript --fast
   typescript-quality:
     name: TypeScript quality
-    needs: verify
+    needs: [quality-plan, verify, release-metadata]
     if: always()
     runs-on: ubuntu-24.04
     steps:
-      - name: Require the complete gate
+      - name: Require complete or reused quality evidence
         env:
+          PLAN_RESULT: ${{ needs.quality-plan.result }}
+          REUSE: ${{ needs.quality-plan.outputs.reuse }}
           QUALITY_RESULT: ${{ needs.verify.result }}
-        run: test "$QUALITY_RESULT" = success
+          METADATA_RESULT: ${{ needs.release-metadata.result }}
+        run: |
+          test "$PLAN_RESULT" = success
+          if [ "$REUSE" = true ]; then
+            test "$QUALITY_RESULT" = skipped
+            test "$METADATA_RESULT" = success
+          else
+            test "$QUALITY_RESULT" = success
+            test "$METADATA_RESULT" = skipped
+          fi
