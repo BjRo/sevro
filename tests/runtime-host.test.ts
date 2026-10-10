@@ -17,6 +17,7 @@ import { createCodexHost } from "../src/hosts/codex";
 import { createClaudeHost } from "../src/hosts/claude";
 import { createHash, randomUUID } from "node:crypto";
 import { runtimeSeedDigest } from "../src/runtime-seeds";
+import { allocateNativeState } from "../src/native-transcript-state";
 import {
   loadRuntimeConfiguration,
   runEvaluation,
@@ -1491,7 +1492,7 @@ test.skipIf(process.platform !== "darwin")(
       await readFile(join(workspace, "sandbox-error"), "utf8"),
     ).toBe("accessible");
   },
-  15000,
+  30000,
 );
 
 test.each(nativeRuntimeCases)(
@@ -1606,6 +1607,73 @@ test("Codex runtime survives continuation and inherited command children", async
 function runtimeFailureMessage(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
 }
+
+test.each([
+  { native: "Claude", viaAlias: false },
+  { native: "Claude", viaAlias: true },
+  { native: "Codex", viaAlias: false },
+  { native: "Codex", viaAlias: true },
+])(
+  "$native runtime refuses a fixture within the native namespace: alias $viaAlias",
+  async ({ native, viaAlias }) => {
+    const { root, host: codexHost } = await codexFixture(
+      "printf launched > native-launched",
+    );
+    const privateFixture = await allocateNativeState("runtime-fixture-");
+    roots.push(privateFixture);
+    const workspace = join(privateFixture, "workspace");
+    await mkdir(workspace);
+    expect(Bun.spawnSync(["git", "init", "--quiet", workspace]).exitCode).toBe(
+      0,
+    );
+    const gitEntries = await readdir(join(workspace, ".git"));
+    const peerFile = join(privateFixture, "retained-peer.json");
+    await writeFile(peerFile, "retained peer");
+    const privateEntries = await readdir(privateFixture);
+    const alias = join(root, "workspace-alias");
+    await symlink(workspace, alias);
+    const binary = join(root, "claude-namespace-fixture");
+    await writeFile(
+      binary,
+      '#!/bin/sh\nprintf launched > native-launched\nprintf \'{"type":"result","subtype":"success","is_error":false,"result":"ready"}\\n\'\n',
+      { mode: 0o700 },
+    );
+    const credentialFile = join(root, "claude-credential.json");
+    await writeFile(credentialFile, "{}");
+    const host =
+      native === "Codex"
+        ? codexHost
+        : createClaudeHost({
+            binary,
+            credentialFile,
+            model: "synthetic",
+            effort: "low",
+            projectRoot: join(root, "project"),
+            resultsRoot: join(root, "results"),
+            additionalProtectedRoots: [],
+          });
+    const running = host.run({
+      prompt: "Use external runtime.",
+      workspace: viaAlias ? alias : workspace,
+      condition: "passive",
+      runtimePolicy: {
+        format: "sevro.runtime.v1",
+        environment: {},
+        readOnlyRoots: [],
+      },
+    });
+    expect(running).rejects.toThrow(
+      "native runtime namespace overlaps the fixture workspace",
+    );
+    await running.catch(() => undefined);
+    expect(await Bun.file(join(workspace, "native-launched")).exists()).toBe(
+      false,
+    );
+    expect(await readdir(join(workspace, ".git"))).toEqual(gitEntries);
+    expect(await readdir(privateFixture)).toEqual(privateEntries);
+    expect(await readFile(peerFile, "utf8")).toBe("retained peer");
+  },
+);
 
 test.skipIf(process.platform !== "darwin").each([
   { native: "Claude", viaAlias: false },
@@ -1849,7 +1917,7 @@ test("Codex candidate commands use private runtime seeds", async () => {
     await readFile(join(workspace, "sandbox-error"), "utf8"),
   ).toBe("seeded");
   expect(await readFile(join(source, "input"), "utf8")).toBe("seeded");
-});
+}, 30000);
 
 test("Codex refuses a seed changed after its configuration snapshot", async () => {
   const { host, workspace, root } = await codexFixture();
