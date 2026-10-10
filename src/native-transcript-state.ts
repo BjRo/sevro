@@ -2,7 +2,7 @@ import { lstat, mkdir, mkdtemp, realpath } from "node:fs/promises";
 import type { Stats } from "node:fs";
 import { realpathSync } from "node:fs";
 import { tmpdir, userInfo } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, sep } from "node:path";
 
 /** A permanent deny boundary also covers roles allocated after command launch. */
 export async function nativeStateParent(): Promise<string> {
@@ -37,8 +37,26 @@ function requirePrivateNamespace(info: Stats): void {
     );
 }
 
-export async function allocateNativeState(prefix: string): Promise<string> {
+export async function allocateNativeState(
+  prefix: string,
+  runtimeWorkspace?: string,
+): Promise<string> {
+  await requireExternalNativeNamespace(runtimeWorkspace);
   return realpath(await mkdtemp(join(await nativeStateParent(), prefix)));
+}
+
+/** Workspace writes must never reach existing or future native peer state. */
+async function requireExternalNativeNamespace(
+  workspace?: string,
+): Promise<void> {
+  if (workspace === undefined) return;
+  const fixtureRoot = join(await realpath(workspace), sep);
+  const namespaceRoot = join(nativeStatePath(), sep);
+  if (
+    fixtureRoot.startsWith(namespaceRoot) ||
+    namespaceRoot.startsWith(fixtureRoot)
+  )
+    throw new Error("native runtime namespace overlaps the fixture workspace");
 }
 
 export async function requireNativeTranscriptView(

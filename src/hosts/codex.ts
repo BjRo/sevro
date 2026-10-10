@@ -177,6 +177,13 @@ function requirePassiveCodexRequest(request: Request): void {
   if (request.condition !== "passive")
     throw new Error("Codex enforcement instrumentation is unavailable");
 }
+function allocateCodexRequestState(request: Request): Promise<string> {
+  return allocateNativeState(
+    "codex-",
+    request.runtimePolicy ? request.workspace : undefined,
+  );
+}
+
 async function runCodexRequest(
   options: CodexHostOptions,
   timeoutMs: number,
@@ -191,7 +198,7 @@ async function runCodexRequest(
   await verifyCodexInvocation(request);
   if (existsSync(join(request.workspace, ".codex")))
     throw new Error("fixture Codex configuration is unsupported");
-  const stateRoot = await allocateNativeState("codex-");
+  const stateRoot = await allocateCodexRequestState(request);
   const helperRoot =
     process.platform === "linux"
       ? await mkdtemp(join(tmpdir(), "sevro-codex-helper-"))

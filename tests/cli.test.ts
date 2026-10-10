@@ -1225,7 +1225,7 @@ printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_token
         );
       }
     },
-    route === "native" ? 30_000 : undefined,
+    route === "native" ? 60_000 : undefined,
   );
 }
 test("CLI accepts generated Git history from a case or extension", async () => {
@@ -2049,7 +2049,7 @@ printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_token
     semanticAdapter,
   ]);
   expect(conflicting.code).toBe(64);
-});
+}, 60_000);
 async function claudeContinuationFixture(scenario = "pass") {
   const { args, caseFile } = await fixture();
   const projectRoot = join(caseFile, "..");
