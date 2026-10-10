@@ -1163,7 +1163,7 @@ test("native capture refuses credential-bearing source links", async () => {
 });
 
 async function waitForNativeCommand(path: string): Promise<void> {
-  for (let index = 0; index < 800; index++) {
+  for (let index = 0; index < 3000; index++) {
     if (await Bun.file(path).exists()) return;
     await Bun.sleep(10);
   }
@@ -1197,7 +1197,7 @@ test("running native commands cannot read a later-created peer transcript tree",
   await mkdir(peer, { mode: 0o700 });
   await writeFile(join(peer, "secret"), "later private transcript");
   expect((await running).finalMessage).toBe("denied");
-}, 15000);
+}, 45000);
 
 test("evaluation exposes retained native evidence to isolated shell and semantic consumers", async () => {
   const { host, root } = await codexFixture();

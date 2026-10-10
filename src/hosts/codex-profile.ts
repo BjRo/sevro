@@ -1,6 +1,9 @@
 import { isAbsolute, sep } from "node:path";
 import { insideRuntimeRoot, isRuntimeHomeRoot } from "../runtime-paths";
-import { nativeStatePath } from "../native-transcript-state";
+import {
+  nativeStatePath,
+  nativeStateProtectedRoots,
+} from "../native-transcript-state";
 
 const LINUX_MINIMAL_READ_ROOTS = [
   "/bin",
@@ -102,28 +105,58 @@ function profileProtectedRoots(
   ];
   return options.protectedRoots.filter(
     (root) =>
-      (!implicitLinuxHomeBoundary(root, readRoots, baselines) &&
-        !implicitLinuxNativeBoundary(
-          root,
-          options.nativeReadRoots ?? [],
-          baselines,
-        )) ||
-      process.platform !== "linux",
+      (!implicitLinuxHomeBoundary(root, readRoots, baselines) ||
+        process.platform !== "linux") &&
+      !implicitNativeBoundary(root, readRoots, baselines),
   );
 }
 
-function implicitLinuxNativeBoundary(
+function implicitNativeBoundary(
   root: string,
   trustedReadRoots: string[],
   baselines: string[],
 ): boolean {
-  if (root !== nativeStatePath()) return false;
-  const descendant = trustedReadRoots.some(
-    (read) => read !== root && insideRuntimeRoot(root, read),
+  const canonicalRoot = nativeStatePath();
+  if (!supportedNativeNamespace(canonicalRoot)) return false;
+  const boundary = nativeBoundaryRoot(root, canonicalRoot);
+  if (!boundary) return false;
+  const descendant = trustedReadRoots.some((read) =>
+    insideRuntimeRoot(boundary, read),
   );
+  return descendant && !hasBroaderBaseline(root, boundary, baselines);
+}
+
+function nativeBoundaryRoot(
+  root: string,
+  canonicalRoot: string,
+): string | null {
+  if (nativeStateProtectedRoots().includes(root)) return canonicalRoot;
+  return insideRuntimeRoot(canonicalRoot, root) ? root : null;
+}
+
+function hasBroaderBaseline(
+  root: string,
+  boundary: string,
+  baselines: string[],
+): boolean {
+  return baselines.some(
+    (baseline) =>
+      insideRuntimeRoot(baseline, boundary) ||
+      insideRuntimeRoot(baseline, root),
+  );
+}
+
+function supportedNativeNamespace(root: string): boolean {
+  if (process.platform === "linux")
+    return [
+      "/var/tmp/sevro-native-private",
+      "/private/var/tmp/sevro-native-private",
+    ].includes(root);
   return (
-    descendant &&
-    !baselines.some((baseline) => insideRuntimeRoot(baseline, root))
+    process.platform === "darwin" &&
+    /^\/private\/var\/folders\/[^/]+\/[^/]+\/T\/sevro-native-private$/.test(
+      root,
+    )
   );
 }
 
