@@ -443,6 +443,20 @@ const response = {
   method: request.method,
   result: preparationDataResult(result),
 };
+if (scenario === "lifecycle-private-error" && request.method === "evaluate") {
+  process.stdout.write(
+    JSON.stringify({
+      protocol: request.protocol,
+      id: request.id,
+      method: request.method,
+      error: {
+        code: "private-evaluator-sentinel",
+        message: "private evaluator detail at /sensitive/evaluator/source.ts",
+      },
+    }),
+  );
+  process.exit(0);
+}
 if (scenario === "oversized") {
   process.stdout.write("x".repeat(8 * 1024 * 1024 + 1));
   process.exit(0);

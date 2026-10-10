@@ -505,6 +505,116 @@ test("CLI resolves an explicit extension case and retains extension evidence", a
   const ambiguous = await invoke([...command, "--case-file", caseFile]);
   expect(ambiguous.code).toBe(64);
 });
+test("CLI reports when declared extension source changes during candidate execution", async () => {
+  const { args, caseFile } = await fixture();
+  const projectRoot = join(caseFile, "..");
+  const commandFile = join(projectRoot, "extension-command.json");
+  const sourceFile = join(projectRoot, "declared-input.ts");
+  const initialSource = "export const evaluatorInput = 'stable';\n";
+  await writeFile(sourceFile, initialSource);
+  await writeFile(
+    commandFile,
+    JSON.stringify(fixtureExtensionCommand(extensionSource, "lifecycle")),
+  );
+  const command = args.filter(
+    (part, index) =>
+      part !== "--case-file" && args[index - 1] !== "--case-file",
+  );
+  command.push(
+    "--extension-command-file",
+    commandFile,
+    "--extension-source-file",
+    extensionSource,
+    "--extension-source-file",
+    sourceFile,
+    "--case-id",
+    "extension-case",
+  );
+  const environment = {
+    SEVRO_TEST_MUTATE_EXTENSION_SOURCE: sourceFile,
+  };
+  const jsonRun = await invoke(command, "pass", environment);
+  expect(jsonRun.code).toBe(3);
+  expect(jsonRun.result.execution.status).toBe("completed");
+  expect(jsonRun.result.grading.status).toBe("error");
+  expect(jsonRun.result.task.verdict).toBe("not_assessed");
+  const diagnosticMessage =
+    "extension source inputs changed during evaluation; assessment was refused. Finish changing evaluator inputs, then start a fresh evaluation with inputs held stable.";
+  const cliDiagnostic = defined(jsonRun.result.diagnostic);
+  expect(cliDiagnostic.message).toBe(diagnosticMessage);
+  expect(cliDiagnostic.message).not.toContain(sourceFile);
+  expect(cliDiagnostic.message).not.toContain("changed during run");
+  expect(defined(defined(jsonRun.result.cases[0]).trials[0])).toMatchObject({
+    execution: { status: "completed" },
+    grading: { status: "error" },
+    task: { verdict: "not_assessed" },
+    checks: [{ id: "ready", status: "passed" }],
+  });
+  const jsonEvidence = parseRunEvidence(
+    await readFile(defined(jsonRun.result.evidencePath), "utf8"),
+  );
+  expect(jsonEvidence.result).toMatchObject({
+    execution: { status: "completed" },
+    grading: { status: "error" },
+    task: { verdict: "not_assessed" },
+  });
+  const evidenceDiagnostic = defined(jsonEvidence.diagnostic);
+  expect(evidenceDiagnostic.message).toBe(diagnosticMessage);
+  expect(evidenceDiagnostic.message).not.toContain(sourceFile);
+  expect(evidenceDiagnostic.message).not.toContain("changed during run");
+
+  await writeFile(sourceFile, initialSource);
+  const humanCommand = command.filter((part) => part !== "--json");
+  const proc = Bun.spawn(humanCommand, {
+    stdout: "pipe",
+    stderr: "pipe",
+    env: { ...process.env, ...environment, SEVRO_TEST_SCENARIO: "pass" },
+  });
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  expect(code, stdout + stderr).toBe(3);
+  expect(stdout).toContain(diagnosticMessage);
+  expect(stdout).not.toContain(sourceFile);
+});
+test("CLI sanitizes unknown extension grading failures", async () => {
+  const { args, caseFile } = await fixture();
+  const commandFile = join(caseFile, "..", "extension-command.json");
+  await writeFile(
+    commandFile,
+    JSON.stringify(
+      fixtureExtensionCommand(extensionSource, "lifecycle-private-error"),
+    ),
+  );
+  const command = args.filter(
+    (part, index) =>
+      part !== "--case-file" && args[index - 1] !== "--case-file",
+  );
+  command.push(
+    "--extension-command-file",
+    commandFile,
+    "--extension-source-file",
+    extensionSource,
+    "--case-id",
+    "extension-case",
+  );
+  const run = await invoke(command);
+  expect(run.code).toBe(3);
+  expect(run.result.execution.status).toBe("completed");
+  expect(run.result.grading.status).toBe("error");
+  expect(run.result.task.verdict).toBe("not_assessed");
+  expect(run.result.diagnostic).toEqual({
+    code: "sevro.grader.error",
+    message: "extension grading did not complete",
+  });
+  const evidenceText = await readFile(defined(run.result.evidencePath), "utf8");
+  expect(evidenceText).not.toContain("private-evaluator-sentinel");
+  expect(evidenceText).not.toContain("/sensitive/evaluator/source.ts");
+  expect(run.stdout).not.toContain("private-evaluator-sentinel");
+  expect(run.stdout).not.toContain("/sensitive/evaluator/source.ts");
+});
 test("CLI supplies the selected candidate route during extension resolution", async () => {
   const { args, caseFile } = await fixture();
   const commandFile = join(caseFile, "..", "extension-command.json");

@@ -59,6 +59,9 @@ function finalCliResult(
 ): CliResult {
   const caseResult = evaluationCaseSummary(options, context);
   const assessment = summarizeCases([caseResult]);
+  const diagnostic = context.diagnostics.sort(
+    (left, right) => left.trial - right.trial,
+  )[0]?.diagnostic;
   return {
     format: "sevro.cli-result.v1",
     runId: context.runId,
@@ -69,6 +72,7 @@ function finalCliResult(
     }),
     evidencePath: context.evidencePath,
     cases: [caseResult],
+    ...(diagnostic ? { diagnostic } : {}),
   };
 }
 

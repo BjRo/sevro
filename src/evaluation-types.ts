@@ -145,4 +145,5 @@ export interface CliResult extends Assessment {
   exitCode: number;
   evidencePath: string;
   cases: CaseSummary[];
+  diagnostic?: { code: string; message: string };
 }

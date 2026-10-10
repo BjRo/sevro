@@ -17,6 +17,13 @@ import {
 
 const PROTOCOL = "sevro.extension.v1";
 
+export class ExtensionSourceChangedError extends ExtensionProtocolError {
+  constructor() {
+    super("extension source changed during run");
+    this.name = "ExtensionSourceChangedError";
+  }
+}
+
 export interface ExtensionCase {
   id: string;
   prompt: string;
@@ -295,7 +302,7 @@ function sessionResponse<M extends keyof SessionResults>(
 
 async function verifySessionSources(context: SessionContext): Promise<void> {
   if ((await digestSources(context.sourceClosure)) !== context.sourceDigest)
-    throw new ExtensionProtocolError("extension source changed during run");
+    throw new ExtensionSourceChangedError();
 }
 
 async function callSession<M extends keyof SessionResults>(
