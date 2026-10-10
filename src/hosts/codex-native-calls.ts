@@ -1,10 +1,10 @@
+import { isRecord, isUnknownArray } from "../value-guards";
+import { nativeCommandOutputs } from "./codex-command-output";
 import {
-  locateNativeSession as sessionPath,
   readNativeSession,
   readNativeSessionText,
+  locateNativeSession as sessionPath,
 } from "./codex-session-files";
-import { isUnknownArray } from "../value-guards";
-import { nativeCommandOutputs } from "./codex-command-output";
 import {
   codexNativeReadDiagnostic,
   type NativeReadDiagnostic,
@@ -103,10 +103,6 @@ interface NativeCallObservation {
   };
 }
 
-function record(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
 function unavailable(
   completeness: NativeCallObservation["completeness"],
 ): NativeCallObservation {
@@ -172,7 +168,7 @@ function parsedObject(text: unknown): Record<string, unknown> | null {
   if (typeof text !== "string") return null;
   try {
     const value: unknown = JSON.parse(text);
-    return record(value) ? value : null;
+    return isRecord(value) ? value : null;
   } catch {
     return null;
   }
@@ -244,7 +240,7 @@ function startedSpawn(
   payload: Record<string, unknown>,
   callId: string,
 ): boolean {
-  const item = record(payload.item) ? payload.item : {};
+  const item = isRecord(payload.item) ? payload.item : {};
   return (
     payload.type === "item_completed" &&
     item.type === "SubAgentActivity" &&
@@ -274,7 +270,7 @@ function spawnIdentity(
   start: NativeEntry,
   result: NativeEntry,
 ) {
-  const item = record(start.payload.item) ? start.payload.item : {};
+  const item = isRecord(start.payload.item) ? start.payload.item : {};
   const agentRef = bounded(item.agent_path, AGENT_REF),
     threadId = bounded(item.agent_thread_id, IDENTIFIER);
   if (!agentRef || !threadId || !spawnOrdered(request, start, result))
@@ -480,9 +476,9 @@ function parsedSessionEntry(
     return null;
   }
   if (
-    !record(entry) ||
+    !isRecord(entry) ||
     !sessionOrdinal(entry, state.lastOrdinal) ||
-    !record(entry.payload)
+    !isRecord(entry.payload)
   ) {
     state.malformed = true;
     return null;
@@ -545,7 +541,7 @@ function sessionObservation(
 /** Bind a private final answer to the same turn's later native completion. */
 
 function finalAgentMessage(payload: Record<string, unknown>): boolean {
-  const item = record(payload.item) ? payload.item : {};
+  const item = isRecord(payload.item) ? payload.item : {};
   return (
     payload.type === "item_completed" &&
     item.type === "AgentMessage" &&
@@ -590,7 +586,7 @@ function uniqueChildCompletion(
 }
 function childFinalMatched(final: NativeEntry, complete: NativeEntry): boolean {
   if (!childCompletionOrdered(final, complete)) return false;
-  const item = record(final.payload.item) ? final.payload.item : {};
+  const item = isRecord(final.payload.item) ? final.payload.item : {};
   const message = childMessage(item.content);
   return (
     message !== null &&
@@ -609,7 +605,9 @@ function childCompletionOrdered(
   );
 }
 function childTextBlock(part: unknown): part is { type: "Text"; text: string } {
-  return record(part) && part.type === "Text" && typeof part.text === "string";
+  return (
+    isRecord(part) && part.type === "Text" && typeof part.text === "string"
+  );
 }
 function childMessage(content: unknown): string | null {
   if (
@@ -857,7 +855,7 @@ function completedCommandItem(
   payload: Record<string, unknown>,
 ): Record<string, unknown> | null {
   if (payload.type !== "item_completed") return null;
-  if (!record(payload.item) || payload.item.type !== "CommandExecution")
+  if (!isRecord(payload.item) || payload.item.type !== "CommandExecution")
     return null;
   return payload.item;
 }

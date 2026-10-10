@@ -1,32 +1,31 @@
 #!/usr/bin/env bun
-import { resolvedFixture } from "./resolved-case";
-import { isStringArray } from "./value-guards";
 import { readFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { isResolvedCase } from "./case-validation";
 import {
   EvaluationConfigurationError,
   runEvaluation,
   type HostAdapter,
   type ResolvedCase,
 } from "./engine";
+import { openExtensionSession, type ExtensionCase } from "./extension-session";
+import { createClaudeHost } from "./hosts/claude";
 import { createCodexHost } from "./hosts/codex";
 import {
   codexAgentConcurrency,
   configurationRoot,
 } from "./hosts/codex-configuration";
-import { createClaudeHost } from "./hosts/claude";
-import { prepareGeneratedFixture } from "./generated-fixture";
-import { prepareRepositoryFixture } from "./repository-fixture";
 import { prepareInstrumentation } from "./instrumentation";
-import { openExtensionSession, type ExtensionCase } from "./extension-session";
-import { assertCliResult } from "./schema";
-import { reportCommand } from "./report";
 import {
   packageBuildDigest,
   projectIdentityDigest,
   projectProvenance,
 } from "./provenance";
+import { reportCommand } from "./report";
+import { resolvedFixture } from "./resolved-case";
+import { assertCliResult } from "./schema";
+import { isRecord, isStringArray } from "./value-guards";
 
 import { InvocationError, parseInvocation } from "./cli-invocation";
 import {
@@ -35,89 +34,10 @@ import {
 } from "./runtime-config";
 import { canonicalRuntimeRoot, requireRuntimeReadRoots } from "./runtime-paths";
 
-function record(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === "object" && !Array.isArray(value));
-}
-
-function validGeneratedFixture(value: Record<string, unknown>): boolean {
-  try {
-    prepareGeneratedFixture(value);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function validRepositoryFixture(value: Record<string, unknown>): boolean {
-  try {
-    prepareRepositoryFixture({ kind: "repository", ...value });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function validInlineFixture(value: Record<string, unknown>): boolean {
-  return (
-    !Object.hasOwn(value, "sourceRef") &&
-    record(value.files) &&
-    Object.values(value.files).every((content) => typeof content === "string")
-  );
-}
-
-function fixtureFields(value: Record<string, unknown>): boolean {
-  if (Object.hasOwn(value, "sourceRef")) return validRepositoryFixture(value);
-  return Object.hasOwn(value, "files") && validInlineFixture(value);
-}
-
-function validFixture(value: unknown): boolean {
-  if (!record(value)) return false;
-  if (value.kind === "generated") return validGeneratedFixture(value);
-  if (value.kind !== undefined) return false;
-  return fixtureFields(value);
-}
-
-function nonemptyString(value: unknown): value is string {
-  return typeof value === "string" && value.length > 0;
-}
-
-function followUpPrompt(value: unknown): boolean {
-  return (
-    value === undefined || (typeof value === "string" && Boolean(value.trim()))
-  );
-}
-
-function validCaseDetails(value: Record<string, unknown>): boolean {
-  return (
-    nonemptyString(value.id) &&
-    nonemptyString(value.prompt) &&
-    followUpPrompt(value.followUpPrompt) &&
-    validFixture(value.fixture)
-  );
-}
-
-function validCheck(value: unknown): boolean {
-  return (
-    record(value) &&
-    typeof value.id === "string" &&
-    typeof value.grader === "string" &&
-    record(value.configuration)
-  );
-}
-
-function validChecks(value: unknown): boolean {
-  return Array.isArray(value) && value.every(validCheck);
-}
-
 function parseCase(value: unknown): ResolvedCase {
-  if (
-    !record(value) ||
-    !validCaseDetails(value) ||
-    !validChecks(value.checks) ||
-    !isStringArray(value.requiredEvidence)
-  )
+  if (!isResolvedCase(value))
     throw new InvocationError("invalid resolved case file");
-  return value as unknown as ResolvedCase;
+  return value;
 }
 
 async function loadCase(path: string): Promise<ResolvedCase> {
@@ -169,7 +89,7 @@ async function loadExtensionOptions(
         "redacted extension configuration file",
       )
     : {};
-  if (!record(configuration) || !record(redactedConfiguration))
+  if (!isRecord(configuration) || !isRecord(redactedConfiguration))
     throw new InvocationError("extension configuration must be JSON objects");
   return { command, configuration, redactedConfiguration };
 }
@@ -183,7 +103,7 @@ async function loadPreparationSources(
     "case source map file",
   );
   if (
-    !record(refs) ||
+    !isRecord(refs) ||
     !Object.values(refs).every(
       (value) => typeof value === "string" && value.startsWith("file:///"),
     )
@@ -221,7 +141,7 @@ async function adapterModule(path: string): Promise<unknown> {
 
 async function loadHost(path: string): Promise<HostAdapter> {
   const module = await adapterModule(path);
-  const host = record(module) ? module.default : null;
+  const host = isRecord(module) ? module.default : null;
   if (!validHostAdapter(host))
     throw new InvocationError(
       "host adapter module has no valid default adapter",
@@ -248,7 +168,7 @@ function validateHostInstrumentation(host: Record<string, unknown>): void {
 
 function validHostAdapter(value: unknown): value is Record<string, unknown> {
   return (
-    record(value) &&
+    isRecord(value) &&
     typeof value.id === "string" &&
     typeof value.model === "string" &&
     typeof value.effort === "string" &&

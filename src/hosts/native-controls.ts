@@ -1,6 +1,6 @@
-import { isUnknownArray } from "../value-guards";
-import type { codexNativeCallObservation } from "./codex-native-calls";
+import { isRecord, isUnknownArray } from "../value-guards";
 import { summarizeClaudeEvents } from "./claude-events";
+import type { codexNativeCallObservation } from "./codex-native-calls";
 
 const MAX_CALLS = 128;
 type Call = { ordinal: number; namespace: string; name: string };
@@ -16,10 +16,6 @@ export interface NativeControlObservation {
     submittedExecCalls: number | null;
     truncated: boolean | null;
   };
-}
-
-function record(value: unknown): value is Entry {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function label(value: unknown, max: number): value is string {
@@ -67,13 +63,13 @@ function controlEvent(line: string): unknown {
 function assistantBlocks(event: unknown): unknown[] | null | typeof MALFORMED {
   if (event === MALFORMED) return MALFORMED;
   if (!assistantEvent(event)) return null;
-  const content = record(event.message) ? event.message.content : null;
+  const content = isRecord(event.message) ? event.message.content : null;
   return isUnknownArray(content) ? content : MALFORMED;
 }
 
 function nativeBlock(value: unknown): Entry | null {
   const types = ["text", "thinking", "redacted_thinking", "tool_use"];
-  return record(value) && types.includes(String(value.type)) ? value : null;
+  return isRecord(value) && types.includes(String(value.type)) ? value : null;
 }
 
 function toolIdentity(
@@ -160,5 +156,5 @@ export function claudeNativeControls(
 }
 
 function assistantEvent(value: unknown): value is Entry {
-  return record(value) && value.type === "assistant";
+  return isRecord(value) && value.type === "assistant";
 }

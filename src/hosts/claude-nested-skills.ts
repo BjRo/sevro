@@ -1,14 +1,11 @@
 import { lstat, readFile, readdir, realpath } from "node:fs/promises";
 import { join } from "node:path";
+import { isRecord } from "../value-guards";
 
 type Entry = Record<string, unknown>;
 const MAX_BYTES = 8 * 1024 * 1024;
 const MAX_AGENTS = 64;
 const MAX_SKILLS = 128;
-
-function record(value: unknown): value is Entry {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
 
 function label(value: unknown): value is string {
   return typeof value === "string" && /^[A-Za-z0-9_.:-]{1,256}$/.test(value);
@@ -19,8 +16,8 @@ function identity(value: unknown): value is string {
 }
 
 function blocks(entry: Entry): Entry[] {
-  const content = record(entry.message) ? entry.message.content : null;
-  return Array.isArray(content) ? content.filter(record) : [];
+  const content = isRecord(entry.message) ? entry.message.content : null;
+  return Array.isArray(content) ? content.filter(isRecord) : [];
 }
 
 function entries(text: string): Entry[] {
@@ -29,7 +26,7 @@ function entries(text: string): Entry[] {
     .filter(Boolean)
     .map((line) => {
       const parsed: unknown = JSON.parse(line);
-      if (!record(parsed)) throw new Error("invalid Claude session entry");
+      if (!isRecord(parsed)) throw new Error("invalid Claude session entry");
       return parsed;
     });
 }
@@ -81,7 +78,7 @@ function metadataMatches(
   parentAgentId: string | null,
 ): boolean {
   return (
-    record(metadata) &&
+    isRecord(metadata) &&
     metadata.toolUseId === toolUseId &&
     (metadata.parentAgentId ?? null) === parentAgentId
   );
@@ -99,7 +96,7 @@ async function childId(
   toolUseId: string,
   parentAgentId: string | null,
 ): Promise<string> {
-  const result = record(entry.toolUseResult) ? entry.toolUseResult : null;
+  const result = isRecord(entry.toolUseResult) ? entry.toolUseResult : null;
   if (result) {
     if (result.status !== "completed" || !identity(result.agentId))
       throw new Error("Claude child did not complete");
@@ -117,7 +114,7 @@ async function childSession(state: State, agentId: string) {
 }
 
 function skillCall(block: Entry, ancestorToolUseId: string | null) {
-  const invocation = record(block.input) ? block.input.skill : null;
+  const invocation = isRecord(block.input) ? block.input.skill : null;
   if (!label(invocation)) throw new Error("invalid Claude Skill call");
   return ancestorToolUseId
     ? {

@@ -1,5 +1,5 @@
 import { isRecord } from "./value-guards";
-import { createHash } from "node:crypto";
+import { sha256 } from "./identity";
 import {
   appendFile,
   mkdir,
@@ -37,6 +37,8 @@ import {
   type HostResult,
   type ResolvedCase,
 } from "./evaluation-types";
+
+export { sha256 } from "./identity";
 
 export async function createFixture(
   fixture: ResolvedCase["fixture"],
@@ -191,10 +193,6 @@ async function excludePreparationArtifacts(
     join(workspace, ".git", "info", "exclude"),
     `\n${patterns.map((path) => `/${path}`).join("\n")}\n`,
   );
-}
-
-export function sha256(content: string | Uint8Array): string {
-  return createHash("sha256").update(content).digest("hex");
 }
 
 export function hostObservations(

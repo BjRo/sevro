@@ -121,10 +121,13 @@ export function canonicalJson(value: unknown): string {
   return new CanonicalJsonWriter().write(value);
 }
 
+/** Hash exact bytes, or a string's UTF-8 bytes, without JSON canonicalization. */
+export function sha256(content: string | Uint8Array): string {
+  return createHash("sha256").update(content).digest("hex");
+}
+
 export function hashJson(value: unknown): string {
-  return createHash("sha256")
-    .update(canonicalJson(value), "utf8")
-    .digest("hex");
+  return sha256(canonicalJson(value));
 }
 
 function validatedDimensions(value: unknown): IdentityDimensions {

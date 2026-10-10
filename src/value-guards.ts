@@ -12,3 +12,9 @@ export function isStringArray(value: unknown): value is string[] {
     isUnknownArray(value) && value.every((item) => typeof item === "string")
   );
 }
+
+export function isOptionalNonblankString(value: unknown): boolean {
+  return (
+    value === undefined || (typeof value === "string" && Boolean(value.trim()))
+  );
+}

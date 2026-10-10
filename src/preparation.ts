@@ -1,5 +1,5 @@
 import { isMissingFile } from "./fixture-tools";
-import { createHash } from "node:crypto";
+import { sha256 } from "./identity";
 import { lstat, mkdir, readFile, realpath, stat } from "node:fs/promises";
 import { isAbsolute, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -162,7 +162,7 @@ function inlineArtifact(
   const bytes = canonicalBase64Bytes(item.contentBase64);
   state.bytes += bytes.byteLength;
   requireArtifactSize(bytes.byteLength, state.bytes);
-  if (createHash("sha256").update(bytes).digest("hex") !== item.sha256)
+  if (sha256(bytes) !== item.sha256)
     throw new Error("preparation artifact digest does not match content");
   return {
     id: item.id,

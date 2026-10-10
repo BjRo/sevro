@@ -77,27 +77,26 @@ An implementation PR is complete only when required CI checks pass for its exact
 published commit. A request to open or update a PR includes monitoring CI and
 repairing in-scope failures; it does not authorize merging or unrelated changes.
 
-- Before publication, inspect `.github/workflows/verify.yml` and reproduce its
-  configured OS, architecture, runtime and native-tool versions, non-root user,
-  and isolation prerequisites in a clean, isolated checkout. A macOS run, root-only
-  Linux run, fast check, targeted suite, or historical result does not establish
-  that the current Ubuntu gate passes.
-- Require `bun run check:typescript` to succeed for the complete candidate before
-  opening an implementation PR. Diagnose baseline failures rather than assuming
-  they excuse publication. If the matching environment is unavailable, report
-  the exact missing prerequisite and hold publication instead of claiming readiness.
+- Use GitHub CI in `.github/workflows/verify.yml` for full acceptance validation.
+  It provides the configured OS, architecture, runtime and native-tool versions,
+  non-root user, and isolation prerequisites. Reproducing that environment locally
+  with Docker is optional for diagnosis and is not a publication prerequisite.
+- After the local pre-commit checks, publish the authorized candidate to its PR
+  and require `bun run check:typescript` to succeed in GitHub CI before reporting
+  delivery as complete. A local run, fast check, targeted suite, or historical
+  result does not establish that the current Ubuntu gate passes.
 - Keep the quality bar intact. Repair behavior or add meaningful coverage for
   accepted behavior; do not lower thresholds, exempt authored sources, skip tests,
   bypass checks, or add artificial tests just to move a counter. Remove impossible
   branches by clarifying validated invariants rather than inventing impossible inputs.
 - Bind validation to the candidate's exact source and commit. Changes to source,
   tests, tooling, dependencies, schemas, workflows, or guidance invalidate prior
-  candidate evidence; rerun the applicable gates before publishing changed content.
+  candidate evidence; require the applicable CI gates on the updated published head.
 - After authorized publication, observe required checks for the exact PR head
   until they finish. Queued or running checks, a successful older commit, and a
   passing subset are not completion.
-- On failure, inspect the failed job and retained artifacts, reproduce the cause,
-  repair within the authorized scope, rerun validation, and publish a non-force
+- On failure, inspect the failed job and retained artifacts, reproduce the cause
+  locally when useful, repair within the authorized scope, and publish a non-force
   update to the same PR. Continue monitoring without waiting for the user to notice
   the failure or request correction; do not open a duplicate PR or merge it.
 - If an external blocker prevents progress, report its concrete evidence and the

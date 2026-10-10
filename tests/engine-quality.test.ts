@@ -1267,6 +1267,80 @@ test("records a failed advisory host without accepting its passing assessment", 
   expect(existsSync(workspace)).toBe(false);
 });
 
+for (const response of [
+  { name: "absent", finalMessage: null, retained: false, verdict: null },
+  {
+    name: "exactly 64 KiB",
+    finalMessage: advisoryResponse().padEnd(64 * 1024, " "),
+    retained: true,
+    verdict: "pass",
+  },
+  {
+    name: "above 64 KiB",
+    finalMessage: advisoryResponse().padEnd(64 * 1024 + 1, " "),
+    retained: false,
+    verdict: null,
+  },
+] as const) {
+  test(`advisory review bounds raw response retention for ${response.name} output`, async () => {
+    const options = await evaluation({ finalMessage: "ready", complete: true });
+    options.case.fixture = {
+      kind: "generated",
+      commits: [{ message: "base", files: { "README.md": "base\n" } }],
+    };
+    let workspace = "";
+    options.advisoryHost = {
+      id: "example.advisory",
+      model: "review-v1",
+      effort: "none",
+      run(request) {
+        workspace = request.workspace;
+        return Promise.resolve({
+          finalMessage: response.finalMessage,
+          complete: true,
+          artifacts: [
+            { id: "example.trace", bytes: Buffer.from("review trace") },
+          ],
+        });
+      },
+    };
+    const { result } = await runEvaluation(options);
+    expect(result.task.verdict).toBe("passed");
+    expect(result.exitCode).toBe(0);
+    const evidence = parseRunEvidence(
+      await readFile(result.evidencePath, "utf8"),
+    );
+    const trial = defined(evidence.trials[0]);
+    const review = defined(trial.advisoryReview);
+    expect(review.status).toBe(
+      response.verdict === null ? "failed" : "completed",
+    );
+    expect(review.assessment?.verdict ?? null).toBe(response.verdict);
+    const raw = trial.artifactRefs.find(
+      (item) => item.id === "sevro.advisory.response",
+    );
+    if (response.retained) {
+      expect(await readFile(new URL(defined(raw).path), "utf8")).toBe(
+        response.finalMessage,
+      );
+      expect(review.rawResult.path).toBe(defined(raw).path);
+      expect(review.rawResult.sha256).toBe(defined(raw).sha256);
+    } else {
+      expect(raw).toBeUndefined();
+      expect(review.rawResult.path).toBeNull();
+      expect(review.rawResult.sha256).toBeNull();
+    }
+    const trace = defined(
+      trial.artifactRefs.find(
+        (item) => item.id === "sevro.advisory.example.trace",
+      ),
+    );
+    expect(await readFile(new URL(trace.path), "utf8")).toBe("review trace");
+    expect(workspace).not.toBe("");
+    expect(existsSync(workspace)).toBe(false);
+  });
+}
+
 const invalidPlans: {
   name: string;
   change: (options: EvaluationOptions) => void;
@@ -1502,6 +1576,23 @@ for (const invalid of invalidPlans) {
 }
 
 const invalidReceipts: { name: string; result: HostResult }[] = [
+  // JavaScript adapters can return malformed entries despite the TypeScript interface.
+  {
+    name: "nonobject observation",
+    result: {
+      finalMessage: "ready",
+      complete: true,
+      observations: [null],
+    } as unknown as HostResult,
+  },
+  {
+    name: "nonobject artifact",
+    result: {
+      finalMessage: "ready",
+      complete: true,
+      artifacts: [null],
+    } as unknown as HostResult,
+  },
   {
     name: "oversized final message",
     result: { finalMessage: "x".repeat(8 * 1024 * 1024 + 1), complete: true },
@@ -1744,6 +1835,88 @@ test("refuses a failed semantic host even when its output contains a passing ver
     "failed grader trace",
   );
 });
+
+for (const response of [
+  { name: "absent", finalMessage: null, retained: false, accepted: false },
+  {
+    name: "exactly 1 MiB",
+    finalMessage:
+      '{"checks":[{"id":"meaning","verdict":"pass","reason":"Ready"}]}'.padEnd(
+        1024 * 1024,
+        " ",
+      ),
+    retained: true,
+    accepted: true,
+  },
+  {
+    name: "above 1 MiB",
+    finalMessage:
+      '{"checks":[{"id":"meaning","verdict":"pass","reason":"Ready"}]}'.padEnd(
+        1024 * 1024 + 1,
+        " ",
+      ),
+    retained: false,
+    accepted: false,
+  },
+] as const) {
+  test(`semantic grading bounds raw verdict retention for ${response.name} output`, async () => {
+    const options = await evaluation({ finalMessage: "ready", complete: true });
+    requireSemantic(options, {
+      finalMessage: response.finalMessage,
+      complete: true,
+      artifacts: [{ id: "example.trace", bytes: Buffer.from("grader trace") }],
+    });
+    let workspace = "";
+    const host = defined(options.semanticHost);
+    options.semanticHost = {
+      ...host,
+      run(request) {
+        workspace = request.workspace;
+        return host.run(request);
+      },
+    };
+    const { result } = await runEvaluation(options);
+    expect(result.execution.status).toBe("completed");
+    expect(result.grading.status).toBe(
+      response.accepted ? "completed" : "error",
+    );
+    expect(result.task.verdict).toBe(
+      response.accepted ? "passed" : "not_assessed",
+    );
+    const checks = defined(defined(result.cases[0]).trials[0]).checks;
+    const evidence = parseRunEvidence(
+      await readFile(result.evidencePath, "utf8"),
+    );
+    if (response.accepted) {
+      expect(result.exitCode).toBe(0);
+      expect(checks).toMatchObject([{ id: "meaning", status: "passed" }]);
+      expect(evidence.diagnostic).toBeUndefined();
+    } else {
+      expect(result.exitCode).toBe(3);
+      expect(checks).toEqual([]);
+      expect(evidence.diagnostic).toMatchObject({ code: "sevro.grader.error" });
+    }
+    const trial = defined(evidence.trials[0]);
+    const raw = trial.artifactRefs.find(
+      (item) => item.id === "sevro.semantic.verdicts",
+    );
+    if (response.retained) {
+      expect(await readFile(new URL(defined(raw).path), "utf8")).toBe(
+        response.finalMessage,
+      );
+    } else {
+      expect(raw).toBeUndefined();
+    }
+    const trace = defined(
+      trial.artifactRefs.find(
+        (item) => item.id === "sevro.semantic.example.trace",
+      ),
+    );
+    expect(await readFile(new URL(trace.path), "utf8")).toBe("grader trace");
+    expect(workspace).not.toBe("");
+    expect(existsSync(workspace)).toBe(false);
+  });
+}
 
 for (const grader of [
   { name: "malformed", finalMessage: "{broken", complete: true },

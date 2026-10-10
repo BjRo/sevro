@@ -1,3 +1,4 @@
+import { isRecord } from "../value-guards";
 const MAX_EVENT_STREAM_BYTES = 8 * 1024 * 1024;
 
 export class CodexEventError extends Error {
@@ -7,14 +8,10 @@ export class CodexEventError extends Error {
   }
 }
 
-function record(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
 function usage(
   value: unknown,
 ): { inputTokens: number; outputTokens: number } | null {
-  if (!record(value)) return null;
+  if (!isRecord(value)) return null;
   const input = value.input_tokens;
   const output = value.output_tokens;
   if (!nonnegativeInteger(input) || !nonnegativeInteger(output)) return null;
@@ -42,7 +39,7 @@ function parseEvent(line: string): Record<string, unknown> {
       cause,
     });
   }
-  if (!record(parsed) || typeof parsed.type !== "string")
+  if (!isRecord(parsed) || typeof parsed.type !== "string")
     throw new CodexEventError("Codex event stream contains an invalid event");
   return parsed;
 }
@@ -67,7 +64,8 @@ function completeTurn(state: TurnState, event: Record<string, unknown>): void {
 }
 
 function completeItem(state: TurnState, item: unknown): void {
-  if (!record(item) || item.type !== "agent_message" || state.completed) return;
+  if (!isRecord(item) || item.type !== "agent_message" || state.completed)
+    return;
   state.finalMessage = typeof item.text === "string" ? item.text : null;
 }
 

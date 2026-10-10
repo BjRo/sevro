@@ -1,12 +1,9 @@
-import { createHash } from "node:crypto";
+import { sha256 } from "../identity";
+import { isRecord } from "../value-guards";
 import { summarizeClaudeEvents } from "./claude-events";
 
 const MAX_RETAINED_CALLS = 128;
 type Entry = Record<string, unknown>;
-
-function record(value: unknown): value is Entry {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
 
 function label(value: unknown, max = 256): string | null {
   return typeof value === "string" && boundedLabel(value, max) ? value : null;
@@ -97,12 +94,14 @@ function collectEvent(line: string, state: CallState): void {
     state.malformed = true;
     return;
   }
-  if (!record(event) || event.type !== "assistant") return;
+  if (!isRecord(event) || event.type !== "assistant") return;
   collectAssistant(event, state);
 }
 
 function collectAssistant(event: Entry, state: CallState): void {
-  const blocks: unknown = record(event.message) ? event.message.content : null;
+  const blocks: unknown = isRecord(event.message)
+    ? event.message.content
+    : null;
   if (!Array.isArray(blocks)) {
     state.malformed = true;
     return;
@@ -127,7 +126,7 @@ function actorContext(event: Entry, state: CallState): Actor {
 }
 
 function collectBlock(value: unknown, actor: Actor, state: CallState): void {
-  if (!record(value) || value.type !== "tool_use") return;
+  if (!isRecord(value) || value.type !== "tool_use") return;
   state.ordinal++;
   if (!["Skill", "Agent", "Task"].includes(String(value.name))) return;
   if (state.calls.length >= MAX_RETAINED_CALLS) {
@@ -142,7 +141,7 @@ function collectSupportedCall(
   actor: Actor,
   state: CallState,
 ): void {
-  const input = record(value.input) ? value.input : {};
+  const input = isRecord(value.input) ? value.input : {};
   if (value.name === "Skill") {
     collectSkill(input, actor, state);
     return;
@@ -175,15 +174,11 @@ function boundedPrompt(input: Entry): string | null {
 }
 
 function promptDigest(prompt: string | null): string | null {
-  return prompt ? createHash("sha256").update(prompt).digest("hex") : null;
+  return prompt ? sha256(prompt) : null;
 }
 
 function firstLineDigest(prompt: string | null): string | null {
-  return prompt
-    ? createHash("sha256")
-        .update(prompt.split(/\r?\n/, 1).join(""))
-        .digest("hex")
-    : null;
+  return prompt ? sha256(prompt.split(/\r?\n/, 1).join("")) : null;
 }
 
 function agentCall(

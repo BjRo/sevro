@@ -1,7 +1,6 @@
 import { readFile, readdir, realpath, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { hashJson } from "./identity";
-import { createHash } from "node:crypto";
+import { hashJson, sha256 } from "./identity";
 import { insideRuntimeRoot } from "./runtime-paths";
 
 class SeedSnapshot {
@@ -55,9 +54,7 @@ class SeedSnapshot {
       throw new Error("runtime seed exceeds 512 MiB");
     this.files.push({
       path,
-      sha256: createHash("sha256")
-        .update(await readFile(canonical))
-        .digest("hex"),
+      sha256: sha256(await readFile(canonical)),
       mode: info.mode & 0o777,
     });
   }

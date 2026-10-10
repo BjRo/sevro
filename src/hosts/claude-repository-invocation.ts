@@ -2,6 +2,7 @@ import type { Stats } from "node:fs";
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import type { HostAdapter } from "../engine";
+import { isRecord } from "../value-guards";
 import type { ClaudeToolCallsObservation } from "./claude-tool-calls";
 
 type Entry = Record<string, unknown>;
@@ -12,27 +13,23 @@ export interface ClaudeRepositoryInvocation {
   prompt: string;
 }
 
-function record(value: unknown): value is Entry {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
 function entries(text: string): Entry[] {
   return text
     .split(/\r?\n/)
     .filter((line) => line.trim())
     .map((line) => {
       const value: unknown = JSON.parse(line);
-      if (!record(value)) throw new Error("invalid Claude session entry");
+      if (!isRecord(value)) throw new Error("invalid Claude session entry");
       return value;
     });
 }
 
 function content(entry: Entry): string {
-  const blocks = record(entry.message) ? entry.message.content : null;
+  const blocks = isRecord(entry.message) ? entry.message.content : null;
   if (typeof blocks === "string") return blocks;
   if (!Array.isArray(blocks)) return "";
   return blocks
-    .filter(record)
+    .filter(isRecord)
     .filter((block) => block.type === "text")
     .map((block) => (typeof block.text === "string" ? block.text : ""))
     .join("\n");

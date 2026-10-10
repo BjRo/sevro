@@ -1,3 +1,4 @@
+import { isRecord } from "../value-guards";
 const MAX_EVENT_STREAM_BYTES = 8 * 1024 * 1024;
 
 export class ClaudeEventError extends Error {
@@ -9,28 +10,24 @@ export class ClaudeEventError extends Error {
 
 type Entry = Record<string, unknown>;
 
-function record(value: unknown): value is Entry {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
 function nonnegative(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
 
 function validAssistant(value: Entry): boolean {
-  if (!record(value.message) || !Array.isArray(value.message.content))
+  if (!isRecord(value.message) || !Array.isArray(value.message.content))
     return false;
   return value.message.content.every(validAssistantBlock);
 }
 
 function validAssistantBlock(block: unknown): boolean {
-  if (!record(block)) return false;
+  if (!isRecord(block)) return false;
   if (block.type !== "tool_use" || block.name !== "Skill") return true;
   return validSkillInput(block.input);
 }
 
 function validSkillInput(input: unknown): boolean {
-  if (!record(input) || typeof input.skill !== "string") return false;
+  if (!isRecord(input) || typeof input.skill !== "string") return false;
   return !!input.skill.split(":").at(-1)?.trim();
 }
 
@@ -44,7 +41,7 @@ function validResult(value: Entry): boolean {
 }
 
 function validEvent(value: unknown): value is Entry {
-  if (!record(value)) return false;
+  if (!isRecord(value)) return false;
   if (value.type === "result") return validResult(value);
   if (value.type === "assistant") return validAssistant(value);
   return typeof value.type === "string";
@@ -56,7 +53,7 @@ interface Usage {
 }
 
 function usage(value: unknown): Usage | null {
-  if (!record(value)) return null;
+  if (!isRecord(value)) return null;
   const inputTokens = inputUsage(value);
   if (inputTokens === null || !nonnegative(value.output_tokens)) return null;
   return { inputTokens, outputTokens: value.output_tokens };
