@@ -71,6 +71,42 @@ Run `bun run check:docs:external` separately and [triage network failures](docs/
 Guide changes also need [native evals](docs/guide-evaluation.md).
 Documentation checks supplement #1 rather than replacing its contract.
 
+## Delivery and CI ownership
+
+An implementation PR is complete only when required CI checks pass for its exact
+published commit. A request to open or update a PR includes monitoring CI and
+repairing in-scope failures; it does not authorize merging or unrelated changes.
+
+- Before publication, inspect `.github/workflows/verify.yml` and reproduce its
+  configured OS, architecture, runtime and native-tool versions, non-root user,
+  and isolation prerequisites in a clean, isolated checkout. A macOS run, root-only
+  Linux run, fast check, targeted suite, or historical result does not establish
+  that the current Ubuntu gate passes.
+- Require `bun run check:typescript` to succeed for the complete candidate before
+  opening an implementation PR. Diagnose baseline failures rather than assuming
+  they excuse publication. If the matching environment is unavailable, report
+  the exact missing prerequisite and hold publication instead of claiming readiness.
+- Keep the quality bar intact. Repair behavior or add meaningful coverage for
+  accepted behavior; do not lower thresholds, exempt authored sources, skip tests,
+  bypass checks, or add artificial tests just to move a counter. Remove impossible
+  branches by clarifying validated invariants rather than inventing impossible inputs.
+- Bind validation to the candidate's exact source and commit. Changes to source,
+  tests, tooling, dependencies, schemas, workflows, or guidance invalidate prior
+  candidate evidence; rerun the applicable gates before publishing changed content.
+- After authorized publication, observe required checks for the exact PR head
+  until they finish. Queued or running checks, a successful older commit, and a
+  passing subset are not completion.
+- On failure, inspect the failed job and retained artifacts, reproduce the cause,
+  repair within the authorized scope, rerun validation, and publish a non-force
+  update to the same PR. Continue monitoring without waiting for the user to notice
+  the failure or request correction; do not open a duplicate PR or merge it.
+- If an external blocker prevents progress, report its concrete evidence and the
+  unfinished checks. Keep the PR's status and description honest; do not report
+  delivery as complete while required checks remain failing or unobserved.
+
+Release metadata follows `docs/releases.md` and its existing verified-source CI
+reuse policy; these implementation gates do not require release test reruns.
+
 ## Tests, fixtures, and schemas
 
 Preserve real Bun filesystem/process integration tests and native isolation.

@@ -292,8 +292,10 @@ async function resolveRuntimeConfiguration(
 async function resolvedRuntimeEnvironment(value: RuntimeConfiguration) {
   const { inherit, set } = configurationEnvironment(value);
   const environment = snapshotEnvironment(inherit, set);
-  if (inherit.includes("PATH") && !Object.hasOwn(set, "PATH"))
-    environment.PATH = await runtimeInheritedPath(environment.PATH ?? "");
+  for (const [name, value] of Object.entries(environment)) {
+    if (name === "PATH" && inherit.includes(name) && !Object.hasOwn(set, name))
+      environment[name] = await runtimeInheritedPath(value);
+  }
   return environment;
 }
 

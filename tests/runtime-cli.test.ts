@@ -1054,6 +1054,79 @@ test.each(["directory-alias", "tool-alias", "absent"])(
   },
 );
 
+test("CLI inherited PATH omits an installation prefix containing credentials", async () => {
+  const { root, project, args } = await fixture();
+  const home = join(root, "host-home"),
+    installation = join(root, "installation"),
+    bin = join(installation, "bin"),
+    credentials = join(installation, "private");
+  await mkdir(home);
+  await mkdir(bin, { recursive: true });
+  await mkdir(credentials);
+  await symlink(credentials, join(home, ".codex"));
+  await writeFile(join(bin, "probe"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  await writeFile(
+    join(project, "sevro.json"),
+    JSON.stringify({
+      format: "sevro.runtime.v1",
+      environment: { inherit: ["PATH"] },
+    }),
+  );
+  const run = await invoke([...args, "--dry"], {
+    HOME: home,
+    PATH: `${bin}:/usr/bin:/bin`,
+  });
+  expect(run.code, JSON.stringify(run.result)).toBe(0);
+  const evidence = parseRunEvidence(
+    await readFile(defined(run.result.evidencePath), "utf8"),
+  );
+  expect(evidence.configuration.redacted.runtimePolicy).toMatchObject({
+    environment: { PATH: "/usr/bin:/bin" },
+  });
+  for (const denied of [installation, bin, credentials])
+    expect(evidence.configuration.redacted.runtimePolicy).not.toHaveProperty(
+      "readOnlyRoots",
+      expect.arrayContaining([denied]),
+    );
+});
+
+test.each(["", "relative", "/usr/bin\n", "/bin/sh"])(
+  "CLI inherited PATH refuses malformed entries before execution: %s",
+  async (entry) => {
+    const { project, args } = await fixture();
+    await writeFile(
+      join(project, "sevro.json"),
+      JSON.stringify({
+        format: "sevro.runtime.v1",
+        environment: { inherit: ["PATH"] },
+      }),
+    );
+    const run = await invoke([...args, "--dry"], {
+      PATH: `${entry}:/usr/bin:/bin`,
+    });
+    expect(run.code).toBe(64);
+    expect(run.result.execution.status).toBe("not_run");
+    expect(run.result.diagnostic?.message).toContain("runtime PATH");
+  },
+);
+
+test("CLI refuses a missing inherited PATH before execution", async () => {
+  const { project, args } = await fixture();
+  await writeFile(
+    join(project, "sevro.json"),
+    JSON.stringify({
+      format: "sevro.runtime.v1",
+      environment: { inherit: ["PATH"] },
+    }),
+  );
+  const run = await invoke([...args, "--dry"], { PATH: undefined });
+  expect(run.code).toBe(64);
+  expect(run.result.execution.status).toBe("not_run");
+  expect(run.result.diagnostic?.message).toContain(
+    "runtime environment variable is missing: PATH",
+  );
+});
+
 test("CLI refuses an explicit PATH override into Codex credentials", async () => {
   const { root, project, args } = await fixture();
   const home = join(root, "host-home"),
