@@ -119,6 +119,11 @@ if [ -f "$workspace/.git/unchanged.flag" ]; then capture_root="$workspace/.git";
 printf '%s\\n' "$@" > "$capture_root/argv.txt"
 if [ -n "\${OPENAI_API_KEY:-}" ]; then exit 97; fi
 /bin/cat > "$capture_root/prompt.txt"
+if [ -f "$workspace/capture-model-input.flag" ]; then
+  if [ -e "$workspace/.codex" ]; then exit 93; fi
+  ${quotedCodex} debug prompt-input "Read the installed probe skill" > "$workspace/model-input.json" || exit 94
+  if [ -e "$workspace/.codex" ]; then /bin/rm -rf "$workspace/.codex" || exit 92; fi
+fi
 if [ -x "$workspace/.git/fixture-bin/fixture-tool" ]; then
   ${loginShell} -lc 'fixture-tool' > "$workspace/fixture-tool-output.txt" || exit 96
 fi
@@ -213,6 +218,33 @@ async function ordinaryMarketplace() {
     artifactPaths: Object.keys(files).map((file) => `marketplace/${file}`),
   };
   return { ...selected, root, manifest, declaration };
+}
+
+function assertPluginPromptPermissions(modelInput: string): void {
+  const messages = JSON.parse(modelInput) as unknown as {
+    role: string;
+    content: { text?: string }[];
+  }[];
+  const developer = messages
+    .flatMap((message) =>
+      message.role === "developer"
+        ? message.content.map((item) => item.text)
+        : [],
+    )
+    .join("\n");
+  const pluginRoot = developer.match(
+    /= `([^`]+\/plugins\/cache\/sevro-probe)`/,
+  )?.[1];
+  expect(pluginRoot).toContain("plugins/cache/sevro-probe");
+  const deniedReads = developer.split("## Denied filesystem reads\n")[1] ?? "";
+  const deniedPaths = [...deniedReads.matchAll(/^- path `([^`]+)`$/gm)].map(
+    (match) => match[1],
+  );
+  expect(
+    deniedPaths.some(
+      (path) => pluginRoot === path || pluginRoot?.startsWith(`${path}/`),
+    ),
+  ).toBe(false);
 }
 
 async function alterMarketplace(
@@ -703,6 +735,7 @@ test("Codex host installs a declared local plugin in its isolated home", async (
     "---\nname: probe\ndescription: Test probe\n---\nRead this skill.\n",
   );
   await writeFile(join(workspace, "require-plugin.flag"), "\n");
+  await writeFile(join(workspace, "capture-model-input.flag"), "\n");
   const host = createCodexHost({
     binary: paths.fakeBinary,
     sandboxBinary: installedCodex,
@@ -730,6 +763,12 @@ test("Codex host installs a declared local plugin in its isolated home", async (
     },
   };
   const result = await host.run(request);
+  const modelInput = await readFile(
+    join(workspace, "model-input.json"),
+    "utf8",
+  );
+  await rm(join(workspace, "capture-model-input.flag"));
+  assertPluginPromptPermissions(modelInput);
   expect(result.finalMessage).toBe("ready");
   expect(result.complete).toBe(true);
   expect(result.observations?.[0]).toMatchObject({

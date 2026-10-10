@@ -10,6 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { codexPermissionProfile } from "../src/hosts/codex-profile";
+import { nativeStatePath } from "../src/native-transcript-state";
 import { parse } from "smol-toml";
 
 const ordinaryProfile = {
@@ -20,6 +21,27 @@ const ordinaryProfile = {
   executableReadRoots: ["/bin"],
   protectedRoots: ["/source"],
 };
+
+type ProfileFilesystem = Record<string, string | undefined>;
+
+function profileFilesystem(
+  options: Parameters<typeof codexPermissionProfile>[0],
+): ProfileFilesystem {
+  const profile = parse(codexPermissionProfile(options)) as unknown as {
+    permissions: { sevro_trial: { filesystem: ProfileFilesystem } };
+  };
+  return profile.permissions.sevro_trial.filesystem;
+}
+
+async function expectSandboxReadOnly(
+  run: (argv: string[]) => Promise<{ code: number }>,
+  path: string,
+): Promise<void> {
+  expect((await run(["/bin/cat", path])).code).toBe(0);
+  expect(
+    (await run(["/usr/bin/touch", join(dirname(path), "write-probe")])).code,
+  ).not.toBe(0);
+}
 
 const profileRefusals: Array<{
   label: string;
@@ -117,6 +139,55 @@ test("Codex profile denies roots and strips command credentials", () => {
   ).toThrow(/profile ID/);
 });
 
+test("Codex profile keeps private siblings closed around a narrow native read", () => {
+  const namespace = nativeStatePath();
+  const roleRoot = join(namespace, "codex-role");
+  const pluginRoot = join(roleRoot, "codex-home", "plugins", "cache");
+  const filesystem = profileFilesystem({
+    ...ordinaryProfile,
+    commandHome: "/tmp/command-home",
+    commandTemp: "/tmp/command-temp",
+    protectedRoots: [namespace, roleRoot],
+    pluginReadRoot: pluginRoot,
+  });
+  expect(filesystem[":root"]).toBe("deny");
+  expect(filesystem[pluginRoot]).toBe("read");
+  expect(filesystem[namespace]).toBeUndefined();
+  expect(filesystem[roleRoot]).toBeUndefined();
+  expect(filesystem[join(roleRoot, "codex-home", "auth.json")]).toBeUndefined();
+});
+
+test("Codex profile retains the namespace deny under a broader read baseline", () => {
+  const namespace = nativeStatePath();
+  const filesystem = profileFilesystem({
+    ...ordinaryProfile,
+    commandHome: "/tmp/command-home",
+    commandTemp: "/tmp/command-temp",
+    executableReadRoots: ["/bin", dirname(namespace)],
+    protectedRoots: [namespace],
+    pluginReadRoot: join(namespace, "codex-role", "plugins", "cache"),
+  });
+  expect(filesystem[namespace]).toBe("deny");
+});
+
+test("Codex profile keeps private denial when the native temp root is custom", () => {
+  if (process.platform !== "darwin") return;
+  const previous = process.env.TMPDIR;
+  process.env.TMPDIR = "/Library/Preferences";
+  try {
+    const namespace = nativeStatePath();
+    const filesystem = profileFilesystem({
+      ...ordinaryProfile,
+      protectedRoots: [namespace],
+      pluginReadRoot: join(namespace, "plugins", "cache"),
+    });
+    expect(filesystem[namespace]).toBe("deny");
+  } finally {
+    if (previous === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = previous;
+  }
+});
+
 test("actual Codex sandbox keeps fixture access and denies source and auth", async () => {
   const installedCodex = Bun.which("codex");
   if (process.platform !== "darwin" || !installedCodex) return;
@@ -183,9 +254,7 @@ test("actual Codex sandbox keeps fixture access and denies source and auth", asy
     expect(
       (await run(["/bin/cat", join(codexHome, "auth.json")])).code,
     ).not.toBe(0);
-    expect((await run(["/bin/cat", join(pluginCache, "skill.txt")])).code).toBe(
-      0,
-    );
+    await expectSandboxReadOnly(run, join(pluginCache, "skill.txt"));
     expect(
       (await run(["/bin/sh", "-c", "printf created > created.txt"])).code,
     ).toBe(0);

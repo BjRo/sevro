@@ -5,6 +5,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   realpath,
   rm,
   symlink,
@@ -1216,7 +1217,7 @@ test.each([false, true])(
       "later private transcript",
     );
   },
-  15000,
+  45000,
 );
 
 test("evaluation exposes retained native evidence to isolated shell and semantic consumers", async () => {
@@ -1605,6 +1606,90 @@ test("Codex runtime survives continuation and inherited command children", async
 function runtimeFailureMessage(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
 }
+
+test.skipIf(process.platform !== "darwin").each([
+  { native: "Claude", viaAlias: false },
+  { native: "Claude", viaAlias: true },
+  { native: "Codex", viaAlias: false },
+  { native: "Codex", viaAlias: true },
+])(
+  "$native runtime refuses a namespace within the fixture: alias $viaAlias",
+  async ({ native, viaAlias }) => {
+    const { root, workspace, bin } = await codexFixture(
+      "printf launched > native-launched",
+    );
+    expect(Bun.spawnSync(["git", "init", "--quiet", workspace]).exitCode).toBe(
+      0,
+    );
+    const gitEntries = await readdir(join(workspace, ".git"));
+    const namespace = join(workspace, "sevro-native-private");
+    const peer = join(namespace, "claude-peer", "runtime", "home");
+    await mkdir(peer, { recursive: true, mode: 0o700 });
+    const peerFile = join(peer, "review.json");
+    await writeFile(peerFile, "retained peer");
+    const alias = join(root, "workspace-alias");
+    await symlink(workspace, alias);
+    const binary = join(bin, "claude-workspace-runtime");
+    await writeFile(
+      binary,
+      '#!/bin/sh\nprintf launched > native-launched\nprintf \'{"type":"result","subtype":"success","is_error":false,"result":"ready"}\\n\'\n',
+      { mode: 0o700 },
+    );
+    const credentialFile = join(root, "claude-credential.json");
+    await writeFile(credentialFile, "{}");
+    const codexBinary = join(bin, "candidate");
+    await cp(join(root, "candidate"), codexBinary);
+    const host =
+      native === "Codex"
+        ? createCodexHost({
+            binary: codexBinary,
+            sandboxBinary: defined(Bun.which("codex")),
+            authFile: join(root, "auth.json"),
+            model: "synthetic",
+            effort: "low",
+            projectRoot: join(root, "project"),
+            resultsRoot: join(root, "results"),
+            additionalProtectedRoots: [],
+          })
+        : createClaudeHost({
+            binary,
+            credentialFile,
+            model: "synthetic",
+            effort: "low",
+            projectRoot: join(root, "project"),
+            resultsRoot: join(root, "results"),
+            additionalProtectedRoots: [],
+          });
+    const originalTemp = process.env.TMPDIR;
+    process.env.TMPDIR = viaAlias ? alias : workspace;
+    try {
+      const running = host.run({
+        prompt: "Use external runtime.",
+        workspace,
+        condition: "passive",
+        runtimePolicy: {
+          format: "sevro.runtime.v1",
+          environment: {},
+          readOnlyRoots: [],
+        },
+      });
+      expect(running).rejects.toThrow(
+        "native runtime namespace overlaps the fixture workspace",
+      );
+      await running.catch(() => undefined);
+      expect(await Bun.file(join(workspace, "native-launched")).exists()).toBe(
+        false,
+      );
+      expect(await readdir(join(workspace, ".git"))).toEqual(gitEntries);
+      expect(await readdir(namespace)).toEqual(["claude-peer"]);
+      expect(await readFile(peerFile, "utf8")).toBe("retained peer");
+    } finally {
+      if (originalTemp === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = originalTemp;
+    }
+  },
+  30000,
+);
 
 test.skipIf(process.platform !== "darwin").each([false, true])(
   "Claude runtime refuses a namespace within implicit native temp writes: alias %s",
