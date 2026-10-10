@@ -40,23 +40,31 @@ export function requireRuntimeReadRoots(
 ): void {
   const hardRoots = [
     ...protectedRoots.filter((root) => !isRuntimeHomeRoot(root)),
-    ...credentialRoots().flatMap((root) => [
-      root,
-      canonicalCredentialRoot(root),
-    ]),
+    ...runtimeCredentialRoots(),
     ...nativeStateProtectedRoots(),
   ];
   for (const root of readRoots) {
     if (root === "/" || isRuntimeHomeRoot(root))
       throw new Error("runtime read root is too broad");
-    if (
-      hardRoots.some(
-        (denied) =>
-          insideRuntimeRoot(denied, root) || insideRuntimeRoot(root, denied),
-      )
-    )
+    if (overlapsRuntimeRoots([root], hardRoots))
       throw new Error("runtime read root overlaps protected data");
   }
+}
+
+function runtimeCredentialRoots(): string[] {
+  return credentialRoots().flatMap((root) => [
+    root,
+    canonicalCredentialRoot(root),
+  ]);
+}
+
+function overlapsRuntimeRoots(roots: string[], deniedRoots: string[]): boolean {
+  return roots.some((root) =>
+    deniedRoots.some(
+      (denied) =>
+        insideRuntimeRoot(denied, root) || insideRuntimeRoot(root, denied),
+    ),
+  );
 }
 
 function canonicalCredentialRoot(path: string): string {
@@ -192,9 +200,30 @@ function containsControl(value: string): boolean {
   );
 }
 
-async function pathEntryRoots(entry: string): Promise<string[]> {
+function requirePathEntry(entry: string): void {
   if (!isAbsolute(entry) || containsControl(entry))
     throw new Error("runtime PATH entries must be absolute and nonempty");
+}
+
+/** Ambient tool discovery must not grant access to the operator's credentials. */
+export async function runtimeInheritedPath(path: string): Promise<string> {
+  const deniedRoots = runtimeCredentialRoots();
+  const selected: string[] = [];
+  for (const entry of path.split(delimiter)) {
+    requirePathEntry(entry);
+    const paths = [resolve(entry), await canonicalRuntimeRoot(entry)];
+    if (overlapsRuntimeRoots(paths, deniedRoots)) continue;
+    if (overlapsRuntimeRoots(await pathEntryRoots(entry), deniedRoots))
+      continue;
+    selected.push(entry);
+  }
+  if (selected.length === 0)
+    throw new Error("runtime inherited PATH has no unprotected entries");
+  return selected.join(delimiter);
+}
+
+async function pathEntryRoots(entry: string): Promise<string[]> {
+  requirePathEntry(entry);
   const directory = await existingDirectory(entry);
   if (!directory) return [];
   const installation = installationRoot(directory);

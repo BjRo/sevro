@@ -50,8 +50,19 @@ declare only non-secret values. Credential names and runner-owned variables
 such as `HOME`, temporary-directory variables, `CODEX_HOME`, `CLAUDE_CONFIG_DIR`,
 shell startup overrides, subprocess injection flags, and `UV_OFFLINE` are refused.
 
-An inherited or explicit `PATH` must contain nonempty absolute entries. Missing
-entries are inert. Sevro grants read-only access to existing directories,
+An inherited or explicit `PATH` must contain nonempty absolute entries. For an
+inherited `PATH`, Sevro removes entries whose directory, installation prefix, or
+symlinked tools overlap credential roots, including `~/.codex` and `~/.claude`.
+This lets evaluations invoked from a Codex CLI session use ordinary host tools
+without manually removing injected paths. Lexical paths and canonical targets
+are checked, including absent credential paths. The remaining entries keep their
+original order; the effective `PATH` is retained in runtime evidence. A `PATH`
+with no remaining entries fails rather than selecting fallback tools.
+
+An explicit `environment.set.PATH` remains authoritative and conflicting grants
+fail, even when `PATH` is also inherited. Source and evaluator overlaps, invalid
+entries, and unreadable unprotected directories remain errors for either form.
+Missing unprotected entries are inert. Sevro grants read-only access to existing directories,
 resolved symlinked tools, and bounded installation prefixes above `bin`.
 An inaccessible individual symlink target is inert; an unreadable PATH directory
 still fails configuration. Explicitly declared read roots must remain readable.
