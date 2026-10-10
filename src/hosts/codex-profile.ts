@@ -105,7 +105,10 @@ function profileProtectedRoots(
       (!implicitLinuxHomeBoundary(root, readRoots, baselines) &&
         !implicitLinuxNativeBoundary(
           root,
-          options.nativeReadRoots ?? [],
+          [
+            ...(options.nativeReadRoots ?? []),
+            ...(options.runtimeWriteRoot ? [options.runtimeWriteRoot] : []),
+          ],
           baselines,
         )) ||
       process.platform !== "linux",
@@ -114,11 +117,11 @@ function profileProtectedRoots(
 
 function implicitLinuxNativeBoundary(
   root: string,
-  trustedReadRoots: string[],
+  trustedRoots: string[],
   baselines: string[],
 ): boolean {
   if (root !== nativeStatePath()) return false;
-  const descendant = trustedReadRoots.some(
+  const descendant = trustedRoots.some(
     (read) => read !== root && insideRuntimeRoot(root, read),
   );
   return (

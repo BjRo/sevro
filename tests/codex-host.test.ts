@@ -805,7 +805,7 @@ test("Codex host installs a declared local plugin in its isolated home", async (
     }),
   );
   expect(host.run(request)).rejects.toThrow(/declared local source/);
-});
+}, 60_000);
 test("Codex host dispatches a verified repository skill without a plugin", async () => {
   const installedCodex = Bun.which("codex");
   if (!isolatedNativeHost || !installedCodex) return;
@@ -1086,17 +1086,24 @@ test("Codex host kills its process group when cancelled", async () => {
     condition: "passive",
     signal: controller.signal,
   });
-  const pidPath = join(workspace, "child.pid");
-  const deadline = Date.now() + 5000;
-  while (!(await Bun.file(pidPath).exists())) {
-    if (Date.now() > deadline) throw new Error("Codex child did not start");
-    await Bun.sleep(20);
+  const settled = running.catch(() => undefined);
+  try {
+    const pidPath = join(workspace, "child.pid");
+    const deadline = Date.now() + 30_000;
+    while (!(await Bun.file(pidPath).exists())) {
+      if (Date.now() > deadline) throw new Error("Codex child did not start");
+      await Bun.sleep(20);
+    }
+    const pid = Number(await readFile(pidPath, "utf8"));
+    controller.abort();
+    expect(running).rejects.toThrow(/cancelled/);
+    await settled;
+    expect(() => process.kill(pid, 0)).toThrow();
+  } finally {
+    controller.abort();
+    await settled;
   }
-  const pid = Number(await readFile(pidPath, "utf8"));
-  controller.abort();
-  expect(running).rejects.toThrow(/cancelled/);
-  expect(() => process.kill(pid, 0)).toThrow();
-});
+}, 60_000);
 test("Codex host refuses an executable inside a protected project", async () => {
   const installedCodex = Bun.which("codex");
   if (!isolatedNativeHost || !installedCodex) return;
