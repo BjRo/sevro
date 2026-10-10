@@ -33,7 +33,10 @@ import {
   type HostResult,
   type TrialSummary,
 } from "./evaluation-types";
-import type { EvaluationResult } from "./extension-session";
+import {
+  ExtensionSourceChangedError,
+  type EvaluationResult,
+} from "./extension-session";
 import { clearFixtureContents } from "./fixture-cleanup";
 import {
   assessGitHeadCheck,
@@ -699,8 +702,12 @@ class EvaluationTrial {
       this.acceptExtensionResult(
         await extension.session.evaluate(this.extensionEvaluationRequest()),
       );
-    } catch {
-      this.failGrading("extension grading did not complete");
+    } catch (error) {
+      this.failGrading(
+        error instanceof ExtensionSourceChangedError
+          ? "extension source inputs changed during evaluation; assessment was refused. Finish changing evaluator inputs, then start a fresh evaluation with inputs held stable."
+          : "extension grading did not complete",
+      );
     }
   }
 

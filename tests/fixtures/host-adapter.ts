@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { HostAdapter } from "../../src/engine";
 
@@ -8,6 +8,8 @@ const host: HostAdapter = {
   effort: "none",
   async run({ workspace, prompt }) {
     await readFile(join(workspace, "README.md"), "utf8");
+    const sourceToChange = process.env.SEVRO_TEST_MUTATE_EXTENSION_SOURCE;
+    if (sourceToChange) await writeFile(sourceToChange, "changed during run\n");
     return {
       finalMessage:
         process.env.SEVRO_TEST_SCENARIO === "echo-prompt"

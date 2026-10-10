@@ -215,6 +215,7 @@ function display(value: unknown, json: boolean): void {
     grading: { status: string };
     task: { verdict: string };
     evidencePath: string | null;
+    diagnostic?: { code: string; message: string };
     cases: Array<{
       caseId: string;
       trials: Array<{
@@ -227,6 +228,8 @@ function display(value: unknown, json: boolean): void {
     `execution=${result.execution.status} grading=${result.grading.status} task=${result.task.verdict}\n`,
   );
   displayDomainOutcomes(result.cases);
+  if (result.diagnostic?.code === "sevro.grader.error")
+    process.stdout.write(`diagnostic=${result.diagnostic.message}\n`);
   if (result.evidencePath)
     process.stdout.write(`evidence=${result.evidencePath}\n`);
 }
