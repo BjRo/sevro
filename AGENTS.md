@@ -9,6 +9,9 @@ select the guide. The explicitly invoked guide remains read-only.
 Before changing source code, tests, tooling, examples, or schemas,
 read `CONTRIBUTING.md` and `docs/typescript-quality.md`.
 Before preparing a commit, pull request, or release, read `CONTRIBUTING.md`.
+For implementation PRs, require CI-equivalent full validation before publication.
+After authorized publication, own CI monitoring and repairs until required checks
+pass for the exact published commit; opening a PR does not complete delivery.
 Before changing the repository guide or its evaluation fixtures and grading,
 read `docs/guide-evaluation.md`.
 

@@ -4,6 +4,7 @@ import {
   declaredRuntimeRoots,
   optionalRuntimeRoots,
   runtimePathDirectories,
+  runtimeInheritedPath,
   requireRuntimeReadRoots,
 } from "./runtime-paths";
 import validate from "./generated/runtime.cjs";
@@ -252,10 +253,7 @@ async function resolveRuntimeConfiguration(
   protectedRoots: string[],
 ): Promise<RuntimePolicy> {
   assertRuntimeConfiguration(value);
-  const environment = snapshotEnvironment(
-    configurationEnvironment(value).inherit,
-    configurationEnvironment(value).set,
-  );
+  const environment = await resolvedRuntimeEnvironment(value);
   const optional = await optionalRuntimeRoots(
     value.filesystem?.optionalReadOnlyRoots ?? [],
     environment,
@@ -289,6 +287,16 @@ async function resolveRuntimeConfiguration(
     seeds: await resolvedSeeds(configurationSeeds(value), environment, base),
     hooks: resolvedHooks(value.hooks),
   };
+}
+
+async function resolvedRuntimeEnvironment(value: RuntimeConfiguration) {
+  const { inherit, set } = configurationEnvironment(value);
+  const environment = snapshotEnvironment(inherit, set);
+  for (const [name, value] of Object.entries(environment)) {
+    if (name === "PATH" && inherit.includes(name) && !Object.hasOwn(set, name))
+      environment[name] = await runtimeInheritedPath(value);
+  }
+  return environment;
 }
 
 function configurationEnvironment(value: RuntimeConfiguration) {
