@@ -120,7 +120,9 @@ printf '%s\\n' "$@" > "$capture_root/argv.txt"
 if [ -n "\${OPENAI_API_KEY:-}" ]; then exit 97; fi
 /bin/cat > "$capture_root/prompt.txt"
 if [ -f "$workspace/capture-model-input.flag" ]; then
+  if [ -e "$workspace/.codex" ]; then exit 93; fi
   ${quotedCodex} debug prompt-input "Read the installed probe skill" > "$workspace/model-input.json" || exit 94
+  if [ -e "$workspace/.codex" ]; then /bin/rm -rf "$workspace/.codex" || exit 92; fi
 fi
 if [ -x "$workspace/.git/fixture-bin/fixture-tool" ]; then
   ${loginShell} -lc 'fixture-tool' > "$workspace/fixture-tool-output.txt" || exit 96
