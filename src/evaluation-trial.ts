@@ -11,7 +11,11 @@ import {
   buildBlindAdvisoryFixture,
 } from "./advisory-fixture";
 import {
-  createFixture,
+  checkpointEvaluation,
+  prepareTrialWorkspace,
+  type EvaluationContext,
+} from "./evaluation-context";
+import {
   hostArtifacts,
   hostObservations,
   sha256,
@@ -19,27 +23,24 @@ import {
   verifyRetainedArtifacts,
 } from "./evaluation-fixture";
 import {
+  gradingRuntimePolicy,
+  scopedHostArtifacts,
+} from "./evaluation-grading-host";
+import { gradeSemanticChecks } from "./evaluation-semantic";
+import {
   type EvaluationOptions,
   type HostAdapter,
   type HostResult,
-  type ResolvedCase,
   type TrialSummary,
 } from "./evaluation-types";
 import type { EvaluationResult } from "./extension-session";
 import { clearFixtureContents } from "./fixture-cleanup";
-import { readSemanticArtifact } from "./graders/artifact";
 import {
   assessGitHeadCheck,
   gitHeadRevision,
   gitHeadState,
 } from "./graders/git-head";
 import { gradeOutput } from "./graders/output";
-import {
-  parseSemanticVerdicts,
-  semanticCheckGroups,
-  semanticPrompt,
-  type SemanticVerdict,
-} from "./graders/semantic";
 import { assessShellCheck, runShellCheck } from "./graders/shell";
 import { evaluationProtectedRoots } from "./hosts/isolation-roots";
 import {
@@ -58,11 +59,6 @@ import {
 import type { RunEvidenceData } from "./schema-types";
 import { atomicWriteJson } from "./storage";
 import { scheduleTrials } from "./trial-scheduler";
-import {
-  checkpointEvaluation,
-  prepareTrialWorkspace,
-  type EvaluationContext,
-} from "./evaluation-context";
 
 const MAX_FINAL_MESSAGE_BYTES = 8 * 1024 * 1024;
 
@@ -128,75 +124,6 @@ function hostFailureDiagnostic(execution: string, error: unknown) {
     code: "sevro.host.failed",
     message: "host execution did not complete",
   };
-}
-
-type SemanticGroup = ReturnType<typeof semanticCheckGroups>[number];
-type SemanticInputArtifact = Awaited<
-  ReturnType<typeof readSemanticArtifact>
-> | null;
-type SemanticHostOutcome =
-  | {
-      result: HostResult;
-      artifacts: ReturnType<typeof hostArtifacts>;
-      source: Record<string, unknown>;
-      hostId: string;
-    }
-  | {
-      result: null;
-      artifacts: ReturnType<typeof hostArtifacts>;
-      source: Record<string, unknown>;
-      hostId: null;
-    };
-
-function semanticGroupSuffix(pattern: string | undefined): string {
-  return pattern === undefined ? "" : "." + sha256(pattern);
-}
-
-function scopedHostArtifacts(
-  response: HostResult,
-  prefix: string,
-  artifacts: EvaluationContext["artifactRefs"],
-  checks: ResolvedCase["checks"],
-  reservedId: string,
-) {
-  return hostArtifacts(
-    {
-      ...response,
-      artifacts: response.artifacts?.map((item) => ({
-        ...item,
-        id: `${prefix}${item.id}`,
-      })),
-    },
-    new Set([
-      ...artifacts.map((item) => item.id),
-      ...checks.map((item) => item.id),
-      reservedId,
-    ]),
-  );
-}
-
-function semanticSource(
-  artifact: SemanticInputArtifact,
-): Record<string, unknown> {
-  return artifact
-    ? {
-        kind: "artifact",
-        path: artifact.path,
-        sha256: sha256(artifact.content),
-      }
-    : { kind: "response" };
-}
-
-function semanticHostPrompt(
-  message: string,
-  checks: SemanticGroup,
-  artifact: SemanticInputArtifact,
-): string {
-  return semanticPrompt(
-    artifact?.content ?? message,
-    checks,
-    artifact ? "document" : "response",
-  );
 }
 
 type AdvisoryReview = {
@@ -680,183 +607,35 @@ class EvaluationTrial {
     return result.finalMessage;
   }
 
-  private async semanticInput(
-    pattern: string | undefined,
-  ): Promise<SemanticInputArtifact> {
-    return pattern === undefined
-      ? null
-      : readSemanticArtifact(this.fixture.workspace, pattern);
-  }
-
-  private async semanticWorkspace(): Promise<string> {
-    return createFixture(
-      { files: {} },
-      [],
-      undefined,
-      null,
-      null,
-      null,
-      null,
-      this.context.projectRoot,
-      this.options.signal,
-      this.context.reservedSemanticWorkspaces[this.trial - 1],
-    );
-  }
-
-  private async runSemanticHost(
-    group: SemanticGroup,
-    pattern: string | undefined,
-    suffix: string,
-    workspace: string,
-    message: string,
-  ): Promise<SemanticHostOutcome> {
-    let source: Record<string, unknown> = { kind: "response" };
-    try {
-      const artifact = await this.semanticInput(pattern);
-      source = semanticSource(artifact);
-      const host = this.options.semanticHost;
-      if (!host) throw new Error("semantic host is unavailable");
-      const response = await host.run({
-        candidateTranscriptRoot: this.candidateTranscriptRoot,
-        prompt: semanticHostPrompt(message, group, artifact),
-        runtimePolicy: gradingRuntimePolicy(this.options),
-        runtimeRole: "semantic",
-        workspace,
-        condition: "passive",
-        signal: this.options.signal,
-      });
-      const artifacts = scopedHostArtifacts(
-        response,
-        `sevro.semantic${suffix}.`,
-        this.trialArtifactRefs,
-        this.options.case.checks,
-        `sevro.semantic.verdicts${suffix}`,
-      );
-      return { result: response, artifacts, source, hostId: host.id };
-    } catch {
-      this.failGrading("semantic grading did not complete");
-      return { result: null, artifacts: [], source, hostId: null };
-    } finally {
-      await rm(workspace, { recursive: true, force: true });
-    }
-  }
-
-  private async retainSemanticVerdicts(
-    result: HostResult,
-    suffix: string,
-  ): Promise<void> {
-    if (
-      result.finalMessage !== null &&
-      Buffer.byteLength(result.finalMessage, "utf8") <= 1024 * 1024
-    ) {
-      const bytes = Buffer.from(result.finalMessage, "utf8");
-      const path = join(
-        this.context.runDir,
-        `trial-${this.trial}-semantic-verdicts${suffix}.json`,
-      );
-      await this.writeTrialFile(path, bytes);
-      this.trialArtifactRefs.push({
-        id: `sevro.semantic.verdicts${suffix}`,
-        path: pathToFileURL(path).href,
-        sha256: sha256(bytes),
-      });
-    }
-  }
-
-  private recordSemanticVerdict(
-    verdict: SemanticVerdict,
-    pattern: string | undefined,
-    source: Record<string, unknown>,
-    hostId: string,
-  ): void {
-    const id = `sevro.observation.semantic.${sha256(verdict.id)}`;
-    this.semanticObservations.push({
-      id,
-      source: hostId,
-      completeness: "complete",
-      data: {
-        verdict: verdict.verdict,
-        reason: verdict.reason,
-        ...(pattern === undefined ? {} : { source }),
-      },
-    });
-    this.checks.push({
-      id: verdict.id,
-      grader: "sevro.semantic",
-      status: verdict.verdict === "pass" ? "passed" : "failed",
-      detail: verdict.reason,
-      evidenceRefs: [id],
-    });
-  }
-
-  private parseSemanticResults(
-    result: HostResult,
-    group: SemanticGroup,
-    pattern: string | undefined,
-    source: Record<string, unknown>,
-    hostId: string,
-  ): void {
-    try {
-      const message = this.completeSemanticGraderMessage(result);
-      const verdicts = parseSemanticVerdicts(message, group);
-      for (const verdict of verdicts)
-        this.recordSemanticVerdict(verdict, pattern, source, hostId);
-    } catch {
-      this.failGrading("semantic grading did not complete", false);
-    }
-  }
-
-  private completeSemanticGraderMessage(result: HostResult): string {
-    if (result.executionFailed || !result.complete || !result.finalMessage)
-      throw new Error("semantic grader result did not complete");
-    return result.finalMessage;
-  }
-
-  private async gradeSemanticGroup(group: SemanticGroup): Promise<void> {
-    const pattern = group[0].artifactPath;
-    const suffix = semanticGroupSuffix(pattern);
-    if (!this.canGrade()) return;
-    const message = this.completeCandidateMessage();
-    if (message === null) {
-      this.checks.push(
-        ...group.map((check) => ({
-          id: check.id,
-          grader: "sevro.semantic",
-          status: "unavailable" as const,
-          evidenceRefs: [],
-        })),
-      );
-      return;
-    }
-    const workspace = await this.semanticWorkspace();
-    const outcome = await this.runSemanticHost(
-      group,
-      pattern,
-      suffix,
-      workspace,
-      message,
-    );
-    if (outcome.result === null) return;
-    await this.retainArtifacts(outcome.artifacts);
-    this.semanticObservations.push({
-      id: `sevro.observation.semantic.usage${suffix}`,
-      source: outcome.hostId,
-      completeness: outcome.result.usageComplete ? "complete" : "partial",
-      data: usage(outcome.result),
-    });
-    await this.retainSemanticVerdicts(outcome.result, suffix);
-    this.parseSemanticResults(
-      outcome.result,
-      group,
-      pattern,
-      outcome.source,
-      outcome.hostId,
-    );
-  }
-
   private async gradeSemantic(): Promise<void> {
-    for (const group of semanticCheckGroups(this.context.preparedSemantic))
-      await this.gradeSemanticGroup(group);
+    const graded = await gradeSemanticChecks(
+      {
+        checks: this.context.preparedSemantic,
+        declaredChecks: this.options.case.checks,
+        host: this.options.semanticHost,
+        message: this.completeCandidateMessage(),
+        candidateWorkspace: this.fixture.workspace,
+        candidateTranscriptRoot: this.candidateTranscriptRoot,
+        projectRoot: this.context.projectRoot,
+        reservedWorkspace:
+          this.context.reservedSemanticWorkspaces[this.trial - 1],
+        runDir: this.context.runDir,
+        trial: this.trial,
+        runtimePolicy: this.options.runtimePolicy,
+        signal: this.options.signal,
+      },
+      {
+        artifactRefs: this.trialArtifactRefs,
+        canGrade: () => this.canGrade(),
+        failGrading: (message, cancelable) => {
+          this.failGrading(message, cancelable);
+        },
+        retainArtifacts: (artifacts) => this.retainArtifacts(artifacts),
+        writeTrialFile: (path, bytes) => this.writeTrialFile(path, bytes),
+      },
+    );
+    this.semanticObservations.push(...graded.observations);
+    this.checks.push(...graded.checks);
   }
 
   private trialObservations(): TrialObservation[] {
@@ -1009,7 +788,7 @@ class EvaluationTrial {
       const response = await host.run({
         candidateTranscriptRoot: this.candidateTranscriptRoot,
         prompt: advisoryPrompt(this.fixture.trialPrompt, this.checks),
-        runtimePolicy: gradingRuntimePolicy(this.options),
+        runtimePolicy: gradingRuntimePolicy(this.options.runtimePolicy),
         runtimeRole: "advisory",
         workspace,
         condition: "passive",
@@ -1139,11 +918,6 @@ class EvaluationTrial {
       }
     }
   }
-}
-
-function gradingRuntimePolicy(options: EvaluationOptions) {
-  const policy = options.runtimePolicy;
-  return policy ? { ...policy, hooks: undefined } : undefined;
 }
 export async function executeEvaluationTrials(
   options: EvaluationOptions,

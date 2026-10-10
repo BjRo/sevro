@@ -1,4 +1,5 @@
 import { isAbsolute } from "node:path";
+import { validInlineFixture } from "./case-validation";
 import {
   EvaluationConfigurationError,
   type EvaluationOptions,
@@ -33,7 +34,7 @@ import {
   type RepositoryFixture,
 } from "./repository-fixture";
 import { resolvedFixture } from "./resolved-case";
-import { isRecord } from "./value-guards";
+import { isOptionalNonblankString, isRecord } from "./value-guards";
 
 function validateRootOptions(options: EvaluationOptions): void {
   if (
@@ -62,7 +63,7 @@ function validateEvaluationIdentity(options: EvaluationOptions): void {
 }
 
 function validateFollowUpPrompt(value: unknown): void {
-  if (value !== undefined && (typeof value !== "string" || !value.trim()))
+  if (!isOptionalNonblankString(value))
     throw new EvaluationConfigurationError("follow-up prompt must be nonempty");
 }
 
@@ -132,11 +133,7 @@ function repositoryEvaluationFixture(
 function validateInlineEvaluationFixture(
   fixture: Record<string, unknown>,
 ): void {
-  if (
-    !Object.hasOwn(fixture, "files") ||
-    !isRecord(fixture.files) ||
-    Object.values(fixture.files).some((content) => typeof content !== "string")
-  )
+  if (!validInlineFixture(fixture))
     throw new EvaluationConfigurationError(
       "fixture must declare inline files or a repository source",
     );
