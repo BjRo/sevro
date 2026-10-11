@@ -90,6 +90,14 @@ CI fixtures for setup cancellation and Git grading errors now expect their
 failed workspaces to survive, and native peer-isolation fixtures allocate peers
 under the managed native namespace.
 
+Red — `bun test tests/engine.test.ts --test-name-pattern 'engine retains the candidate workspace when required grading evidence is unavailable'`: the trial returned exit 4 but its candidate workspace had been deleted.
+
+Green — `bun test tests/engine.test.ts --test-name-pattern 'engine retains the candidate workspace when required grading evidence is unavailable'`: the candidate workspace remained inspectable alongside saved evidence.
+
+Red — `bun test tests/engine.test.ts --test-name-pattern 'engine startup cleanup tolerates concurrent evaluations expiring the same workspace'`: competing cleanup attempts raced with directory removal and aborted startup with `ENOENT`. The broader engine suites also observed Bun's concurrent-removal `EFAULT` error.
+
+Green — `bun test tests/engine.test.ts --test-name-pattern 'engine startup cleanup tolerates concurrent evaluations expiring the same workspace'`: all four evaluations completed in each of ten rounds and the expired workspace was removed.
+
 ## Historical permission-locked fixture cleanup
 
 The Darrow extraction comparison exposed a cleanup difference: its legacy

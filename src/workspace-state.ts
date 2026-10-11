@@ -188,8 +188,15 @@ export async function cleanupExpiredWorkspaces(): Promise<void> {
   const metadata = await workspaceMetadataDirectory(parent);
   const cutoff = Date.now() - RETENTION_MS;
   for (const entry of await readdir(metadata, { withFileTypes: true }))
-    if (entry.isFile() && /^case-[a-zA-Z0-9]+\.json$/.test(entry.name))
-      await expireWorkspace(join(parent, entry.name.slice(0, -5)), cutoff);
+    if (entry.isFile() && /^case-[a-zA-Z0-9]+\.json$/.test(entry.name)) {
+      const workspace = join(parent, entry.name.slice(0, -5));
+      await expireWorkspace(workspace, cutoff).catch((cause: unknown) => {
+        if (!isMissingFile(cause))
+          console.warn(
+            `temporary workspace cleanup did not complete: ${workspace}`,
+          );
+      });
+    }
 }
 
 /** Only a runner-owned direct child can be an exception to this deny boundary. */

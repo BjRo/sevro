@@ -64,6 +64,11 @@ async function runRetentionInIsolation(pattern: string): Promise<boolean> {
           "--bind",
           "/",
           "/",
+          "--dev-bind",
+          "/dev",
+          "/dev",
+          "--proc",
+          "/proc",
           "--tmpfs",
           "/var/tmp",
           "--",
@@ -1370,6 +1375,37 @@ test("engine retains the semantic workspace when grading fails", async () => {
     true,
   );
 });
+test("engine retains the candidate workspace when required grading evidence is unavailable", async () => {
+  const paths = await rootsForRun();
+  let workspace = "";
+  const { result } = await runEvaluation({
+    ...paths,
+    case: { ...baseCase, requiredEvidence: ["example.required-trace"] },
+    host: {
+      id: "example.incomplete-evidence",
+      model: "synthetic",
+      effort: "none",
+      run(request) {
+        workspace = request.workspace;
+        return Promise.resolve({ finalMessage: "ready", complete: true });
+      },
+    },
+    runnerBuildDigest: digest,
+    projectDigest: digest,
+    condition: "passive",
+    trialCount: 1,
+    passThreshold: 1,
+  });
+  roots.push(workspace);
+  expect(result).toMatchObject({
+    execution: { status: "completed" },
+    grading: { status: "unavailable" },
+    task: { verdict: "not_assessed" },
+    exitCode: 4,
+  });
+  expect(await Bun.file(join(workspace, "README.md")).exists()).toBe(true);
+  expect(await Bun.file(result.evidencePath).exists()).toBe(true);
+});
 test("engine startup expires inactive failed workspaces after a day without deleting evidence", async () => {
   if (
     await runRetentionInIsolation(
@@ -1672,33 +1708,35 @@ test("engine startup cleanup tolerates concurrent evaluations expiring the same 
     workspace = path;
     roots.push(path);
   });
-  await runEvaluation(options);
-  const retained = workspace;
-  const metadata = join(
-    dirname(retained),
-    ".owners",
-    `${basename(retained)}.json`,
-  );
-  const original = parseRecord(await readFile(metadata, "utf8"));
-  await writeFile(
-    metadata,
-    JSON.stringify({
-      ...original,
-      timestamp: Date.now() - 24 * 60 * 60_000 - 1000,
-    }),
-  );
-  const outcomes = await Promise.all(
-    [0, 1, 2, 3].map((peer) =>
-      runEvaluation({
-        ...options,
-        case: { ...baseCase, id: `concurrent-cleanup-${peer}` },
+  for (let round = 0; round < 10; round++) {
+    await runEvaluation(options);
+    const retained = workspace;
+    const metadata = join(
+      dirname(retained),
+      ".owners",
+      `${basename(retained)}.json`,
+    );
+    const original = parseRecord(await readFile(metadata, "utf8"));
+    await writeFile(
+      metadata,
+      JSON.stringify({
+        ...original,
+        timestamp: Date.now() - 24 * 60 * 60_000 - 1000,
       }),
-    ),
-  );
-  expect(outcomes.map((outcome) => outcome.result.exitCode)).toEqual([
-    2, 2, 2, 2,
-  ]);
-  expect(existsSync(retained)).toBe(false);
+    );
+    const outcomes = await Promise.all(
+      [0, 1, 2, 3].map((peer) =>
+        runEvaluation({
+          ...options,
+          case: { ...baseCase, id: `concurrent-cleanup-${round}-${peer}` },
+        }),
+      ),
+    );
+    expect(outcomes.map((outcome) => outcome.result.exitCode)).toEqual([
+      2, 2, 2, 2,
+    ]);
+    expect(existsSync(retained)).toBe(false);
+  }
 });
 test("engine shell isolation hides a sibling created after sandbox launch", async () => {
   if (!isolatedNativeHost) return;

@@ -963,6 +963,7 @@ class EvaluationTrial {
       this.execution === "failed" ||
       this.execution === "cancelled" ||
       this.graderError ||
+      this.assessment.grading.status === "unavailable" ||
       this.assessment.task.verdict === "failed"
     );
   }

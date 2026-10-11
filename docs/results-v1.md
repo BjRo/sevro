@@ -112,7 +112,8 @@ cannot be presented as a successful assessment.
 
 Temporary candidate, semantic, and advisory workspaces live under the owned
 `sevro-workspaces-private` namespace. Successful workspaces are removed after
-their evidence is saved. Failed and cancelled workspaces remain available for
+their evidence is saved. Failed and cancelled workspaces, including trials with
+unavailable required grading evidence, remain available for
 24 hours after they become inactive; a later evaluation automatically removes
 expired owned workspaces. Cleanup never deletes saved results, reports, or
 evidence. Active or unverifiable owners are preserved, including runs older
@@ -120,6 +121,8 @@ than a day. Forced termination can leave an active ownership record; a later
 evaluation can reclaim it only after its owner is verified dead and its
 allocation is older than 24 hours. Unregistered legacy temporary folders are
 not automatically deleted because their ownership cannot be established.
+Failures while removing an expired workspace leave any remaining temporary
+data for a later cleanup attempt and do not prevent a new evaluation from starting.
 
 Trial observation `sevro.observation.workspaces` records the candidate path and
 any retained auxiliary workspace paths for inspection. These temporary paths
