@@ -102,22 +102,10 @@ Existing directory paths and symlink targets are canonicalized. Reads under
 the real home are allowed only through bounded runtime grants. Source and
 configuration worktrees, evaluator inputs, credentials, results, run ownership
 state, and peer fixtures remain protected. A conflicting or broad grant fails.
-Evaluation workspaces share an owned private parent. Commands can access only
-their own workspace beneath it; the parent boundary also hides peers allocated
-after command launch. Sevro does not enumerate temporary-folder names to build
-permission profiles. Workspace isolation covers managed workspaces; callers
-using independently prepared workspaces must explicitly protect other private
-inputs. Linux uses `/var/tmp/sevro-workspaces-private`, outside Codex's implicit
-`/tmp` grants; other platforms use `sevro-workspaces-private` under their
-canonical temporary directory. The parent and its ownership metadata must be
-owned private directories, not links. Runtime read grants cannot overlap them.
-Claude's managed-workspace policy requires Claude Code 2.1.257 or later. Its
-native read boundary reopens the current workspace, while file tools refuse
-reads outside declared working directories and Edit grants remain bounded.
-Native write denies do not include the workspace parent because they override
-child write grants; the native sandbox's default write boundary protects peers.
-The checked native version is recorded in the
-[TypeScript quality contract](typescript-quality.md#environment-and-ci).
+Managed workspaces share a private parent that protects sibling workspaces,
+including those created after launch. Independently prepared workspaces require
+explicit protection for other private inputs. Claude hosts require Claude Code
+2.1.257 or later for managed-workspace isolation; see [checked versions](typescript-quality.md#environment-and-ci).
 
 Use `filesystem.optionalReadOnlyRoots` for supporting directories that may not
 be installed on every host, with the same path rules as `readOnlyRoots`:
@@ -198,7 +186,7 @@ continuation turns and children, then are removed with their owning trial or
 host state after owned hooks terminate. Runs without a selected runtime policy
 retain their previous writable-state locations.
 
-Claude managed workspaces and runtime policies refuse a private namespace overlapping the native CLI's
+Claude refuses managed workspace or runtime namespaces overlapping its
 implicit `/tmp/claude` or `/private/tmp/claude` write roots, including canonical
 symlink targets. A conflicting `TMPDIR` placement fails before native launch;
 choose a temporary base outside those cache trees.
