@@ -1,0 +1,63 @@
+{
+  "format": "sevro.consumer-smoke.v1",
+  "date": "2026-10-11",
+  "consumer": {
+    "repository": "https://github.com/BjRo/darrow",
+    "revision": "34606ad9e1952b7f4e9c56befa446c18e1a2eb5d",
+    "trackedChanges": false
+  },
+  "environment": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "bun": "1.3.13",
+    "codex": "0.162.1",
+    "candidateModel": "gpt-6-luna",
+    "candidateEffort": "medium",
+    "semanticModel": "gpt-6-luna",
+    "semanticEffort": "medium"
+  },
+  "sampling": {
+    "trials": 1,
+    "jobs": 1,
+    "threshold": 1
+  },
+  "runs": [
+    {
+      "runner": "unchanged c205482b25d4d52a395c70434f2b392f6acfb279",
+      "case": "create-commit-conventional-format",
+      "execution": "failed",
+      "task": "not_assessed",
+      "activation": "unavailable",
+      "participantReached": false,
+      "diagnostic": "First sandbox preflight exceeded its 10-second deadline."
+    },
+    {
+      "runner": "issue-30 candidate",
+      "case": "create-commit-conventional-format",
+      "execution": "completed",
+      "grading": "completed",
+      "task": "failed",
+      "shellChecksPassed": 3,
+      "activation": "unavailable",
+      "limitation": "Implicit repository fixture omitted plugin manifests required by its backend launcher. Candidate correctly refused to create the requested commit; head-change assertion failed."
+    },
+    {
+      "runner": "issue-30 candidate",
+      "case": "tdd-explicit-invocation",
+      "execution": "completed",
+      "grading": "completed",
+      "task": "passed",
+      "shellCheck": "passed",
+      "semanticCheck": "passed",
+      "activation": "passed",
+      "activationCompleteness": "complete",
+      "activationEvidence": "Native Codex explicit-invocation receipt"
+    }
+  ],
+  "limits": [
+    "Only one authenticated trial per listed run.",
+    "Different cases are not a matched live performance comparison.",
+    "No live API/model latency saving is inferred.",
+    "Private transcripts, prompts, tool arguments, and credentials are omitted."
+  ]
+}

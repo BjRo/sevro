@@ -67,7 +67,7 @@ keeps this component unchanged.
 Selected [runtime configuration](runtime-v1.md) is retained under
 `configuration.redacted.runtimePolicy` and enters `configurationDigest`.
 It includes declared non-secret environment values, canonical read roots,
-private seed digests, and hook authority. Per-role output paths are resolved
+private seed digests and optional role selections, and hook authority. Per-role output paths are resolved
 only during execution; runtime placeholders remain symbolic in identity.
 Runtime roots also retain lexical aliases, metadata discovery sources,
 and skipped optional directories. Moving or

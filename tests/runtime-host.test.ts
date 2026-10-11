@@ -2080,6 +2080,210 @@ test("evaluation applies the selected runtime policy to semantic and advisory ho
   expect(defined(evidence.trials[0]).advisoryReview?.status).toBe("completed");
 });
 
+test("response-only semantic grading omits implicit dependency seeds", async () => {
+  const { root } = await codexFixture();
+  const received: unknown[] = [];
+  const host: HostAdapter = {
+    id: "runtime.candidate",
+    model: "fixture",
+    effort: "none",
+    run() {
+      return Promise.resolve({ complete: true, finalMessage: "ready" });
+    },
+  };
+  const semanticHost: HostAdapter = {
+    ...host,
+    id: "runtime.semantic",
+    run(request) {
+      received.push(request.runtimePolicy?.seeds);
+      return Promise.resolve({
+        complete: true,
+        finalMessage: JSON.stringify({
+          checks: [{ id: "meaning", verdict: "pass", reason: "Ready" }],
+        }),
+      });
+    },
+  };
+  const { result } = await runEvaluation({
+    projectRoot: root,
+    resultsRoot: join(root, "semantic-results"),
+    runnerBuildDigest: "a".repeat(64),
+    projectDigest: "b".repeat(64),
+    condition: "passive",
+    trialCount: 1,
+    passThreshold: 1,
+    host,
+    semanticHost,
+    runtimePolicy: {
+      format: "sevro.runtime.v1",
+      environment: {},
+      readOnlyRoots: [],
+      seeds: [
+        {
+          source: join(root, "dependencies"),
+          target: "cache",
+          sha256: "c".repeat(64),
+        },
+      ],
+    },
+    case: {
+      id: "response-runtime",
+      prompt: "Return ready.",
+      fixture: { files: {} },
+      checks: [
+        {
+          id: "meaning",
+          grader: "sevro.semantic",
+          configuration: { proposition: "The response is ready." },
+        },
+      ],
+      requiredEvidence: [],
+    },
+  });
+  expect(result.task.verdict).toBe("passed");
+  expect(received).toEqual([[]]);
+});
+
+test("response-only semantic grading preserves original seed source denial", async () => {
+  const { root } = await codexFixture();
+  const received: unknown[] = [];
+  const host: HostAdapter = {
+    id: "runtime.candidate",
+    model: "fixture",
+    effort: "none",
+    run() {
+      return Promise.resolve({ complete: true, finalMessage: "ready" });
+    },
+  };
+  const semanticHost: HostAdapter = {
+    ...host,
+    id: "runtime.semantic",
+    run(request) {
+      received.push(request.runtimePolicy);
+      return Promise.resolve({
+        complete: true,
+        finalMessage: JSON.stringify({
+          checks: [{ id: "meaning", verdict: "pass", reason: "Ready" }],
+        }),
+      });
+    },
+  };
+  const { result } = await runEvaluation({
+    projectRoot: root,
+    resultsRoot: join(root, "semantic-results"),
+    runnerBuildDigest: "a".repeat(64),
+    projectDigest: "b".repeat(64),
+    condition: "passive",
+    trialCount: 1,
+    passThreshold: 1,
+    host,
+    semanticHost,
+    runtimePolicy: {
+      format: "sevro.runtime.v1",
+      environment: {},
+      readOnlyRoots: [],
+      seeds: [
+        {
+          source: join(root, "dependencies"),
+          target: "cache",
+          sha256: "c".repeat(64),
+        },
+      ],
+    },
+    case: {
+      id: "response-runtime",
+      prompt: "Return ready.",
+      fixture: { files: {} },
+      checks: [
+        {
+          id: "meaning",
+          grader: "sevro.semantic",
+          configuration: { proposition: "The response is ready." },
+        },
+      ],
+      requiredEvidence: [],
+    },
+  });
+  expect(result.task.verdict).toBe("passed");
+  expect(received).toMatchObject([
+    { seeds: [], seedReadDenyRoots: [join(root, "dependencies")] },
+  ]);
+});
+
+test("response-only semantic grading retains explicitly selected semantic seeds", async () => {
+  const { root } = await codexFixture();
+  const received: unknown[] = [];
+  const host: HostAdapter = {
+    id: "runtime.candidate",
+    model: "fixture",
+    effort: "none",
+    run() {
+      return Promise.resolve({ complete: true, finalMessage: "ready" });
+    },
+  };
+  const semanticHost: HostAdapter = {
+    ...host,
+    id: "runtime.semantic",
+    run(request) {
+      received.push(request.runtimePolicy?.seeds);
+      return Promise.resolve({
+        complete: true,
+        finalMessage: JSON.stringify({
+          checks: [{ id: "meaning", verdict: "pass", reason: "Ready" }],
+        }),
+      });
+    },
+  };
+  const { result } = await runEvaluation({
+    projectRoot: root,
+    resultsRoot: join(root, "semantic-results"),
+    runnerBuildDigest: "a".repeat(64),
+    projectDigest: "b".repeat(64),
+    condition: "passive",
+    trialCount: 1,
+    passThreshold: 1,
+    host,
+    semanticHost,
+    runtimePolicy: {
+      format: "sevro.runtime.v1",
+      environment: {},
+      readOnlyRoots: [],
+      seeds: [
+        {
+          source: join(root, "dependencies"),
+          target: "cache",
+          sha256: "c".repeat(64),
+          roles: ["semantic"],
+        },
+      ],
+    },
+    case: {
+      id: "response-runtime",
+      prompt: "Return ready.",
+      fixture: { files: {} },
+      checks: [
+        {
+          id: "meaning",
+          grader: "sevro.semantic",
+          configuration: { proposition: "The response is ready." },
+        },
+      ],
+      requiredEvidence: [],
+    },
+  });
+  expect(result.task.verdict).toBe("passed");
+  expect(received).toEqual([
+    [
+      {
+        source: join(root, "dependencies"),
+        target: "cache",
+        sha256: "c".repeat(64),
+        roles: ["semantic"],
+      },
+    ],
+  ]);
+});
+
 test.each(["..", "home", "tmp"])(
   "Codex refuses reserved or escaping runtime seed target: %s",
   async (target) => {
@@ -2321,4 +2525,108 @@ test("evaluation retains complete native runtime policy evidence", async () => {
   expect(observation?.completeness).toBe("complete");
   expect(observation?.data.environmentNames).toContain("SEVRO_RUNTIME_SAMPLE");
   expect(observation?.data.role).toBe("candidate");
+});
+
+test("Codex reuses verified dependency bytes while keeping trials and source independent", async () => {
+  const { host, root, workspace } = await codexFixture(
+    'cat "$PUBLIC_CACHE_DIR/value"; printf candidate > "$PUBLIC_CACHE_DIR/value"',
+  );
+  const source = join(root, "dependencies");
+  await mkdir(source);
+  await writeFile(join(source, "value"), "verified");
+  const runtimePolicy = {
+    format: "sevro.runtime.v1" as const,
+    environment: { PUBLIC_CACHE_DIR: "{{sevro.runtime}}/cache" },
+    readOnlyRoots: [],
+    seeds: [
+      { source, target: "cache", sha256: await runtimeSeedDigest(source) },
+    ],
+  };
+  const first = await host.run({
+    prompt: "Return dependency",
+    workspace,
+    condition: "passive",
+    runtimePolicy,
+  });
+  expect(first.finalMessage).toBe("verified");
+  expect(await readFile(join(source, "value"), "utf8")).toBe("verified");
+  await writeFile(join(source, "value"), "operator replacement");
+  const peer = join(root, "peer");
+  await mkdir(peer);
+  const second = await host.run({
+    prompt: "Return dependency",
+    workspace: peer,
+    condition: "passive",
+    runtimePolicy,
+  });
+  expect(second.finalMessage).toBe("verified");
+  expect(await readFile(join(source, "value"), "utf8")).toBe(
+    "operator replacement",
+  );
+}, 60_000);
+
+test("artifact semantic grading keeps implicit dependency seeds", async () => {
+  const { root } = await codexFixture();
+  const received: unknown[] = [];
+  const host: HostAdapter = {
+    id: "runtime.candidate",
+    model: "fixture",
+    effort: "none",
+    run() {
+      return Promise.resolve({ complete: true, finalMessage: "ready" });
+    },
+  };
+  const seed = {
+    source: join(root, "dependencies"),
+    target: "cache",
+    sha256: "c".repeat(64),
+  };
+  const semanticHost: HostAdapter = {
+    ...host,
+    id: "runtime.semantic",
+    run(request) {
+      received.push(request.runtimePolicy?.seeds);
+      return Promise.resolve({
+        complete: true,
+        finalMessage: JSON.stringify({
+          checks: [{ id: "meaning", verdict: "pass", reason: "Ready" }],
+        }),
+      });
+    },
+  };
+  const { result } = await runEvaluation({
+    projectRoot: root,
+    resultsRoot: join(root, "semantic-results"),
+    runnerBuildDigest: "a".repeat(64),
+    projectDigest: "b".repeat(64),
+    condition: "passive",
+    trialCount: 1,
+    passThreshold: 1,
+    host,
+    semanticHost,
+    runtimePolicy: {
+      format: "sevro.runtime.v1",
+      environment: {},
+      readOnlyRoots: [],
+      seeds: [seed],
+    },
+    case: {
+      id: "artifact-runtime",
+      prompt: "Return ready.",
+      fixture: { files: { "answer.md": "ready" } },
+      checks: [
+        {
+          id: "meaning",
+          grader: "sevro.semantic",
+          configuration: {
+            proposition: "The artifact is ready.",
+            artifactPath: "answer.md",
+          },
+        },
+      ],
+      requiredEvidence: [],
+    },
+  });
+  expect(result.task.verdict).toBe("passed");
+  expect(received).toEqual([[seed]]);
 });

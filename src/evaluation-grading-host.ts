@@ -1,6 +1,6 @@
 import { hostArtifacts } from "./evaluation-fixture";
 import type { HostResult, ResolvedCase } from "./evaluation-types";
-import type { RuntimePolicy } from "./runtime-config";
+import { runtimeSeedSources, type RuntimePolicy } from "./runtime-config";
 export function scopedHostArtifacts(
   response: HostResult,
   prefix: string,
@@ -23,6 +23,17 @@ export function scopedHostArtifacts(
     ]),
   );
 }
-export function gradingRuntimePolicy(policy: RuntimePolicy | undefined) {
-  return policy ? { ...policy, hooks: undefined } : undefined;
+export function gradingRuntimePolicy(
+  policy: RuntimePolicy | undefined,
+  responseOnly = false,
+) {
+  if (!policy) return undefined;
+  return {
+    ...policy,
+    hooks: undefined,
+    seedReadDenyRoots: runtimeSeedSources(policy),
+    seeds: responseOnly
+      ? (policy.seeds ?? []).filter((seed) => seed.roles?.includes("semantic"))
+      : policy.seeds,
+  };
 }

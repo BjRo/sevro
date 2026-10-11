@@ -1,0 +1,20 @@
+{
+  "codex": "codex-cli 0.162.1",
+  "registered": {
+    "code": 0,
+    "out": "{\n  \"marketplaceName\": \"sevro-assessment\",\n  \"installedRoot\": \"<assessment>/market\",\n  \"alreadyAdded\": false\n}\n",
+    "err": ""
+  },
+  "installed": {
+    "code": 0,
+    "out": "{\n  \"pluginId\": \"probe@sevro-assessment\",\n  \"name\": \"probe\",\n  \"marketplaceName\": \"sevro-assessment\",\n  \"version\": \"1.0.0\",\n  \"installedPath\": \"<assessment>/home/plugins/cache/sevro-assessment/probe/1.0.0\",\n  \"authPolicy\": \"ON_INSTALL\"\n}\n",
+    "err": ""
+  },
+  "configuration": "[marketplaces.sevro-assessment]\nsource_type = \"local\"\nsource = \"<assessment>/market\"\n\n[plugins.\"probe@sevro-assessment\"]\nenabled = true\n",
+  "cacheOnlyFreshHomeList": {
+    "code": 0,
+    "out": "{\n  \"installed\": [],\n  \"available\": []\n}\n",
+    "err": ""
+  },
+  "conditions": "Local synthetic plugin; fresh homes without credentials; installed files copied to a second home; no registration copied"
+}

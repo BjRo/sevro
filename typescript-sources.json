@@ -108,6 +108,7 @@
   ],
   "tooling": [
     "eslint.config.mjs",
+    "scripts/benchmark-runtime-startup.ts",
     "scripts/check-docs.ts",
     "scripts/check-typescript.ts",
     "scripts/coverage/capture.cjs",
@@ -123,6 +124,7 @@
     "scripts/coverage/source-map-probe.ts",
     "scripts/coverage/test-preload.ts",
     "scripts/coverage/types.ts",
+    "scripts/diagnose-codex-startup.ts",
     "scripts/documentation-example-packages.ts",
     "scripts/documentation-example-results.ts",
     "scripts/documentation-inventory.ts",

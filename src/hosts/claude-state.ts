@@ -1,3 +1,4 @@
+import { runtimeSeedSources } from "../runtime-config";
 import {
   cp,
   mkdir,
@@ -43,8 +44,8 @@ function minimalRoots(roots: string[]): string[] {
   );
 }
 
-function runtimeSeedSources(request: Request): string[] {
-  return (request.runtimePolicy?.seeds ?? []).map((seed) => seed.source);
+function claudeSeedSources(request: Request): string[] {
+  return runtimeSeedSources(request.runtimePolicy);
 }
 
 async function createClaudePrivateState(
@@ -81,7 +82,7 @@ async function protectedClaudeRoots(
     resultsRoot: options.resultsRoot,
     additionalRoots: [
       ...options.additionalProtectedRoots,
-      ...runtimeSeedSources(request),
+      ...claudeSeedSources(request),
     ],
   });
   const roots = request.runtimePolicy ? candidates : minimalRoots(candidates);
@@ -320,11 +321,7 @@ async function claudeHookMounts(
     stateRoot,
     privateRoot,
     pluginRoots: pluginDirs,
-    protectedRoots: [
-      privateRoot,
-      ...roots,
-      ...(policy.seeds ?? []).map((seed) => seed.source),
-    ],
+    protectedRoots: [privateRoot, ...roots, ...runtimeSeedSources(policy)],
     policy,
   });
 }

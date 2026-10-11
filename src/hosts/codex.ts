@@ -289,7 +289,7 @@ async function sandboxPreflight(
     argv: sandboxArgs(state, request, command),
     cwd: request.workspace,
     env: state.env,
-    timeoutMs: 10_000,
+    timeoutMs: 60_000,
     signal: request.signal,
   });
 }
@@ -303,20 +303,16 @@ async function codexPreflight(
   const checked = await sandboxPreflight(state, request, [
     "/bin/sh",
     "-c",
-    '/bin/cat "$1" >/dev/null && ! /bin/ls "$2" >/dev/null 2>&1 && ! /bin/cat "$3" >/dev/null 2>&1 && ! /bin/cat "$4" >/dev/null 2>&1',
+    '/bin/cat "$1" >/dev/null && ! /bin/ls "$2" >/dev/null 2>&1 && ! /bin/cat "$3" >/dev/null 2>&1 && ! /bin/cat "$4" >/dev/null 2>&1 || exit 70; "$5" --version >/dev/null 2>&1 || exit 71',
     "sevro-probe",
     probe,
     options.projectRoot,
     join(state.codexHome, "auth.json"),
     join(state.codexHome, "config.toml"),
-  ]);
-  if (checked.code !== 0) throw new Error("Codex isolation preflight failed");
-  const executable = await sandboxPreflight(state, request, [
     state.sandboxBinary,
-    "--version",
   ]);
-  if (executable.code !== 0)
-    throw new Error("Codex executable preflight failed");
+  if (checked.code === 71) throw new Error("Codex executable preflight failed");
+  if (checked.code !== 0) throw new Error("Codex isolation preflight failed");
   await rm(probe);
 }
 

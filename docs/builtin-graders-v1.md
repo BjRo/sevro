@@ -67,7 +67,10 @@ ancestry result; checks reference that observation.
 per check. The operator supplies a separate semantic host route. After a
 complete candidate response, the engine sends the bounded final message and
 all declared propositions to that route in an empty, temporary workspace. It
-requires exactly one `pass` or `fail` verdict with a reason for every declared
+omits dependency seeds unless their runtime `roles` explicitly include `semantic`.
+Declared tool environment and read-only grants remain available. Artifact checks
+retain the default dependency selection; executable shell checks retain their
+separate `checks` runtime. The semantic route requires exactly one `pass` or `fail` verdict with a reason for every declared
 check ID. A failed proposition fails the task. A missing or incomplete candidate
 message makes semantic checks unavailable without calling the semantic host; a
 failed, incomplete, or malformed semantic response makes grading an error.

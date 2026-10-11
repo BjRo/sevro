@@ -10,6 +10,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  realpath,
   rename,
   rm,
   symlink,
@@ -1165,3 +1166,185 @@ test("Codex host refuses an executable inside a protected project", async () => 
     host.run({ prompt: "ready", workspace, condition: "passive" }),
   ).rejects.toThrow(/executable resides inside a protected root/);
 });
+
+test("Codex without authorized command hooks does not read hook dependencies", async () => {
+  const selected = await ordinaryCodexRequest();
+  const source = join(selected.paths.projectRoot, "hook-dependencies");
+  await mkdir(source);
+  const host = createCodexHost({
+    ...ordinaryCodexOptions,
+    binary: selected.paths.fakeBinary,
+    authFile: selected.paths.authFile,
+    projectRoot: selected.paths.projectRoot,
+    resultsRoot: selected.paths.resultsRoot,
+    sandboxBinary: defined(Bun.which("true")),
+  });
+  const result = await host.run({
+    ...selected.request,
+    runtimePolicy: {
+      format: "sevro.runtime.v1",
+      environment: {},
+      readOnlyRoots: [],
+      seeds: [
+        { source, target: "cache", sha256: "a".repeat(64), roles: ["hooks"] },
+      ],
+    },
+  });
+  expect(result.complete).toBe(true);
+  expect(result.finalMessage).toBe("ready");
+});
+
+test("Codex runs one sandbox invocation for isolation and executable preflight", async () => {
+  const selected = await ordinaryCodexRequest();
+  const sandbox = join(dirname(selected.paths.fakeBinary), "sandbox-probe");
+  const receipt = join(dirname(sandbox), "sandbox-invocations");
+  await writeFile(
+    sandbox,
+    `#!/bin/sh
+printf '%s\\n' sandbox >> '${receipt}'
+`,
+    { mode: 0o700 },
+  );
+  const host = createCodexHost({
+    ...ordinaryCodexOptions,
+    binary: selected.paths.fakeBinary,
+    authFile: selected.paths.authFile,
+    projectRoot: selected.paths.projectRoot,
+    resultsRoot: selected.paths.resultsRoot,
+    sandboxBinary: sandbox,
+  });
+  const result = await host.run(selected.request);
+  expect(result.complete).toBe(true);
+  expect((await readFile(receipt, "utf8")).trim().split("\n")).toHaveLength(1);
+});
+
+test.each([70, 71])(
+  "Codex refuses combined sandbox probe failure %s before participant execution",
+  async (code) => {
+    const selected = await ordinaryCodexRequest();
+    const sandbox = join(dirname(selected.paths.fakeBinary), "sandbox-failure");
+    await writeFile(sandbox, `#!/bin/sh\nexit ${code}\n`, { mode: 0o700 });
+    const host = createCodexHost({
+      ...ordinaryCodexOptions,
+      binary: selected.paths.fakeBinary,
+      authFile: selected.paths.authFile,
+      projectRoot: selected.paths.projectRoot,
+      resultsRoot: selected.paths.resultsRoot,
+      sandboxBinary: sandbox,
+    });
+    expect(host.run(selected.request)).rejects.toThrow(
+      code === 71
+        ? "Codex executable preflight failed"
+        : "Codex isolation preflight failed",
+    );
+    expect(
+      await Bun.file(join(selected.workspace, "prompt.txt")).exists(),
+    ).toBe(false);
+  },
+);
+
+test("Codex permits bounded sandbox startup beyond ten seconds", async () => {
+  const selected = await ordinaryCodexRequest();
+  const sandbox = join(
+    dirname(selected.paths.fakeBinary),
+    "sandbox-slow-start",
+  );
+  await writeFile(sandbox, "#!/bin/sh\nsleep 10.1\n", { mode: 0o700 });
+  const host = createCodexHost({
+    ...ordinaryCodexOptions,
+    binary: selected.paths.fakeBinary,
+    authFile: selected.paths.authFile,
+    projectRoot: selected.paths.projectRoot,
+    resultsRoot: selected.paths.resultsRoot,
+    sandboxBinary: sandbox,
+  });
+  expect((await host.run(selected.request)).complete).toBe(true);
+}, 20_000);
+
+test("Codex preserves omitted dependency source isolation in grading policies", async () => {
+  const selected = await ordinaryCodexRequest();
+  const source = await realpath(
+    await mkdtemp(join(tmpdir(), "sevro-omitted-dependency-")),
+  );
+  roots.push(source);
+  const host = createCodexHost({
+    ...ordinaryCodexOptions,
+    binary: selected.paths.fakeBinary,
+    authFile: selected.paths.authFile,
+    projectRoot: selected.paths.projectRoot,
+    resultsRoot: selected.paths.resultsRoot,
+    sandboxBinary: defined(Bun.which("true")),
+  });
+  expect(
+    host.run({
+      ...selected.request,
+      runtimeRole: "semantic",
+      runtimePolicy: {
+        format: "sevro.runtime.v1",
+        environment: {},
+        readOnlyRoots: [source],
+        seeds: [],
+        seedReadDenyRoots: [source],
+      },
+    }),
+  ).rejects.toThrow("protected data");
+});
+
+test.each([{ roles: [] }, { roles: ["candidate", "candidate"] }] as const)(
+  "Codex refuses invalid programmatic seed role selection $roles",
+  async ({ roles }) => {
+    const selected = await ordinaryCodexRequest();
+    expect(
+      selected.host.run({
+        ...selected.request,
+        runtimePolicy: {
+          format: "sevro.runtime.v1",
+          environment: {},
+          readOnlyRoots: [],
+          seeds: [
+            {
+              source: selected.paths.projectRoot,
+              target: "cache",
+              sha256: "a".repeat(64),
+              roles: [...roles],
+            },
+          ],
+        },
+      }),
+    ).rejects.toThrow("runtime seed roles are invalid");
+  },
+);
+
+test.each([false, true])(
+  "Codex skips dependencies for plugins without authorized command handlers: %s",
+  async (allowed) => {
+    const selected = await ordinaryMarketplace();
+    const source = await realpath(selected.paths.projectRoot);
+    const host = createCodexHost({
+      ...ordinaryCodexOptions,
+      binary: selected.paths.fakeBinary,
+      authFile: selected.paths.authFile,
+      projectRoot: selected.paths.projectRoot,
+      resultsRoot: selected.paths.resultsRoot,
+      sandboxBinary: defined(Bun.which("true")),
+    });
+    const result = await host.run({
+      ...selected.request,
+      codexMarketplace: selected.declaration,
+      runtimePolicy: {
+        format: "sevro.runtime.v1",
+        environment: {},
+        readOnlyRoots: [],
+        seeds: [
+          { source, target: "cache", sha256: "a".repeat(64), roles: ["hooks"] },
+        ],
+        hooks: { plugins: allowed ? ["probe"] : [] },
+      },
+    });
+    expect(result.complete).toBe(true);
+    expect(
+      result.observations?.find((item) => item.id === "sevro.host.hooks")?.data
+        .plugins,
+    ).toMatchObject([{ name: "probe", allowed }]);
+  },
+);

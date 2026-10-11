@@ -1,3 +1,4 @@
+import { runtimeSeedSources } from "../runtime-config";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import {
@@ -279,7 +280,7 @@ function declaredCodexPath(request: Request): string {
 }
 
 function codexSeedSources(request: Request): string[] {
-  return (request.runtimePolicy?.seeds ?? []).map((seed) => seed.source);
+  return runtimeSeedSources(request.runtimePolicy);
 }
 
 async function codexRuntime(
