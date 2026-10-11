@@ -148,7 +148,22 @@ network access and clears inherited command environment variables. The Codex
 parent can read authentication before it starts sandboxed commands. Tests
 invoke the installed `codex sandbox` CLI to prove fixture access, denied
 source/auth reads, and executable access. The process adapter verifies these
-properties before every turn.
+properties in one sandbox invocation before each fresh host request, with a
+60-second bounded startup deadline. The combined probe still requires readable
+private command storage, denied project listing, denied authentication and
+configuration reads, and a successful native executable `--version`. Continuation
+turns reuse the same isolated state. The longer deadline accommodates observed
+native policy startup; it is not counted as a performance saving.
+
+Native plugin installation remains fresh for every host request. Reusing an
+installed home would carry configuration, marketplace registrations, and
+absolute installation paths into a different private namespace. Selected hook
+wrappers additionally embed that request's runtime, sandbox profile, and receipt
+paths. Replaying an old installation receipt cannot establish a new installed
+path. Sevro therefore retains native marketplace/plugin installation and receipt
+verification, fresh credentials/configuration, hook rewriting, preflight, and
+invocation evidence for every request. See the [startup measurements](evidence/runtime-startup-30/README.md)
+for measured boundaries, copy-on-write assessment, and limitations.
 
 Native read diagnostics retain at most 64 `recoverySources` entries. Each
 records its native ordinal, whether the native completion had output, the

@@ -146,10 +146,25 @@ contents.
 slot for each execution role. `source` uses the filesystem path rules above;
 `target` is a single lowercase slot name, up to 64 characters, with letters,
 digits, and hyphens. `home` and `tmp` are reserved. Targets must be unique.
+An optional nonempty `roles` array selects any of `candidate`, `checks`, `hooks`,
+`semantic`, and `advisory`. For example, `"roles": ["candidate", "checks", "hooks"]`
+keeps dependency slots out of semantic and advisory runtimes. Without `roles`,
+execution and artifact-grading roles retain the existing selection. Response-only
+semantic grading omits implicit seeds; include `"semantic"` explicitly in `roles`
+when that route needs dependencies. Artifact semantic grading and executable
+shell checks keep their declared tools and default seed selection.
 
 Each source tree is bounded to 16,384 entries and 512 MiB. Escaping symlinks,
 directory cycles, dangling links, and special files are refused. File content
-and modes are fingerprinted before execution and checked during copying.
+and modes are fingerprinted at configuration load. At first use, the runner
+captures the complete bounded tree in private memory and verifies it against that
+digest. Each selected role materializes separate files from those verified bytes;
+later roles and trials sharing the same policy reuse the captured bytes. Source
+changes before first capture fail. Source changes after capture do not change
+that evaluation's dependencies. A new policy snapshot starts a new capture.
+No mutable hardlinks or writable filesystem snapshot are shared. The memory
+snapshot is eligible for collection when its policy seed is no longer reachable;
+retaining large policies can retain up to the configured per-seed byte bounds.
 Source caches are never a writable runtime. Use prepared public caches rather
 than credential-bearing homes or evaluator directories.
 
@@ -187,8 +202,14 @@ with a native-goal policy. Programmatic Codex callers must construct an
 the policy does not itself prove that a goal was created or completed.
 
 `hooks.plugins` authorizes all command hooks from the named prepared plugins.
-Sevro copies immutable mounts, filters unselected hooks, and wraps selected
-handlers in a credential-free macOS or Linux sandbox. It covers default hook files,
+Sevro validates and copies mounts, filters unselected hooks, and wraps selected
+handlers in a credential-free macOS or Linux sandbox. Dependency runtime and
+hook isolation preparation occur only when an authorized command handler is
+encountered. No plugins, unselected hooks, or an authorized plugin without
+command handlers require hook dependency hashing or copying. Configuration-load
+fingerprinting still binds all declared seed contents to identity. Plugin
+validation, unsupported execution refusals, and filtering still apply without
+hook runtime preparation. It covers default hook files,
 manifest path/inline declarations in both host formats, and Markdown skill or
 agent frontmatter. Unsupported handler types and exec-form arguments fail
 instead of being skipped. The wrapper denies network access and protected
@@ -296,3 +317,9 @@ to `runEvaluation` or a bundled host request. They must provide the same
 protected-source declarations required by their execution route.
 `loadRuntimeConfiguration` accepts those canonical protected roots as its third
 argument, so provider queries themselves cannot run from protected source trees.
+
+Derived grading policies retain omitted seed sources in `seedReadDenyRoots`.
+Bundled hosts and checkers deny those roots even when no dependency slot is
+materialized. Trusted injected adapters must preserve these source denials when
+applying the request policy. This is derived programmatic policy metadata, not
+a selectable `sevro.json` field.

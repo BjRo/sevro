@@ -1,16 +1,17 @@
-import { cp, mkdir, realpath, stat } from "node:fs/promises";
+import { mkdir, realpath, stat } from "node:fs/promises";
 import { join } from "node:path";
 import {
   requireRuntimeEnvironment,
+  runtimeRoleSeeds,
+  type RuntimeRole,
   requireRuntimeSeedTargets,
   type RuntimePolicy,
 } from "./runtime-config";
-import { runtimeSeedDigest } from "./runtime-seeds";
+import { materializeRuntimeSeed } from "./runtime-seeds";
 import { requireRuntimeReadRoots } from "./runtime-paths";
 import { hashJson } from "./identity";
 
-export type RuntimeRole =
-  "candidate" | "checks" | "hooks" | "semantic" | "advisory";
+export type { RuntimeRole } from "./runtime-config";
 
 export function runtimeObservations(
   policy: RuntimePolicy | undefined,
@@ -28,7 +29,7 @@ export function runtimeObservations(
         environmentNames: Object.keys(policy.environment).sort(),
         readOnlyRoots: policy.readOnlyRoots,
         ...discoveryObservations(policy),
-        seeds: (policy.seeds ?? []).map((seed) => ({
+        seeds: runtimeRoleSeeds(policy, role).map((seed) => ({
           target: seed.target,
           sha256: seed.sha256,
         })),
@@ -71,8 +72,8 @@ export async function prepareRuntimeState(
   await Promise.all(
     [home, temp].map((path) => mkdir(path, { recursive: true, mode: 0o700 })),
   );
-  for (const seed of policy.seeds ?? [])
-    await copyRuntimeSeed(seed.source, join(root, seed.target), seed.sha256);
+  for (const seed of runtimeRoleSeeds(policy, role))
+    await copyRuntimeSeed(seed, join(root, seed.target));
   const environment = Object.fromEntries(
     Object.entries(policy.environment).map(([name, value]) => [
       name,
@@ -100,23 +101,13 @@ async function runtimeRoot(
 }
 
 async function copyRuntimeSeed(
-  source: string,
+  seed: NonNullable<RuntimePolicy["seeds"]>[number],
   target: string,
-  digest: string,
 ): Promise<void> {
-  const canonical = await realpath(source);
-  requireRuntimeReadRoots([source, canonical], []);
+  const canonical = await realpath(seed.source);
+  requireRuntimeReadRoots([seed.source, canonical], []);
   if (await seedTargetExists(target)) return;
-  if ((await runtimeSeedDigest(canonical)) !== digest)
-    throw new Error("runtime seed changed after configuration snapshot");
-  await cp(canonical, target, {
-    recursive: true,
-    dereference: true,
-    force: false,
-    errorOnExist: true,
-  });
-  if ((await runtimeSeedDigest(target)) !== digest)
-    throw new Error("runtime seed changed during copying");
+  await materializeRuntimeSeed(seed, target);
 }
 
 async function seedTargetExists(target: string): Promise<boolean> {

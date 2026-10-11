@@ -36,11 +36,15 @@ interface HookRewrite {
   allowed: boolean;
   root: string;
   privateRoot: string;
+  execution: () => Promise<HookExecution>;
+  ordinal: number;
+  files: Set<string>;
+}
+
+interface HookExecution {
   environment: Record<string, string>;
   profile?: string;
   isolation?: IsolatedCommand;
-  ordinal: number;
-  files: Set<string>;
 }
 
 export function runtimeHooksEnabled(
@@ -78,12 +82,14 @@ export async function prepareHookMounts(options: {
     ),
   );
   mountRoot = await realpath(mountRoot);
-  const runtime = await prepareRuntimeState(
-    options.workspace,
-    options.policy,
-    "hooks",
-    join(options.privateRoot, "hook-runtime"),
-  );
+  let runtime: ReturnType<typeof prepareRuntimeState> | undefined;
+  const prepareRuntime = () =>
+    (runtime ??= prepareRuntimeState(
+      options.workspace,
+      options.policy,
+      "hooks",
+      join(options.privateRoot, "hook-runtime"),
+    ));
   const selected = selectedPlugins(options.policy);
   const plugins: HookMounts["plugins"] = [],
     isolation: IsolatedCommand[] = [],
@@ -105,26 +111,20 @@ export async function prepareHookMounts(options: {
     const name = uniquePluginName(manifest, plugins);
     const allowed = selected.delete(name);
     const readRoots = await hookReadRoots(options, root);
-    const boundary = await prepareHookIsolation(
-      options,
-      index,
-      readRoots,
-      runtime.root,
-    );
-    if (boundary.isolation) isolation.push(boundary.isolation);
     const rewrite: HookRewrite = {
       root,
       allowed,
       privateRoot: options.privateRoot,
-      ...boundary,
       ordinal: index * 10000,
       files: new Set(),
-      environment: {
-        ...runtime.environment,
-        PATH: hookPath(runtime.environment),
-        CLAUDE_PLUGIN_ROOT: root,
-        PLUGIN_ROOT: root,
-      },
+      execution: lazyHookExecution(
+        options,
+        index,
+        root,
+        readRoots,
+        prepareRuntime,
+        isolation,
+      ),
     };
     await rewritePlugin(manifest, rewrite);
     plugins.push({
@@ -138,6 +138,37 @@ export async function prepareHookMounts(options: {
   if (selected.size)
     throw new Error("runtime hook policy selects an unavailable plugin");
   return { directories, receipts, plugins, isolation };
+}
+
+function lazyHookExecution(
+  options: Parameters<typeof prepareHookMounts>[0],
+  index: number,
+  root: string,
+  readRoots: { ordinary: string[]; curated: string[] },
+  prepareRuntime: () => ReturnType<typeof prepareRuntimeState>,
+  isolation: IsolatedCommand[],
+): () => Promise<HookExecution> {
+  let execution: Promise<HookExecution> | undefined;
+  return () =>
+    (execution ??= (async () => {
+      const runtime = await prepareRuntime();
+      const boundary = await prepareHookIsolation(
+        options,
+        index,
+        readRoots,
+        runtime.root,
+      );
+      if (boundary.isolation) isolation.push(boundary.isolation);
+      return {
+        ...boundary,
+        environment: {
+          ...runtime.environment,
+          PATH: hookPath(runtime.environment),
+          CLAUDE_PLUGIN_ROOT: root,
+          PLUGIN_ROOT: root,
+        },
+      };
+    })());
 }
 
 async function prepareHookIsolation(
@@ -312,11 +343,12 @@ async function commandHook(
   if (handler.command.includes("\0") || handler.command.length > 65536)
     throw new Error("runtime hook command is invalid or oversized");
   const wrapper = join(state.privateRoot, `hook-${state.ordinal++}.sh`);
-  const environment = Object.entries(state.environment).map(
+  const execution = await state.execution();
+  const environment = Object.entries(execution.environment).map(
     ([name, content]) => `${name}=${content}`,
   );
   const receipts = join(state.privateRoot, "hook-receipts");
-  const command = isolatedHookCommand(state, environment, handler.command);
+  const command = isolatedHookCommand(execution, environment, handler.command);
   await writeFile(
     wrapper,
     `#!/bin/sh
@@ -335,7 +367,7 @@ exit "$code"
 }
 
 function isolatedHookCommand(
-  state: HookRewrite,
+  state: HookExecution,
   environment: string[],
   command: string,
 ): string {

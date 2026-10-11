@@ -1,0 +1,319 @@
+{
+  "format": "sevro.runtime-startup-benchmark.v1",
+  "sourceRoot": "/Users/bjro/Sources/sevro/.worktrees/perf/30-runtime-startup-overhead",
+  "platform": "darwin",
+  "arch": "arm64",
+  "bun": "1.3.13",
+  "codex": "codex-cli 0.162.1",
+  "case": "synthetic-plugin-response",
+  "model": "synthetic-candidate / synthetic-semantic",
+  "effort": "low",
+  "seed": {
+    "entries": 2049,
+    "bytes": 33554432
+  },
+  "repetitions": 3,
+  "conditions": "Fresh role homes each invocation; first verified snapshot cold, later repetitions warm; OS filesystem caches uncontrolled; no live API/model calls",
+  "rows": [
+    {
+      "repetition": 0,
+      "role": "candidate",
+      "phase": "configuration",
+      "milliseconds": 298.645833,
+      "status": "completed"
+    },
+    {
+      "repetition": 1,
+      "role": "candidate",
+      "phase": "runtime.candidate",
+      "milliseconds": 721.155541,
+      "status": "completed"
+    },
+    {
+      "repetition": 1,
+      "role": "candidate",
+      "phase": "plugin-command",
+      "milliseconds": 113.721,
+      "status": "completed"
+    },
+    {
+      "repetition": 1,
+      "role": "candidate",
+      "phase": "plugin-command",
+      "milliseconds": 70.76491699999997,
+      "status": "completed"
+    },
+    {
+      "repetition": 1,
+      "role": "candidate",
+      "phase": "installation-assets",
+      "files": [
+        "cache"
+      ],
+      "configurationContainsPrivateHome": true,
+      "configurationContainsWorkspace": true
+    },
+    {
+      "repetition": 1,
+      "role": "candidate",
+      "phase": "plugin-install",
+      "milliseconds": 187.57354199999986,
+      "status": "completed"
+    },
+    {
+      "repetition": 1,
+      "role": "candidate",
+      "phase": "sandbox-probe",
+      "milliseconds": 5489.6383749999995,
+      "status": "completed"
+    },
+    {
+      "repetition": 1,
+      "role": "candidate",
+      "phase": "participant-execution",
+      "milliseconds": 27.323707999999897,
+      "status": "completed"
+    },
+    {
+      "repetition": 1,
+      "role": "candidate",
+      "phase": "candidate-total",
+      "milliseconds": 6659.420667,
+      "status": "completed"
+    },
+    {
+      "repetition": 1,
+      "role": "semantic",
+      "phase": "runtime.semantic",
+      "milliseconds": 0.3450830000001588,
+      "status": "completed"
+    },
+    {
+      "repetition": 1,
+      "role": "semantic",
+      "phase": "plugin-install",
+      "milliseconds": 0.005458999999973457,
+      "status": "completed"
+    },
+    {
+      "repetition": 1,
+      "role": "semantic",
+      "phase": "sandbox-probe",
+      "milliseconds": 5548.128959000001,
+      "status": "completed"
+    },
+    {
+      "repetition": 1,
+      "role": "semantic",
+      "phase": "participant-execution",
+      "milliseconds": 28.713165999999546,
+      "status": "completed"
+    },
+    {
+      "repetition": 1,
+      "role": "semantic",
+      "phase": "grading",
+      "milliseconds": 5646.800708000001,
+      "status": "completed"
+    },
+    {
+      "repetition": 2,
+      "role": "candidate",
+      "phase": "runtime.candidate",
+      "milliseconds": 430.6864170000008,
+      "status": "completed"
+    },
+    {
+      "repetition": 2,
+      "role": "candidate",
+      "phase": "plugin-command",
+      "milliseconds": 73.67158399999971,
+      "status": "completed"
+    },
+    {
+      "repetition": 2,
+      "role": "candidate",
+      "phase": "plugin-command",
+      "milliseconds": 65.96320800000103,
+      "status": "completed"
+    },
+    {
+      "repetition": 2,
+      "role": "candidate",
+      "phase": "installation-assets",
+      "files": [
+        "cache"
+      ],
+      "configurationContainsPrivateHome": true,
+      "configurationContainsWorkspace": true
+    },
+    {
+      "repetition": 2,
+      "role": "candidate",
+      "phase": "plugin-install",
+      "milliseconds": 141.00866599999972,
+      "status": "completed"
+    },
+    {
+      "repetition": 2,
+      "role": "candidate",
+      "phase": "sandbox-probe",
+      "milliseconds": 5404.434915999998,
+      "status": "completed"
+    },
+    {
+      "repetition": 2,
+      "role": "candidate",
+      "phase": "participant-execution",
+      "milliseconds": 26.502958000000945,
+      "status": "completed"
+    },
+    {
+      "repetition": 2,
+      "role": "candidate",
+      "phase": "candidate-total",
+      "milliseconds": 6199.1395840000005,
+      "status": "completed"
+    },
+    {
+      "repetition": 2,
+      "role": "semantic",
+      "phase": "runtime.semantic",
+      "milliseconds": 0.314249999999447,
+      "status": "completed"
+    },
+    {
+      "repetition": 2,
+      "role": "semantic",
+      "phase": "plugin-install",
+      "milliseconds": 0.005916999998589745,
+      "status": "completed"
+    },
+    {
+      "repetition": 2,
+      "role": "semantic",
+      "phase": "sandbox-probe",
+      "milliseconds": 5359.928749999999,
+      "status": "completed"
+    },
+    {
+      "repetition": 2,
+      "role": "semantic",
+      "phase": "participant-execution",
+      "milliseconds": 27.60699999999997,
+      "status": "completed"
+    },
+    {
+      "repetition": 2,
+      "role": "semantic",
+      "phase": "grading",
+      "milliseconds": 5454.279749999998,
+      "status": "completed"
+    },
+    {
+      "repetition": 3,
+      "role": "candidate",
+      "phase": "runtime.candidate",
+      "milliseconds": 442.62854199999856,
+      "status": "completed"
+    },
+    {
+      "repetition": 3,
+      "role": "candidate",
+      "phase": "plugin-command",
+      "milliseconds": 72.3325420000001,
+      "status": "completed"
+    },
+    {
+      "repetition": 3,
+      "role": "candidate",
+      "phase": "plugin-command",
+      "milliseconds": 68.99258300000292,
+      "status": "completed"
+    },
+    {
+      "repetition": 3,
+      "role": "candidate",
+      "phase": "installation-assets",
+      "files": [
+        "cache"
+      ],
+      "configurationContainsPrivateHome": true,
+      "configurationContainsWorkspace": true
+    },
+    {
+      "repetition": 3,
+      "role": "candidate",
+      "phase": "plugin-install",
+      "milliseconds": 142.90399999999863,
+      "status": "completed"
+    },
+    {
+      "repetition": 3,
+      "role": "candidate",
+      "phase": "sandbox-probe",
+      "milliseconds": 5447.905040999998,
+      "status": "completed"
+    },
+    {
+      "repetition": 3,
+      "role": "candidate",
+      "phase": "participant-execution",
+      "milliseconds": 23.8626669999976,
+      "status": "completed"
+    },
+    {
+      "repetition": 3,
+      "role": "candidate",
+      "phase": "candidate-total",
+      "milliseconds": 6256.5165830000005,
+      "status": "completed"
+    },
+    {
+      "repetition": 3,
+      "role": "semantic",
+      "phase": "runtime.semantic",
+      "milliseconds": 0.3507499999977881,
+      "status": "completed"
+    },
+    {
+      "repetition": 3,
+      "role": "semantic",
+      "phase": "plugin-install",
+      "milliseconds": 0.01341600000159815,
+      "status": "completed"
+    },
+    {
+      "repetition": 3,
+      "role": "semantic",
+      "phase": "sandbox-probe",
+      "milliseconds": 5365.139791000001,
+      "status": "completed"
+    },
+    {
+      "repetition": 3,
+      "role": "semantic",
+      "phase": "participant-execution",
+      "milliseconds": 28.228125000001455,
+      "status": "completed"
+    },
+    {
+      "repetition": 3,
+      "role": "semantic",
+      "phase": "grading",
+      "milliseconds": 5460.212874999997,
+      "status": "completed"
+    },
+    {
+      "repetition": 4,
+      "role": "semantic",
+      "phase": "cow-copy",
+      "milliseconds": 1.0158329999976559,
+      "status": "completed"
+    },
+    {
+      "phase": "cow-isolation",
+      "sourceUnchanged": true
+    }
+  ]
+}

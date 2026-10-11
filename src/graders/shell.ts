@@ -1,3 +1,4 @@
+import { runtimeSeedSources } from "../runtime-config";
 import { mkdir, stat } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 import { prepareIsolatedCommand } from "../hosts/isolation";
@@ -455,5 +456,5 @@ export async function runShellCheck(
 }
 
 function shellSeedSources(options: ShellRunOptions): string[] {
-  return (options.runtimePolicy?.seeds ?? []).map((seed) => seed.source);
+  return runtimeSeedSources(options.runtimePolicy);
 }

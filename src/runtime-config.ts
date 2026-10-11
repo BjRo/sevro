@@ -14,12 +14,19 @@ import {
   type RuntimeDiscoverySource,
 } from "./runtime-discovery";
 
+export type RuntimeRole =
+  "candidate" | "checks" | "hooks" | "semantic" | "advisory";
+export interface RuntimeSeed {
+  source: string;
+  target: string;
+  roles?: RuntimeRole[];
+}
 export interface RuntimeConfiguration {
   format: "sevro.runtime.v1";
   nativeTranscripts?: boolean;
   environment?: { inherit?: string[]; set?: Record<string, string> };
   filesystem?: { readOnlyRoots?: string[]; optionalReadOnlyRoots?: string[] };
-  runtime?: { seedDirectories?: { source: string; target: string }[] };
+  runtime?: { seedDirectories?: RuntimeSeed[] };
   hooks?: { nativeGoal?: boolean; plugins?: string[] };
 }
 
@@ -30,7 +37,9 @@ export interface RuntimePolicy {
   readOnlyRoots: string[];
   discovery?: RuntimeDiscoverySource[];
   skippedOptionalReadOnlyRoots?: string[];
-  seeds?: { source: string; target: string; sha256: string }[];
+  /** Original source denials retained when a derived role policy omits seeds. */
+  seedReadDenyRoots?: string[];
+  seeds?: (RuntimeSeed & { sha256: string })[];
   hooks?: { nativeGoal?: boolean; plugins?: string[] };
 }
 
@@ -50,8 +59,12 @@ export function runtimePolicySnapshot(
   Object.freeze(snapshot.environment);
   Object.freeze(snapshot.readOnlyRoots);
   freezeDiscovery(snapshot);
-  for (const seed of snapshot.seeds ?? []) Object.freeze(seed);
+  for (const seed of snapshot.seeds ?? []) {
+    Object.freeze(seed.roles);
+    Object.freeze(seed);
+  }
   Object.freeze(snapshot.seeds);
+  Object.freeze(snapshot.seedReadDenyRoots);
   const hooks = snapshot.hooks;
   if (hooks) {
     Object.freeze(hooks.plugins);
@@ -119,6 +132,7 @@ export function requireRuntimeEnvironment(
 export function requireRuntimeSeedTargets(
   seeds: NonNullable<RuntimePolicy["seeds"]>,
 ): void {
+  for (const seed of seeds) requireRuntimeSeedRoles(seed.roles);
   const targets = seeds.map((seed) => seed.target);
   if (
     targets.some(
@@ -222,7 +236,7 @@ async function selectedRuntimeStat(path: string, explicit: boolean) {
 }
 
 async function resolvedSeeds(
-  seeds: { source: string; target: string }[],
+  seeds: RuntimeSeed[],
   environment: Record<string, string>,
   base: string,
 ) {
@@ -239,6 +253,7 @@ async function resolvedSeeds(
       return {
         source,
         target: seed.target,
+        ...(seed.roles ? { roles: seed.roles } : {}),
         sha256: await runtimeSeedDigest(source),
       };
     }),
@@ -315,4 +330,34 @@ function resolvedHooks(hooks: RuntimeConfiguration["hooks"]) {
     nativeGoal: hooks?.nativeGoal ?? false,
     plugins: hooks?.plugins ?? [],
   };
+}
+
+function requireRuntimeSeedRoles(roles: RuntimeRole[] | undefined): void {
+  if (roles === undefined) return;
+  const allowed = ["candidate", "checks", "hooks", "semantic", "advisory"];
+  if (
+    !validRoleArray(roles) ||
+    new Set(roles).size !== roles.length ||
+    roles.some((role) => !allowed.includes(role))
+  )
+    throw new Error("runtime seed roles are invalid");
+}
+
+export function runtimeRoleSeeds(policy: RuntimePolicy, role: RuntimeRole) {
+  return (policy.seeds ?? []).filter(
+    (seed) => seed.roles === undefined || seed.roles.includes(role),
+  );
+}
+
+function validRoleArray(roles: unknown): roles is RuntimeRole[] {
+  return Array.isArray(roles) && roles.length > 0;
+}
+
+export function runtimeSeedSources(
+  policy: RuntimePolicy | undefined,
+): string[] {
+  return [
+    ...(policy?.seedReadDenyRoots ?? []),
+    ...(policy?.seeds ?? []).map((seed) => seed.source),
+  ];
 }

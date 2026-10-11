@@ -1579,3 +1579,86 @@ test("CLI never falls back after a selected runtime seed is unreadable", async (
   expect(run.code).toBe(64);
   expect(run.result.execution.status).toBe("not_run");
 });
+
+test("CLI limits dependency seed slots to selected execution roles", async () => {
+  const { root, project, args } = await fixture([
+    {
+      id: "scope",
+      grader: "sevro.shell",
+      configuration: {
+        run: 'test ! -e "$PUBLIC_CACHE_DIR/candidate"; cat "$PUBLIC_CACHE_DIR/check/value"',
+        expectExact: "checker dependency",
+      },
+    },
+  ]);
+  const source = join(root, "dependencies");
+  await mkdir(source);
+  await writeFile(join(source, "value"), "checker dependency");
+  await writeFile(
+    join(project, "sevro.json"),
+    JSON.stringify({
+      format: "sevro.runtime.v1",
+      environment: { set: { PUBLIC_CACHE_DIR: "{{sevro.runtime}}" } },
+      runtime: {
+        seedDirectories: [
+          { source, target: "candidate", roles: ["candidate"] },
+          { source, target: "check", roles: ["checks"] },
+        ],
+      },
+    }),
+  );
+  const run = await invoke([...args, "--shell-isolation"]);
+  expect(run.code, JSON.stringify(run.result)).toBe(0);
+  expect(await readFile(join(source, "value"), "utf8")).toBe(
+    "checker dependency",
+  );
+});
+
+test.each([
+  { roles: [] },
+  { roles: ["candidate", "candidate"] },
+  { roles: ["unknown"] },
+])("CLI refuses invalid seed role selection $roles", async ({ roles }) => {
+  const { root, project, args } = await fixture();
+  const source = join(root, "dependencies");
+  await mkdir(source);
+  await writeFile(
+    join(project, "sevro.json"),
+    JSON.stringify({
+      format: "sevro.runtime.v1",
+      runtime: { seedDirectories: [{ source, target: "cache", roles }] },
+    }),
+  );
+  expect((await invoke([...args, "--dry"])).code).toBe(64);
+});
+
+test("CLI materializes verified executable bytes, internal links, and empty directories", async () => {
+  const { root, project, args } = await fixture([
+    {
+      id: "bytes",
+      grader: "sevro.shell",
+      configuration: {
+        run: 'test -d "$PUBLIC_CACHE_DIR/empty"; test ! -L "$PUBLIC_CACHE_DIR/alias"; "$PUBLIC_CACHE_DIR/alias"',
+        expectExact: "verified executable",
+      },
+    },
+  ]);
+  const source = join(root, "dependencies");
+  await mkdir(join(source, "empty"), { recursive: true });
+  await writeFile(
+    join(source, "tool"),
+    "#!/bin/sh\nprintf 'verified executable'\n",
+    { mode: 0o755 },
+  );
+  await symlink("tool", join(source, "alias"));
+  await writeFile(
+    join(project, "sevro.json"),
+    JSON.stringify({
+      format: "sevro.runtime.v1",
+      environment: { set: { PUBLIC_CACHE_DIR: "{{sevro.runtime}}/cache" } },
+      runtime: { seedDirectories: [{ source, target: "cache" }] },
+    }),
+  );
+  const result = await invoke([...args, "--shell-isolation"]);
+  expect(result.code, JSON.stringify(result.result)).toBe(0);
+});

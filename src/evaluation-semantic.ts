@@ -144,7 +144,10 @@ class SemanticGrading {
       const response = await host.run({
         candidateTranscriptRoot: this.input.candidateTranscriptRoot,
         prompt: semanticHostPrompt(message, group, artifact),
-        runtimePolicy: gradingRuntimePolicy(this.input.runtimePolicy),
+        runtimePolicy: gradingRuntimePolicy(
+          this.input.runtimePolicy,
+          pattern === undefined,
+        ),
         runtimeRole: "semantic",
         workspace,
         condition: "passive",
