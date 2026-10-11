@@ -5,6 +5,7 @@ import type { HostResult } from "./evaluation-types";
 import type { RuntimeRole } from "./runtime-state";
 import type { RuntimePolicy } from "./runtime-config";
 import { isRecord } from "./value-guards";
+import { CodexProcessFailure } from "./hosts/codex-process";
 
 export function candidateTranscriptRoots(root: string | undefined): string[] {
   return root ? [root] : [];
@@ -50,12 +51,15 @@ export async function failedNativeTranscripts(
   role?: RuntimeRole,
 ): Promise<HostResult> {
   if (policy?.nativeTranscripts !== true) throw cause;
-  const result: HostResult = {
-    finalMessage: null,
-    complete: false,
-    executionFailed: true,
-    actualCondition: "passive",
-  };
+  const result: HostResult =
+    cause instanceof CodexProcessFailure
+      ? cause.result
+      : {
+          finalMessage: null,
+          complete: false,
+          executionFailed: true,
+          actualCondition: "passive",
+        };
   await retainNativeTranscripts(result, root, host, role);
   return result;
 }

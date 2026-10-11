@@ -11,7 +11,7 @@ import {
 import { hostname } from "node:os";
 import { basename, dirname, join } from "node:path";
 
-interface ProcessIdentity {
+export interface ProcessIdentity {
   pid: number;
   startedAt: string;
   host: string;
@@ -163,7 +163,7 @@ function processStartTime(result: ReturnType<typeof Bun.spawnSync>): string {
   return result.stdout?.toString().trim() ?? "";
 }
 
-function processIdentity(pid: number): ProcessIdentity | null {
+export function processIdentity(pid: number): ProcessIdentity | null {
   const windows = process.platform === "win32";
   const argv = identityCommand(pid, windows);
   let result: ReturnType<typeof Bun.spawnSync>;
@@ -186,7 +186,7 @@ function validProcessId(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 }
 
-function validProcessIdentity(value: unknown): value is ProcessIdentity {
+export function validProcessIdentity(value: unknown): value is ProcessIdentity {
   return (
     isRecord(value) &&
     value.host === hostname() &&
@@ -204,7 +204,7 @@ function processLiveness(pid: number): "live" | "dead" | "unknown" {
   }
 }
 
-function ownerStatus(owner: unknown): "live" | "dead" | "unknown" {
+export function ownerStatus(owner: unknown): "live" | "dead" | "unknown" {
   if (!validProcessIdentity(owner)) return "unknown";
   const liveness = processLiveness(owner.pid);
   if (liveness !== "live") return liveness;

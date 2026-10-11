@@ -90,7 +90,8 @@
     "src/schema.ts",
     "src/storage.ts",
     "src/trial-scheduler.ts",
-    "src/value-guards.ts"
+    "src/value-guards.ts",
+    "src/workspace-state.ts"
   ],
   "generated": [
     "src/generated/cli-result.cjs",

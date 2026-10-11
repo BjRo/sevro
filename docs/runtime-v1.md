@@ -102,6 +102,10 @@ Existing directory paths and symlink targets are canonicalized. Reads under
 the real home are allowed only through bounded runtime grants. Source and
 configuration worktrees, evaluator inputs, credentials, results, run ownership
 state, and peer fixtures remain protected. A conflicting or broad grant fails.
+Managed workspaces share a private parent that protects sibling workspaces,
+including those created after launch. Independently prepared workspaces require
+explicit protection for other private inputs. Claude hosts require Claude Code
+2.1.257 or later for managed-workspace isolation; see [checked versions](typescript-quality.md#environment-and-ci).
 
 Use `filesystem.optionalReadOnlyRoots` for supporting directories that may not
 be installed on every host, with the same path rules as `readOnlyRoots`:
@@ -182,7 +186,7 @@ continuation turns and children, then are removed with their owning trial or
 host state after owned hooks terminate. Runs without a selected runtime policy
 retain their previous writable-state locations.
 
-Claude runtime policies refuse a private namespace overlapping the native CLI's
+Claude refuses managed workspace or runtime namespaces overlapping its
 implicit `/tmp/claude` or `/private/tmp/claude` write roots, including canonical
 symlink targets. A conflicting `TMPDIR` placement fails before native launch;
 choose a temporary base outside those cache trees.

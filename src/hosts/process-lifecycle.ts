@@ -1,4 +1,12 @@
 export const MAX_EVENT_BYTES = 8 * 1024 * 1024;
+export class HostProcessInterruption extends Error {
+  constructor(
+    host: string,
+    readonly reason: "timeout" | "cancelled",
+  ) {
+    super(`${host} run ${reason === "timeout" ? "timed out" : "cancelled"}`);
+  }
+}
 
 /** Bound bytes before decoding a host's output with strict UTF-8. */
 export async function boundedProcessText(
@@ -37,13 +45,13 @@ export async function awaitHostProcess<T>(
   try {
     const timeout = new Promise<never>((_resolve, reject) => {
       timer = setTimeout(() => {
-        reject(new Error(`${options.host} run timed out`));
+        reject(new HostProcessInterruption(options.host, "timeout"));
       }, options.timeoutMs);
     });
     const aborted = new Promise<never>((_resolve, reject) => {
       if (!options.signal) return;
       cancel = () => {
-        reject(new Error(`${options.host} run cancelled`));
+        reject(new HostProcessInterruption(options.host, "cancelled"));
       };
       if (options.signal.aborted) cancel();
       else options.signal.addEventListener("abort", cancel, { once: true });

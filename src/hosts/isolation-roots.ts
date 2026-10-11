@@ -1,9 +1,10 @@
 import { isMissingFile } from "../fixture-tools";
-import { readdir, realpath } from "node:fs/promises";
-import { homedir, tmpdir, userInfo } from "node:os";
-import { isAbsolute, join, resolve } from "node:path";
+import { realpath } from "node:fs/promises";
+import { homedir, userInfo } from "node:os";
+import { isAbsolute, resolve } from "node:path";
 import { protectedWorktrees } from "./protected-worktrees";
 import { nativeStateParent } from "../native-transcript-state";
+import { workspaceStateParent } from "../workspace-state";
 
 /** Include source, results, host configuration, and every active peer fixture. */
 interface ProtectedRootsOptions {
@@ -21,6 +22,7 @@ async function protectedRootCandidates(options: ProtectedRootsOptions) {
   ].filter((value): value is string => Boolean(value));
   const candidates = [
     await nativeStateParent(),
+    await workspaceStateParent(),
     resolve(import.meta.dir, "../.."),
     options.projectRoot,
     options.resultsRoot,
@@ -31,17 +33,7 @@ async function protectedRootCandidates(options: ProtectedRootsOptions) {
   ];
   if (candidates.some((root) => !isAbsolute(root)))
     throw new Error("evaluation protected roots must be absolute");
-  const peers = (await readdir(tmpdir(), { withFileTypes: true }))
-    .filter(
-      (entry) =>
-        entry.isDirectory() &&
-        /^(sevro-case-|sevro-codex-state-|sevro-claude-state-|sevro-transcript-view-)/.test(
-          entry.name,
-        ),
-    )
-    .map((entry) => join(tmpdir(), entry.name))
-    .filter((path) => path !== options.ownedStateRoot);
-  return { candidates, peers, optionalConfigRoots };
+  return { candidates, optionalConfigRoots };
 }
 
 /** Include source, results, host configuration, and every active peer fixture. */
@@ -49,20 +41,21 @@ export async function evaluationProtectedRoots(
   options: ProtectedRootsOptions,
 ): Promise<string[]> {
   const workspace = await realpath(options.workspace);
-  const { candidates, peers, optionalConfigRoots } =
+  const { candidates, optionalConfigRoots } =
     await protectedRootCandidates(options);
+  const namespace = await workspaceStateParent();
+  const nativeNamespace = await nativeStateParent();
   const roots: string[] = [];
-  for (const candidate of [...candidates, ...peers]) {
+  for (const candidate of candidates) {
     const canonical = await canonicalProtectedRoot(candidate, [
-      ...peers,
       ...optionalConfigRoots,
     ]);
     if (!includedProtectedRoot(canonical, workspace, options.ownedStateRoot))
       continue;
     {
       roots.push(canonical);
-      // Peers are denied directly; their Git preparation may still be in progress.
-      if (!peers.includes(candidate))
+      // Private namespaces are boundaries, not Git source trees to traverse.
+      if (canonical !== namespace && canonical !== nativeNamespace)
         roots.push(
           ...(await protectedWorktrees(canonical)).filter(
             (root) => root !== workspace,

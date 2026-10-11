@@ -1,15 +1,7 @@
 import { isRecord } from "./value-guards";
 import { sha256 } from "./identity";
-import {
-  appendFile,
-  mkdir,
-  mkdtemp,
-  readFile,
-  realpath,
-  rm,
-  writeFile,
-} from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { allocateWorkspace, removeWorkspace } from "./workspace-state";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { canonicalJson } from "./identity";
@@ -53,9 +45,7 @@ export async function createFixture(
   reservedWorkspace?: string,
 ): Promise<string> {
   const paths = inlineFixturePaths(fixture, generated, repository);
-  const workspace =
-    reservedWorkspace ??
-    (await realpath(await mkdtemp(join(tmpdir(), "sevro-case-"))));
+  const workspace = reservedWorkspace ?? (await allocateWorkspace());
   try {
     await initializeFixtureHistory(
       fixture,
@@ -76,8 +66,7 @@ export async function createFixture(
     await fixtureBinDirectory(workspace);
     return workspace;
   } catch (error) {
-    if (!reservedWorkspace)
-      await rm(workspace, { recursive: true, force: true });
+    if (!reservedWorkspace) await removeWorkspace(workspace);
     throw error;
   }
 }

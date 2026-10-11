@@ -1,4 +1,8 @@
-import { rm } from "node:fs/promises";
+import { clearFixtureContents } from "./fixture-cleanup";
+import {
+  CodexProcessFailure,
+  codexFailureMessage,
+} from "./hosts/codex-process";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createFixture, hostArtifacts, usage } from "./evaluation-fixture";
@@ -45,6 +49,7 @@ interface SemanticGradingEffects {
   failGrading(message: string, cancelable?: boolean): void;
   retainArtifacts(artifacts: ReturnType<typeof hostArtifacts>): Promise<void>;
   writeTrialFile(path: string, bytes: string | Uint8Array): Promise<void>;
+  retainWorkspace(workspace: string): Promise<void>;
 }
 type SemanticGroup = ReturnType<typeof semanticCheckGroups>[number];
 
@@ -141,18 +146,23 @@ class SemanticGrading {
       source = semanticSource(artifact);
       const host = this.input.host;
       if (!host) throw new Error("semantic host is unavailable");
-      const response = await host.run({
-        candidateTranscriptRoot: this.input.candidateTranscriptRoot,
-        prompt: semanticHostPrompt(message, group, artifact),
-        runtimePolicy: gradingRuntimePolicy(
-          this.input.runtimePolicy,
-          pattern === undefined,
-        ),
-        runtimeRole: "semantic",
-        workspace,
-        condition: "passive",
-        signal: this.input.signal,
-      });
+      const response = await host
+        .run({
+          candidateTranscriptRoot: this.input.candidateTranscriptRoot,
+          prompt: semanticHostPrompt(message, group, artifact),
+          runtimePolicy: gradingRuntimePolicy(
+            this.input.runtimePolicy,
+            pattern === undefined,
+          ),
+          runtimeRole: "semantic",
+          workspace,
+          condition: "passive",
+          signal: this.input.signal,
+        })
+        .catch((cause: unknown) => {
+          if (cause instanceof CodexProcessFailure) return cause.result;
+          throw cause;
+        });
       const artifacts = scopedHostArtifacts(
         response,
         `sevro.semantic${suffix}.`,
@@ -164,8 +174,6 @@ class SemanticGrading {
     } catch {
       this.effects.failGrading("semantic grading did not complete");
       return { result: null, artifacts: [], source, hostId: null };
-    } finally {
-      await rm(workspace, { recursive: true, force: true });
     }
   }
 
@@ -223,14 +231,19 @@ class SemanticGrading {
     pattern: string | undefined,
     source: Record<string, unknown>,
     hostId: string,
-  ): void {
+  ): boolean {
     try {
       const message = this.completeSemanticGraderMessage(result);
       const verdicts = parseSemanticVerdicts(message, group);
       for (const verdict of verdicts)
         this.recordSemanticVerdict(verdict, pattern, source, hostId);
+      return true;
     } catch {
-      this.effects.failGrading("semantic grading did not complete", false);
+      this.effects.failGrading(
+        codexFailureMessage(result) ?? "semantic grading did not complete",
+        result.processFailure?.reason === "cancelled",
+      );
+      return false;
     }
   }
 
@@ -257,29 +270,41 @@ class SemanticGrading {
       return;
     }
     const workspace = await this.semanticWorkspace();
-    const outcome = await this.runSemanticHost(
-      group,
-      pattern,
-      suffix,
-      workspace,
-      message,
-    );
-    if (outcome.result === null) return;
-    await this.effects.retainArtifacts(outcome.artifacts);
-    this.observations.push({
-      id: `sevro.observation.semantic.usage${suffix}`,
-      source: outcome.hostId,
-      completeness: outcome.result.usageComplete ? "complete" : "partial",
-      data: usage(outcome.result),
-    });
-    await this.retainSemanticVerdicts(outcome.result, suffix);
-    this.parseSemanticResults(
-      outcome.result,
-      group,
-      pattern,
-      outcome.source,
-      outcome.hostId,
-    );
+    let successful = false;
+    try {
+      const outcome = await this.runSemanticHost(
+        group,
+        pattern,
+        suffix,
+        workspace,
+        message,
+      );
+      if (outcome.result === null) return;
+      await this.effects.retainArtifacts(outcome.artifacts);
+      this.observations.push({
+        id: `sevro.observation.semantic.usage${suffix}`,
+        source: outcome.hostId,
+        completeness: outcome.result.usageComplete ? "complete" : "partial",
+        data: usage(outcome.result),
+      });
+      await this.retainSemanticVerdicts(outcome.result, suffix);
+      successful = this.parseSemanticResults(
+        outcome.result,
+        group,
+        pattern,
+        outcome.source,
+        outcome.hostId,
+      );
+    } finally {
+      await this.finishWorkspace(workspace, successful);
+    }
+  }
+  private async finishWorkspace(
+    workspace: string,
+    successful: boolean,
+  ): Promise<void> {
+    if (successful) await clearFixtureContents(workspace);
+    else await this.effects.retainWorkspace(workspace);
   }
 }
 export async function gradeSemanticChecks(

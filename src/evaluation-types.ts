@@ -22,6 +22,11 @@ export interface HostResult {
   finalMessage: string | null;
   complete: boolean;
   executionFailed?: boolean;
+  processFailure?: {
+    phase: "isolation-preflight" | "executable-preflight" | "execution";
+    reason: "exit" | "timeout" | "cancelled";
+    timeoutMs: number;
+  };
   artifacts?: { id: string; bytes: Uint8Array }[];
   observations?: {
     id: string;

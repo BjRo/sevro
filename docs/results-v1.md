@@ -110,12 +110,26 @@ An interrupted or failed run keeps completed trials plus an explicit partial
 attempt or diagnostic record. Failed persistence is an internal error and
 cannot be presented as a successful assessment.
 
+Successful temporary workspaces are removed after their evidence is saved.
+Failed and cancelled workspaces, including trials with unavailable required
+grading evidence, are kept for 24 hours after becoming inactive. Evaluation
+startup removes expired workspaces with verified inactive ownership. Active or
+unverifiable workspaces and unregistered legacy folders are preserved; saved
+results and evidence remain intact. Failed cleanup is retried on later evaluations.
+
+`sevro.observation.workspaces` records candidate and retained auxiliary workspace
+paths for inspection. These paths are temporary and do not affect evaluation identity.
+
 A host adapter can return `executionFailed: true` with bounded artifacts from
 a failed process. The engine retains those artifacts, skips all grading, and
 reports `failed` / `not_requested` / `not_assessed` with exit code `2`. A final
 message that happens to match a check cannot turn that failure into a pass.
 Claude retains its bounded event stream and, when present, up to 64 KiB of
 stderr as private host artifacts. Failure bodies do not appear in CLI diagnostics.
+Codex preflight failures retain `codex.process` (stage, reason, exit code, signal,
+duration, and stderr truncation) and `codex.stderr` (the first 64 KiB), with role
+prefixes for semantic/advisory hosts. Diagnostics distinguish failure, timeout,
+and cancellation without exposing raw stderr.
 
 ## Native transcript bundles
 

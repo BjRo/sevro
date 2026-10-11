@@ -4,6 +4,10 @@ import type { RuntimePolicy } from "../runtime-config";
 import { runtimeHooksEnabled } from "../runtime-hooks";
 import { requireRuntimeReadRoots, isRuntimeHomeRoot } from "../runtime-paths";
 import { nativeStatePath } from "../native-transcript-state";
+import {
+  workspaceStatePath,
+  workspaceBoundaryException,
+} from "../workspace-state";
 
 interface WritableRuntime {
   root: string;
@@ -38,6 +42,7 @@ export function claudeHostSettings(
   runtimePolicy?: RuntimePolicy,
   transcriptReadRoots: string[] = [],
   runtime?: WritableRuntime,
+  workspace?: string,
 ): Record<string, unknown> {
   if (
     !validPrivatePaths(privateRoot, credentialFile, [
@@ -61,6 +66,7 @@ export function claudeHostSettings(
         transcriptReadRoots,
         pluginRoots,
         runtime,
+        workspace,
       ),
       credentials: {
         files: [{ path: credentialFile, mode: "deny" }],
@@ -74,6 +80,7 @@ export function claudeHostSettings(
       runtimePolicy,
       transcriptReadRoots,
       runtime,
+      workspace,
     ),
   };
 }
@@ -85,11 +92,13 @@ function claudeFilesystemPolicy(
   transcriptReadRoots: string[],
   pluginRoots: string[],
   runtime: WritableRuntime | undefined,
+  workspace: string | undefined,
 ) {
   const runtimeWriteRoot = runtime?.root;
   return {
     denyRead: [privateRoot, ...protectedRoots],
     allowRead: [
+      ...workspaceBoundaryException(workspaceStatePath(), workspace),
       ...readRoots,
       ...transcriptReadRoots,
       ...pluginRoots,
@@ -99,7 +108,7 @@ function claudeFilesystemPolicy(
     denyWrite: [
       privateRoot,
       ...pluginRoots,
-      ...writableProtectedRoots(protectedRoots, runtimeWriteRoot),
+      ...writableProtectedRoots(protectedRoots, runtimeWriteRoot, workspace),
       ...readRoots,
       ...transcriptReadRoots,
     ],
@@ -113,17 +122,27 @@ function claudePermissions(
   policy: RuntimePolicy | undefined,
   transcriptReadRoots: string[],
   runtime: WritableRuntime | undefined,
+  workspace: string | undefined,
 ) {
   const runtimeWriteRoot = runtime?.root;
-  const roots = [privateRoot, ...protectedRoots];
+  const roots = [
+    privateRoot,
+    ...protectedRoots.filter(
+      (root) => !workspaceBoundaryException(root, workspace).length,
+    ),
+  ];
+  const managedWorkspace = workspaceBoundaryException(
+    workspaceStatePath(),
+    workspace,
+  )[0];
   const readRoots = policy
     ? roots.filter((root) => !isRuntimeHomeRoot(root))
     : roots;
   const toolRoots = [...runtimeReadRoots(policy), ...transcriptReadRoots];
   const writableRoots = optionalRuntimeRoot(runtimeWriteRoot);
   return {
-    allow: claudeToolAllowRules(policy, runtime),
-    ...(policy
+    allow: claudeToolAllowRules(policy, runtime, managedWorkspace),
+    ...(policy || managedWorkspace
       ? {
           blockReadsOutsideWorkingDirectories: true,
           additionalDirectories: [
@@ -153,8 +172,16 @@ function claudePermissions(
 function claudeToolAllowRules(
   policy: RuntimePolicy | undefined,
   runtime: WritableRuntime | undefined,
+  workspace?: string,
 ): string[] {
-  if (!policy) return ["Bash", "Read", "Edit", "Skill", "Agent"];
+  if (!policy)
+    return [
+      "Bash",
+      "Read",
+      "Skill",
+      "Agent",
+      workspace ? absoluteRule(workspace, "Edit") : "Edit",
+    ];
   if (!runtime) return ["Bash", "Edit", "Skill", "Agent"];
   return [
     "Bash",
@@ -169,12 +196,25 @@ function claudeToolAllowRules(
 function writableProtectedRoots(
   roots: string[],
   runtimeWriteRoot: string | undefined,
+  workspace?: string,
 ): string[] {
-  if (!runtimeWriteRoot) return roots;
   const namespace = nativeStatePath();
   return roots.filter(
     (root) =>
-      root !== namespace || !runtimeWriteRoot.startsWith(`${namespace}/`),
+      !workspaceBoundaryException(root, workspace).length &&
+      keepNativeWriteDeny(root, namespace, runtimeWriteRoot),
+  );
+}
+
+function keepNativeWriteDeny(
+  root: string,
+  namespace: string,
+  runtimeWriteRoot?: string,
+): boolean {
+  return (
+    root !== namespace ||
+    runtimeWriteRoot === undefined ||
+    !runtimeWriteRoot.startsWith(`${namespace}/`)
   );
 }
 

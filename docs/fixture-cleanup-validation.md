@@ -1,5 +1,8 @@
 # Permission-locked fixture cleanup
 
+These historical observations predate the current
+[workspace retention policy](results-v1.md).
+
 The Darrow extraction comparison exposed a cleanup difference: its legacy
 fixture destroyer removes permission-locked directories, while Sevro retained
 them after a completed trial. Sevro now restores owner access inside completed

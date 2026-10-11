@@ -12,6 +12,7 @@ import {
   type Assessment,
 } from "./results";
 import { runtimePolicySnapshot } from "./runtime-config";
+import { cleanupExpiredWorkspaces } from "./workspace-state";
 import { assertCliResult, assertRunEvidence } from "./schema";
 import { atomicWriteJson } from "./storage";
 import {
@@ -178,6 +179,7 @@ export async function runEvaluation(
     ...options,
     runtimePolicy: runtimePolicySnapshot(options.runtimePolicy),
   };
+  await cleanupExpiredWorkspaces();
   const plan = await prepareEvaluation(options);
   const runtime = await allocateEvaluationRun(options, plan);
   try {

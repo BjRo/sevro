@@ -1,6 +1,7 @@
 import { realpath } from "node:fs/promises";
 import { isAbsolute, relative, sep } from "node:path";
 import { insideRuntimeRoot } from "../runtime-paths";
+import { workspaceBoundaryException } from "../workspace-state";
 
 export class HostIsolationError extends Error {
   constructor(message: string) {
@@ -71,7 +72,11 @@ export function requireDisjointState(
   stateRoot: string,
 ): void {
   if (
-    roots.some((root) => inside(root, workspace)) ||
+    roots.some(
+      (root) =>
+        inside(root, workspace) &&
+        !workspaceBoundaryException(root, workspace).length,
+    ) ||
     inside(stateRoot, workspace)
   )
     throw new HostIsolationError(

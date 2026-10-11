@@ -15,6 +15,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { createCodexHost } from "../src/hosts/codex";
 import { createClaudeHost } from "../src/hosts/claude";
+import { nativeStateParent } from "../src/native-transcript-state";
 import { createHash, randomUUID } from "node:crypto";
 import { runtimeSeedDigest } from "../src/runtime-seeds";
 import { allocateNativeState } from "../src/native-transcript-state";
@@ -448,7 +449,7 @@ const fs = settings.sandbox.filesystem;
 const startup = process.env.BASH_ENV;
   const script = startup ? await Bun.file(startup).text() : '';
 const peerRoot = process.env.SEVRO_RUNTIME_PEER;
-const peerDenied = !peerRoot || fs.denyRead.includes(peerRoot);
+const peerDenied = !peerRoot || fs.denyRead.some(path => peerRoot === path || peerRoot.startsWith(path + '/'));
 const namespace = root ? root.split('/').slice(0, -3).join('/') : '';
 const namespaceDenied = namespace.endsWith('/sevro-native-private') && fs.denyRead.includes(namespace);
 const shells = ['/bin/bash'];
@@ -475,7 +476,7 @@ console.log(JSON.stringify({type: 'result', subtype: 'success', is_error: false,
     additionalProtectedRoots: [],
   });
   const peer = await realpath(
-    await mkdtemp(join(tmpdir(), "sevro-claude-state-")),
+    await mkdtemp(join(await nativeStateParent(), "claude-peer-")),
   );
   roots.push(peer);
   const result = await host.run({
@@ -958,9 +959,7 @@ test("Codex opt-in preserves partial native transcripts when native execution fa
 test.each([false, true])(
   "Codex runtime cannot read or write another native trial tree: transcripts %s",
   async (nativeTranscripts) => {
-    const peer = await realpath(
-      await mkdtemp(join(tmpdir(), "sevro-claude-state-")),
-    );
+    const peer = await allocateNativeState("claude-peer-");
     roots.push(peer);
     await writeFile(join(peer, "secret"), "peer-transcript");
     const { host, workspace } = await codexFixture(
@@ -1817,13 +1816,84 @@ test.skipIf(process.platform !== "darwin").each([false, true])(
   },
 );
 
+test.skipIf(process.platform !== "darwin")(
+  "Claude managed workspace refuses implicit native temp writes without a runtime policy",
+  async () => {
+    const { root } = await codexFixture();
+    const unsafeTemp = join(
+      "/tmp/claude",
+      `sevro-workspace-probe-${randomUUID()}`,
+    );
+    await mkdir(unsafeTemp, { recursive: true, mode: 0o700 });
+    roots.push(unsafeTemp);
+    const binary = join(root, "claude-unsafe-workspace");
+    await writeFile(
+      binary,
+      '#!/bin/sh\nprintf launched > native-launched\nprintf \'{"type":"result","subtype":"success","is_error":false,"result":"ready"}\\n\'\n',
+      { mode: 0o700 },
+    );
+    const credentialFile = join(root, "claude-credential.json");
+    await writeFile(credentialFile, "{}");
+    const host = createClaudeHost({
+      binary,
+      credentialFile,
+      model: "synthetic",
+      effort: "low",
+      projectRoot: join(root, "project"),
+      resultsRoot: join(root, "results"),
+      additionalProtectedRoots: [],
+    });
+    let workspace = "";
+    const originalTemp = process.env.TMPDIR;
+    process.env.TMPDIR = unsafeTemp;
+    try {
+      const { result } = await runEvaluation({
+        projectRoot: join(root, "project"),
+        resultsRoot: join(root, "results"),
+        runnerBuildDigest: "a".repeat(64),
+        projectDigest: "b".repeat(64),
+        condition: "passive",
+        trialCount: 1,
+        passThreshold: 1,
+        host: {
+          ...host,
+          run(request) {
+            workspace = request.workspace;
+            return host.run(request);
+          },
+        },
+        case: {
+          id: "unsafe-workspace",
+          prompt: "Return ready",
+          fixture: { files: {} },
+          checks: [],
+          requiredEvidence: [],
+        },
+      });
+      expect(result.execution.status).toBe("failed");
+      expect(await Bun.file(join(workspace, "native-launched")).exists()).toBe(
+        false,
+      );
+    } finally {
+      if (originalTemp === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = originalTemp;
+    }
+  },
+);
+
 function expectedRuntimeFailure(
   native: string,
   ending: string,
 ): string | boolean {
   if (ending === "failure")
     return native === "Codex" ? "Codex event stream has no thread start" : true;
-  return `${native} run ${ending === "timeout" ? "timed out" : "cancelled"}`;
+  return `${native} run ${runtimeEnding(native, ending)}`;
+}
+
+function runtimeEnding(native: string, ending: string): string {
+  if (native === "Codex" && ending === "timeout")
+    return "timed out after 0.5 s";
+  return ending === "timeout" ? "timed out" : "cancelled";
 }
 
 test.each([

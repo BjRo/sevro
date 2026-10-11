@@ -49,7 +49,7 @@ one bounded observation per check. A mismatched exit code or stdout assertion
 fails the task; an isolation, timeout, or process error makes grading
 an error. Callers must supply `shellIsolation.protectedRoots` for any shell
 check. The engine also protects its package source, project, results, user
-home, configured host homes, and active peer fixtures. The caller's list must
+home, configured host homes, and other managed workspaces. The caller's list must
 include any other source worktrees or private roots. A peer path already
 canonicalized by the engine remains in the deny profile if that peer is
 removed before the sandbox starts; unverified missing roots still fail.

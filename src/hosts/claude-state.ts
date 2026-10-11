@@ -11,6 +11,10 @@ import { delimiter, dirname, join } from "node:path";
 import type { HostAdapter } from "../engine";
 import { nativeStateParent } from "../native-transcript-state";
 import {
+  workspaceBoundaryException,
+  workspaceStatePath,
+} from "../workspace-state";
+import {
   candidateTranscriptEnvironment,
   candidateTranscriptRoots,
 } from "../native-transcripts";
@@ -229,6 +233,7 @@ export async function prepareClaudeState(
         runtimeWriteRoot
           ? { root: runtimeWriteRoot, workspace: request.workspace }
           : undefined,
+        request.workspace,
       ),
     ),
     { flag: "wx", mode: 0o600 },
@@ -253,7 +258,11 @@ async function requireClaudeRuntimeNamespace(
   request: Request,
   stateRoot: string,
 ) {
-  if (!request.runtimePolicy) return;
+  if (
+    !request.runtimePolicy &&
+    !workspaceBoundaryException(workspaceStatePath(), request.workspace).length
+  )
+    return;
   const implicitRoots = await Promise.all(
     ["/tmp/claude", "/private/tmp/claude"].map(implicitClaudeWritePaths),
   );

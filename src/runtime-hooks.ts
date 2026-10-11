@@ -199,6 +199,7 @@ async function prepareHookIsolation(
       roots.ordinary,
       runtimeRoot,
       roots.curated,
+      options.workspace,
     ) + "\n(deny process-info* (require-not (target self)))\n",
     { mode: 0o600 },
   );

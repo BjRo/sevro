@@ -240,7 +240,8 @@ export default {
     expect(active.completedTrials).toHaveLength(2);
     for (const name of await readdir(started)) {
       const workspace = await readFile(join(started, name), "utf8");
-      expect(await Bun.file(join(workspace, "marker")).exists()).toBe(false);
+      expect(await Bun.file(join(workspace, "marker")).exists()).toBe(true);
+      roots.push(workspace);
     }
   } finally {
     child.kill("SIGTERM");
