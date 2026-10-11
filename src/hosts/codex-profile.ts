@@ -1,5 +1,6 @@
 import { isAbsolute, sep } from "node:path";
 import { insideRuntimeRoot, isRuntimeHomeRoot } from "../runtime-paths";
+import { workspaceBoundaryException } from "../workspace-state";
 import {
   nativeStatePath,
   nativeStateProtectedRoots,
@@ -111,7 +112,20 @@ function profileProtectedRoots(
     (root) =>
       (!implicitLinuxHomeBoundary(root, readRoots, baselines) ||
         process.platform !== "linux") &&
-      !implicitNativeBoundary(root, trustedRoots, baselines),
+      !implicitNativeBoundary(root, trustedRoots, baselines) &&
+      !implicitWorkspaceBoundary(root, options.workspace, baselines),
+  );
+}
+
+function implicitWorkspaceBoundary(
+  root: string,
+  workspace: string,
+  baselines: string[],
+): boolean {
+  return (
+    process.platform === "linux" &&
+    workspaceBoundaryException(root, workspace).length > 0 &&
+    !hasBroaderBaseline(root, root, baselines)
   );
 }
 

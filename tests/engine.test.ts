@@ -7,7 +7,7 @@ import {
   parseCheckpoint,
   parseRunEvidence,
 } from "./fixtures/assertions";
-import { afterEach, test, expect } from "bun:test";
+import { afterEach, test, expect, spyOn } from "bun:test";
 import { existsSync } from "node:fs";
 import {
   mkdir,
@@ -18,7 +18,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { runEvaluation, type HostAdapter } from "../src/engine";
 const roots: string[] = [];
 const isolatedNativeHost =
@@ -35,6 +35,13 @@ async function rootsForRun() {
   return { projectRoot: root, resultsRoot: join(root, "results") };
 }
 const digest = "a".repeat(64);
+async function waitForIsolationMarker(path: string): Promise<void> {
+  const deadline = Date.now() + 5000;
+  while (!existsSync(path)) {
+    if (Date.now() > deadline) throw new Error("isolation barrier timed out");
+    await Bun.sleep(10);
+  }
+}
 const baseCase = {
   id: "answer",
   prompt: "Return ready.",
@@ -87,7 +94,9 @@ test("runs trials, applies threshold, and retains evidence before fixture cleanu
   expectUnknown(
     defined(outcome.result.cases[0]).trials.map((trial) => trial.task.verdict),
   ).toEqual(["passed", "failed"]);
-  for (const workspace of workspaces) expect(existsSync(workspace)).toBe(false);
+  expect(existsSync(defined(workspaces[0]))).toBe(false);
+  expect(existsSync(defined(workspaces[1]))).toBe(true);
+  roots.push(defined(workspaces[1]));
   for (const trial of defined(defined(outcome.result.cases[0])).trials)
     expect(existsSync(trial.artifactPath)).toBe(true);
   const evidence = parseRunEvidence(
@@ -1197,7 +1206,255 @@ test("shell failures and timeouts remain distinct from host completion", async (
     }),
   ).rejects.toThrow(/explicit protected source roots/);
 });
-test("engine shell isolation hides project sources and peer fixtures", async () => {
+test("engine retains a failed candidate workspace while preserving saved evidence", async () => {
+  const paths = await rootsForRun();
+  let workspace = "";
+  const outcome = await runEvaluation({
+    ...paths,
+    case: baseCase,
+    host: {
+      id: "sevro.host.synthetic",
+      model: "synthetic-v1",
+      effort: "none",
+      run(request) {
+        workspace = request.workspace;
+        return Promise.resolve({
+          finalMessage: null,
+          complete: false,
+          executionFailed: true,
+        });
+      },
+    },
+    runnerBuildDigest: digest,
+    projectDigest: digest,
+    condition: "passive",
+    trialCount: 1,
+    passThreshold: 1,
+  });
+  roots.push(workspace);
+  expect(outcome.result.exitCode).toBe(2);
+  expect(await Bun.file(outcome.result.evidencePath).exists()).toBe(true);
+  expect(existsSync(workspace)).toBe(true);
+  expect(await readFile(join(workspace, "README.md"), "utf8")).toBe(
+    "fixture content\n",
+  );
+  const evidence = parseRunEvidence(
+    await readFile(outcome.result.evidencePath, "utf8"),
+  );
+  const observation = defined(
+    defined(evidence.trials[0]).observations.find(
+      (item) => item.id === "sevro.observation.workspaces",
+    ),
+  );
+  expectUnknown(observation.data).toMatchObject({ candidate: workspace });
+});
+test("engine retains the semantic workspace when grading fails", async () => {
+  const paths = await rootsForRun();
+  let workspace = "";
+  const outcome = await runEvaluation({
+    ...paths,
+    case: {
+      ...baseCase,
+      checks: [
+        {
+          id: "ready",
+          grader: "sevro.semantic",
+          configuration: { proposition: "The response is ready." },
+        },
+      ],
+    },
+    host: {
+      id: "example.candidate",
+      model: "synthetic",
+      effort: "none",
+      run() {
+        return Promise.resolve({ finalMessage: "ready", complete: true });
+      },
+    },
+    semanticHost: {
+      id: "example.semantic",
+      model: "synthetic",
+      effort: "none",
+      async run(request) {
+        workspace = request.workspace;
+        await writeFile(join(workspace, "failure-details"), "inspect me");
+        throw new Error("controlled grader failure");
+      },
+    },
+    runnerBuildDigest: digest,
+    projectDigest: digest,
+    condition: "passive",
+    trialCount: 1,
+    passThreshold: 1,
+  });
+  roots.push(workspace);
+  expect(outcome.result.exitCode).toBe(3);
+  expect(await Bun.file(join(workspace, "failure-details")).exists()).toBe(
+    true,
+  );
+});
+test("engine startup expires inactive failed workspaces after a day without deleting evidence", async () => {
+  const paths = await rootsForRun();
+  let workspace = "";
+  const options = {
+    ...paths,
+    case: baseCase,
+    host: {
+      id: "sevro.host.synthetic",
+      model: "synthetic-v1",
+      effort: "none",
+      run(request: Parameters<HostAdapter["run"]>[0]) {
+        workspace = request.workspace;
+        return Promise.resolve({
+          finalMessage: null,
+          complete: false,
+          executionFailed: true,
+        });
+      },
+    },
+    runnerBuildDigest: digest,
+    projectDigest: digest,
+    condition: "passive" as const,
+    trialCount: 1,
+    passThreshold: 1,
+  };
+  const now = Date.now();
+  const clock = spyOn(Date, "now").mockReturnValue(now);
+  try {
+    const first = await runEvaluation(options);
+    const retained = workspace;
+    roots.push(retained);
+    const evidence = await readFile(first.result.evidencePath, "utf8");
+    clock.mockReturnValue(now + 24 * 60 * 60_000 - 1);
+    await runEvaluation(options);
+    roots.push(workspace);
+    expect(existsSync(retained)).toBe(true);
+    clock.mockReturnValue(now + 24 * 60 * 60_000 + 1);
+    await runEvaluation(options);
+    roots.push(workspace);
+    expect(existsSync(retained)).toBe(false);
+    expect(await readFile(first.result.evidencePath, "utf8")).toBe(evidence);
+  } finally {
+    clock.mockRestore();
+  }
+});
+test("engine startup preserves an active workspace older than a day", async () => {
+  const paths = await rootsForRun();
+  const entered = Promise.withResolvers<undefined>();
+  const release = Promise.withResolvers<undefined>();
+  let workspace = "";
+  const options = {
+    ...paths,
+    case: baseCase,
+    runnerBuildDigest: digest,
+    projectDigest: digest,
+    condition: "passive" as const,
+    trialCount: 1,
+    passThreshold: 1,
+  };
+  const active = runEvaluation({
+    ...options,
+    host: {
+      id: "example.active",
+      model: "synthetic",
+      effort: "none",
+      async run(request) {
+        workspace = request.workspace;
+        entered.resolve(undefined);
+        await release.promise;
+        return { finalMessage: "ready", complete: true };
+      },
+    },
+  });
+  await entered.promise;
+  const clock = spyOn(Date, "now").mockReturnValue(
+    Date.now() + 24 * 60 * 60_000 + 1,
+  );
+  try {
+    await runEvaluation({
+      ...options,
+      host: {
+        id: "example.peer",
+        model: "synthetic",
+        effort: "none",
+        run() {
+          return Promise.resolve({ finalMessage: "ready", complete: true });
+        },
+      },
+    });
+    expect(await readFile(join(workspace, "README.md"), "utf8")).toBe(
+      "fixture content\n",
+    );
+  } finally {
+    release.resolve(undefined);
+    await active;
+    clock.mockRestore();
+  }
+});
+test("engine shell isolation hides a sibling created after sandbox launch", async () => {
+  if (!isolatedNativeHost) return;
+  const paths = await rootsForRun();
+  const control = await mkdtemp(join(tmpdir(), "sevro-isolation-control-"));
+  roots.push(control);
+  const marker = join(control, "started");
+  const published = join(control, "published");
+  let prepared: Promise<void> = Promise.resolve();
+  const host: HostAdapter = {
+    id: "sevro.host.synthetic",
+    model: "synthetic-v1",
+    effort: "none",
+    run({ workspace }) {
+      prepared = (async () => {
+        await waitForIsolationMarker(marker);
+        const peer = join(
+          dirname(workspace),
+          `sevro-case-future-${basename(workspace)}`,
+        );
+        await mkdir(peer, { mode: 0o700 });
+        roots.push(peer);
+        await writeFile(join(peer, "secret"), "original");
+        await writeFile(published, peer);
+      })();
+      return Promise.resolve({ finalMessage: "ready", complete: true });
+    },
+  };
+  const outcome = await runEvaluation({
+    ...paths,
+    case: {
+      ...baseCase,
+      checks: [
+        {
+          id: "isolated",
+          grader: "sevro.shell",
+          configuration: {
+            run: `touch '${marker}'
+while ! test -f '${published}'; do sleep 0.01; done
+peer=$(cat '${published}')
+cat README.md >/dev/null
+printf own > own-file
+if cat "$peer/secret" >/dev/null 2>&1; then exit 1; fi
+if (printf changed > "$peer/secret") 2>/dev/null; then exit 1; fi
+if ls ../.owners >/dev/null 2>&1; then exit 1; fi
+printf isolated`,
+            expectExact: "isolated",
+            timeoutMs: 10000,
+          },
+        },
+      ],
+    },
+    host,
+    shellIsolation: { protectedRoots: [] },
+    runnerBuildDigest: digest,
+    projectDigest: digest,
+    condition: "passive",
+    trialCount: 1,
+    passThreshold: 1,
+  });
+  await prepared;
+  expect(outcome.result.exitCode).toBe(0);
+  expect(outcome.result.task.verdict).toBe("passed");
+});
+test("engine shell isolation hides project sources and explicitly protected peer fixtures", async () => {
   if (!isolatedNativeHost) return;
   const paths = await rootsForRun();
   const peer = await mkdtemp(join(tmpdir(), "sevro-case-peer-"));
@@ -1228,7 +1485,7 @@ test("engine shell isolation hides project sources and peer fixtures", async () 
       })),
     },
     host,
-    shellIsolation: { protectedRoots: [] },
+    shellIsolation: { protectedRoots: [peer] },
     runnerBuildDigest: digest,
     projectDigest: digest,
     condition: "passive",

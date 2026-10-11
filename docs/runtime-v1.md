@@ -102,6 +102,22 @@ Existing directory paths and symlink targets are canonicalized. Reads under
 the real home are allowed only through bounded runtime grants. Source and
 configuration worktrees, evaluator inputs, credentials, results, run ownership
 state, and peer fixtures remain protected. A conflicting or broad grant fails.
+Evaluation workspaces share an owned private parent. Commands can access only
+their own workspace beneath it; the parent boundary also hides peers allocated
+after command launch. Sevro does not enumerate temporary-folder names to build
+permission profiles. Workspace isolation covers managed workspaces; callers
+using independently prepared workspaces must explicitly protect other private
+inputs. Linux uses `/var/tmp/sevro-workspaces-private`, outside Codex's implicit
+`/tmp` grants; other platforms use `sevro-workspaces-private` under their
+canonical temporary directory. The parent and its ownership metadata must be
+owned private directories, not links. Runtime read grants cannot overlap them.
+Claude's managed-workspace policy requires Claude Code 2.1.257 or later. Its
+native read boundary reopens the current workspace, while file tools refuse
+reads outside declared working directories and Edit grants remain bounded.
+Native write denies do not include the workspace parent because they override
+child write grants; the native sandbox's default write boundary protects peers.
+The checked native version is recorded in the
+[TypeScript quality contract](typescript-quality.md#environment-and-ci).
 
 Use `filesystem.optionalReadOnlyRoots` for supporting directories that may not
 be installed on every host, with the same path rules as `readOnlyRoots`:

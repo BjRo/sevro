@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { requireNativeTranscriptViews } from "../native-transcript-state";
+import { workspaceBoundaryException } from "../workspace-state";
 import {
   insideRuntimeRoot,
   isRuntimeHomeRoot,
@@ -40,6 +41,7 @@ export function macSandboxProfile(
   readOnlyRoots: string[] = [],
   writableRuntimeRoot?: string,
   transcriptReadRoots: string[] = [],
+  workspace?: string,
 ): string {
   requireProfileRoots(deniedRoots);
   return [
@@ -49,9 +51,14 @@ export function macSandboxProfile(
     ...[...new Set(deniedRoots)]
       .sort()
       .flatMap((path) => [
-        `(deny file-read* ${readFilter(path, readOnlyRoots, writableRuntimeRoot, transcriptReadRoots)})`,
-        `(deny file-write* ${rootFilter(path, ownedException(path, writableRuntimeRoot))})`,
+        `(deny file-read* ${workspaceReadFilter(path, [...readExceptions(path, readOnlyRoots, writableRuntimeRoot, transcriptReadRoots), ...workspaceBoundaryException(path, workspace)], workspace)})`,
+        `(deny file-write* ${rootFilter(path, [...ownedException(path, writableRuntimeRoot), ...workspaceBoundaryException(path, workspace)])})`,
       ]),
+    ...deniedRoots.flatMap((path) =>
+      workspaceBoundaryException(path, workspace).map(
+        () => `(deny file-read-data (literal "${quoted(path)}"))`,
+      ),
+    ),
     ...[...readOnlyRoots, ...transcriptReadRoots].map(
       (path) => `(deny file-write* (subpath "${quoted(path)}"))`,
     ),
@@ -64,26 +71,37 @@ function requireProfileRoots(roots: string[]): void {
     throw new HostIsolationError("sandbox roots must be absolute and nonempty");
 }
 
-function readFilter(
+function readExceptions(
   root: string,
   readRoots: string[],
   writableRuntimeRoot: string | undefined,
   transcriptReadRoots: string[],
-): string {
+): string[] {
   const exceptions = isRuntimeHomeRoot(root)
     ? readRoots.filter((path) => insideRuntimeRoot(root, path))
     : [];
-  return rootFilter(root, [
+  return [
     ...transcriptReadRoots.filter((path) => insideRuntimeRoot(root, path)),
     ...exceptions,
     ...ownedException(root, writableRuntimeRoot),
-  ]);
+  ];
 }
 
 function rootFilter(root: string, exceptions: string[]): string {
   const base = `(subpath "${quoted(root)}")`;
   if (!exceptions.length) return base;
   return `(require-all ${base} ${exceptions.map((path) => `(require-not (subpath "${quoted(path)}"))`).join(" ")})`;
+}
+
+function workspaceReadFilter(
+  root: string,
+  exceptions: string[],
+  workspace?: string,
+): string {
+  const filter = rootFilter(root, exceptions);
+  return workspaceBoundaryException(root, workspace).length
+    ? `(require-all ${filter} (require-not (literal "${quoted(root)}")))`
+    : filter;
 }
 
 function ownedException(root: string, ownedRoot: string | undefined): string[] {
@@ -120,6 +138,7 @@ export async function prepareMacSandboxCommand(
       readRoots,
       ownedRoot,
       options.transcriptReadRoots,
+      workspace,
     ),
     { flag: "wx", mode: 0o600 },
   );

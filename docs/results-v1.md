@@ -110,12 +110,33 @@ An interrupted or failed run keeps completed trials plus an explicit partial
 attempt or diagnostic record. Failed persistence is an internal error and
 cannot be presented as a successful assessment.
 
+Temporary candidate, semantic, and advisory workspaces live under the owned
+`sevro-workspaces-private` namespace. Successful workspaces are removed after
+their evidence is saved. Failed and cancelled workspaces remain available for
+24 hours after they become inactive; a later evaluation automatically removes
+expired owned workspaces. Cleanup never deletes saved results, reports, or
+evidence. Active or unverifiable owners are preserved, including runs older
+than a day. Forced termination can leave an active ownership record; a later
+evaluation can reclaim it only after its owner is verified dead and its
+allocation is older than 24 hours. Unregistered legacy temporary folders are
+not automatically deleted because their ownership cannot be established.
+
+Trial observation `sevro.observation.workspaces` records the candidate path and
+any retained auxiliary workspace paths for inspection. These temporary paths
+do not enter evaluation identity and may no longer exist after cleanup.
+
 A host adapter can return `executionFailed: true` with bounded artifacts from
 a failed process. The engine retains those artifacts, skips all grading, and
 reports `failed` / `not_requested` / `not_assessed` with exit code `2`. A final
 message that happens to match a check cannot turn that failure into a pass.
 Claude retains its bounded event stream and, when present, up to 64 KiB of
 stderr as private host artifacts. Failure bodies do not appear in CLI diagnostics.
+Codex preflight failures and timeouts retain `codex.process` metadata with the
+stage, reason, exit code, signal, duration, and stderr truncation flag, plus a
+`codex.stderr` artifact containing at most the first 64 KiB of stderr. Semantic
+and advisory artifacts use their existing role prefixes. CLI diagnostics name
+the failed preflight or its timeout without printing raw stderr. Codex process
+cancellation remains distinct from timeout and nonzero exit.
 
 ## Native transcript bundles
 

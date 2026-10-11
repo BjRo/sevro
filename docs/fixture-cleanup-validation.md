@@ -1,4 +1,71 @@
-# Permission-locked fixture cleanup
+# Temporary workspace cleanup validation
+
+Current temporary workspace retention is defined in the
+[results contract](results-v1.md). The historical cleanup observations below
+predate the 24-hour failure-inspection policy.
+
+## Workspace isolation and retention regression slices
+
+The public programmatic seam is `runEvaluation`, exported by `src/engine.ts`.
+The scenarios use real files and subprocesses, synthetic candidate/grading
+adapters, and native sandbox execution. Each red below preceded its product
+change; green used the same literal command. The two preflight nonzero-exit
+diagnostic cases have the separate fixture caveat recorded below.
+
+Red — `bun test tests/engine.test.ts --test-name-pattern 'engine shell isolation hides a sibling created after sandbox launch'`: the late sibling was accessible and the run exited 1.
+
+Green — `bun test tests/engine.test.ts --test-name-pattern 'engine shell isolation hides a sibling created after sandbox launch'`: the sibling remained unreadable and unwritable while the current workspace remained usable.
+
+Red — `bun test tests/codex-host.test.ts --test-name-pattern 'Codex sandbox profile does not grow with stale temporary case folders'`: adding 200 stale folders increased deny entries from 428 to 628.
+
+Green — `bun test tests/codex-host.test.ts --test-name-pattern 'Codex sandbox profile does not grow with stale temporary case folders'`: the deny-entry count remained unchanged.
+
+Red — `bun test tests/engine.test.ts --test-name-pattern 'engine retains a failed candidate workspace while preserving saved evidence'`: the failed candidate workspace had been deleted.
+
+Green — `bun test tests/engine.test.ts --test-name-pattern 'engine retains a failed candidate workspace while preserving saved evidence'`: the workspace and its contents remained available, alongside saved evidence.
+
+Red — `bun test tests/engine.test.ts --test-name-pattern 'engine startup expires inactive failed workspaces after a day without deleting evidence'`: the expired failure workspace remained present.
+
+Green — `bun test tests/engine.test.ts --test-name-pattern 'engine startup expires inactive failed workspaces after a day without deleting evidence'`: startup removed it after 24 hours and left the saved evidence bytes unchanged.
+
+Red — `bun test tests/codex-host.test.ts --test-name-pattern 'Codex preflight timeout retains termination evidence'`: after the real 60-second deadline, the diagnostic was only `host execution did not complete`.
+
+Green — `bun test tests/codex-host.test.ts --test-name-pattern 'Codex preflight timeout retains termination evidence'`: the diagnostic named the preflight timeout and evidence retained exit 137 with `SIGKILL`.
+
+Red — `bun test tests/engine.test.ts --test-name-pattern 'engine retains the semantic workspace when grading fails'`: grading failure removed its workspace and diagnostic file.
+
+Green — `bun test tests/engine.test.ts --test-name-pattern 'engine retains the semantic workspace when grading fails'`: both remained available for inspection.
+
+Red — `bun test tests/engine.test.ts --test-name-pattern 'engine retains a failed candidate workspace while preserving saved evidence'`: the follow-up assertion could not find a workspace-location observation in saved evidence.
+
+Green — `bun test tests/engine.test.ts --test-name-pattern 'engine retains a failed candidate workspace while preserving saved evidence'`: the observation identified the retained candidate workspace.
+
+Red — `bun test tests/engine-quality.test.ts --test-name-pattern 'records a failed advisory host without accepting its passing assessment'`: the failed advisory workspace had been deleted.
+
+Green — `bun test tests/engine-quality.test.ts --test-name-pattern 'records a failed advisory host without accepting its passing assessment'`: it remained inspectable without changing the candidate's passing verdict.
+
+The candidate and semantic nonzero-exit diagnostic fixtures initially used
+`env` instead of the public runtime policy's `environment` field. That fixture
+was corrected during implementation, so their initial failures are not claimed
+as valid test-first evidence. A temporary copy of the corrected tests was then
+run against unchanged `main` sources: both reproduced the generic diagnostics.
+On the implementation, `bun test tests/codex-host.test.ts --test-name-pattern 'preflight failure retains its cause and process evidence'`
+passed both cases and verified the stage, exit code, signal, and retained stderr.
+
+Additional passing checks covered a live workspace older than a day, ownership
+metadata hidden from sandboxed commands, and stderr overflow retaining exactly
+64 KiB with a truncation flag. These deterministic local observations establish
+macOS behavior; full acceptance and Linux isolation are checked by source CI.
+
+Red — `bun test tests/claude-host.test.ts --test-name-pattern 'Claude managed workspaces remain usable under the namespace policy'`: the generated native policy blocked the current managed workspace and execution remained unassessed.
+
+Green — `bun test tests/claude-host.test.ts --test-name-pattern 'Claude managed workspaces remain usable under the namespace policy'`: the native CLI fixture accepted the current-workspace exception and bounded file-tool policy. This is native configuration-contract coverage, not a live model trial.
+
+Red — `bun test tests/cli.test.ts --test-name-pattern 'CLI curated shell grading leaves repository caches to tools'`: the shell cache check failed because absolute `mkdir -p` could not stat the namespace parent.
+
+Green — `bun test tests/cli.test.ts --test-name-pattern 'CLI curated shell grading leaves repository caches to tools'`: parent metadata traversal was usable while directory listing and sibling access remained denied in the isolation regression.
+
+## Historical permission-locked fixture cleanup
 
 The Darrow extraction comparison exposed a cleanup difference: its legacy
 fixture destroyer removes permission-locked directories, while Sevro retained

@@ -28,7 +28,7 @@ import {
   codexNativeSessionLastOrdinal,
   codexNativeSkillReadRecovery,
 } from "./codex-native-calls";
-import { runCodexProcess } from "./codex-process";
+import { runCodexProcess, CodexProcessFailure } from "./codex-process";
 import { codexSkillReadObservation } from "./codex-skill-reads";
 import {
   codexHookMounts,
@@ -43,7 +43,10 @@ const DEFAULT_TIMEOUT_MS = 10 * 60_000;
 const MAX_TIMEOUT_MS = 30 * 60_000;
 
 type Request = Parameters<HostAdapter["run"]>[0];
-type ProcessResult = Awaited<ReturnType<typeof runCodexProcess>>;
+type ProcessResult = Pick<
+  Awaited<ReturnType<typeof runCodexProcess>>,
+  "code" | "out"
+>;
 type AppServerResult = Awaited<ReturnType<typeof runCodexAppServer>>;
 type Observation = {
   id: string;
@@ -290,6 +293,7 @@ async function sandboxPreflight(
     cwd: request.workspace,
     env: state.env,
     timeoutMs: 60_000,
+    phase: "isolation-preflight",
     signal: request.signal,
   });
 }
@@ -311,8 +315,10 @@ async function codexPreflight(
     join(state.codexHome, "config.toml"),
     state.sandboxBinary,
   ]);
-  if (checked.code === 71) throw new Error("Codex executable preflight failed");
-  if (checked.code !== 0) throw new Error("Codex isolation preflight failed");
+  if (checked.code === 71)
+    throw new CodexProcessFailure("executable-preflight", checked);
+  if (checked.code !== 0)
+    throw new CodexProcessFailure("isolation-preflight", checked);
   await rm(probe);
 }
 

@@ -229,6 +229,7 @@ export async function prepareClaudeState(
         runtimeWriteRoot
           ? { root: runtimeWriteRoot, workspace: request.workspace }
           : undefined,
+        request.workspace,
       ),
     ),
     { flag: "wx", mode: 0o600 },

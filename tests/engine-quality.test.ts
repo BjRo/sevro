@@ -1264,7 +1264,8 @@ test("records a failed advisory host without accepting its passing assessment", 
     "failed review trace",
   );
   expect(workspace).not.toBe("");
-  expect(existsSync(workspace)).toBe(false);
+  expect(existsSync(workspace)).toBe(true);
+  roots.push(workspace);
 });
 
 for (const response of [
@@ -1337,7 +1338,8 @@ for (const response of [
     );
     expect(await readFile(new URL(trace.path), "utf8")).toBe("review trace");
     expect(workspace).not.toBe("");
-    expect(existsSync(workspace)).toBe(false);
+    expect(existsSync(workspace)).toBe(response.verdict === null);
+    roots.push(workspace);
   });
 }
 
@@ -1769,7 +1771,8 @@ test("retains a failed host's raw response and artifacts before fixture cleanup"
     trial.observations.find((item) => item.id === "example.receipt"),
   ).toMatchObject({ completeness: "complete", data: { ready: true } });
   expect(workspace).not.toBe("");
-  expect(existsSync(workspace)).toBe(false);
+  expect(existsSync(workspace)).toBe(true);
+  roots.push(workspace);
 });
 
 for (const candidate of [
@@ -1914,7 +1917,8 @@ for (const response of [
     );
     expect(await readFile(new URL(trace.path), "utf8")).toBe("grader trace");
     expect(workspace).not.toBe("");
-    expect(existsSync(workspace)).toBe(false);
+    expect(existsSync(workspace)).toBe(!response.accepted);
+    roots.push(workspace);
   });
 }
 
@@ -1922,7 +1926,7 @@ for (const grader of [
   { name: "malformed", finalMessage: "{broken", complete: true },
   { name: "incomplete", finalMessage: '{"verdicts":[]}', complete: false },
 ]) {
-  test(`retains ${grader.name} semantic output as a grading error and cleans its workspace`, async () => {
+  test(`retains ${grader.name} semantic output and its workspace for grading-error inspection`, async () => {
     const options = await evaluation({ finalMessage: "ready", complete: true });
     requireSemantic(options, grader);
     let workspace = "";
@@ -1949,7 +1953,8 @@ for (const grader of [
     );
     expect(await readFile(new URL(raw.path), "utf8")).toBe(grader.finalMessage);
     expect(workspace).not.toBe("");
-    expect(existsSync(workspace)).toBe(false);
+    expect(existsSync(workspace)).toBe(true);
+    roots.push(workspace);
   });
 }
 
@@ -2023,7 +2028,8 @@ test("retains semantic-phase cancellation and interrupted ownership before furth
   expect(outcome.result.task.verdict).toBe("not_assessed");
   expect(outcome.result.exitCode).toBe(143);
   expect(defined(outcome.result.cases[0]).trials).toHaveLength(1);
-  expect(existsSync(workspace)).toBe(false);
+  expect(existsSync(workspace)).toBe(true);
+  roots.push(workspace);
   const evidence = parseRunEvidence(
     await readFile(outcome.result.evidencePath, "utf8"),
   );

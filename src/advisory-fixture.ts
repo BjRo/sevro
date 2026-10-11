@@ -3,7 +3,6 @@ import { isMissingFile } from "./fixture-tools";
 import {
   lstat,
   mkdir,
-  mkdtemp,
   readlink,
   readdir,
   realpath,
@@ -11,7 +10,7 @@ import {
   symlink,
   copyFile,
 } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { allocateWorkspace, removeWorkspace } from "./workspace-state";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fixtureParts } from "./preparation";
 
@@ -245,7 +244,7 @@ export async function buildBlindAdvisoryFixture(
   requireAdvisorySource(candidateWorkspace, options.baseRevision);
   const source = await realpath(candidateWorkspace);
   const exclusions = advisoryExclusions(options);
-  const temporary = await mkdtemp(join(tmpdir(), "sevro-advisory-"));
+  const temporary = await allocateWorkspace();
   try {
     const destination = await realpath(temporary);
     await initializeAdvisoryBaseline(
@@ -262,7 +261,7 @@ export async function buildBlindAdvisoryFixture(
     );
     return destination;
   } catch (error) {
-    await rm(temporary, { recursive: true, force: true });
+    await removeWorkspace(temporary);
     throw error;
   }
 }

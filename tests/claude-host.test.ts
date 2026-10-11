@@ -11,7 +11,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runEvaluation } from "../src/engine";
 import { createClaudeHost } from "../src/hosts/claude";
@@ -76,6 +76,47 @@ async function nativeGoalHostFixture() {
   return { host, workspace };
 }
 
+test("Claude managed workspaces remain usable under the namespace policy", async () => {
+  const { host, workspace } = await nativeGoalHostFixture();
+  const root = dirname(workspace);
+  await writeFile(
+    join(root, "fake-claude"),
+    `#!${process.execPath}
+import { readFile } from "node:fs/promises";
+import { dirname } from "node:path";
+const settings = JSON.parse(await readFile(process.argv[process.argv.indexOf("--settings") + 1], "utf8"));
+const fs = settings.sandbox.filesystem;
+const workspace = process.cwd(), parent = dirname(workspace);
+const valid = fs.denyRead.includes(parent) && fs.allowRead.includes(workspace) && !fs.denyWrite.includes(parent) && settings.permissions.blockReadsOutsideWorkingDirectories === true && !settings.permissions.deny.includes("Read(/" + parent + "/**)") && !settings.permissions.deny.includes("Edit(/" + parent + "/**)") && !settings.permissions.allow.includes("Edit");
+process.stdout.write(JSON.stringify({type:"result",subtype:valid?"success":"error_during_execution",is_error:!valid,result:valid?"ready":"workspace policy blocks current workspace"}) + "\\n");
+`,
+    { mode: 0o700 },
+  );
+  const outcome = await runEvaluation({
+    projectRoot: join(root, "source"),
+    resultsRoot: join(root, "results"),
+    host,
+    case: {
+      id: "workspace",
+      prompt: "Return ready.",
+      fixture: { files: {} },
+      checks: [
+        {
+          id: "ready",
+          grader: "sevro.regex",
+          configuration: { pattern: "^ready$" },
+        },
+      ],
+      requiredEvidence: [],
+    },
+    runnerBuildDigest: "a".repeat(64),
+    projectDigest: "b".repeat(64),
+    condition: "passive",
+    trialCount: 1,
+    passThreshold: 1,
+  });
+  expect(outcome.result.task.verdict).toBe("passed");
+});
 test.each(["no-goal", "sidechain-only", "metadata-file"])(
   "Claude complete native session records bounded goal absence: %s",
   async (mode) => {

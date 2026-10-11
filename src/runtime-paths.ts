@@ -9,6 +9,7 @@ import {
 import { constants, lstatSync, readlinkSync, realpathSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import { nativeStateProtectedRoots } from "./native-transcript-state";
+import { workspaceStatePath } from "./workspace-state";
 import {
   basename,
   delimiter,
@@ -42,6 +43,7 @@ export function requireRuntimeReadRoots(
     ...protectedRoots.filter((root) => !isRuntimeHomeRoot(root)),
     ...runtimeCredentialRoots(),
     ...nativeStateProtectedRoots(),
+    workspaceStatePath(),
   ];
   for (const root of readRoots) {
     if (root === "/" || isRuntimeHomeRoot(root))

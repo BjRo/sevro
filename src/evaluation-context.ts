@@ -1,5 +1,9 @@
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, realpath, rm, writeFile } from "node:fs/promises";
+import {
+  allocateWorkspace,
+  retainWorkspace,
+  removeWorkspace,
+} from "./workspace-state";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createFixture } from "./evaluation-fixture";
@@ -116,13 +120,9 @@ export async function reserveEvaluationWorkspaces(
     trial <= options.trialCount && !options.signal?.aborted;
     trial++
   ) {
-    reservedWorkspaces.push(
-      await realpath(await mkdtemp(join(tmpdir(), "sevro-case-"))),
-    );
+    reservedWorkspaces.push(await allocateWorkspace());
     if (preparedSemantic.length)
-      reservedSemanticWorkspaces.push(
-        await realpath(await mkdtemp(join(tmpdir(), "sevro-case-"))),
-      );
+      reservedSemanticWorkspaces.push(await allocateWorkspace());
   }
   const diagnostics: {
     trial: number;
@@ -243,12 +243,14 @@ export function diagnoseEvaluationFailure(context: EvaluationRuntime): void {
 export async function cleanupEvaluationWorkspaces(
   context: EvaluationRuntime,
 ): Promise<void> {
+  for (const workspace of context.retainedWorkspaces)
+    await retainWorkspace(workspace);
   await Promise.all(
     [...context.reservedWorkspaces, ...context.reservedSemanticWorkspaces]
       .filter((workspace) => !context.retainedWorkspaces.has(workspace))
       .map(async (workspace) => {
         try {
-          await rm(workspace, { recursive: true, force: true });
+          await removeWorkspace(workspace);
         } catch {
           console.warn(`fixture cleanup failed; retained at ${workspace}`);
         }

@@ -39,6 +39,11 @@ import {
 } from "./extension-session";
 import { clearFixtureContents } from "./fixture-cleanup";
 import {
+  CodexProcessFailure,
+  codexFailureMessage,
+} from "./hosts/codex-process";
+import { retainWorkspace, removeWorkspace } from "./workspace-state";
+import {
   assessGitHeadCheck,
   gitHeadRevision,
   gitHeadState,
@@ -123,6 +128,8 @@ function hostFailureDiagnostic(execution: string, error: unknown) {
     return { code: "sevro.run.cancelled", message: "run cancelled" };
   if (error instanceof InstrumentationEvidenceError)
     return { code: "sevro.instrumentation.mismatch", message: error.message };
+  if (error instanceof CodexProcessFailure)
+    return { code: "sevro.host.failed", message: error.message };
   return {
     code: "sevro.host.failed",
     message: "host execution did not complete",
@@ -243,6 +250,7 @@ class EvaluationTrial {
   };
   private advisoryReview: AdvisoryReview | null = null;
   private rawPath: string | null = null;
+  private retainedAuxiliaryWorkspaces: string[] = [];
   constructor(
     private readonly options: EvaluationOptions,
     private readonly context: EvaluationContext,
@@ -311,6 +319,7 @@ class EvaluationTrial {
   private candidateReservedIds(): Set<string> {
     return new Set([
       "sevro.observation.final-message",
+      "sevro.observation.workspaces",
       ...this.context.artifactRefs.map((item) => item.id),
       ...this.additionalObservations.map((item) => item.id),
       ...this.options.case.checks.map((item) => item.id),
@@ -355,15 +364,18 @@ class EvaluationTrial {
       this.stopAdmission();
       this.diagnostic = {
         code: "sevro.host.failed",
-        message: "host execution did not complete",
+        message:
+          codexFailureMessage(response) ?? "host execution did not complete",
       };
     }
   }
 
   private failCandidate(error: unknown): void {
-    this.execution = this.options.signal?.aborted ? "cancelled" : "failed";
     this.stopAdmission();
-    this.hostResult = null;
+    this.hostResult =
+      error instanceof CodexProcessFailure ? error.result : null;
+    if (this.hostResult) this.acceptCandidateResult(this.hostResult);
+    this.execution = this.options.signal?.aborted ? "cancelled" : "failed";
     this.diagnostic = hostFailureDiagnostic(this.execution, error);
   }
 
@@ -635,6 +647,8 @@ class EvaluationTrial {
         },
         retainArtifacts: (artifacts) => this.retainArtifacts(artifacts),
         writeTrialFile: (path, bytes) => this.writeTrialFile(path, bytes),
+        retainWorkspace: (workspace) =>
+          this.retainAuxiliaryWorkspace(workspace),
       },
     );
     this.semanticObservations.push(...graded.observations);
@@ -648,6 +662,15 @@ class EvaluationTrial {
       ...this.gitHeadObservations,
       ...this.semanticObservations,
       ...this.additionalObservations,
+      {
+        id: "sevro.observation.workspaces",
+        source: "sevro.runner",
+        completeness: "complete",
+        data: {
+          candidate: this.fixture.workspace,
+          retainedAuxiliary: this.retainedAuxiliaryWorkspaces,
+        },
+      },
     ];
   }
 
@@ -770,10 +793,12 @@ class EvaluationTrial {
 
   private async cleanupAdvisoryWorkspace(
     workspace: string | null,
+    successful: boolean,
   ): Promise<void> {
     if (!workspace) return;
+    if (!successful) return this.retainAuxiliaryWorkspace(workspace);
     try {
-      await rm(workspace, { recursive: true, force: true });
+      await removeWorkspace(workspace);
     } catch {
       console.warn(`advisory fixture cleanup failed; retained at ${workspace}`);
     }
@@ -817,8 +842,16 @@ class EvaluationTrial {
       if (isTrialPersistenceFailure(error)) throw error;
       review.status = "failed";
     } finally {
-      await this.cleanupAdvisoryWorkspace(workspace);
+      await this.cleanupAdvisoryWorkspace(
+        workspace,
+        review.status === "completed",
+      );
     }
+  }
+  private retainAuxiliaryWorkspace(workspace: string): Promise<void> {
+    this.retainedAuxiliaryWorkspaces.push(workspace);
+    this.context.retainedWorkspaces.add(workspace);
+    return retainWorkspace(workspace);
   }
 
   private async runAdvisory(): Promise<void> {
@@ -914,7 +947,7 @@ class EvaluationTrial {
   private async cleanup(): Promise<void> {
     if (this.candidateTranscriptRoot)
       await rm(this.candidateTranscriptRoot, { recursive: true, force: true });
-    if (this.persisted) {
+    if (this.persisted && !this.retainFailedWorkspace()) {
       try {
         await clearFixtureContents(this.fixture.workspace);
         this.context.retainedWorkspaces.delete(this.fixture.reservation);
@@ -924,6 +957,14 @@ class EvaluationTrial {
         );
       }
     }
+  }
+  private retainFailedWorkspace(): boolean {
+    return (
+      this.execution === "failed" ||
+      this.execution === "cancelled" ||
+      this.graderError ||
+      this.assessment.task.verdict === "failed"
+    );
   }
 }
 export async function executeEvaluationTrials(
