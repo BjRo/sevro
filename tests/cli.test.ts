@@ -1296,6 +1296,12 @@ const invalidExternalFlags: {
   diagnostic: RegExp;
 }[] = [
   {
+    name: "Codex timeout without a Codex host route",
+    extension: false,
+    flags: ["--codex-timeout-ms", "1200000"],
+    diagnostic: /Codex options require a Codex host route/,
+  },
+  {
     name: "unknown flag",
     extension: false,
     flags: ["--unknown-sevro-option"],
