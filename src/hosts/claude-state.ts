@@ -186,6 +186,7 @@ export async function prepareClaudeState(
   request: Request,
   pluginDirs: string[],
 ) {
+  await requireClaudeRuntimeNamespace(request, stateRoot);
   const state = await createClaudePrivateState(stateRoot, options);
   const transcripts = await claudeTranscriptAccess(
     stateRoot,
@@ -204,6 +205,13 @@ export async function prepareClaudeState(
     roots,
   );
   const effectivePlugins = hooks?.directories ?? pluginDirs;
+  const env = claudeEnvironment(state, request, toolchain, runtime);
+  const runtimeWriteRoot = await applyClaudeRuntimeEnvironment(
+    request,
+    env,
+    runtime,
+    stateRoot,
+  );
   await writeFile(
     settingsPath,
     JSON.stringify(
@@ -217,12 +225,13 @@ export async function prepareClaudeState(
           ...transcripts.readRoots,
           ...candidateTranscriptRoots(request.candidateTranscriptRoot),
         ],
+        runtimeWriteRoot
+          ? { root: runtimeWriteRoot, workspace: request.workspace }
+          : undefined,
       ),
     ),
     { flag: "wx", mode: 0o600 },
   );
-  const env = claudeEnvironment(state, request, toolchain, runtime);
-  await applyClaudeRuntimeEnvironment(request, env, runtime);
   Object.assign(env, transcripts.environment);
   Object.assign(
     env,
@@ -236,6 +245,38 @@ export async function prepareClaudeState(
     hooks,
     pluginDirs: effectivePlugins,
   };
+}
+
+/** Claude's implicit /tmp/claude writes cannot contain the read-denied peer namespace. */
+async function requireClaudeRuntimeNamespace(
+  request: Request,
+  stateRoot: string,
+) {
+  if (!request.runtimePolicy) return;
+  const implicitRoots = await Promise.all(
+    ["/tmp/claude", "/private/tmp/claude"].map(implicitClaudeWritePaths),
+  );
+  const namespace = dirname(stateRoot);
+  if (
+    implicitRoots
+      .flat()
+      .some((root) => inside(root, namespace) || inside(namespace, root))
+  )
+    throw new Error(
+      "Claude namespace overlaps an implicit native writable root",
+    );
+}
+
+async function implicitClaudeWritePaths(root: string): Promise<string[]> {
+  try {
+    return [root, await realpath(root)];
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code !== "ENOENT")
+      throw new Error("Claude implicit native writable root is unreadable", {
+        cause,
+      });
+    return [root];
+  }
 }
 
 async function claudeTranscriptAccess(
@@ -292,21 +333,36 @@ async function applyClaudeRuntimeEnvironment(
   request: Request,
   env: Record<string, string>,
   runtime: string | null,
-): Promise<void> {
+  stateRoot: string,
+): Promise<string | undefined> {
   const isolated = await prepareRuntimeState(
     request.workspace,
     claudeCommandPolicy(request),
     request.runtimeRole ?? "candidate",
+    claudeRuntimeDirectory(request, stateRoot),
   );
   if (request.runtimePolicy) {
     Object.assign(env, isolated.environment);
     env.PATH = [request.fixtureBinDir, isolated.environment.PATH ?? env.PATH]
       .filter(Boolean)
       .join(delimiter);
-  } else {
-    if (!runtime) env.HOME = isolated.home;
-    env.TMPDIR = isolated.temp;
+    return isolated.root;
   }
+  applyLegacyClaudeCommandEnvironment(env, isolated, runtime);
+  return undefined;
+}
+
+function claudeRuntimeDirectory(request: Request, stateRoot: string) {
+  return request.runtimePolicy ? join(stateRoot, "runtime") : undefined;
+}
+
+function applyLegacyClaudeCommandEnvironment(
+  env: Record<string, string>,
+  isolated: Awaited<ReturnType<typeof prepareRuntimeState>>,
+  runtime: string | null,
+): void {
+  if (!runtime) env.HOME = isolated.home;
+  env.TMPDIR = isolated.temp;
 }
 
 function claudeCommandPolicy(request: Request) {

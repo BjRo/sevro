@@ -3,6 +3,12 @@ import { CLAUDE_AUTH_VARIABLES } from "./claude-credential";
 import type { RuntimePolicy } from "../runtime-config";
 import { runtimeHooksEnabled } from "../runtime-hooks";
 import { requireRuntimeReadRoots, isRuntimeHomeRoot } from "../runtime-paths";
+import { nativeStatePath } from "../native-transcript-state";
+
+interface WritableRuntime {
+  root: string;
+  workspace: string;
+}
 
 function absoluteRule(root: string, tool: "Read" | "Edit"): string {
   if (!isAbsolute(root) || /[\r\n()]/.test(root))
@@ -31,6 +37,7 @@ export function claudeHostSettings(
   protectedRoots: string[] = [],
   runtimePolicy?: RuntimePolicy,
   transcriptReadRoots: string[] = [],
+  runtime?: WritableRuntime,
 ): Record<string, unknown> {
   if (
     !validPrivatePaths(privateRoot, credentialFile, [
@@ -47,17 +54,14 @@ export function claudeHostSettings(
       enabled: true,
       allowUnsandboxedCommands: false,
       failIfUnavailable: true,
-      filesystem: {
-        denyRead: [privateRoot, ...protectedRoots],
-        allowRead: [...readRoots, ...transcriptReadRoots, ...pluginRoots],
-        denyWrite: [
-          privateRoot,
-          ...pluginRoots,
-          ...protectedRoots,
-          ...readRoots,
-          ...transcriptReadRoots,
-        ],
-      },
+      filesystem: claudeFilesystemPolicy(
+        privateRoot,
+        protectedRoots,
+        readRoots,
+        transcriptReadRoots,
+        pluginRoots,
+        runtime,
+      ),
       credentials: {
         files: [{ path: credentialFile, mode: "deny" }],
         envVars: CLAUDE_AUTH_VARIABLES.map((name) => ({ name, mode: "deny" })),
@@ -69,7 +73,36 @@ export function claudeHostSettings(
       pluginRoots,
       runtimePolicy,
       transcriptReadRoots,
+      runtime,
     ),
+  };
+}
+
+function claudeFilesystemPolicy(
+  privateRoot: string,
+  protectedRoots: string[],
+  readRoots: string[],
+  transcriptReadRoots: string[],
+  pluginRoots: string[],
+  runtime: WritableRuntime | undefined,
+) {
+  const runtimeWriteRoot = runtime?.root;
+  return {
+    denyRead: [privateRoot, ...protectedRoots],
+    allowRead: [
+      ...readRoots,
+      ...transcriptReadRoots,
+      ...pluginRoots,
+      ...optionalRuntimeRoot(runtimeWriteRoot),
+    ],
+    ...(runtimeWriteRoot ? { allowWrite: [runtimeWriteRoot] } : {}),
+    denyWrite: [
+      privateRoot,
+      ...pluginRoots,
+      ...writableProtectedRoots(protectedRoots, runtimeWriteRoot),
+      ...readRoots,
+      ...transcriptReadRoots,
+    ],
   };
 }
 
@@ -79,24 +112,29 @@ function claudePermissions(
   pluginRoots: string[],
   policy: RuntimePolicy | undefined,
   transcriptReadRoots: string[],
+  runtime: WritableRuntime | undefined,
 ) {
+  const runtimeWriteRoot = runtime?.root;
   const roots = [privateRoot, ...protectedRoots];
   const readRoots = policy
     ? roots.filter((root) => !isRuntimeHomeRoot(root))
     : roots;
   const toolRoots = [...runtimeReadRoots(policy), ...transcriptReadRoots];
+  const writableRoots = optionalRuntimeRoot(runtimeWriteRoot);
   return {
-    allow: policy
-      ? ["Bash", "Edit", "Skill", "Agent"]
-      : ["Bash", "Read", "Edit", "Skill", "Agent"],
+    allow: claudeToolAllowRules(policy, runtime),
     ...(policy
       ? {
           blockReadsOutsideWorkingDirectories: true,
-          additionalDirectories: [...pluginRoots, ...toolRoots],
+          additionalDirectories: [
+            ...pluginRoots,
+            ...toolRoots,
+            ...writableRoots,
+          ],
         }
       : {}),
     deny: [
-      ...roots.flatMap((root) =>
+      ...writableProtectedRoots(roots, runtimeWriteRoot).flatMap((root) =>
         protectedToolRules(
           root,
           readRoots.includes(root) &&
@@ -110,6 +148,38 @@ function claudePermissions(
       ),
     ],
   };
+}
+
+function claudeToolAllowRules(
+  policy: RuntimePolicy | undefined,
+  runtime: WritableRuntime | undefined,
+): string[] {
+  if (!policy) return ["Bash", "Read", "Edit", "Skill", "Agent"];
+  if (!runtime) return ["Bash", "Edit", "Skill", "Agent"];
+  return [
+    "Bash",
+    "Skill",
+    "Agent",
+    absoluteRule(runtime.workspace, "Edit"),
+    absoluteRule(runtime.root, "Edit"),
+  ];
+}
+
+/** Native write denies override grants; the namespace stays read-denied and has no write grant. */
+function writableProtectedRoots(
+  roots: string[],
+  runtimeWriteRoot: string | undefined,
+): string[] {
+  if (!runtimeWriteRoot) return roots;
+  const namespace = nativeStatePath();
+  return roots.filter(
+    (root) =>
+      root !== namespace || !runtimeWriteRoot.startsWith(`${namespace}/`),
+  );
+}
+
+function optionalRuntimeRoot(root: string | undefined): string[] {
+  return root ? [root] : [];
 }
 
 function protectedToolRules(root: string, denyRead: boolean): string[] {

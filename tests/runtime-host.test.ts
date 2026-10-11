@@ -5,6 +5,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   realpath,
   rm,
   symlink,
@@ -16,6 +17,7 @@ import { createCodexHost } from "../src/hosts/codex";
 import { createClaudeHost } from "../src/hosts/claude";
 import { createHash, randomUUID } from "node:crypto";
 import { runtimeSeedDigest } from "../src/runtime-seeds";
+import { allocateNativeState } from "../src/native-transcript-state";
 import {
   loadRuntimeConfiguration,
   runEvaluation,
@@ -29,6 +31,11 @@ type NativeBundle = {
   files: { path: string; bytesBase64: string; sha256: string }[];
 };
 const roots: string[] = [];
+const nativeRuntimeCases = (
+  ["candidate", "semantic", "advisory"] as const
+).flatMap((role) =>
+  [false, true].map((nativeTranscripts) => ({ role, nativeTranscripts })),
+);
 const nativeRoot =
   '{"type":"session_meta","payload":{"id":"runtime-test"},"future":"preserved"}';
 const retainedNativeBundle = {
@@ -275,7 +282,7 @@ const args = process.argv;
 const settings = await Bun.file(args[args.indexOf('--settings') + 1]).json();
 const fs = settings.sandbox.filesystem;
 const own = [process.env.HOME, process.env.TMPDIR];
-const denied = own.some(path => fs.denyRead.concat(fs.denyWrite).some(root => path === root || path.startsWith(root + '/')));
+const denied = own.some(path => fs.denyWrite.some(root => path === root || path.startsWith(root + '/')) || (fs.denyRead.some(root => path === root || path.startsWith(root + '/')) && !fs.allowRead.some(root => path === root || path.startsWith(root + '/'))));
 console.log(JSON.stringify({type:'result',subtype:'success',is_error:false,result:denied?'denied':'writable'}));
 `,
       { mode: 0o700 },
@@ -744,6 +751,7 @@ test("Claude refuses direct read access to an original seed source", async () =>
 async function codexFixture(
   command = "probe",
   additionalProtectedRoots: string[] = [],
+  timeoutMs?: number,
 ) {
   const root = await realpath(
     await mkdtemp(join(tmpdir(), "sevro-runtime-host-")),
@@ -788,6 +796,7 @@ printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_token
     additionalProtectedRoots: [auth, ...additionalProtectedRoots],
     model: "synthetic",
     effort: "low",
+    timeoutMs,
   });
   return { host, workspace, root, bin };
 }
@@ -946,28 +955,34 @@ test("Codex opt-in preserves partial native transcripts when native execution fa
   ).toContain(Buffer.from("unfinished").toString("base64"));
 });
 
-test("Codex transcript access cannot read another native trial tree", async () => {
-  const peer = await realpath(
-    await mkdtemp(join(tmpdir(), "sevro-claude-state-")),
-  );
-  roots.push(peer);
-  await writeFile(join(peer, "secret"), "peer-transcript");
-  const { host, workspace } = await codexFixture(
-    `if /bin/cat "${peer}/secret" >/dev/null 2>&1; then printf exposed; else printf denied; fi`,
-  );
-  const result = await host.run({
-    prompt: "Check boundary",
-    workspace,
-    condition: "passive",
-    runtimePolicy: {
-      format: "sevro.runtime.v1",
-      environment: {},
-      readOnlyRoots: [],
-      nativeTranscripts: true,
-    },
-  });
-  expect(result.finalMessage).toBe("denied");
-});
+test.each([false, true])(
+  "Codex runtime cannot read or write another native trial tree: transcripts %s",
+  async (nativeTranscripts) => {
+    const peer = await realpath(
+      await mkdtemp(join(tmpdir(), "sevro-claude-state-")),
+    );
+    roots.push(peer);
+    await writeFile(join(peer, "secret"), "peer-transcript");
+    const { host, workspace } = await codexFixture(
+      `if /bin/cat "${peer}/secret" >/dev/null 2>&1 || printf changed > "${peer}/secret" 2>/dev/null || mkdir "${peer}/child" 2>/dev/null; then printf exposed; else printf denied; fi`,
+    );
+    const result = await host.run({
+      prompt: "Check boundary",
+      workspace,
+      condition: "passive",
+      runtimePolicy: {
+        format: "sevro.runtime.v1",
+        environment: {},
+        readOnlyRoots: [],
+        nativeTranscripts,
+      },
+    });
+    expect(result.finalMessage).toBe("denied");
+    expect(await readFile(join(peer, "secret"), "utf8")).toBe(
+      "peer-transcript",
+    );
+  },
+);
 
 test("native host refuses an unsafe pre-existing transcript namespace", async () => {
   const { host, workspace } = await codexFixture();
@@ -1170,34 +1185,41 @@ async function waitForNativeCommand(path: string): Promise<void> {
   throw new Error("native command did not start");
 }
 
-test("running native commands cannot read a later-created peer transcript tree", async () => {
-  const parent = join(
-    process.platform === "linux" ? "/var/tmp" : tmpdir(),
-    "sevro-native-private",
-  );
-  await mkdir(parent, { recursive: true, mode: 0o700 });
-  const namespace = await realpath(parent);
-  const peer = join(namespace, `late-peer-${randomUUID()}`);
-  roots.push(peer);
-  const { host, workspace } = await codexFixture(
-    `printf ready > late-ready; sleep 0.5; if cat "${peer}/secret" >/dev/null 2>&1; then printf exposed; else printf denied; fi`,
-  );
-  const running = host.run({
-    prompt: "Check boundary",
-    workspace,
-    condition: "passive",
-    runtimePolicy: {
-      format: "sevro.runtime.v1",
-      environment: {},
-      readOnlyRoots: [],
-      nativeTranscripts: true,
-    },
-  });
-  await waitForNativeCommand(join(workspace, "late-ready"));
-  await mkdir(peer, { mode: 0o700 });
-  await writeFile(join(peer, "secret"), "later private transcript");
-  expect((await running).finalMessage).toBe("denied");
-}, 45000);
+test.each([false, true])(
+  "running native commands cannot read or write a later-created peer tree: transcripts %s",
+  async (nativeTranscripts) => {
+    const parent = join(
+      process.platform === "linux" ? "/var/tmp" : tmpdir(),
+      "sevro-native-private",
+    );
+    await mkdir(parent, { recursive: true, mode: 0o700 });
+    const namespace = await realpath(parent);
+    const peer = join(namespace, `late-peer-${randomUUID()}`);
+    roots.push(peer);
+    const { host, workspace } = await codexFixture(
+      `printf ready > late-ready; sleep 0.5; if cat "${peer}/secret" >/dev/null 2>&1 || printf changed > "${peer}/secret" 2>/dev/null || mkdir "${peer}/child" 2>/dev/null; then printf exposed; else printf denied; fi`,
+    );
+    const running = host.run({
+      prompt: "Check boundary",
+      workspace,
+      condition: "passive",
+      runtimePolicy: {
+        format: "sevro.runtime.v1",
+        environment: {},
+        readOnlyRoots: [],
+        nativeTranscripts,
+      },
+    });
+    await waitForNativeCommand(join(workspace, "late-ready"));
+    await mkdir(peer, { mode: 0o700 });
+    await writeFile(join(peer, "secret"), "later private transcript");
+    expect((await running).finalMessage).toBe("denied");
+    expect(await readFile(join(peer, "secret"), "utf8")).toBe(
+      "later private transcript",
+    );
+  },
+  45000,
+);
 
 test("evaluation exposes retained native evidence to isolated shell and semantic consumers", async () => {
   const { host, root } = await codexFixture();
@@ -1470,7 +1492,404 @@ test.skipIf(process.platform !== "darwin")(
       await readFile(join(workspace, "sandbox-error"), "utf8"),
     ).toBe("accessible");
   },
-  15000,
+  30000,
+);
+
+test.each(nativeRuntimeCases)(
+  "Codex runtime supports plugin review artifacts outside the repository: $role, transcripts $nativeTranscripts",
+  async ({ role, nativeTranscripts }) => {
+    const { host, workspace } = await codexFixture(
+      'if /bin/cat "$RUNTIME_ROOT/../codex-home/auth.json" >/dev/null 2>&1 || /bin/cat "$RUNTIME_ROOT/../codex-home/config.toml" >/dev/null 2>&1 || printf changed > "$RUNTIME_ROOT/../home/planted" 2>/dev/null; then printf exposed; exit 0; fi; case "$HOME" in "$PWD"/*) printf repository-local;; *) /bin/mkdir -p "$HOME/.darrow/reviews" && printf review > "$HOME/.darrow/reviews/result" && /bin/cat "$HOME/.darrow/reviews/result"; printf "%s" "$HOME" > runtime-home;; esac',
+    );
+    const result = await host.run({
+      prompt: "Write review state outside the Git fixture.",
+      workspace,
+      condition: "passive",
+      runtimeRole: role,
+      runtimePolicy: {
+        format: "sevro.runtime.v1",
+        environment: { RUNTIME_ROOT: "{{sevro.runtime}}" },
+        readOnlyRoots: [],
+        nativeTranscripts,
+      },
+    });
+    expect(
+      result.finalMessage,
+      await readFile(join(workspace, "sandbox-error"), "utf8"),
+    ).toBe("review");
+    const home = await readFile(join(workspace, "runtime-home"), "utf8");
+    expect(home.startsWith(`${workspace}/`)).toBe(false);
+    expect(await Bun.file(join(home, ".darrow/reviews/result")).exists()).toBe(
+      false,
+    );
+  },
+  30000,
+);
+
+test.each(nativeRuntimeCases)(
+  "Claude runtime supports plugin review artifacts with narrow external grants: $role, transcripts $nativeTranscripts",
+  async ({ role, nativeTranscripts }) => {
+    const { root, workspace } = await codexFixture();
+    const binary = join(root, "claude-runtime-artifact");
+    await writeFile(
+      binary,
+      `#!${process.execPath}
+const args = process.argv;
+const settings = await Bun.file(args[args.indexOf('--settings') + 1]).json();
+const fs = settings.sandbox.filesystem;
+const runtime = process.env.RUNTIME_ROOT;
+const namespace = runtime.split('/').slice(0, -2).join('/');
+const writable = fs.allowWrite?.length === 1 && fs.allowWrite[0] === runtime && !fs.denyWrite.some(path => runtime === path || runtime.startsWith(path + '/'));
+const bounded = fs.allowRead.includes(runtime) && fs.denyRead.includes(namespace) && !fs.allowRead.includes(namespace) && !settings.permissions.deny.includes('Edit(/' + namespace + '/**)') && !settings.permissions.additionalDirectories.includes(namespace);
+const editsBounded = !settings.permissions.allow.includes('Edit') && settings.permissions.allow.includes('Edit(/' + process.cwd() + '/**)') && settings.permissions.allow.includes('Edit(/' + runtime + '/**)');
+const shell = Bun.spawn(['/bin/sh', '-c', 'case "$HOME" in "$PWD"/*) printf repository-local;; *) /bin/mkdir -p "$HOME/.darrow/reviews" && printf review > "$HOME/.darrow/reviews/result" && /bin/cat "$HOME/.darrow/reviews/result";; esac'], {stdout:'pipe'});
+const artifact = await new Response(shell.stdout).text();
+await shell.exited;
+await Bun.write('runtime-home', process.env.HOME);
+const result = artifact === 'repository-local' ? artifact : writable && bounded && editsBounded ? artifact : 'invalid grants';
+console.log(JSON.stringify({type:'result',subtype:'success',is_error:false,result}));
+`,
+      { mode: 0o700 },
+    );
+    const credentialFile = join(root, "claude-credential.json");
+    await writeFile(credentialFile, "{}");
+    const host = createClaudeHost({
+      binary,
+      credentialFile,
+      model: "synthetic",
+      effort: "low",
+      projectRoot: join(root, "project"),
+      resultsRoot: join(root, "results"),
+      additionalProtectedRoots: [],
+    });
+    const result = await host.run({
+      prompt: "Write private review state.",
+      workspace,
+      condition: "passive",
+      runtimeRole: role,
+      runtimePolicy: {
+        format: "sevro.runtime.v1",
+        environment: { RUNTIME_ROOT: "{{sevro.runtime}}" },
+        readOnlyRoots: [],
+        nativeTranscripts,
+      },
+    });
+    expect(result.finalMessage).toBe("review");
+    const home = await readFile(join(workspace, "runtime-home"), "utf8");
+    expect(home.startsWith(`${workspace}/`)).toBe(false);
+    expect(await Bun.file(join(home, ".darrow/reviews/result")).exists()).toBe(
+      false,
+    );
+  },
+);
+
+test("Codex runtime survives continuation and inherited command children", async () => {
+  const { host, workspace } = await codexFixture(
+    'if test -f "$HOME/turn-state"; then /bin/sh -c "cat \\"\\$HOME/turn-state\\""; else printf persisted > "$HOME/turn-state"; printf initial; fi; printf "%s" "$HOME" > runtime-home',
+  );
+  const result = await host.run({
+    prompt: "Prepare runtime state.",
+    followUpPrompt: "Read it in a child shell.",
+    workspace,
+    condition: "passive",
+    runtimePolicy: {
+      format: "sevro.runtime.v1",
+      environment: {},
+      readOnlyRoots: [],
+    },
+  });
+  expect(result.finalMessage).toBe("persisted");
+  const home = await readFile(join(workspace, "runtime-home"), "utf8");
+  expect(home.startsWith(`${workspace}/`)).toBe(false);
+  expect(await Bun.file(join(home, "turn-state")).exists()).toBe(false);
+}, 30000);
+
+function runtimeFailureMessage(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
+}
+
+test.each([
+  { native: "Claude", viaAlias: false },
+  { native: "Claude", viaAlias: true },
+  { native: "Codex", viaAlias: false },
+  { native: "Codex", viaAlias: true },
+])(
+  "$native runtime refuses a fixture within the native namespace: alias $viaAlias",
+  async ({ native, viaAlias }) => {
+    const { root, host: codexHost } = await codexFixture(
+      "printf launched > native-launched",
+    );
+    const privateFixture = await allocateNativeState("runtime-fixture-");
+    roots.push(privateFixture);
+    const workspace = join(privateFixture, "workspace");
+    await mkdir(workspace);
+    expect(Bun.spawnSync(["git", "init", "--quiet", workspace]).exitCode).toBe(
+      0,
+    );
+    const gitEntries = await readdir(join(workspace, ".git"));
+    const peerFile = join(privateFixture, "retained-peer.json");
+    await writeFile(peerFile, "retained peer");
+    const privateEntries = await readdir(privateFixture);
+    const alias = join(root, "workspace-alias");
+    await symlink(workspace, alias);
+    const binary = join(root, "claude-namespace-fixture");
+    await writeFile(
+      binary,
+      '#!/bin/sh\nprintf launched > native-launched\nprintf \'{"type":"result","subtype":"success","is_error":false,"result":"ready"}\\n\'\n',
+      { mode: 0o700 },
+    );
+    const credentialFile = join(root, "claude-credential.json");
+    await writeFile(credentialFile, "{}");
+    const host =
+      native === "Codex"
+        ? codexHost
+        : createClaudeHost({
+            binary,
+            credentialFile,
+            model: "synthetic",
+            effort: "low",
+            projectRoot: join(root, "project"),
+            resultsRoot: join(root, "results"),
+            additionalProtectedRoots: [],
+          });
+    const running = host.run({
+      prompt: "Use external runtime.",
+      workspace: viaAlias ? alias : workspace,
+      condition: "passive",
+      runtimePolicy: {
+        format: "sevro.runtime.v1",
+        environment: {},
+        readOnlyRoots: [],
+      },
+    });
+    expect(running).rejects.toThrow(
+      "native runtime namespace overlaps the fixture workspace",
+    );
+    await running.catch(() => undefined);
+    expect(await Bun.file(join(workspace, "native-launched")).exists()).toBe(
+      false,
+    );
+    expect(await readdir(join(workspace, ".git"))).toEqual(gitEntries);
+    expect(await readdir(privateFixture)).toEqual(privateEntries);
+    expect(await readFile(peerFile, "utf8")).toBe("retained peer");
+  },
+);
+
+test.skipIf(process.platform !== "darwin").each([
+  { native: "Claude", viaAlias: false },
+  { native: "Claude", viaAlias: true },
+  { native: "Codex", viaAlias: false },
+  { native: "Codex", viaAlias: true },
+])(
+  "$native runtime refuses a namespace within the fixture: alias $viaAlias",
+  async ({ native, viaAlias }) => {
+    const { root, workspace, bin } = await codexFixture(
+      "printf launched > native-launched",
+    );
+    expect(Bun.spawnSync(["git", "init", "--quiet", workspace]).exitCode).toBe(
+      0,
+    );
+    const gitEntries = await readdir(join(workspace, ".git"));
+    const namespace = join(workspace, "sevro-native-private");
+    const peer = join(namespace, "claude-peer", "runtime", "home");
+    await mkdir(peer, { recursive: true, mode: 0o700 });
+    const peerFile = join(peer, "review.json");
+    await writeFile(peerFile, "retained peer");
+    const alias = join(root, "workspace-alias");
+    await symlink(workspace, alias);
+    const binary = join(bin, "claude-workspace-runtime");
+    await writeFile(
+      binary,
+      '#!/bin/sh\nprintf launched > native-launched\nprintf \'{"type":"result","subtype":"success","is_error":false,"result":"ready"}\\n\'\n',
+      { mode: 0o700 },
+    );
+    const credentialFile = join(root, "claude-credential.json");
+    await writeFile(credentialFile, "{}");
+    const codexBinary = join(bin, "candidate");
+    await cp(join(root, "candidate"), codexBinary);
+    const host =
+      native === "Codex"
+        ? createCodexHost({
+            binary: codexBinary,
+            sandboxBinary: defined(Bun.which("codex")),
+            authFile: join(root, "auth.json"),
+            model: "synthetic",
+            effort: "low",
+            projectRoot: join(root, "project"),
+            resultsRoot: join(root, "results"),
+            additionalProtectedRoots: [],
+          })
+        : createClaudeHost({
+            binary,
+            credentialFile,
+            model: "synthetic",
+            effort: "low",
+            projectRoot: join(root, "project"),
+            resultsRoot: join(root, "results"),
+            additionalProtectedRoots: [],
+          });
+    const originalTemp = process.env.TMPDIR;
+    process.env.TMPDIR = viaAlias ? alias : workspace;
+    try {
+      const running = host.run({
+        prompt: "Use external runtime.",
+        workspace,
+        condition: "passive",
+        runtimePolicy: {
+          format: "sevro.runtime.v1",
+          environment: {},
+          readOnlyRoots: [],
+        },
+      });
+      expect(running).rejects.toThrow(
+        "native runtime namespace overlaps the fixture workspace",
+      );
+      await running.catch(() => undefined);
+      expect(await Bun.file(join(workspace, "native-launched")).exists()).toBe(
+        false,
+      );
+      expect(await readdir(join(workspace, ".git"))).toEqual(gitEntries);
+      expect(await readdir(namespace)).toEqual(["claude-peer"]);
+      expect(await readFile(peerFile, "utf8")).toBe("retained peer");
+    } finally {
+      if (originalTemp === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = originalTemp;
+    }
+  },
+  30000,
+);
+
+test.skipIf(process.platform !== "darwin").each([false, true])(
+  "Claude runtime refuses a namespace within implicit native temp writes: alias %s",
+  async (viaAlias) => {
+    const { root, workspace } = await codexFixture();
+    const unsafeTemp = join(
+      "/tmp/claude",
+      `sevro-runtime-probe-${randomUUID()}`,
+    );
+    await mkdir(unsafeTemp, { recursive: true, mode: 0o700 });
+    roots.push(unsafeTemp);
+    const aliasContainer = await mkdtemp(
+      join(tmpdir(), "sevro-runtime-alias-"),
+    );
+    roots.push(aliasContainer);
+    const alias = join(aliasContainer, "temp");
+    await symlink(unsafeTemp, alias);
+    const binary = join(root, "claude-unsafe-runtime");
+    await writeFile(
+      binary,
+      '#!/bin/sh\nprintf launched > native-launched\nprintf \'{"type":"result","subtype":"success","is_error":false,"result":"ready"}\\n\'\n',
+      { mode: 0o700 },
+    );
+    const credentialFile = join(root, "claude-credential.json");
+    await writeFile(credentialFile, "{}");
+    const host = createClaudeHost({
+      binary,
+      credentialFile,
+      model: "synthetic",
+      effort: "low",
+      projectRoot: join(root, "project"),
+      resultsRoot: join(root, "results"),
+      additionalProtectedRoots: [],
+    });
+    const originalTemp = process.env.TMPDIR;
+    process.env.TMPDIR = viaAlias ? alias : unsafeTemp;
+    try {
+      const running = host.run({
+        prompt: "Use external runtime.",
+        workspace,
+        condition: "passive",
+        runtimePolicy: {
+          format: "sevro.runtime.v1",
+          environment: {},
+          readOnlyRoots: [],
+        },
+      });
+      expect(running).rejects.toThrow("implicit native writable root");
+      await running.catch(() => undefined);
+      expect(await Bun.file(join(workspace, "native-launched")).exists()).toBe(
+        false,
+      );
+    } finally {
+      if (originalTemp === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = originalTemp;
+    }
+  },
+);
+
+function expectedRuntimeFailure(
+  native: string,
+  ending: string,
+): string | boolean {
+  if (ending === "failure")
+    return native === "Codex" ? "Codex event stream has no thread start" : true;
+  return `${native} run ${ending === "timeout" ? "timed out" : "cancelled"}`;
+}
+
+test.each([
+  { native: "Codex", ending: "failure" },
+  { native: "Codex", ending: "timeout" },
+  { native: "Codex", ending: "cancel" },
+  { native: "Claude", ending: "failure" },
+  { native: "Claude", ending: "timeout" },
+  { native: "Claude", ending: "cancel" },
+])(
+  "$native removes external runtime after $ending",
+  async ({ native, ending }) => {
+    const fixture = await codexFixture("probe", [], 500);
+    const binary = join(fixture.root, "candidate");
+    await writeFile(
+      binary,
+      `#!/bin/sh
+mkdir -p "$RUNTIME_ROOT/home"
+printf artifact > "$RUNTIME_ROOT/home/state"
+printf "%s" "$RUNTIME_ROOT" > runtime-root
+${ending === "failure" ? "exit 1" : "/bin/sleep 20"}
+`,
+      { mode: 0o700 },
+    );
+    let host = fixture.host;
+    if (native === "Claude") {
+      const credentialFile = join(fixture.root, "claude-credential.json");
+      await writeFile(credentialFile, "{}");
+      host = createClaudeHost({
+        binary,
+        credentialFile,
+        model: "synthetic",
+        effort: "low",
+        projectRoot: join(fixture.root, "project"),
+        resultsRoot: join(fixture.root, "results"),
+        additionalProtectedRoots: [],
+        timeoutMs: 500,
+      });
+    }
+    const controller = new AbortController();
+    const running = host.run({
+      prompt: "Allocate private runtime state.",
+      workspace: fixture.workspace,
+      condition: "passive",
+      signal: controller.signal,
+      runtimePolicy: {
+        format: "sevro.runtime.v1",
+        environment: { RUNTIME_ROOT: "{{sevro.runtime}}" },
+        readOnlyRoots: [],
+      },
+    });
+    const outcome = running.then(
+      (result) => result.executionFailed,
+      runtimeFailureMessage,
+    );
+    await waitForNativeCommand(join(fixture.workspace, "runtime-root"));
+    if (ending === "cancel") controller.abort();
+    expect(await outcome).toBe(expectedRuntimeFailure(native, ending));
+    const runtime = await readFile(
+      join(fixture.workspace, "runtime-root"),
+      "utf8",
+    );
+    expect(runtime.startsWith(`${fixture.workspace}/`)).toBe(false);
+    expect(await Bun.file(join(runtime, "home/state")).exists()).toBe(false);
+  },
+  30000,
 );
 
 test("Codex candidate commands use private runtime seeds", async () => {
@@ -1498,7 +1917,7 @@ test("Codex candidate commands use private runtime seeds", async () => {
     await readFile(join(workspace, "sandbox-error"), "utf8"),
   ).toBe("seeded");
   expect(await readFile(join(source, "input"), "utf8")).toBe("seeded");
-});
+}, 30000);
 
 test("Codex refuses a seed changed after its configuration snapshot", async () => {
   const { host, workspace, root } = await codexFixture();
@@ -1522,28 +1941,33 @@ test("Codex refuses a seed changed after its configuration snapshot", async () =
   ).rejects.toThrow("changed after");
 });
 
-test("Codex refuses a file planted in an owned runtime seed slot", async () => {
-  const { host, workspace, root } = await codexFixture();
+test("Codex runtime seeds ignore repository-local state planted by the candidate", async () => {
+  const { host, workspace, root } = await codexFixture(
+    '/bin/cat "$CACHE/input"',
+  );
   const source = join(root, "seed");
   await mkdir(source);
+  await writeFile(join(source, "input"), "trusted");
   const directory = join(workspace, ".git/sevro-runtime/candidate");
   await mkdir(directory, { recursive: true });
   await writeFile(join(directory, "cache"), "not a directory");
-  expect(
-    host.run({
-      prompt: "Return ready.",
-      workspace,
-      condition: "passive",
-      runtimePolicy: {
-        format: "sevro.runtime.v1",
-        environment: {},
-        readOnlyRoots: [],
-        seeds: [
-          { source, target: "cache", sha256: await runtimeSeedDigest(source) },
-        ],
-      },
-    }),
-  ).rejects.toThrow("not a directory");
+  const result = await host.run({
+    prompt: "Return ready.",
+    workspace,
+    condition: "passive",
+    runtimePolicy: {
+      format: "sevro.runtime.v1",
+      environment: { CACHE: "{{sevro.runtime}}/cache" },
+      readOnlyRoots: [],
+      seeds: [
+        { source, target: "cache", sha256: await runtimeSeedDigest(source) },
+      ],
+    },
+  });
+  expect(result.finalMessage).toBe("trusted");
+  expect(await readFile(join(directory, "cache"), "utf8")).toBe(
+    "not a directory",
+  );
 });
 
 test("Codex rejects runner-owned environment values in direct runtime requests", async () => {

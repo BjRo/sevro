@@ -285,12 +285,14 @@ function codexSeedSources(request: Request): string[] {
 async function codexRuntime(
   request: Request,
   paths: Awaited<ReturnType<typeof privateCodexDirectories>>,
+  stateRoot: string,
 ) {
   if (!request.runtimePolicy) return undefined;
   const runtime = await prepareRuntimeState(
     request.workspace,
     request.runtimePolicy,
     request.runtimeRole ?? "candidate",
+    join(stateRoot, "runtime"),
   );
   paths.commandHome = runtime.home;
   paths.commandTemp = runtime.temp;
@@ -323,7 +325,7 @@ export async function prepareCodexState(
   helperRoot?: string,
 ) {
   const paths = await privateCodexDirectories(stateRoot);
-  const runtime = await codexRuntime(request, paths);
+  const runtime = await codexRuntime(request, paths, stateRoot);
   await copyAuth(options.authFile, join(paths.codexHome, "auth.json"));
   const protectedRoots = await evaluationProtectedRoots({
     workspace: request.workspace,

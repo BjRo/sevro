@@ -95,6 +95,10 @@ function profileProtectedRoots(
   options: Parameters<typeof codexPermissionProfile>[0],
 ): string[] {
   const readRoots = profileReadRoots(options);
+  const trustedRoots = [
+    ...readRoots,
+    ...(options.runtimeWriteRoot ? [options.runtimeWriteRoot] : []),
+  ];
   const baselines = [
     ...LINUX_MINIMAL_READ_ROOTS,
     ...readRoots,
@@ -107,20 +111,20 @@ function profileProtectedRoots(
     (root) =>
       (!implicitLinuxHomeBoundary(root, readRoots, baselines) ||
         process.platform !== "linux") &&
-      !implicitNativeBoundary(root, readRoots, baselines),
+      !implicitNativeBoundary(root, trustedRoots, baselines),
   );
 }
 
 function implicitNativeBoundary(
   root: string,
-  trustedReadRoots: string[],
+  trustedRoots: string[],
   baselines: string[],
 ): boolean {
   const canonicalRoot = nativeStatePath();
   if (!supportedNativeNamespace(canonicalRoot)) return false;
   const boundary = nativeBoundaryRoot(root, canonicalRoot);
   if (!boundary) return false;
-  const descendant = trustedReadRoots.some((read) =>
+  const descendant = trustedRoots.some((read) =>
     insideRuntimeRoot(boundary, read),
   );
   return descendant && !hasBroaderBaseline(root, boundary, baselines);

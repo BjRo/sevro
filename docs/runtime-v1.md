@@ -156,9 +156,21 @@ than credential-bearing homes or evaluator directories.
 `{{sevro.runtime}}` in an environment value resolves to that role's writable
 root. Sevro supplies private `HOME` and temporary storage and sets `UV_OFFLINE=1`
 and `PYTHONDONTWRITEBYTECODE=1`. Candidate, hook, checker, semantic, and advisory
-state are separate. Checker and hook caches live outside candidate-controlled
-workspace state. Writable caches stay outside assessed worktree contents.
-They are removed with their owning trial or host state.
+state are separate. With a runtime policy, native candidate, semantic, and
+advisory roots live in a unique runner-owned host directory outside the Git
+fixture. The root contains `home`, `tmp`, and declared seed slots; plugins can
+use paths such as `~/.darrow/reviews` without creating repository-local review
+state. Command runtime directories are separate from host authentication,
+configuration, and live transcript sources. Checker and hook caches also live
+outside candidate-controlled workspace state. Private roots survive native
+continuation turns and children, then are removed with their owning trial or
+host state after owned hooks terminate. Runs without a selected runtime policy
+retain their previous writable-state locations.
+
+Claude runtime policies refuse a private namespace overlapping the native CLI's
+implicit `/tmp/claude` or `/private/tmp/claude` write roots, including canonical
+symlink targets. A conflicting `TMPDIR` placement fails before native launch;
+choose a temporary base outside those cache trees.
 
 The same declared tool environment reaches native candidates, isolated shell
 checks, and native semantic/advisory hosts. Candidate plugin-hook authority is

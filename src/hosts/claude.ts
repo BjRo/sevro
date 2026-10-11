@@ -300,7 +300,10 @@ async function runClaudeRequest(
   await verifyInvocation(request, pluginDirs);
   requireIsolatedHookSources(request, options);
   const repositoryInvocation = await repositoryMount(request, options);
-  const stateRoot = await allocateNativeState("claude-");
+  const stateRoot = await allocateNativeState(
+    "claude-",
+    request.runtimePolicy ? request.workspace : undefined,
+  );
   let hooks: HookMounts | undefined;
   try {
     const state = await prepareClaudeState(
