@@ -1,4 +1,4 @@
-# Temporary workspace cleanup validation
+# Permission-locked fixture cleanup
 
 Current temporary workspace retention is defined in the
 [results contract](results-v1.md). The historical cleanup observations below
@@ -64,6 +64,10 @@ Green — `bun test tests/claude-host.test.ts --test-name-pattern 'Claude manage
 Red — `bun test tests/cli.test.ts --test-name-pattern 'CLI curated shell grading leaves repository caches to tools'`: the shell cache check failed because absolute `mkdir -p` could not stat the namespace parent.
 
 Green — `bun test tests/cli.test.ts --test-name-pattern 'CLI curated shell grading leaves repository caches to tools'`: parent metadata traversal was usable while directory listing and sibling access remained denied in the isolation regression.
+
+Red — `bun test tests/codex-host.test.ts --test-name-pattern 'Codex semantic preflight cancellation stays cancelled'`: cancellation during semantic preflight left the trial's execution recorded as completed, with and without transcript capture.
+
+Green — `bun test tests/codex-host.test.ts --test-name-pattern 'Codex semantic preflight cancellation stays cancelled'`: both trials were cancelled with exit 143 and retained the process cancellation reason, exit 137, and `SIGKILL`.
 
 ## Historical permission-locked fixture cleanup
 

@@ -241,7 +241,7 @@ class SemanticGrading {
     } catch {
       this.effects.failGrading(
         codexFailureMessage(result) ?? "semantic grading did not complete",
-        false,
+        result.processFailure?.reason === "cancelled",
       );
       return false;
     }

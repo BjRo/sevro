@@ -25,6 +25,13 @@ const isolatedNativeHost =
   process.platform === "darwin" ||
   (process.platform === "linux" && Boolean(Bun.which("bwrap")));
 const digest = "a".repeat(64);
+async function waitForCodexMarker(path: string): Promise<void> {
+  const deadline = Date.now() + 5000;
+  while (!(await Bun.file(path).exists())) {
+    if (Date.now() > deadline) throw new Error("Codex sandbox did not start");
+    await Bun.sleep(10);
+  }
+}
 const ordinaryCodexOptions = {
   binary: "/bin/true",
   authFile: "/tmp/auth.json",
@@ -1353,6 +1360,89 @@ test("Codex preflight retains a bounded stderr prefix without failing on overflo
   );
   expectUnknown(metadata).toMatchObject({ code: 70, stderrTruncated: true });
 });
+test.each([false, true])(
+  "Codex semantic preflight cancellation stays cancelled with transcripts %s",
+  async (nativeTranscripts) => {
+    const selected = await ordinaryCodexRequest();
+    const sandbox = join(dirname(selected.paths.fakeBinary), "sandbox-cancel");
+    const marker = join(dirname(sandbox), "sandbox-started");
+    await writeFile(
+      sandbox,
+      `#!/bin/sh\nprintf started > '${marker}'\nprintf 'sandbox cancelled' >&2\n/bin/sleep 20\n`,
+      { mode: 0o700 },
+    );
+    const host = createCodexHost({
+      ...ordinaryCodexOptions,
+      binary: selected.paths.fakeBinary,
+      authFile: selected.paths.authFile,
+      projectRoot: selected.paths.projectRoot,
+      resultsRoot: selected.paths.resultsRoot,
+      sandboxBinary: sandbox,
+    });
+    const controller = new AbortController();
+    const running = runEvaluation({
+      projectRoot: selected.paths.projectRoot,
+      resultsRoot: selected.paths.resultsRoot,
+      host: {
+        id: "example.candidate",
+        model: "synthetic",
+        effort: "none",
+        run() {
+          return Promise.resolve({ finalMessage: "ready", complete: true });
+        },
+      },
+      semanticHost: host,
+      signal: controller.signal,
+      runtimePolicy: {
+        format: "sevro.runtime.v1",
+        environment: {},
+        readOnlyRoots: [],
+        nativeTranscripts,
+      },
+      case: {
+        id: "cancel",
+        prompt: "Return ready.",
+        fixture: { files: {} },
+        checks: [
+          {
+            id: "ready",
+            grader: "sevro.semantic",
+            configuration: { proposition: "The response is ready." },
+          },
+        ],
+        requiredEvidence: [],
+      },
+      runnerBuildDigest: digest,
+      projectDigest: digest,
+      condition: "passive",
+      trialCount: 1,
+      passThreshold: 1,
+    });
+    await waitForCodexMarker(marker);
+    controller.abort("SIGTERM");
+    const outcome = await running;
+    expect(
+      defined(defined(outcome.result.cases[0]).trials[0]).execution.status,
+    ).toBe("cancelled");
+    expect(outcome.result.exitCode).toBe(143);
+    const evidence = parseRunEvidence(
+      await readFile(outcome.result.evidencePath, "utf8"),
+    );
+    const artifacts = defined(evidence.trials[0]).artifactRefs;
+    const ref = defined(
+      artifacts.find((item) => item.id.endsWith("codex.process")),
+    );
+    const metadata: unknown = JSON.parse(
+      await readFile(new URL(ref.path), "utf8"),
+    );
+    expectUnknown(metadata).toMatchObject({
+      phase: "isolation-preflight",
+      reason: "cancelled",
+      code: 137,
+      signal: "SIGKILL",
+    });
+  },
+);
 test("Codex preflight timeout retains termination evidence", async () => {
   const selected = await ordinaryCodexRequest();
   const sandbox = join(dirname(selected.paths.fakeBinary), "sandbox-timeout");
