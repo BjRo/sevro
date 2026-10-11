@@ -53,6 +53,14 @@ only passive conditions. `--host` and `--adapter-module` are exclusive. Use
 `--protected-root` to add private roots for Codex, including when no shell
 checks are selected.
 
+Use `--codex-timeout-ms <milliseconds>` to set the native Codex execution
+timeout. It accepts an integer from `1` through `1800000` (30 minutes) and
+defaults to `600000` (10 minutes) when omitted. It applies to every selected
+Codex route, including semantic and advisory roles, and to both `exec` and
+`app-server` entrypoints. For a 20-minute app-server evaluation, add
+`--codex-entrypoint app-server --codex-timeout-ms 1200000` to the Codex command
+above. The option requires a Codex host route; invalid values fail before a run.
+
 ### Trial concurrency
 
 `--jobs <positive integer>` bounds simultaneous trials within one case and

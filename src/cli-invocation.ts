@@ -60,6 +60,7 @@ const RUN_OPTIONS = {
   host: { type: "string" },
   "codex-bin": { type: "string" },
   "codex-entrypoint": { type: "string" },
+  "codex-timeout-ms": { type: "string" },
   "codex-auth-file": { type: "string" },
   "claude-bin": { type: "string" },
   "claude-credential-file": { type: "string" },
@@ -198,7 +199,11 @@ const HOST_COMPATIBILITY: CompatibilityRule[] = [
       !r.codex &&
       !r.semanticCodex &&
       !r.advisoryCodex &&
-      (v["codex-bin"] || v["codex-auth-file"]),
+      [
+        v["codex-bin"],
+        v["codex-auth-file"],
+        v["codex-timeout-ms"] !== undefined,
+      ].some(Boolean),
     message: "Codex options require a Codex host route",
   },
   {
@@ -355,6 +360,10 @@ function commonCodexOptions(
   return {
     binary: absoluteOption(values["codex-bin"], "--codex-bin"),
     authFile: absoluteOption(values["codex-auth-file"], "--codex-auth-file"),
+    timeoutMs:
+      values["codex-timeout-ms"] === undefined
+        ? undefined
+        : Number(values["codex-timeout-ms"]),
     projectRoot: roots.projectRoot,
     resultsRoot: roots.resultsRoot,
     additionalProtectedRoots: [...privateRoots, roots.runStateRoot],
