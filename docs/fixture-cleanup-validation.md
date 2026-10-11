@@ -69,6 +69,27 @@ Red — `bun test tests/codex-host.test.ts --test-name-pattern 'Codex semantic p
 
 Green — `bun test tests/codex-host.test.ts --test-name-pattern 'Codex semantic preflight cancellation stays cancelled'`: both trials were cancelled with exit 143 and retained the process cancellation reason, exit 137, and `SIGKILL`.
 
+Red — `bun test tests/engine.test.ts --test-name-pattern 'engine startup removes expired ownership records after a workspace was deleted manually'`: the expired ownership record remained after startup.
+
+Green — `bun test tests/engine.test.ts --test-name-pattern 'engine startup removes expired ownership records after a workspace was deleted manually'`: startup removed the orphaned record.
+
+Red — `bun test tests/engine.test.ts --test-name-pattern 'engine startup preserves a workspace with unreadable ownership metadata'`: startup threw `EACCES` instead of starting the next evaluation.
+
+Green — `bun test tests/engine.test.ts --test-name-pattern 'engine startup preserves a workspace with unreadable ownership metadata'`: the next evaluation ran and the uncertain workspace and saved evidence remained intact.
+
+Red — `bun test tests/runtime-host.test.ts --test-name-pattern 'Claude managed workspace refuses implicit native temp writes without a runtime policy'`: a managed workspace under `/tmp/claude` admitted native execution.
+
+Green — `bun test tests/runtime-host.test.ts --test-name-pattern 'Claude managed workspace refuses implicit native temp writes without a runtime policy'`: the host refused before native launch.
+
+`bun test tests/engine.test.ts --test-name-pattern 'engine startup'` also passed
+ownership-corruption examples through the public evaluation seam. They cover
+malformed, missing, non-private, oversized, and symlink metadata; no product
+change was needed for those existing preservation guards. Retention-clock tests
+run in a separate temporary namespace so they cannot expire other local runs.
+CI fixtures for setup cancellation and Git grading errors now expect their
+failed workspaces to survive, and native peer-isolation fixtures allocate peers
+under the managed native namespace.
+
 ## Historical permission-locked fixture cleanup
 
 The Darrow extraction comparison exposed a cleanup difference: its legacy

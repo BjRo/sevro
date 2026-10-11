@@ -302,12 +302,14 @@ test.each([
   "public CLI %s during trusted fixture setup retains a cancelled trial before candidate admission",
   async (signal, exitCode) => {
     const root = await mkdtemp(join(tmpdir(), "sevro-cli-setup-interrupt-"));
+    let retainedWorkspace: string | undefined;
     try {
       const run = await interruptReadyCli(
         root,
         await setupCancellationArguments(root),
         signal,
       );
+      retainedWorkspace = string(run.receipt.workspace);
       expect(run.code).toBe(exitCode);
       expect(run.result.execution.status).toBe("cancelled");
       expect(run.result.grading.status).toBe("not_requested");
@@ -329,7 +331,7 @@ test.each([
         await Bun.file(
           join(string(run.receipt.workspace), "README.md"),
         ).exists(),
-      ).toBeFalse();
+      ).toBeTrue();
       expect(
         await access(string(run.receipt.home)).then(
           () => true,
@@ -351,6 +353,8 @@ test.each([
       );
       expect(active.status).toBe("interrupted");
     } finally {
+      if (retainedWorkspace)
+        await rm(retainedWorkspace, { recursive: true, force: true });
       await rm(root, { recursive: true, force: true });
     }
   },

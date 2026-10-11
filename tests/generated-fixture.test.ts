@@ -200,7 +200,8 @@ for (const failure of gitStateFailures) {
     );
     expect(
       await Bun.file(join(defined(candidateWorkspace), "README.md")).exists(),
-    ).toBeFalse();
+    ).toBeTrue();
+    roots.push(defined(candidateWorkspace));
   });
 }
 

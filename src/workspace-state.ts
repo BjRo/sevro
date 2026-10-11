@@ -54,10 +54,7 @@ export async function allocateWorkspace(): Promise<string> {
   const owner = processIdentity(process.pid);
   if (!owner) throw new Error("cannot verify workspace owner identity");
   const parent = await workspaceStateParent();
-  await mkdir(join(parent, ".owners"), { mode: 0o700, recursive: true });
-  const metadata = await lstat(join(parent, ".owners"));
-  if (!ownedDirectory(metadata) || (metadata.mode & 0o077) !== 0)
-    throw new Error("workspace metadata must be an owned private directory");
+  await workspaceMetadataDirectory(parent);
   const workspace = await realpath(await mkdtemp(join(parent, "case-")));
   try {
     await writeFile(
@@ -75,6 +72,15 @@ export async function allocateWorkspace(): Promise<string> {
     await rm(workspace, { recursive: true, force: true });
     throw cause;
   }
+}
+
+async function workspaceMetadataDirectory(parent: string): Promise<string> {
+  const root = join(parent, ".owners");
+  await mkdir(root, { mode: 0o700, recursive: true });
+  const metadata = await lstat(root);
+  if (!ownedDirectory(metadata) || (metadata.mode & 0o077) !== 0)
+    throw new Error("workspace metadata must be an owned private directory");
+  return root;
 }
 
 function workspaceOwnerPath(workspace: string): string {
@@ -119,9 +125,9 @@ async function workspaceOwner(
   try {
     const value = await readWorkspaceOwner(workspace);
     return validWorkspaceOwner(value) ? value : null;
-  } catch (cause) {
-    if (isMissingFile(cause) || cause instanceof SyntaxError) return null;
-    throw cause;
+  } catch {
+    // Unreadable or malformed ownership cannot authorize temporary-data deletion.
+    return null;
   }
 }
 
@@ -179,10 +185,11 @@ function expiredOwner(record: WorkspaceOwner, cutoff: number): boolean {
 /** Reclaim only owned inactive temporary data; evidence directories are never scanned. */
 export async function cleanupExpiredWorkspaces(): Promise<void> {
   const parent = await workspaceStateParent();
+  const metadata = await workspaceMetadataDirectory(parent);
   const cutoff = Date.now() - RETENTION_MS;
-  for (const entry of await readdir(parent, { withFileTypes: true }))
-    if (entry.isDirectory() && /^case-[a-zA-Z0-9]+$/.test(entry.name))
-      await expireWorkspace(join(parent, entry.name), cutoff);
+  for (const entry of await readdir(metadata, { withFileTypes: true }))
+    if (entry.isFile() && /^case-[a-zA-Z0-9]+\.json$/.test(entry.name))
+      await expireWorkspace(join(parent, entry.name.slice(0, -5)), cutoff);
 }
 
 /** Only a runner-owned direct child can be an exception to this deny boundary. */

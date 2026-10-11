@@ -959,9 +959,7 @@ test("Codex opt-in preserves partial native transcripts when native execution fa
 test.each([false, true])(
   "Codex runtime cannot read or write another native trial tree: transcripts %s",
   async (nativeTranscripts) => {
-    const peer = await realpath(
-      await mkdtemp(join(tmpdir(), "sevro-claude-state-")),
-    );
+    const peer = await allocateNativeState("claude-peer-");
     roots.push(peer);
     await writeFile(join(peer, "secret"), "peer-transcript");
     const { host, workspace } = await codexFixture(
@@ -1808,6 +1806,71 @@ test.skipIf(process.platform !== "darwin").each([false, true])(
       });
       expect(running).rejects.toThrow("implicit native writable root");
       await running.catch(() => undefined);
+      expect(await Bun.file(join(workspace, "native-launched")).exists()).toBe(
+        false,
+      );
+    } finally {
+      if (originalTemp === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = originalTemp;
+    }
+  },
+);
+
+test.skipIf(process.platform !== "darwin")(
+  "Claude managed workspace refuses implicit native temp writes without a runtime policy",
+  async () => {
+    const { root } = await codexFixture();
+    const unsafeTemp = join(
+      "/tmp/claude",
+      `sevro-workspace-probe-${randomUUID()}`,
+    );
+    await mkdir(unsafeTemp, { recursive: true, mode: 0o700 });
+    roots.push(unsafeTemp);
+    const binary = join(root, "claude-unsafe-workspace");
+    await writeFile(
+      binary,
+      '#!/bin/sh\nprintf launched > native-launched\nprintf \'{"type":"result","subtype":"success","is_error":false,"result":"ready"}\\n\'\n',
+      { mode: 0o700 },
+    );
+    const credentialFile = join(root, "claude-credential.json");
+    await writeFile(credentialFile, "{}");
+    const host = createClaudeHost({
+      binary,
+      credentialFile,
+      model: "synthetic",
+      effort: "low",
+      projectRoot: join(root, "project"),
+      resultsRoot: join(root, "results"),
+      additionalProtectedRoots: [],
+    });
+    let workspace = "";
+    const originalTemp = process.env.TMPDIR;
+    process.env.TMPDIR = unsafeTemp;
+    try {
+      const { result } = await runEvaluation({
+        projectRoot: join(root, "project"),
+        resultsRoot: join(root, "results"),
+        runnerBuildDigest: "a".repeat(64),
+        projectDigest: "b".repeat(64),
+        condition: "passive",
+        trialCount: 1,
+        passThreshold: 1,
+        host: {
+          ...host,
+          run(request) {
+            workspace = request.workspace;
+            return host.run(request);
+          },
+        },
+        case: {
+          id: "unsafe-workspace",
+          prompt: "Return ready",
+          fixture: { files: {} },
+          checks: [],
+          requiredEvidence: [],
+        },
+      });
+      expect(result.execution.status).toBe("failed");
       expect(await Bun.file(join(workspace, "native-launched")).exists()).toBe(
         false,
       );

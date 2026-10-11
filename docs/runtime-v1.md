@@ -198,7 +198,7 @@ continuation turns and children, then are removed with their owning trial or
 host state after owned hooks terminate. Runs without a selected runtime policy
 retain their previous writable-state locations.
 
-Claude runtime policies refuse a private namespace overlapping the native CLI's
+Claude managed workspaces and runtime policies refuse a private namespace overlapping the native CLI's
 implicit `/tmp/claude` or `/private/tmp/claude` write roots, including canonical
 symlink targets. A conflicting `TMPDIR` placement fails before native launch;
 choose a temporary base outside those cache trees.

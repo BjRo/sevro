@@ -5,16 +5,19 @@ import {
   defined,
   objectContaining,
   parseCheckpoint,
+  parseRecord,
   parseRunEvidence,
 } from "./fixtures/assertions";
 import { afterEach, test, expect, spyOn } from "bun:test";
 import { existsSync } from "node:fs";
 import {
+  chmod,
   mkdir,
   mkdtemp,
   readFile,
   readdir,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -42,6 +45,53 @@ async function waitForIsolationMarker(path: string): Promise<void> {
     await Bun.sleep(10);
   }
 }
+/** Keep the advanced retention clock away from other runs' temporary data. */
+async function runRetentionInIsolation(pattern: string): Promise<boolean> {
+  if (process.env.SEVRO_RETENTION_TEST_ISOLATED === "1") return false;
+  const scope = await mkdtemp(join(tmpdir(), "sevro-retention-test-"));
+  const argv = [
+    process.execPath,
+    "test",
+    import.meta.path,
+    "--test-name-pattern",
+    pattern,
+  ];
+  const command =
+    process.platform === "linux"
+      ? [
+          "/usr/bin/bwrap",
+          "--unshare-user",
+          "--bind",
+          "/",
+          "/",
+          "--tmpfs",
+          "/var/tmp",
+          "--",
+          ...argv,
+        ]
+      : argv;
+  try {
+    const child = Bun.spawn(command, {
+      cwd: resolve(import.meta.dir, ".."),
+      env: {
+        ...process.env,
+        TMPDIR: scope,
+        SEVRO_RETENTION_TEST_ISOLATED: "1",
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [code, out, err] = await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ]);
+    expect(code, out + err).toBe(0);
+    return true;
+  } finally {
+    await rm(scope, { recursive: true, force: true });
+  }
+}
 const baseCase = {
   id: "answer",
   prompt: "Return ready.",
@@ -55,6 +105,33 @@ const baseCase = {
   ],
   requiredEvidence: [],
 };
+function failedRetentionOptions(
+  paths: { projectRoot: string; resultsRoot: string },
+  observeWorkspace: (workspace: string) => void,
+) {
+  return {
+    ...paths,
+    case: baseCase,
+    host: {
+      id: "example.failure",
+      model: "synthetic",
+      effort: "none",
+      run(request: Parameters<HostAdapter["run"]>[0]) {
+        observeWorkspace(request.workspace);
+        return Promise.resolve({
+          finalMessage: null,
+          complete: false,
+          executionFailed: true,
+        });
+      },
+    },
+    runnerBuildDigest: digest,
+    projectDigest: digest,
+    condition: "passive" as const,
+    trialCount: 1,
+    passThreshold: 1,
+  };
+}
 test("runs trials, applies threshold, and retains evidence before fixture cleanup", async () => {
   const paths = await rootsForRun();
   const workspaces: string[] = [];
@@ -1294,6 +1371,12 @@ test("engine retains the semantic workspace when grading fails", async () => {
   );
 });
 test("engine startup expires inactive failed workspaces after a day without deleting evidence", async () => {
+  if (
+    await runRetentionInIsolation(
+      "engine startup expires inactive failed workspaces after a day without deleting evidence",
+    )
+  )
+    return;
   const paths = await rootsForRun();
   let workspace = "";
   const options = {
@@ -1339,6 +1422,12 @@ test("engine startup expires inactive failed workspaces after a day without dele
   }
 });
 test("engine startup preserves an active workspace older than a day", async () => {
+  if (
+    await runRetentionInIsolation(
+      "engine startup preserves an active workspace older than a day",
+    )
+  )
+    return;
   const paths = await rootsForRun();
   const entered = Promise.withResolvers<undefined>();
   const release = Promise.withResolvers<undefined>();
@@ -1390,6 +1479,226 @@ test("engine startup preserves an active workspace older than a day", async () =
     await active;
     clock.mockRestore();
   }
+});
+test("engine startup removes expired ownership records after a workspace was deleted manually", async () => {
+  if (
+    await runRetentionInIsolation(
+      "engine startup removes expired ownership records after a workspace was deleted manually",
+    )
+  )
+    return;
+  const paths = await rootsForRun();
+  let workspace = "";
+  const options = {
+    ...paths,
+    case: baseCase,
+    host: {
+      id: "example.failure",
+      model: "synthetic",
+      effort: "none",
+      run(request: Parameters<HostAdapter["run"]>[0]) {
+        workspace = request.workspace;
+        return Promise.resolve({
+          finalMessage: null,
+          complete: false,
+          executionFailed: true,
+        });
+      },
+    },
+    runnerBuildDigest: digest,
+    projectDigest: digest,
+    condition: "passive" as const,
+    trialCount: 1,
+    passThreshold: 1,
+  };
+  await runEvaluation(options);
+  const recordPath = join(
+    dirname(workspace),
+    ".owners",
+    `${basename(workspace)}.json`,
+  );
+  const record = parseRecord(await readFile(recordPath, "utf8"));
+  await writeFile(
+    recordPath,
+    JSON.stringify({
+      ...record,
+      timestamp: Date.now() - 24 * 60 * 60_000 - 1000,
+    }),
+    { mode: 0o600 },
+  );
+  await rm(workspace, { recursive: true });
+  await runEvaluation(options);
+  roots.push(workspace);
+  expect(await Bun.file(recordPath).exists()).toBe(false);
+});
+test("engine startup preserves a workspace with unreadable ownership metadata", async () => {
+  const name =
+    "engine startup preserves a workspace with unreadable ownership metadata";
+  if (await runRetentionInIsolation(name)) return;
+  const paths = await rootsForRun();
+  let workspace = "";
+  const options = {
+    ...paths,
+    case: baseCase,
+    host: {
+      id: "example.failure",
+      model: "synthetic",
+      effort: "none",
+      run(request: Parameters<HostAdapter["run"]>[0]) {
+        workspace = request.workspace;
+        return Promise.resolve({
+          finalMessage: null,
+          complete: false,
+          executionFailed: true,
+        });
+      },
+    },
+    runnerBuildDigest: digest,
+    projectDigest: digest,
+    condition: "passive" as const,
+    trialCount: 1,
+    passThreshold: 1,
+  };
+  const first = await runEvaluation(options);
+  const retained = workspace;
+  roots.push(retained);
+  const evidence = await readFile(first.result.evidencePath, "utf8");
+  const metadata = join(
+    dirname(retained),
+    ".owners",
+    `${basename(retained)}.json`,
+  );
+  await chmod(metadata, 0);
+  const clock = spyOn(Date, "now").mockReturnValue(
+    Date.now() + 24 * 60 * 60_000 + 1000,
+  );
+  try {
+    const next = await runEvaluation(options);
+    roots.push(workspace);
+    expect(next.result.exitCode).toBe(2);
+    expect(await readFile(join(retained, "README.md"), "utf8")).toBe(
+      "fixture content\n",
+    );
+    expect(await readFile(first.result.evidencePath, "utf8")).toBe(evidence);
+  } finally {
+    clock.mockRestore();
+    await chmod(metadata, 0o600);
+  }
+});
+test("engine startup preserves expired workspaces with unverifiable ownership", async () => {
+  const name =
+    "engine startup preserves expired workspaces with unverifiable ownership";
+  if (await runRetentionInIsolation(name)) return;
+  const paths = await rootsForRun();
+  let workspace = "";
+  const options = failedRetentionOptions(paths, (path) => {
+    workspace = path;
+  });
+  const first = await runEvaluation(options);
+  const retained = workspace;
+  roots.push(retained);
+  const metadata = join(
+    dirname(retained),
+    ".owners",
+    `${basename(retained)}.json`,
+  );
+  const original = parseRecord(await readFile(metadata, "utf8"));
+  const expired = {
+    ...original,
+    timestamp: Date.now() - 24 * 60 * 60_000 - 1000,
+  };
+  const evidence = await readFile(first.result.evidencePath, "utf8");
+  const invalidRecords = [
+    "{broken",
+    "null",
+    JSON.stringify({ ...expired, format: "unrecognized" }),
+    JSON.stringify({ ...expired, state: "unrecognized" }),
+    JSON.stringify({ ...expired, timestamp: "yesterday" }),
+    JSON.stringify({ ...expired, timestamp: null }),
+    JSON.stringify({ ...expired, owner: null }),
+    JSON.stringify({
+      ...expired,
+      owner: { pid: 0, startedAt: "unknown", host: "unknown" },
+    }),
+    JSON.stringify({
+      ...expired,
+      owner: {
+        ...parseRecord(JSON.stringify(original.owner)),
+        host: "unrecognized",
+      },
+    }),
+    " ".repeat(4097),
+  ];
+  for (const bytes of invalidRecords) {
+    await writeFile(metadata, bytes, { mode: 0o600 });
+    await runEvaluation(options);
+    roots.push(workspace);
+    expect(
+      await readFile(join(retained, "README.md"), "utf8"),
+      bytes.slice(0, 200),
+    ).toBe("fixture content\n");
+  }
+  await writeFile(metadata, JSON.stringify(expired));
+  await chmod(metadata, 0o644);
+  await runEvaluation(options);
+  roots.push(workspace);
+  expect(await readFile(join(retained, "README.md"), "utf8")).toBe(
+    "fixture content\n",
+  );
+  await rm(metadata);
+  await runEvaluation(options);
+  roots.push(workspace);
+  expect(await readFile(join(retained, "README.md"), "utf8")).toBe(
+    "fixture content\n",
+  );
+  const external = join(paths.projectRoot, "external-owner.json");
+  await writeFile(external, JSON.stringify(expired));
+  await symlink(external, metadata);
+  await runEvaluation(options);
+  roots.push(workspace);
+  expect(await readFile(join(retained, "README.md"), "utf8")).toBe(
+    "fixture content\n",
+  );
+  expect(await readFile(external, "utf8")).toBe(JSON.stringify(expired));
+  expect(await readFile(first.result.evidencePath, "utf8")).toBe(evidence);
+});
+test("engine startup cleanup tolerates concurrent evaluations expiring the same workspace", async () => {
+  const name =
+    "engine startup cleanup tolerates concurrent evaluations expiring the same workspace";
+  if (await runRetentionInIsolation(name)) return;
+  const paths = await rootsForRun();
+  let workspace = "";
+  const options = failedRetentionOptions(paths, (path) => {
+    workspace = path;
+    roots.push(path);
+  });
+  await runEvaluation(options);
+  const retained = workspace;
+  const metadata = join(
+    dirname(retained),
+    ".owners",
+    `${basename(retained)}.json`,
+  );
+  const original = parseRecord(await readFile(metadata, "utf8"));
+  await writeFile(
+    metadata,
+    JSON.stringify({
+      ...original,
+      timestamp: Date.now() - 24 * 60 * 60_000 - 1000,
+    }),
+  );
+  const outcomes = await Promise.all(
+    [0, 1, 2, 3].map((peer) =>
+      runEvaluation({
+        ...options,
+        case: { ...baseCase, id: `concurrent-cleanup-${peer}` },
+      }),
+    ),
+  );
+  expect(outcomes.map((outcome) => outcome.result.exitCode)).toEqual([
+    2, 2, 2, 2,
+  ]);
+  expect(existsSync(retained)).toBe(false);
 });
 test("engine shell isolation hides a sibling created after sandbox launch", async () => {
   if (!isolatedNativeHost) return;
