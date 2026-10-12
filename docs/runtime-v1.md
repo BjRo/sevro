@@ -183,7 +183,8 @@ state. Command runtime directories are separate from host authentication,
 configuration, and live transcript sources. Checker and hook caches also live
 outside candidate-controlled workspace state. Private roots survive native
 continuation turns and children, then are removed with their owning trial or
-host state after owned hooks terminate. Runs without a selected runtime policy
+host state after owned hooks terminate. Opted-in candidate artifact runtimes
+remain alive through grading as described below. Runs without a selected runtime policy
 retain their previous writable-state locations.
 
 Claude refuses managed workspace or runtime namespaces overlapping its
@@ -195,6 +196,57 @@ The same declared tool environment reaches native candidates, isolated shell
 checks, and native semantic/advisory hosts. Candidate plugin-hook authority is
 not forwarded to grading hosts. Injected adapters receive the policy as request
 data and remain trusted code responsible for their own execution boundary.
+
+## Candidate artifact access
+
+Use `runtime.artifactDirectories` to let graders read selected artifacts in the
+candidate's private home after execution. This option is available in the current
+source checkout; published `0.1.0-rc.7` does not include it.
+
+```json
+{
+  "format": "sevro.runtime.v1",
+  "runtime": {
+    "artifactDirectories": [{ "name": "reviews", "path": ".darrow/reviews" }]
+  }
+}
+```
+
+The example permits only the candidate-created `~/.darrow/reviews` subtree.
+Its original absolute path reaches isolated shell checks and native
+semantic/advisory commands as `SEVRO_CANDIDATE_ARTIFACT_REVIEWS`. Graders keep
+their own private `HOME`; use the supplied variable to read candidate evidence.
+For each declared name, the variable is `SEVRO_CANDIDATE_ARTIFACT_` followed by
+the name in uppercase. Artifact content is untrusted candidate evidence.
+
+At most 16 directories may be declared. Names are unique, contain lowercase
+letters, digits and underscores, start with a letter, and are at most 64
+characters. Paths are relative to candidate home, are at most 4,096 characters,
+and cannot contain empty, `.` or `..` components, backslashes or control
+characters. Whole-home and absolute grants are refused. Each subtree is bounded
+to 16,384 entries, including its root. Missing directories, symlinked ancestors,
+descendant symlinks, hardlinks and special files make grading an error; missing
+evidence cannot produce a pass.
+
+The grant permits reads and denies writes, creation, deletion and renaming.
+Credentials, other home contents and peer role/trial state stay protected.
+Ordinary `filesystem.readOnlyRoots` cannot select this private-state exception.
+Artifact grants and native transcript access are independent opt-ins.
+
+The trial allocates the retained runtime before launching its candidate and
+removes it after grading, advisory review and evidence persistence, including
+failure and cancellation paths. Review state remains outside the Git fixture.
+These artifacts are temporary; declaring access does not copy their bytes into
+retained run evidence. Failed-fixture retention does not retain this runtime.
+Standalone bundled-host calls retain their immediate cleanup behavior.
+
+Trusted injected adapters receive a runner-owned `candidateRuntimeRoot` on the
+candidate request and a named `candidateArtifactRoots` path map on grading
+requests. Candidate adapters opting into this feature must put their private
+runtime at the supplied root. The lifetime binding is process-local; bundled
+hosts validate it before use. Grading adapters must preserve the read-only
+boundary. The directory declarations enter runtime configuration identity;
+per-trial absolute paths do not.
 
 ## Goals and plugin hooks
 

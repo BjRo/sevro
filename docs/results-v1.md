@@ -120,6 +120,11 @@ results and evidence remain intact. Failed cleanup is retried on later evaluatio
 `sevro.observation.workspaces` records candidate and retained auxiliary workspace
 paths for inspection. These paths are temporary and do not affect evaluation identity.
 
+Opted-in [candidate artifact runtimes](runtime-v1.md#candidate-artifact-access)
+remain available through grading and are removed afterward, including failed
+and cancelled trials. Failed-fixture retention does not preserve them.
+Read access does not automatically retain artifact bytes in run evidence.
+
 A host adapter can return `executionFailed: true` with bounded artifacts from
 a failed process. The engine retains those artifacts, skips all grading, and
 reports `failed` / `not_requested` / `not_assessed` with exit code `2`. A final

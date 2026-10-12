@@ -1,4 +1,8 @@
 import { runtimeSeedSources } from "../runtime-config";
+import {
+  candidateArtifactEnvironment,
+  type CandidateArtifactRoots,
+} from "../candidate-artifacts";
 import { mkdir, stat } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 import { prepareIsolatedCommand } from "../hosts/isolation";
@@ -265,6 +269,7 @@ function stopProcess(proc: Bun.Subprocess): void {
 
 interface ShellRunOptions {
   candidateTranscriptRoot?: string;
+  candidateArtifactRoots?: CandidateArtifactRoots;
   runtimePolicy?: RuntimePolicy;
   workspace: string;
   fixtureBinDir?: string;
@@ -326,6 +331,7 @@ function shellEnvironment(
 ): Record<string, string> {
   return {
     ...runtime.environment,
+    ...candidateArtifactEnvironment(options.candidateArtifactRoots),
     ...(options.candidateTranscriptRoot
       ? { SEVRO_CANDIDATE_TRANSCRIPTS: options.candidateTranscriptRoot }
       : {}),
@@ -446,6 +452,7 @@ export async function runShellCheck(
     privateStateRoot: options.privateStateRoot,
     denyNetwork: true,
     readOnlyRoots: options.runtimePolicy?.readOnlyRoots,
+    candidateArtifactRoots: options.candidateArtifactRoots,
     transcriptReadRoots: options.candidateTranscriptRoot
       ? [options.candidateTranscriptRoot]
       : [],

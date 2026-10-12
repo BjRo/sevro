@@ -1,4 +1,8 @@
 import { existsSync } from "node:fs";
+import {
+  requireCandidateRuntime,
+  requireCandidateArtifactRoots,
+} from "../candidate-artifacts";
 import { readFile, realpath, rm, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 import type { HostAdapter, HostResult } from "../engine";
@@ -293,6 +297,11 @@ async function runClaudeRequest(
 ): Promise<HostResult> {
   requireClaudeFollowUp(request);
   await requireNativeTranscriptView(request.candidateTranscriptRoot);
+  await requireCandidateRuntime(
+    request.candidateRuntimeRoot,
+    request.runtimeRole,
+  );
+  await requireCandidateArtifactRoots(request.candidateArtifactRoots);
   requirePassiveClaudeRequest(request);
   const pluginDirs = request.claudePluginDirs
     ? await pluginDirectories(request.workspace, request.claudePluginDirs)

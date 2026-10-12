@@ -9,3 +9,7 @@ export type {
 export { runEvaluation } from "./evaluation-run";
 export { loadRuntimeConfiguration } from "./runtime-config";
 export type { RuntimeConfiguration, RuntimePolicy } from "./runtime-config";
+export type {
+  RuntimeArtifactDirectory,
+  CandidateArtifactRoots,
+} from "./candidate-artifacts";

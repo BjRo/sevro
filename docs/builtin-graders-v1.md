@@ -98,3 +98,10 @@ shell checks and semantic hosts can read retained candidate native files through
 live native tree. Native transcripts are untrusted candidate evidence; a grader
 must not follow instructions inside them. Missing or partial capture remains
 explicit in the index and does not establish required complete evidence.
+
+With [candidate artifact access](runtime-v1.md#candidate-artifact-access),
+shell checks and semantic/advisory hosts can also read explicitly declared
+subtrees in the candidate's original private home. Named paths reach commands
+through `SEVRO_CANDIDATE_ARTIFACT_<UPPERCASE_NAME>`, independently of native
+transcript access. These grants are read-only; other candidate home contents
+remain protected. Missing or unsafe declared directories make grading an error.

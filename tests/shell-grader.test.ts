@@ -1,7 +1,7 @@
 import { expectUnknown } from "./fixtures/assertions";
 import { defined } from "./fixtures/assertions";
 import { afterEach, test, expect } from "bun:test";
-import { existsSync, watch } from "node:fs";
+import { existsSync } from "node:fs";
 import {
   chmod,
   mkdir,
@@ -115,17 +115,25 @@ test("shell cancellation requested during preparation stops its eventual owned p
   expect(running).rejects.toThrow("shell check cancelled");
 });
 
+async function shellReadiness(workspace: string): Promise<string> {
+  const deadline = performance.now() + 2000;
+  while (performance.now() < deadline) {
+    const receipt = await readFile(join(workspace, "ready"), "utf8").catch(
+      (cause: unknown) => {
+        if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
+        return "";
+      },
+    );
+    if (receipt.endsWith("\n")) return receipt;
+    await Bun.sleep(10);
+  }
+  throw new Error("owned shell did not publish readiness");
+}
+
 test("active shell cancellation stops only the receipt-bound owned process", async () => {
   if (!isolatedNativeHost) return;
   const options = await shellWorkspace();
   const controller = new AbortController();
-  const ready = Promise.withResolvers<undefined>();
-  const observer = watch(options.workspace, (_event, name) => {
-    if (name === "ready") ready.resolve(undefined);
-  });
-  const timer = setTimeout(() => {
-    ready.reject(new Error("owned shell did not publish readiness"));
-  }, 2000);
   let running: Promise<unknown> | undefined;
   try {
     const check = outputCheck({
@@ -136,10 +144,7 @@ test("active shell cancellation stops only the receipt-bound owned process", asy
       ...options,
       signal: controller.signal,
     }).catch((cause: unknown) => cause);
-    await ready.promise;
-    const pid = Number(
-      await readFile(join(options.workspace, "ready"), "utf8"),
-    );
+    const pid = Number(await shellReadiness(options.workspace));
     expect(Number.isSafeInteger(pid)).toBe(true);
     expect(pid).toBeGreaterThan(0);
     const heartbeat = join(options.workspace, "heartbeat");
@@ -155,8 +160,6 @@ test("active shell cancellation stops only the receipt-bound owned process", asy
   } finally {
     controller.abort();
     if (running) await running;
-    observer.close();
-    clearTimeout(timer);
   }
 });
 

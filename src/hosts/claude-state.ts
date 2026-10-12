@@ -1,5 +1,9 @@
 import { runtimeSeedSources } from "../runtime-config";
 import {
+  candidateArtifactEnvironment,
+  candidateArtifactReadRoots,
+} from "../candidate-artifacts";
+import {
   cp,
   mkdir,
   realpath,
@@ -229,6 +233,7 @@ export async function prepareClaudeState(
         [
           ...transcripts.readRoots,
           ...candidateTranscriptRoots(request.candidateTranscriptRoot),
+          ...candidateArtifactReadRoots(request.candidateArtifactRoots),
         ],
         runtimeWriteRoot
           ? { root: runtimeWriteRoot, workspace: request.workspace }
@@ -242,6 +247,7 @@ export async function prepareClaudeState(
   Object.assign(
     env,
     candidateTranscriptEnvironment(request.candidateTranscriptRoot),
+    candidateArtifactEnvironment(request.candidateArtifactRoots),
   );
   if (runtime) await mkdir(join(runtime, "host-home"), { mode: 0o700 });
   return {
@@ -359,7 +365,9 @@ async function applyClaudeRuntimeEnvironment(
 }
 
 function claudeRuntimeDirectory(request: Request, stateRoot: string) {
-  return request.runtimePolicy ? join(stateRoot, "runtime") : undefined;
+  return request.runtimePolicy
+    ? (request.candidateRuntimeRoot ?? join(stateRoot, "runtime"))
+    : undefined;
 }
 
 function applyLegacyClaudeCommandEnvironment(

@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { requireNativeTranscriptViews } from "../native-transcript-state";
+import { requireCandidateArtifactRoots } from "../candidate-artifacts";
 import { workspaceBoundaryException } from "../workspace-state";
 import {
   insideRuntimeRoot,
@@ -115,6 +116,7 @@ export async function prepareMacSandboxCommand(
 ): Promise<IsolatedCommand> {
   requireSandboxAvailable();
   await requireNativeTranscriptViews(options.transcriptReadRoots);
+  await requireCandidateArtifactRoots(options.candidateArtifactRoots);
   requireIsolationPaths(options);
   const workspace = await realpath(options.workspace);
   const roots = options.protectedRootsCanonical
@@ -137,7 +139,10 @@ export async function prepareMacSandboxCommand(
       options.denyNetwork,
       readRoots,
       ownedRoot,
-      options.transcriptReadRoots,
+      [
+        ...(options.transcriptReadRoots ?? []),
+        ...Object.values(options.candidateArtifactRoots ?? {}),
+      ],
       workspace,
     ),
     { flag: "wx", mode: 0o600 },

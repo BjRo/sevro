@@ -1,4 +1,5 @@
 import { clearFixtureContents } from "./fixture-cleanup";
+import type { CandidateArtifactRoots } from "./candidate-artifacts";
 import {
   CodexProcessFailure,
   codexFailureMessage,
@@ -36,6 +37,7 @@ interface SemanticGradingInput {
   message: string | null;
   candidateWorkspace: string;
   candidateTranscriptRoot?: string;
+  candidateArtifactRoots?: CandidateArtifactRoots;
   projectRoot: string;
   reservedWorkspace?: string;
   runDir: string;
@@ -149,6 +151,7 @@ class SemanticGrading {
       const response = await host
         .run({
           candidateTranscriptRoot: this.input.candidateTranscriptRoot,
+          candidateArtifactRoots: this.input.candidateArtifactRoots,
           prompt: semanticHostPrompt(message, group, artifact),
           runtimePolicy: gradingRuntimePolicy(
             this.input.runtimePolicy,

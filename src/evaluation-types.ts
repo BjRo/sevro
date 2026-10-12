@@ -10,6 +10,7 @@ import type { openExtensionSession } from "./extension-session";
 import type { Assessment, CheckOutcome } from "./results";
 import type { RuntimePolicy } from "./runtime-config";
 import type { RuntimeRole } from "./runtime-state";
+import type { CandidateArtifactRoots } from "./candidate-artifacts";
 
 export class EvaluationConfigurationError extends Error {
   constructor(message: string, options?: ErrorOptions) {
@@ -52,6 +53,8 @@ export interface HostAdapter {
     runtimePolicy?: RuntimePolicy;
     runtimeRole?: RuntimeRole;
     candidateTranscriptRoot?: string;
+    candidateRuntimeRoot?: string;
+    candidateArtifactRoots?: CandidateArtifactRoots;
     prompt: string;
     followUpPrompt?: string;
     workspace: string;
