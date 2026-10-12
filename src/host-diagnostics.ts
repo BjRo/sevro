@@ -78,7 +78,9 @@ function boundedText(bytes: Uint8Array, secrets: string[]) {
     ),
   );
   return {
-    text: redacted.subarray(0, MAX_TEXT_BYTES).toString("utf8"),
+    text: new TextDecoder().decode(redacted.subarray(0, MAX_TEXT_BYTES), {
+      stream: true,
+    }),
     truncated:
       bytes.byteLength > MAX_TEXT_BYTES || redacted.byteLength > MAX_TEXT_BYTES,
   };

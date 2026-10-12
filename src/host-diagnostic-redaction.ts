@@ -30,7 +30,10 @@ export async function diagnosticSecrets(path: string): Promise<string[]> {
 }
 
 export function redactDiagnosticText(text: string, secrets: string[]): string {
-  for (const secret of secrets) text = text.replaceAll(secret, "[redacted]");
+  for (const secret of secrets) {
+    text = text.replaceAll(secret, "[redacted]");
+    text = redactCredentialSuffix(text, secret);
+  }
   return text
     .replace(/(authorization\s*:\s*)[^\r\n]+/gi, "$1[redacted]")
     .replace(/\bBearer\s+\S+/gi, "Bearer [redacted]")
@@ -39,4 +42,11 @@ export function redactDiagnosticText(text: string, secrets: string[]): string {
       /((?:api[_-]?key|access[_-]?token|refresh[_-]?token)\s*[=:]\s*)\S+/gi,
       "$1[redacted]",
     );
+}
+
+function redactCredentialSuffix(text: string, secret: string): string {
+  const start = text.lastIndexOf(secret.slice(0, Math.min(8, secret.length)));
+  if (start >= 0 && secret.startsWith(text.slice(start)))
+    return text.slice(0, start) + "[redacted]";
+  return text;
 }

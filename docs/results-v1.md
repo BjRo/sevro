@@ -147,7 +147,7 @@ The flag is independent of native transcript retention.
 
 The private JSON contains `host`, `role`, `stage`, `error`, `processes`,
 and `processesDropped`. Error evidence preserves the original name, message,
-stack and available error code, plus up to eight cause-chain entries. Repeated
+stack and available error code, with up to eight error entries in the cause chain. Repeated
 or deeper causes end in an explicit `truncated` entry. Messages and stacks
 are bounded to 8,192 characters per entry. A host-returned failure without a
 thrown exception receives a runner failure summary; subprocess receipts and

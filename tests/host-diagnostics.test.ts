@@ -1056,3 +1056,106 @@ test("CLI distinguishes result processing failures from a successful exec proces
     await rm(dirname(home), { recursive: true, force: true });
   }
 });
+
+test("CLI attributes an installed plugin manifest failure to hook preparation", async () => {
+  const { args, binary } = await marketplaceFailure();
+  await writeFile(
+    binary,
+    `#!${process.execPath}
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+if (process.argv[3] === "marketplace") { console.log("{}"); process.exit(0); }
+const installedPath = join(process.env.CODEX_HOME, "plugins/cache/sevro-probe/probe/1");
+await mkdir(join(installedPath, ".claude-plugin"), {recursive:true});
+await writeFile(join(installedPath, ".claude-plugin/plugin.json"), "{broken");
+console.log(JSON.stringify({name:"probe", marketplaceName:"sevro-probe", installedPath}));
+`,
+    { mode: 0o700 },
+  );
+  const run = await invoke([...args, "--retain-host-diagnostics"]);
+  expect(run.code).toBe(2);
+  const evidence = parseRunEvidence(
+    await readFile(defined(run.result.evidencePath), "utf8"),
+  );
+  const artifact = defined(
+    defined(evidence.trials[0]).artifactRefs.find(
+      (ref) => ref.id === "sevro.host.diagnostics",
+    ),
+  );
+  const diagnostics = parseRecord(
+    await readFile(new URL(artifact.path), "utf8"),
+  );
+  expect(diagnostics).toMatchObject({
+    stage: "hooks-preparation",
+    error: { name: "SyntaxError" },
+  });
+  expect(
+    array(diagnostics.processes).map((entry) => record(entry).code),
+  ).toEqual([0, 0]);
+});
+
+test("CLI diagnostic stream caps remain byte-bounded at UTF-8 boundaries", async () => {
+  const { args, binary } = await marketplaceFailure();
+  await writeFile(
+    binary,
+    `#!${process.execPath}
+const output = "xxx" + "🙂".repeat(20_000);
+await new Promise(resolve => process.stdout.write(output, resolve));
+await new Promise(resolve => process.stderr.write(output, resolve));
+process.exit(23);
+`,
+    { mode: 0o700 },
+  );
+  const run = await invoke([...args, "--retain-host-diagnostics"]);
+  expect(run.code).toBe(2);
+  const evidence = parseRunEvidence(
+    await readFile(defined(run.result.evidencePath), "utf8"),
+  );
+  const artifact = defined(
+    defined(evidence.trials[0]).artifactRefs.find(
+      (ref) => ref.id === "sevro.host.diagnostics",
+    ),
+  );
+  const receipt = record(
+    defined(
+      array(
+        parseRecord(await readFile(new URL(artifact.path), "utf8")).processes,
+      ).at(-1),
+    ),
+  );
+  expect(Buffer.byteLength(string(receipt.stdout))).toBeLessThanOrEqual(65536);
+  expect(Buffer.byteLength(string(receipt.stderr))).toBeLessThanOrEqual(65536);
+  expect(receipt).toMatchObject({
+    stdoutTruncated: true,
+    stderrTruncated: true,
+  });
+});
+
+test("CLI diagnostics redact a credential cut by the stream byte limit", async () => {
+  const { args, binary, auth } = await marketplaceFailure();
+  const secret = "opaque-native-credential-at-the-byte-boundary";
+  await writeFile(auth, JSON.stringify({ tokens: { access_token: secret } }));
+  await writeFile(
+    binary,
+    `#!${process.execPath}
+await new Promise(resolve => process.stderr.write("x".repeat(65520) + ${JSON.stringify(secret)}, resolve));
+process.exit(23);
+`,
+    { mode: 0o700 },
+  );
+  const run = await invoke([...args, "--retain-host-diagnostics"]);
+  expect(run.code).toBe(2);
+  const evidence = parseRunEvidence(
+    await readFile(defined(run.result.evidencePath), "utf8"),
+  );
+  const artifact = defined(
+    defined(evidence.trials[0]).artifactRefs.find(
+      (ref) => ref.id === "sevro.host.diagnostics",
+    ),
+  );
+  const text = await readFile(new URL(artifact.path), "utf8");
+  expect(text).not.toContain(secret.slice(0, 16));
+  const receipt = record(defined(array(parseRecord(text).processes).at(-1)));
+  expect(string(receipt.stderr).endsWith("[redacted]")).toBe(true);
+  expect(receipt.stderrTruncated).toBe(true);
+});

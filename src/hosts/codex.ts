@@ -257,6 +257,7 @@ async function executeCodexRequest(
       request,
       diagnostics,
     });
+    diagnosticStage(diagnostics, "hooks-preparation");
     const hooks = await codexHookMounts(request, state, installedPluginRoots);
     activeHooks = hooks;
     await codexPreflight(options, request, state, diagnostics);
