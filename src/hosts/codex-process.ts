@@ -200,10 +200,6 @@ function codexCompletion(
   return { completed, drains: [stdout, stderr, input] };
 }
 
-function codexInterruptionReason(cause: unknown) {
-  return cause instanceof HostProcessInterruption ? cause.reason : "error";
-}
-
 export async function runCodexProcess(
   options: CodexProcessOptions,
 ): Promise<Result> {
@@ -222,7 +218,7 @@ export async function runCodexProcess(
   } catch (cause) {
     if (!(cause instanceof HostProcessInterruption)) {
       await Promise.allSettled(drains);
-      await capture.record(proc, codexInterruptionReason(cause));
+      await capture.record(proc, "error");
       throw cause;
     }
     const result = await completed;

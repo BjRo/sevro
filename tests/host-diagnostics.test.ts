@@ -616,7 +616,10 @@ test("diagnostic persistence failure remains an internal runner failure", async 
   ).rejects.toThrow("host diagnostic persistence failed");
 });
 
-async function secondaryFailure(role: "semantic" | "advisory") {
+async function secondaryFailure(
+  role: "semantic" | "advisory",
+  failPersistence = false,
+) {
   const { root, project, auth, binary } = await executionFailure("exec");
   const marker = join(root, "native-home");
   await writeFile(
@@ -643,6 +646,7 @@ async function secondaryFailure(role: "semantic" | "advisory") {
         ...request,
         async retainHostDiagnostics(bytes) {
           expect(existsSync(await readFile(marker, "utf8"))).toBe(true);
+          if (failPersistence) throw new Error("simulated disk full");
           await defined(request.retainHostDiagnostics)(bytes);
           retainedBeforeCleanup = true;
         },
@@ -1159,3 +1163,12 @@ process.exit(23);
   expect(string(receipt.stderr).endsWith("[redacted]")).toBe(true);
   expect(receipt.stderrTruncated).toBe(true);
 });
+
+test.each(["semantic", "advisory"] as const)(
+  "secondary native diagnostic persistence failures stay internal: %s",
+  (role) => {
+    expect(secondaryFailure(role, true)).rejects.toThrow(
+      "host diagnostic persistence failed",
+    );
+  },
+);

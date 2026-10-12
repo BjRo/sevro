@@ -14,10 +14,10 @@ interface ProcessDiagnostic {
   signal: string | null;
   durationMs: number;
   stdoutTruncated?: boolean;
-  reason?: "exit" | "timeout" | "cancelled" | "error" | "spawn";
+  reason: "exit" | "timeout" | "cancelled" | "error" | "spawn";
 }
 
-export type ProcessFailureReason = NonNullable<ProcessDiagnostic["reason"]>;
+export type ProcessFailureReason = ProcessDiagnostic["reason"];
 
 export class HostDiagnosticPersistenceError extends Error {
   constructor(persistenceCause: unknown, hostCause: unknown) {
@@ -273,7 +273,7 @@ export class HostDiagnostics {
       code: result.code,
       signal: result.signal,
       durationMs: result.durationMs,
-      reason: result.reason ?? "exit",
+      reason: result.reason,
       stdout: stdout.text,
       stdoutTruncated: stdout.truncated || result.stdoutTruncated === true,
       stderr: stderr.text,
@@ -292,10 +292,7 @@ export class HostDiagnostics {
     }
   }
 
-  async retain(
-    result: HostResult,
-    cause: unknown = this.failure,
-  ): Promise<void> {
+  async retain(result: HostResult, cause: unknown): Promise<void> {
     this.failureCaptured = true;
     const bytes = Buffer.from(
       JSON.stringify({
