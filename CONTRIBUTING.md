@@ -27,7 +27,9 @@ by applicable law.
 ## Set up development
 
 Use Bun 1.3.13, Git, Node 24, npm, and ripgrep (`rg`). Full suite isolation uses `sandbox-exec`
-on macOS or `bubblewrap` and `socat` on Ubuntu. Windows acceptance is unverified.
+on macOS or `bubblewrap` and `socat` on Ubuntu. The macOS synthetic libc regression
+fixtures compile with `/usr/bin/cc`, supplied by Apple's Command Line Tools.
+Windows acceptance is unverified.
 From a fresh checkout:
 
 ```sh

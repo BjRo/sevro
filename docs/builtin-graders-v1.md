@@ -54,6 +54,11 @@ include any other source worktrees or private roots. A peer path already
 canonicalized by the engine remains in the deny profile if that peer is
 removed before the sandbox starts; unverified missing roots still fail.
 
+On macOS, validated runtime grants also permit limited
+[ancestor metadata reads](runtime-v1.md#macos-ancestor-metadata) so libc can
+canonicalize granted paths. Protected ancestor listings and ungranted sibling
+data remain inaccessible.
+
 `sevro.git-head` accepts `kind: "changed"`, `"unchanged"`, or
 `"base-ancestor"` for a generated or repository Git fixture. The engine
 captures the fixture's base HEAD before the candidate turn, then compares the

@@ -144,6 +144,23 @@ minimal system read tree such as `/usr` or `/etc`, Sevro retains its explicit de
 the native preflight may refuse that overlapping setup rather than expose home
 contents.
 
+## macOS ancestor metadata
+
+Sevro's macOS outer sandbox for isolated shell checks and authorized command
+hooks permits metadata reads on the exact ancestor paths of existing validated
+grants. This includes declared read-only support trees, private writable
+runtimes, and bounded transcript, candidate artifact, and managed workspace
+access. The permissions are derived automatically from those grants; no
+additional configuration is required. They let libc `realpath()` canonicalize
+paths inside a permitted subtree.
+
+Ancestor directory metadata, such as existence, type, ownership, permissions,
+and timestamps, is visible. Directory listings, ancestor file contents, and
+ungranted sibling metadata and contents remain denied under protected roots.
+Writes remain limited by the existing writable grants; read-only grants stay
+read-only. This metadata exception does not grant access to an ancestor subtree
+or change network isolation.
+
 ## Private writable state
 
 `runtime.seedDirectories` copies prepared public dependencies into a private
