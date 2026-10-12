@@ -138,33 +138,9 @@ async function mountedReadPath(
 ): Promise<boolean> {
   const absolute = resolve(commandCwd, path);
   const actual = await realpath(absolute).catch(() => null);
-  if (actual) return mountedSkillName(actual, workspace, pluginRoots) !== null;
   return (
-    (await mountedSkillDirectory(dirname(absolute), workspace, pluginRoots)) !==
-    null
+    actual !== null && mountedSkillName(actual, workspace, pluginRoots) !== null
   );
-}
-async function mountedSkillDirectory(
-  path: string,
-  workspace: string,
-  pluginRoots: string[],
-): Promise<string | null> {
-  const actual = await realpath(path).catch(() => null);
-  if (!actual) return null;
-  const mounted = relative(workspace, actual)
-    .split(sep)
-    .join("/")
-    .match(/^\.agents\/skills\/([A-Za-z0-9._-]+)$/);
-  const plugin = pluginRoots
-    .map((root) =>
-      relative(root, actual)
-        .split(sep)
-        .join("/")
-        .match(/^skills\/([A-Za-z0-9._-]+)$/),
-    )
-    .find((match) => match !== null);
-  const match = mounted ?? plugin;
-  return match ? (match[1] ?? null) : null;
 }
 function readAttemptPaths(command: string): string[] {
   const payload = shellPayload(command).trim();
@@ -221,9 +197,32 @@ async function verifiedMountedFrontmatterPath(
   pluginRoots: string[],
 ): Promise<boolean> {
   const actual = await realpath(path).catch(() => null);
-  if (!actual || mountedSkillName(actual, workspace, pluginRoots) !== skill)
-    return false;
-  return (await verifiedSkillBody(actual, skill)) !== null;
+  if (actual && mountedSkillName(actual, workspace, pluginRoots) === skill)
+    if ((await verifiedSkillBody(actual, skill)) !== null) return true;
+  const directory = await realpath(dirname(path)).catch(() => null);
+  return (
+    directory !== null &&
+    mountedSkillDirectoryName(directory, workspace, pluginRoots) === skill
+  );
+}
+function mountedSkillDirectoryName(
+  directory: string,
+  workspace: string,
+  pluginRoots: string[],
+): string | null {
+  const mounted = relative(workspace, directory)
+    .split(sep)
+    .join("/")
+    .match(/^\.agents\/skills\/([A-Za-z0-9._-]+)$/);
+  const plugin = pluginRoots
+    .map((root) =>
+      relative(root, directory)
+        .split(sep)
+        .join("/")
+        .match(/^skills\/([A-Za-z0-9._-]+)$/),
+    )
+    .find((match) => match !== null);
+  return (mounted ?? plugin)?.[1] ?? null;
 }
 function mountedSkillName(
   actual: string,

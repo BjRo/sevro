@@ -26,7 +26,9 @@ commands or skill bodies. A `cat` or `sed -n` attempt counts only when its path
 resolves to a mounted skill or a skill below an installed plugin root verified
 by Codex's installation receipt. Missing targets outside a mounted skill
 directory, listings, and other harmless mentions of `SKILL.md` do not make the
-observation partial. A completed direct
+observation partial. A missing `SKILL.md` target does not count as a read just
+because its parent directory belongs to a mounted skill; an existing mounted
+target that fails or produces incomplete bytes remains partial. A completed direct
 `cat` of one mounted `SKILL.md`, alone or alongside literal documentation
 paths, counts only when the command output contains that file's exact body.
 Batched reads naming multiple `SKILL.md` files or more than 64 paths remain
