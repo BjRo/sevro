@@ -37,6 +37,8 @@ function shellPayload(command: string): string {
 
 interface DirectRead {
   path: string;
+  fallbackPaths?: string[];
+  operandCount?: number;
   firstLine?: number;
   lastLine?: number;
 }
@@ -66,9 +68,52 @@ function sedRead(payload: string, path: string): DirectRead | null {
   return { path: capturedReadPath(sed, 3), firstLine, lastLine };
 }
 function directRead(command: string): DirectRead | null {
-  const payload = shellPayload(command).trim();
+  const payload = compoundReadPayload(shellPayload(command).trim());
   const path = "(?:\"([^\"]+)\"|'([^']+)'|([^\\s'\"`$;&|<>]+))";
-  return catRead(payload, path) ?? sedRead(payload, path);
+  return (
+    catRead(payload, path) ??
+    sedRead(payload, path) ??
+    fallbackRead(payload, path)
+  );
+}
+
+const LITERAL_WORD = "(?:\"[^\"$`\\\\]*\"|'[^']*'|[^\\s\"'\\\\`$;&|<>(){}#]+)";
+const LITERAL_WORDS = `${LITERAL_WORD}(?:[ \\t]+${LITERAL_WORD})*`;
+
+function compoundReadPayload(payload: string): string {
+  const sequential = payload.match(
+    new RegExp(
+      `^(${LITERAL_WORDS})[ \\t]*[;\\n][ \\t\\r\\n]*(?:/usr/bin/)?rg[ \\t]+${LITERAL_WORDS}[ \\t\\r\\n]*$`,
+    ),
+  );
+  return sequential?.[1] ?? payload;
+}
+
+function fallbackRead(payload: string, path: string): DirectRead | null {
+  const clause = `(${LITERAL_WORDS})[ \\t]+2>/dev/null[ \\t]*\\|\\|[ \\t\\r\\n]*`;
+  const chain = payload.match(
+    new RegExp(
+      `^((?:${clause})+)true[ \\t]*\\n[ \\t]*(?:/usr/bin/)?rg[ \\t]+${LITERAL_WORDS}[ \\t\\r\\n]*$`,
+    ),
+  );
+  if (!chain) return null;
+  const reads = [
+    ...chain.slice(1, 2).join("").matchAll(new RegExp(clause, "g")),
+  ].map((match) => catRead(match.slice(1, 2).join(""), path));
+  if (
+    fallbackOperandCount(reads) > MAX_NATIVE_READ_ATTEMPTS ||
+    reads.some((read) => read === null)
+  )
+    return null;
+  const paths = reads.flatMap((read) => (read ? [read.path] : []));
+  const first = paths[0];
+  return first === undefined
+    ? null
+    : { path: first, fallbackPaths: paths.slice(1) };
+}
+
+function fallbackOperandCount(reads: Array<DirectRead | null>): number {
+  return reads.reduce((count, read) => count + (read?.operandCount ?? 0), 0);
 }
 
 function catRead(payload: string, path: string): DirectRead | null {
@@ -82,7 +127,7 @@ function catRead(payload: string, path: string): DirectRead | null {
   const skills = paths.filter((value) => /(?:^|\/)SKILL\.md$/.test(value));
   if (skills.length !== 1 || paths.length > MAX_NATIVE_READ_ATTEMPTS)
     return null;
-  return { path: skills.join("") };
+  return { path: skills.join(""), operandCount: paths.length };
 }
 
 function readRange(body: string, read: DirectRead): [number, number] {
@@ -143,8 +188,13 @@ async function mountedReadPath(
   );
 }
 function readAttemptPaths(command: string): string[] {
-  const payload = shellPayload(command).trim();
+  const payload = compoundReadPayload(shellPayload(command).trim());
   const path = "(?:\"([^\"]+)\"|'([^']+)'|([^\\s'\"`$;&|<>]+))";
+  const fallback = fallbackRead(payload, path);
+  if (fallback) return [fallback.path, ...(fallback.fallbackPaths ?? [])];
+  return literalReadAttemptPaths(payload, path);
+}
+function literalReadAttemptPaths(payload: string, path: string): string[] {
   const cat = payload.match(
     new RegExp(`^(?:/bin/)?cat\\s+(?:--\\s+)?(${path}(?:\\s+${path})*)$`),
   );
@@ -258,15 +308,24 @@ async function resolvedSkillRead(
   pluginRoots: string[],
   commandCwd: string,
 ): Promise<VerifiedRead | null> {
-  const actual = await realpath(
-    resolve(commandCwd, declaration.read.path),
-  ).catch(() => null);
+  const actual = await resolvedReadPath(declaration.read, commandCwd);
   if (!actual) return null;
   const skill = mountedSkillName(actual, workspace, pluginRoots);
   if (skill === null) return null;
   const text = await verifiedSkillBody(actual, skill);
   if (text === null) return null;
   return skillReadReceipt(actual, skill, declaration, text);
+}
+async function resolvedReadPath(
+  read: DirectRead,
+  commandCwd: string,
+): Promise<string | null> {
+  const targets = new Set<string>();
+  for (const path of [read.path, ...(read.fallbackPaths ?? [])]) {
+    const actual = await realpath(resolve(commandCwd, path)).catch(() => null);
+    if (actual) targets.add(actual);
+  }
+  return targets.size === 1 ? [...targets].join("") : null;
 }
 function skillReadReceipt(
   actual: string,

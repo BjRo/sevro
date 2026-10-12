@@ -36,6 +36,16 @@ partial, as do failed, malformed, or incomplete recognized reads. Direct
 `sed -n` pages count after their verified line ranges cover the whole body. An
 exact `cat` wrapped by `lean-ctx -c` is accepted only when its reported output
 still contains the full body; a compressed summary cannot prove the read.
+The same exact-body check accepts a literal read followed by one literal `rg`
+command, separated by a semicolon or newline. It also accepts a chain of literal
+`cat` fallbacks with `2>/dev/null` and `||`, ending in `true` followed by a newline
+and one literal `rg` discovery command. A fallback chain must resolve to one
+canonical file across all its read operands; absent alternate targets do not
+invalidate the read. Multiple existing targets, including unmounted copies,
+cannot establish an attributable read. The total read operands remain bounded
+at 64. The complete command must succeed and expose the mounted file's entire
+exact body. Substitutions, pipelines, other shell control flow, and dynamic
+search arguments cannot establish a compound read through this check.
 Unrecognized commands remain partial when their output contains the identifying
 `name: <skill>` line from a mounted or receipt-bound installed-plugin skill.
 This is a host observation; an extension decides what selection means for its

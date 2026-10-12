@@ -137,6 +137,12 @@ if [ -x "$workspace/.git/fixture-bin/fixture-tool" ]; then
 fi
 if [ -f "$workspace/malformed.flag" ]; then printf '{broken\\n'; exit 0; fi
 if [ -f "$workspace/slow.flag" ]; then printf '%s' "$$" > "$workspace/child.pid"; /bin/sleep 10; fi
+if [ -f "$workspace/compound-events.jsonl" ]; then
+  mkdir -p "$CODEX_HOME/sessions/2026/09/27"
+  /bin/cat "$workspace/compound-native.jsonl" > "$CODEX_HOME/sessions/2026/09/27/rollout-thread-1.jsonl"
+  /bin/cat "$workspace/compound-events.jsonl"
+  exit 0
+fi
 if [ ! -f "$workspace/.git/unchanged.flag" ]; then
   printf 'created\\n' > "$workspace/created.txt"
 fi
@@ -192,6 +198,171 @@ async function ordinaryCodexRequest() {
   };
   return { paths, host, request, workspace };
 }
+
+async function compoundReadFixture(skill: string, command: string) {
+  const selected = await ordinaryCodexRequest();
+  const skillRoot = join(selected.workspace, ".agents", "skills", skill);
+  const body = `---\nname: ${skill}\ndescription: Compound read fixture\n---\nRead this complete skill body.\n`;
+  await mkdir(skillRoot, { recursive: true });
+  await mkdir(join(selected.workspace, "docs"));
+  await writeFile(join(skillRoot, "SKILL.md"), body);
+  await writeFile(
+    join(selected.workspace, "README.md"),
+    "offline deployment\n",
+  );
+  const literalCommand = command.replaceAll("$WORKSPACE", selected.workspace);
+  const process = Bun.spawn(["/bin/sh", "-c", literalCommand], {
+    cwd: selected.workspace,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [output, error, exitCode] = await Promise.all([
+    new Response(process.stdout).text(),
+    new Response(process.stderr).text(),
+    process.exited,
+  ]);
+  expect(exitCode, error).toBe(0);
+  expect(output).toContain(body);
+  const item = {
+    id: "compound-read",
+    type: "command_execution",
+    command: literalCommand,
+    aggregated_output: output,
+    status: "completed",
+    exit_code: exitCode,
+  };
+  const events = [
+    { type: "thread.started", thread_id: "thread-1" },
+    { type: "item.completed", item },
+    { type: "item.completed", item: { type: "agent_message", text: "ready" } },
+    { type: "turn.completed" },
+  ];
+  await writeFile(
+    join(selected.workspace, "compound-events.jsonl"),
+    events.map((event) => JSON.stringify(event)).join("\n") + "\n",
+  );
+  await writeFile(
+    join(selected.workspace, "compound-native.jsonl"),
+    JSON.stringify({
+      ordinal: 0,
+      payload: {
+        type: "item_completed",
+        item: {
+          ...item,
+          type: "CommandExecution",
+          command: ["/bin/sh", "-c", literalCommand],
+          cwd: selected.workspace,
+        },
+      },
+    }) + "\n",
+  );
+  return selected;
+}
+
+test("Codex compound read followed by search retains complete activation evidence", async () => {
+  if (!isolatedNativeHost || !Bun.which("codex")) return;
+  const skill = "darrow-guide";
+  const selected = await compoundReadFixture(
+    skill,
+    "cat .agents/skills/darrow-guide/SKILL.md; rg -n -i 'offline|\\bSLA\\b|service.level|guaranteed|deployment' README.md docs .agents/skills/darrow-guide",
+  );
+  const result = await selected.host.run({
+    ...selected.request,
+    prompt: `Use $${skill} and return ready.`,
+    explicitSkillInvocation: {
+      scope: "repository",
+      skillName: skill,
+      token: `$${skill}`,
+    },
+  });
+  expect(result.complete).toBe(true);
+  expectUnknown(result.observations).toContainEqual({
+    id: "sevro.codex.skill-reads",
+    completeness: "complete",
+    data: {
+      method: "skill_file_read_probe",
+      primarySkill: skill,
+      observedSkills: [skill],
+    },
+  });
+  expectUnknown(result.observations).toContainEqual({
+    id: "sevro.codex.explicit-invocation",
+    completeness: "complete",
+    data: {
+      method: "explicit_invocation",
+      primarySkill: skill,
+      observedSkills: [skill],
+    },
+  });
+  expectUnknown(result.observations).toContainEqual(
+    objectContaining({
+      id: "sevro.codex.native-calls",
+      completeness: "complete",
+      data: objectContaining({
+        parentReadDiagnostics: objectContaining({
+          completeness: "complete",
+          observedSkills: [skill],
+          completedReads: [{ skill, ordinal: 0 }],
+        }),
+      }),
+    }),
+  );
+});
+
+test("Codex compound fallback read followed by discovery retains complete activation evidence", async () => {
+  if (!isolatedNativeHost || !Bun.which("codex")) return;
+  const skill = "tdd";
+  const selected = await compoundReadFixture(
+    skill,
+    "cat \"$WORKSPACE/.agents/skills/tdd/SKILL.md\" 2>/dev/null ||\n  cat \"$WORKSPACE/.agents/skills/darrow-tdd/tdd/SKILL.md\" 2>/dev/null ||\n  true\nrg --files -g 'AGENTS.md' -g 'SKILL.md' -g 'README*' -g 'test.sh' -g 'src/**' -g 'tests/**' -g 'test/**' -g 'package.json'",
+  );
+  expect(
+    await Bun.file(
+      join(selected.workspace, ".agents/skills/darrow-tdd/tdd/SKILL.md"),
+    ).exists(),
+  ).toBe(false);
+  const result = await selected.host.run({
+    ...selected.request,
+    prompt: `Use $${skill} and return ready.`,
+    explicitSkillInvocation: {
+      scope: "repository",
+      skillName: skill,
+      token: `$${skill}`,
+    },
+  });
+  expect(result.complete).toBe(true);
+  expectUnknown(result.observations).toContainEqual({
+    id: "sevro.codex.skill-reads",
+    completeness: "complete",
+    data: {
+      method: "skill_file_read_probe",
+      primarySkill: skill,
+      observedSkills: [skill],
+    },
+  });
+  expectUnknown(result.observations).toContainEqual({
+    id: "sevro.codex.explicit-invocation",
+    completeness: "complete",
+    data: {
+      method: "explicit_invocation",
+      primarySkill: skill,
+      observedSkills: [skill],
+    },
+  });
+  expectUnknown(result.observations).toContainEqual(
+    objectContaining({
+      id: "sevro.codex.native-calls",
+      completeness: "complete",
+      data: objectContaining({
+        parentReadDiagnostics: objectContaining({
+          completeness: "complete",
+          observedSkills: [skill],
+          completedReads: [{ skill, ordinal: 0 }],
+        }),
+      }),
+    }),
+  );
+});
 
 async function ordinaryMarketplace() {
   const selected = await ordinaryCodexRequest();
