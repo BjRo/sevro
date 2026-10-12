@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, realpath, rm, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { requireNativeTranscriptViews } from "../native-transcript-state";
 import { requireCandidateArtifactRoots } from "../candidate-artifacts";
 import { workspaceBoundaryException } from "../workspace-state";
@@ -35,7 +35,7 @@ function quoted(path: string): string {
   return path.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
 }
 
-/** Deny both observation and mutation of every protected canonical root. */
+/** Protect canonical roots while preserving explicitly granted access. */
 export function macSandboxProfile(
   deniedRoots: string[],
   denyNetwork = false,
@@ -52,7 +52,7 @@ export function macSandboxProfile(
     ...[...new Set(deniedRoots)]
       .sort()
       .flatMap((path) => [
-        `(deny file-read* ${workspaceReadFilter(path, [...readExceptions(path, readOnlyRoots, writableRuntimeRoot, transcriptReadRoots), ...workspaceBoundaryException(path, workspace)], workspace)})`,
+        `(deny file-read* ${workspaceReadFilter(path, readExceptions(path, readOnlyRoots, writableRuntimeRoot, transcriptReadRoots, workspace), workspace)})`,
         `(deny file-write* ${rootFilter(path, [...ownedException(path, writableRuntimeRoot), ...workspaceBoundaryException(path, workspace)])})`,
       ]),
     ...deniedRoots.flatMap((path) =>
@@ -63,8 +63,37 @@ export function macSandboxProfile(
     ...[...readOnlyRoots, ...transcriptReadRoots].map(
       (path) => `(deny file-write* (subpath "${quoted(path)}"))`,
     ),
+    ...deniedRoots.flatMap((root) =>
+      ancestorMetadataRules(
+        root,
+        readExceptions(
+          root,
+          readOnlyRoots,
+          writableRuntimeRoot,
+          transcriptReadRoots,
+          workspace,
+        ),
+      ),
+    ),
     "",
   ].join("\n");
+}
+
+function ancestorMetadataRules(root: string, readRoots: string[]): string[] {
+  const ancestors = new Set<string>();
+  for (const readRoot of readRoots) {
+    for (
+      let path = dirname(readRoot);
+      insideRuntimeRoot(root, path);
+      path = dirname(path)
+    ) {
+      ancestors.add(path);
+      if (path === resolve(root)) break;
+    }
+  }
+  return [...ancestors]
+    .sort()
+    .map((path) => `(allow file-read-metadata (literal "${quoted(path)}"))`);
 }
 
 function requireProfileRoots(roots: string[]): void {
@@ -77,6 +106,7 @@ function readExceptions(
   readRoots: string[],
   writableRuntimeRoot: string | undefined,
   transcriptReadRoots: string[],
+  workspace?: string,
 ): string[] {
   const exceptions = isRuntimeHomeRoot(root)
     ? readRoots.filter((path) => insideRuntimeRoot(root, path))
@@ -85,6 +115,7 @@ function readExceptions(
     ...transcriptReadRoots.filter((path) => insideRuntimeRoot(root, path)),
     ...exceptions,
     ...ownedException(root, writableRuntimeRoot),
+    ...workspaceBoundaryException(root, workspace),
   ];
 }
 
