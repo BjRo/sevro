@@ -26,7 +26,7 @@ by applicable law.
 
 ## Set up development
 
-Use Bun 1.3.13, Git, Node 24, and npm. Full suite isolation uses `sandbox-exec`
+Use Bun 1.3.13, Git, Node 24, npm, and ripgrep (`rg`). Full suite isolation uses `sandbox-exec`
 on macOS or `bubblewrap` and `socat` on Ubuntu. Windows acceptance is unverified.
 From a fresh checkout:
 

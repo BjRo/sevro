@@ -119,6 +119,232 @@ test("ambiguous commands that actually read mounted skills remain partial", asyn
   expect(observed.completeness).toBe("partial");
   expect(observed.data.observedSkills).toEqual([]);
 });
+
+test("compound fallback output from an unmounted copy cannot prove a skipped mounted read", async () => {
+  const workspace = await fixture();
+  await mkdir(join(workspace, "docs"));
+  await writeFile(join(workspace, "docs/SKILL.md"), body);
+  const command =
+    "cat docs/SKILL.md 2>/dev/null || cat .agents/skills/example/SKILL.md 2>/dev/null || true\nrg --files -g 'SKILL.md'";
+  const observed = await codexSkillReadObservation(
+    stream([read(command)]),
+    workspace,
+  );
+  expect(observed.completeness).toBe("partial");
+  expect(observed.data.observedSkills).toEqual([]);
+  const diagnostic = await codexNativeReadDiagnostic(
+    [
+      {
+        ordinal: 0,
+        payload: {
+          type: "item_completed",
+          item: {
+            ...read(command).item,
+            type: "CommandExecution",
+            command: ["/bin/sh", "-c", command],
+            cwd: workspace,
+          },
+        },
+      },
+    ],
+    workspace,
+  );
+  expect(diagnostic.completeness).toBe("partial");
+  expect(diagnostic.observedSkills).toEqual([]);
+});
+
+const compoundCommand =
+  "cat .agents/skills/example/SKILL.md; rg -n -i 'offline|deployment' README.md";
+const fallbackCommand =
+  "cat .agents/skills/example/SKILL.md 2>/dev/null || cat .agents/skills/absent/SKILL.md 2>/dev/null || true\nrg --files -g 'SKILL.md'";
+test.each([
+  {
+    label: "truncated body",
+    command: compoundCommand,
+    output: body.slice(0, -4),
+  },
+  {
+    label: "altered body",
+    command: fallbackCommand,
+    output: body.replace("Do the task.", "Other text."),
+  },
+  { label: "summary", command: compoundCommand, output: "summarized" },
+  {
+    label: "identity only",
+    command: fallbackCommand,
+    output: "name: example\n",
+  },
+  { label: "empty output", command: fallbackCommand, output: "" },
+  {
+    label: "printed body",
+    command: "printf 'cat .agents/skills/example/SKILL.md'; rg -n README.md",
+    output: body,
+  },
+  {
+    label: "conditional read",
+    command: "false && cat .agents/skills/example/SKILL.md; rg -n README.md",
+    output: body,
+  },
+  {
+    label: "pipeline",
+    command:
+      "cat .agents/skills/example/SKILL.md | tee /tmp/copy; rg -n README.md",
+    output: body,
+  },
+  {
+    label: "substitution",
+    command: 'cat "$(printf .agents/skills/example/SKILL.md)"; rg -n README.md',
+    output: body,
+  },
+  {
+    label: "dynamic tail",
+    command: compoundCommand + " $(printf README.md)",
+    output: body,
+  },
+  {
+    label: "non-read fallback",
+    command:
+      "cat .agents/skills/example/SKILL.md 2>/dev/null || printf body 2>/dev/null || true\nrg --files -g SKILL.md",
+    output: body,
+  },
+  {
+    label: "too many fallback paths",
+    command:
+      Array(65)
+        .fill("cat .agents/skills/example/SKILL.md 2>/dev/null || ")
+        .join("") + "true\nrg --files -g SKILL.md",
+    output: body,
+  },
+  {
+    label: "multiple mounted operands",
+    command:
+      "cat .agents/skills/example/SKILL.md .agents/skills/example/SKILL.md; rg -n README.md",
+    output: body,
+  },
+])(
+  "compound $label cannot establish a complete mounted read",
+  async ({ command, output }) => {
+    const workspace = await fixture();
+    const item = read(command, output).item;
+    const observed = await codexSkillReadObservation(
+      stream([read(command, output)]),
+      workspace,
+    );
+    expect(observed.completeness).toBe("partial");
+    expect(observed.data.observedSkills).toEqual([]);
+    const diagnostic = await codexNativeReadDiagnostic(
+      [
+        {
+          ordinal: 0,
+          payload: {
+            type: "item_completed",
+            item: {
+              ...item,
+              type: "CommandExecution",
+              command: ["/bin/sh", "-c", command],
+              cwd: workspace,
+            },
+          },
+        },
+      ],
+      workspace,
+    );
+    expect(diagnostic.completeness).toBe("partial");
+    expect(diagnostic.observedSkills).toEqual([]);
+  },
+);
+
+test("compound trailing search failure preserves incomplete command evidence", async () => {
+  const workspace = await fixture();
+  const item = {
+    ...read(compoundCommand).item,
+    status: "failed",
+    exit_code: 1,
+  };
+  const observed = await codexSkillReadObservation(
+    stream([{ type: "item.completed", item }]),
+    workspace,
+  );
+  expect(observed.completeness).toBe("partial");
+  expect(observed.data.observedSkills).toEqual([]);
+  const diagnostic = await codexNativeReadDiagnostic(
+    [
+      {
+        ordinal: 0,
+        payload: {
+          type: "item_completed",
+          item: {
+            ...item,
+            type: "CommandExecution",
+            command: ["/bin/sh", "-c", compoundCommand],
+            cwd: workspace,
+          },
+        },
+      },
+    ],
+    workspace,
+  );
+  expect(diagnostic.completeness).toBe("partial");
+  expect(diagnostic.observedSkills).toEqual([]);
+});
+
+test("compound fallback bounds the total read operands across clauses", async () => {
+  const workspace = await fixture();
+  const documentation = Array(32).fill("README.md").join(" ");
+  const clause = `cat .agents/skills/example/SKILL.md ${documentation} 2>/dev/null || `;
+  const command = clause + clause + "true\nrg --files -g SKILL.md";
+  const observed = await codexSkillReadObservation(
+    stream([read(command)]),
+    workspace,
+  );
+  expect(observed.completeness).toBe("partial");
+  expect(observed.data.observedSkills).toEqual([]);
+});
+
+test("compound transformed cat output cannot borrow an exact body from search results", async () => {
+  const workspace = await fixture();
+  await mkdir(join(workspace, "docs"));
+  await writeFile(join(workspace, "docs/copy.md"), body);
+  const command =
+    "cat -n .agents/skills/example/SKILL.md; rg --no-heading --no-filename '' docs/copy.md";
+  const process = Bun.spawn(["/bin/sh", "-c", command], {
+    cwd: workspace,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [output, error, exitCode] = await Promise.all([
+    new Response(process.stdout).text(),
+    new Response(process.stderr).text(),
+    process.exited,
+  ]);
+  expect(exitCode, error).toBe(0);
+  expect(output).toContain(body);
+  const observed = await codexSkillReadObservation(
+    stream([read(command, output)]),
+    workspace,
+  );
+  expect(observed.completeness).toBe("partial");
+  expect(observed.data.observedSkills).toEqual([]);
+  const diagnostic = await codexNativeReadDiagnostic(
+    [
+      {
+        ordinal: 0,
+        payload: {
+          type: "item_completed",
+          item: {
+            ...read(command, output).item,
+            type: "CommandExecution",
+            command: ["/bin/sh", "-c", command],
+            cwd: workspace,
+          },
+        },
+      },
+    ],
+    workspace,
+  );
+  expect(diagnostic.completeness).toBe("partial");
+  expect(diagnostic.observedSkills).toEqual([]);
+});
 test("completed direct Codex reads produce bounded ordered skill evidence", async () => {
   const workspace = await fixture();
   const path = join(workspace, ".agents/skills/example/SKILL.md");

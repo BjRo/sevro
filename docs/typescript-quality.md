@@ -167,7 +167,7 @@ Codex 0.160.1 and Claude Code 2.1.284 for deterministic native hook tests. Hoste
 CI targets `ubuntu-24.04` x64 with Bun 1.3.13 and Node 24.13.0. Its first
 successful hosted run is required before describing that environment as validated.
 GitHub documents the [Ubuntu runner labels](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
-Ubuntu installs `bubblewrap` and `socat` and runs the same native isolation cases;
+Ubuntu installs `bubblewrap`, `ripgrep`, and `socat` and runs the same native isolation cases;
 local macOS runs retain `sandbox-exec`. Windows remains unverified.
 
 Ordinary changes and explicit workflow dispatches invoke the canonical gate,
