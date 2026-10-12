@@ -261,6 +261,20 @@ const result = {
   call_id: "call_1",
   output: JSON.stringify({ task_name: "/root/reviewer" }),
 };
+async function childReadFixture() {
+  const root = await home();
+  const workspace = await mkdtemp(
+    join(tmpdir(), "sevro-native-child-workspace-"),
+  );
+  roots.push(workspace);
+  await session(root, lines([spawn, started, result]));
+  await session(
+    root,
+    lines([{ type: "item_completed", item: { type: "AgentMessage" } }]),
+    "thread-child",
+  );
+  return { root, workspace, context: { workspace, installedPluginRoots: [] } };
+}
 test("native spawn acceptance binds one request, start, and result", async () => {
   const root = await home();
   await session(root, lines([spawn, started, result]));
@@ -577,29 +591,17 @@ test("nested request truncation is explicit", async () => {
   });
   expect(defined(observed.data.childSessions[0]).nestedSpawns).toHaveLength(8);
 });
-test("child read diagnostics distinguish no read from an indirect attempt", async () => {
-  const root = await home();
-  const workspace = await mkdtemp(
-    join(tmpdir(), "sevro-native-child-workspace-"),
-  );
-  roots.push(workspace);
-  await session(root, lines([spawn, started, result]));
-  await session(
-    root,
-    lines([{ type: "item_completed", item: { type: "AgentMessage" } }]),
-    "thread-child",
-  );
-  const context = { workspace, installedPluginRoots: [] };
+test("child read diagnostics distinguish no read from harmless mentions", async () => {
+  const { root, context } = await childReadFixture();
   expectUnknown(
     defined(
       (await codexNativeCallObservation(root, "thread-1", context)).data
         .childSessions[0],
     ).readDiagnostics,
-  ).toEqual({
+  ).toMatchObject({
     completeness: "complete",
     observedSkills: [],
     completedReads: [],
-    recoverySources: [],
     commandExecutions: 0,
     readAttempts: 0,
     truncated: false,
@@ -626,10 +628,48 @@ test("child read diagnostics distinguish no read from an indirect attempt", asyn
         .childSessions[0],
     ).readDiagnostics,
   ).toMatchObject({
+    completeness: "complete",
+    observedSkills: [],
+    completedReads: [],
+    readAttempts: 0,
+    truncated: false,
+  });
+});
+
+test("child read diagnostics retain mounted frontmatter leaks from unrecognized commands", async () => {
+  const { root, workspace, context } = await childReadFixture();
+  const skillPath = join(workspace, ".agents", "skills", "example", "SKILL.md");
+  const body = "---\nname: example\ndescription: Example\n---\n\nPrivate child body.\n";
+  await mkdir(join(workspace, ".agents", "skills", "example"), {
+    recursive: true,
+  });
+  await writeFile(skillPath, body);
+  await session(
+    root,
+    lines([
+      {
+        type: "item_completed",
+        item: {
+          type: "CommandExecution",
+          command: ["/bin/zsh", "-lc", "printf 'name: example\\n'"],
+          aggregated_output: "name: example\n",
+          exit_code: 0,
+          status: "completed",
+        },
+      },
+    ]),
+    "thread-child",
+  );
+  const leaked = await codexNativeCallObservation(root, "thread-1", context);
+  expect(defined(leaked.data.childSessions[0]).readDiagnostics).toMatchObject({
     completeness: "partial",
     observedSkills: [],
+    completedReads: [],
     readAttempts: 1,
+    truncated: false,
   });
+  expect(JSON.stringify(leaked)).not.toContain(body);
+  expect(JSON.stringify(leaked)).not.toContain(skillPath);
 });
 test("child session lookup is capped with an explicit truncation flag", async () => {
   const root = await home();

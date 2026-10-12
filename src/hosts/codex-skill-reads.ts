@@ -2,7 +2,7 @@ import { isRecord, isUnknownArray } from "../value-guards";
 import type { RecoveredCommandOutput } from "./codex-command-output";
 import { nativeCommandOutputs } from "./codex-command-output";
 import { readFile, realpath } from "node:fs/promises";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 
 const MAX_SKILL_BYTES = 1024 * 1024;
 const MAX_NATIVE_READ_ATTEMPTS = 64;
@@ -117,6 +117,112 @@ async function verifiedSkillRead(
   const declaration = readDeclaration(item);
   if (!declaration) return null;
   return resolvedSkillRead(declaration, workspace, pluginRoots, commandCwd);
+}
+async function mountedSkillReadAttempt(
+  command: string,
+  workspace: string,
+  pluginRoots: string[],
+  commandCwd = workspace,
+): Promise<boolean> {
+  for (const path of readAttemptPaths(command)) {
+    if (await mountedReadPath(path, commandCwd, workspace, pluginRoots))
+      return true;
+  }
+  return false;
+}
+async function mountedReadPath(
+  path: string,
+  commandCwd: string,
+  workspace: string,
+  pluginRoots: string[],
+): Promise<boolean> {
+  const absolute = resolve(commandCwd, path);
+  const actual = await realpath(absolute).catch(() => null);
+  return (
+    actual !== null && mountedSkillName(actual, workspace, pluginRoots) !== null
+  );
+}
+function readAttemptPaths(command: string): string[] {
+  const payload = shellPayload(command).trim();
+  const path = "(?:\"([^\"]+)\"|'([^']+)'|([^\\s'\"`$;&|<>]+))";
+  const cat = payload.match(
+    new RegExp(`^(?:/bin/)?cat\\s+(?:--\\s+)?(${path}(?:\\s+${path})*)$`),
+  );
+  if (cat) {
+    return [...cat.slice(1, 2).join("").matchAll(new RegExp(path, "g"))]
+      .map((match) => capturedReadPath(match, 1))
+      .filter((value) => /(?:^|\/)SKILL\.md$/.test(value));
+  }
+  const sed = payload.match(
+    new RegExp(`^(?:/bin/)?sed\\s+-n\\s+[^\\s]+\\s+${path}$`),
+  );
+  if (sed) {
+    const value = capturedReadPath(sed, 2);
+    if (/(?:^|\/)SKILL\.md$/.test(value)) return [value];
+  }
+  return [];
+}
+async function exposesMountedSkillFrontmatter(
+  output: string,
+  workspace: string,
+  pluginRoots: string[],
+): Promise<boolean> {
+  const skills = new Set(
+    [...output.matchAll(/(?:^|\n)name: ([A-Za-z0-9._-]+)\r?$/gm)]
+      .map((match) => match[1])
+      .filter((skill): skill is string => skill !== undefined),
+  );
+  for (const skill of skills) {
+    const paths = [
+      resolve(workspace, ".agents", "skills", skill, "SKILL.md"),
+      ...pluginRoots.map((root) => resolve(root, "skills", skill, "SKILL.md")),
+    ];
+    for (const path of paths)
+      if (
+        await verifiedMountedFrontmatterPath(
+          path,
+          skill,
+          workspace,
+          pluginRoots,
+        )
+      )
+        return true;
+  }
+  return false;
+}
+async function verifiedMountedFrontmatterPath(
+  path: string,
+  skill: string,
+  workspace: string,
+  pluginRoots: string[],
+): Promise<boolean> {
+  const actual = await realpath(path).catch(() => null);
+  if (actual && mountedSkillName(actual, workspace, pluginRoots) === skill)
+    if ((await verifiedSkillBody(actual, skill)) !== null) return true;
+  const directory = await realpath(dirname(path)).catch(() => null);
+  return (
+    directory !== null &&
+    mountedSkillDirectoryName(directory, workspace, pluginRoots) === skill
+  );
+}
+function mountedSkillDirectoryName(
+  directory: string,
+  workspace: string,
+  pluginRoots: string[],
+): string | null {
+  const mounted = relative(workspace, directory)
+    .split(sep)
+    .join("/")
+    .match(/^\.agents\/skills\/([A-Za-z0-9._-]+)$/);
+  const plugin = pluginRoots
+    .map((root) =>
+      relative(root, directory)
+        .split(sep)
+        .join("/")
+        .match(/^skills\/([A-Za-z0-9._-]+)$/),
+    )
+    .find((match) => match !== null);
+  return (mounted ?? plugin)?.[1] ?? null;
 }
 function mountedSkillName(
   actual: string,
@@ -297,7 +403,22 @@ async function nativeReadEntry(
   state.commandExecutions++;
   const command = nativeCommandText(item.command);
   if (!command) {
-    state.partial = true;
+    if (
+      await exposesMountedSkillFrontmatter(
+        combinedNativeOutput(item, context.recovered.get(ordinal)),
+        context.workspace,
+        context.pluginRoots,
+      )
+    ) {
+      if (!countNativeRead(state)) return false;
+      const recovered = context.recovered.get(ordinal);
+      state.recoverySources.push({
+        ordinal,
+        nativeOutput: hasNativeOutput(item),
+        ...recoveryFlags(recovered),
+      });
+      state.partial = true;
+    }
     return true;
   }
   return processNativeRead(item, command, ordinal, context, state);
@@ -319,7 +440,13 @@ async function processNativeRead(
   context: ReadContext,
   state: NativeReadState,
 ): Promise<boolean> {
-  if (!command.includes("SKILL.md")) return true;
+  const attempted = await nativeSkillReadAttempt(item, command, context);
+  const exposed = await exposesMountedSkillFrontmatter(
+    combinedNativeOutput(item, context.recovered.get(ordinal)),
+    context.workspace,
+    context.pluginRoots,
+  );
+  if (!attempted && !exposed) return true;
   if (!countNativeRead(state)) return false;
   const recovered = context.recovered.get(ordinal);
   state.recoverySources.push({
@@ -327,8 +454,26 @@ async function processNativeRead(
     nativeOutput: hasNativeOutput(item),
     ...recoveryFlags(recovered),
   });
+  if (!attempted) {
+    state.partial = true;
+    return true;
+  }
   await completeNativeRead(item, command, ordinal, context, state);
   return true;
+}
+async function nativeSkillReadAttempt(
+  item: CodexItem & { cwd?: unknown },
+  command: string,
+  context: ReadContext,
+): Promise<boolean> {
+  const cwd = await nativeReadCwd(item.cwd, context.workspace);
+  if (cwd === null) return readAttemptPaths(command).length > 0;
+  return mountedSkillReadAttempt(
+    command,
+    context.workspace,
+    context.pluginRoots,
+    cwd,
+  );
 }
 function hasNativeOutput(item: CodexItem): boolean {
   return (
@@ -344,7 +489,7 @@ function recoveryFlags(recovered: RecoveredCommandOutput | undefined) {
   };
 }
 function successfulReadCommand(item: CodexItem): boolean {
-  return typeof item.exit_code === "number" && item.status === "completed";
+  return item.exit_code === 0 && item.status === "completed";
 }
 async function nativeReadCwd(
   cwd: unknown,
@@ -503,40 +648,69 @@ async function streamReadEvent(
   observeStreamTurn(event, state);
   if (!item || item.type !== "command_execution") return;
   if (event.type === "item.started") {
-    pendingStreamRead(item, state);
+    await pendingStreamRead(item, context, state);
     return;
   }
   if (event.type !== "item.completed") return;
   await completeStreamRead(item, context, state);
 }
-function pendingStreamRead(item: CodexItem, state: StreamReadState): void {
-  if (typeof item.command === "string" && item.command.includes("SKILL.md")) {
-    if (typeof item.id === "string") state.pending.add(item.id);
-    else state.partial = true;
-  }
-}
-function eligibleCompletedRead(
+async function pendingStreamRead(
   item: CodexItem,
+  context: Pick<ReadContext, "workspace" | "pluginRoots">,
   state: StreamReadState,
-): boolean {
-  if (typeof item.id === "string") state.pending.delete(item.id);
-  if (typeof item.command !== "string") {
+): Promise<void> {
+  if (
+    typeof item.command !== "string" ||
+    !(await mountedSkillReadAttempt(
+      item.command,
+      context.workspace,
+      context.pluginRoots,
+    ))
+  )
+    return;
+  if (typeof item.id === "string") state.pending.add(item.id);
+  else state.partial = true;
+}
+async function eligibleCompletedRead(
+  item: CodexItem,
+  context: Pick<ReadContext, "workspace" | "pluginRoots">,
+  state: StreamReadState,
+): Promise<boolean> {
+  const wasPending =
+    typeof item.id === "string" && state.pending.delete(item.id);
+  if (await completedMountedRead(item, context, state)) return true;
+  if (wasPending) {
     state.partial = true;
     return false;
   }
-  if (!item.command.includes("SKILL.md")) return false;
-  if (!successfulReadCommand(item)) {
-    state.partial = true;
-    return false;
-  }
-  return true;
+  state.partial ||= await exposesMountedSkillFrontmatter(
+    nativeOutput(item),
+    context.workspace,
+    context.pluginRoots,
+  );
+  return false;
+}
+async function completedMountedRead(
+  item: CodexItem,
+  context: Pick<ReadContext, "workspace" | "pluginRoots">,
+  state: StreamReadState,
+): Promise<boolean> {
+  if (typeof item.command !== "string") return false;
+  const attempted = await mountedSkillReadAttempt(
+    item.command,
+    context.workspace,
+    context.pluginRoots,
+  );
+  if (!attempted) return false;
+  if (!successfulReadCommand(item)) state.partial = true;
+  return successfulReadCommand(item);
 }
 async function completeStreamRead(
   item: CodexItem,
   context: Pick<ReadContext, "workspace" | "pluginRoots">,
   state: StreamReadState,
 ): Promise<void> {
-  if (!eligibleCompletedRead(item, state)) return;
+  if (!(await eligibleCompletedRead(item, context, state))) return;
   const read = await verifiedSkillRead(
     item,
     context.workspace,

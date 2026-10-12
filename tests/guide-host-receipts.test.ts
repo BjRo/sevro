@@ -46,6 +46,29 @@ async function hostFixture() {
         aggregated_output: body + "Repository documentation\n",
       },
     },
+    {
+      type: "item.completed",
+      item: {
+        id: "missing-skill",
+        type: "command_execution",
+        command: "cat .agents/skills/missing/SKILL.md",
+        exit_code: 1,
+        status: "failed",
+        aggregated_output:
+          "cat: .agents/skills/missing/SKILL.md: no such file\n",
+      },
+    },
+    {
+      type: "item.completed",
+      item: {
+        id: "skill-listing",
+        type: "command_execution",
+        command: "rg --files -g SKILL.md",
+        exit_code: 0,
+        status: "completed",
+        aggregated_output: ".agents/skills/probe/SKILL.md\n",
+      },
+    },
     { type: "item.completed", item: { type: "agent_message", text: "ready" } },
     { type: "turn.completed" },
   ];

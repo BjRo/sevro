@@ -46,6 +46,79 @@ function read(command: string, output = body) {
     },
   };
 }
+test("harmless SKILL.md mentions do not downgrade completed observations", async () => {
+  const workspace = await fixture();
+  const missing = read(
+    "cat .agents/skills/missing/SKILL.md",
+    "cat: no such file\n",
+  );
+  const listing = read(
+    "rg --files -g SKILL.md",
+    ".agents/skills/example/SKILL.md\n",
+  );
+  for (const items of [
+    [missing],
+    [listing],
+    [read("cat .agents/skills/example/SKILL.md"), missing],
+    [read("cat .agents/skills/example/SKILL.md"), listing],
+  ]) {
+    const observed = await codexSkillReadObservation(stream(items), workspace);
+    expect(observed).toMatchObject({
+      completeness: "complete",
+      data: { observedSkills: items.length > 1 ? ["example"] : [] },
+    });
+  }
+});
+
+test("leaked skill frontmatter keeps unrecognized and failed reads partial", async () => {
+  const workspace = await fixture();
+  const leak = "---\nname: example\ndescription: Example skill\n---\n";
+  for (const item of [
+    read("printf 'SKILL.md'", leak),
+    read("printf 'name: example'", "name: example\n"),
+    {
+      ...read("cat .agents/skills/example/SKILL.md /missing/SKILL.md", body),
+      item: {
+        ...read("cat .agents/skills/example/SKILL.md /missing/SKILL.md").item,
+        exit_code: 1,
+        status: "failed",
+      },
+    },
+  ]) {
+    const observed = await codexSkillReadObservation(stream([item]), workspace);
+    expect(observed.completeness).toBe("partial");
+    expect(observed.data.observedSkills).toEqual([]);
+  }
+});
+
+test("unrelated frontmatter without a mounted skill identity stays complete", async () => {
+  const workspace = await fixture();
+  const observed = await codexSkillReadObservation(
+    stream([
+      read(
+        "cat docs/SKILL.md",
+        "---\nname: unrelated-doc\ndescription: Notes\n---\n",
+      ),
+    ]),
+    workspace,
+  );
+  expect(observed).toMatchObject({
+    completeness: "complete",
+    data: { primarySkill: null, observedSkills: [] },
+  });
+});
+
+test("ambiguous commands that actually read mounted skills remain partial", async () => {
+  const workspace = await fixture();
+  const command =
+    "cat .agents/skills/example/SKILL.md .agents/skills/example/SKILL.md";
+  const observed = await codexSkillReadObservation(
+    stream([read(command, "cat: invalid invocation\n")]),
+    workspace,
+  );
+  expect(observed.completeness).toBe("partial");
+  expect(observed.data.observedSkills).toEqual([]);
+});
 test("completed direct Codex reads produce bounded ordered skill evidence", async () => {
   const workspace = await fixture();
   const path = join(workspace, ".agents/skills/example/SKILL.md");
@@ -279,6 +352,23 @@ test("Codex stream distinguishes unrelated commands and updates from completed m
     completeness: "complete",
     data: { primarySkill: "example" },
   });
+  const mismatchedCompletion = {
+    ...completed,
+    item: {
+      ...completed.item,
+      command: "printf ready",
+      aggregated_output: "ready",
+    },
+  };
+  expect(
+    await codexSkillReadObservation(
+      stream([pending, mismatchedCompletion]),
+      workspace,
+    ),
+  ).toMatchObject({
+    completeness: "partial",
+    data: { primarySkill: null, observedSkills: [] },
+  });
   const unboundStart = { ...pending, item: { ...pending.item, id: null } };
   expect(
     (await codexSkillReadObservation(stream([unboundStart]), workspace))
@@ -351,6 +441,616 @@ test("native argv and receipt-bound plugin roots verify exact file bytes", async
   });
   expect(JSON.stringify(observed)).not.toContain(body);
   expect(JSON.stringify(observed)).not.toContain(path);
+});
+
+test("native diagnostics ignore harmless mentions but retain leaked frontmatter", async () => {
+  const workspace = await fixture();
+  const entry = (
+    ordinal: number,
+    command: string,
+    output: string,
+    status = "completed",
+    exit_code: number | null = 0,
+  ) => ({
+    ordinal,
+    payload: {
+      type: "item_completed",
+      item: {
+        type: "CommandExecution",
+        command: ["/bin/sh", "-c", command],
+        cwd: workspace,
+        status,
+        exit_code,
+        aggregated_output: output,
+      },
+    },
+  });
+  const harmless = [
+    entry(0, "cat .agents/skills/missing/SKILL.md", "No such file\n"),
+    entry(1, "rg --files -g SKILL.md", ".agents/skills/example/SKILL.md\n"),
+  ];
+  expect(
+    (await codexNativeReadDiagnostic(harmless, workspace)).completeness,
+  ).toBe("complete");
+  for (const ignored of harmless) {
+    const afterRead = [
+      entry(0, "cat .agents/skills/example/SKILL.md", body),
+      { ...ignored, ordinal: 1 },
+    ];
+    expect(await codexNativeReadDiagnostic(afterRead, workspace)).toMatchObject(
+      {
+        completeness: "complete",
+        observedSkills: ["example"],
+        readAttempts: 1,
+      },
+    );
+  }
+  for (const suspect of [
+    entry(0, "printf SKILL.md", body),
+    entry(
+      0,
+      "cat .agents/skills/example/SKILL.md /missing/SKILL.md",
+      body,
+      "failed",
+      1,
+    ),
+  ]) {
+    expect(await codexNativeReadDiagnostic([suspect], workspace)).toMatchObject(
+      { completeness: "partial", observedSkills: [] },
+    );
+  }
+});
+
+test("native diagnostics ignore absent receipt-bound skill targets", async () => {
+  const workspace = await fixture();
+  const installed = await mkdtemp(join(tmpdir(), "sevro-installed-read-"));
+  roots.push(installed);
+  const skillDirectory = join(installed, "skills", "example");
+  await mkdir(skillDirectory, { recursive: true });
+  const command = `cat ${join(skillDirectory, "SKILL.md")}`;
+  const failed = {
+    ordinal: 0,
+    payload: {
+      type: "item_completed",
+      item: {
+        type: "CommandExecution",
+        command: ["/bin/sh", "-c", command],
+        cwd: workspace,
+        status: "failed",
+        exit_code: 1,
+        aggregated_output: "cat: no such file\n",
+      },
+    },
+  };
+  expect(
+    await codexNativeReadDiagnostic([failed], workspace, [installed]),
+  ).toMatchObject({
+    completeness: "complete",
+    observedSkills: [],
+    completedReads: [],
+    readAttempts: 0,
+  });
+  expect(await codexNativeReadDiagnostic([failed], workspace)).toMatchObject({
+    completeness: "complete",
+    observedSkills: [],
+    readAttempts: 0,
+  });
+
+  await mkdir(join(workspace, "docs"), { recursive: true });
+  for (const item of [
+    {
+      ...failed,
+      payload: {
+        ...failed.payload,
+        item: {
+          ...failed.payload.item,
+          command: ["/bin/sh", "-c", "sed -n '1,2p' docs/README.md"],
+          status: "completed",
+          exit_code: 0,
+          aggregated_output: "ordinary documentation text\n",
+        },
+      },
+    },
+    {
+      ...failed,
+      payload: {
+        ...failed.payload,
+        item: {
+          ...failed.payload.item,
+          command: ["/bin/sh", "-c", "cat docs/SKILL.md"],
+          status: "failed",
+          exit_code: 1,
+        },
+      },
+    },
+  ]) {
+    expect(await codexNativeReadDiagnostic([item], workspace)).toMatchObject({
+      completeness: "complete",
+      observedSkills: [],
+      readAttempts: 0,
+      truncated: false,
+    });
+  }
+});
+
+async function assertMissingSkillReadComplete(
+  path: string,
+  workspace: string,
+  pluginRoots: string[],
+): Promise<void> {
+  const command = `cat ${path}`;
+  const native = {
+    ordinal: 0,
+    payload: {
+      type: "item_completed",
+      item: {
+        type: "CommandExecution",
+        command: ["/bin/sh", "-c", command],
+        cwd: workspace,
+        status: "failed",
+        exit_code: 1,
+        aggregated_output: "cat: no such file\n",
+      },
+    },
+  };
+  expect(
+    await codexNativeReadDiagnostic([native], workspace, pluginRoots),
+  ).toMatchObject({
+    completeness: "complete",
+    observedSkills: [],
+    completedReads: [],
+    readAttempts: 0,
+    truncated: false,
+  });
+  const item = read(command, "cat: no such file\n");
+  const failed = {
+    ...item,
+    item: { ...item.item, status: "failed", exit_code: 1 },
+  };
+  expect(
+    await codexSkillReadObservation(stream([failed]), workspace, pluginRoots),
+  ).toMatchObject({
+    completeness: "complete",
+    data: { primarySkill: null, observedSkills: [] },
+  });
+}
+
+test("missing mounted and installed skill targets are empty", async () => {
+  const workspace = await fixture();
+  const installed = await mkdtemp(join(tmpdir(), "sevro-installed-missing-"));
+  roots.push(installed);
+  const repositoryTarget = join(
+    workspace,
+    ".agents",
+    "skills",
+    "example",
+    "SKILL.md",
+  );
+  await rm(repositoryTarget);
+  const installedDirectory = join(installed, "skills", "example");
+  await mkdir(installedDirectory, { recursive: true });
+  await assertMissingSkillReadComplete(repositoryTarget, workspace, []);
+  await assertMissingSkillReadComplete(
+    join(installedDirectory, "SKILL.md"),
+    workspace,
+    [installed],
+  );
+});
+
+test("existing mounted reads that fail remain partial", async () => {
+  const readableWorkspace = await fixture();
+  const existingTarget = join(
+    readableWorkspace,
+    ".agents",
+    "skills",
+    "example",
+    "SKILL.md",
+  );
+  const command = `cat ${existingTarget}`;
+  const failed = read(command, "cat: permission denied\n");
+  failed.item.status = "failed";
+  failed.item.exit_code = 1;
+  expect(
+    await codexSkillReadObservation(stream([failed]), readableWorkspace),
+  ).toMatchObject({
+    completeness: "partial",
+    data: { observedSkills: [] },
+  });
+  expect(
+    await codexNativeReadDiagnostic(
+      [
+        {
+          ordinal: 0,
+          payload: {
+            type: "item_completed",
+            item: {
+              type: "CommandExecution",
+              command: ["/bin/sh", "-c", command],
+              cwd: readableWorkspace,
+              status: "failed",
+              exit_code: 1,
+              aggregated_output: "cat: permission denied\n",
+            },
+          },
+        },
+      ],
+      readableWorkspace,
+    ),
+  ).toMatchObject({ completeness: "partial", readAttempts: 1 });
+});
+
+test("mounted frontmatter leaks remain partial when the body is unavailable", async () => {
+  const workspace = await fixture();
+  await rm(join(workspace, ".agents", "skills", "example", "SKILL.md"));
+  const command = "printf 'name: example'";
+  const output = "name: example\n";
+  const native = {
+    ordinal: 0,
+    payload: {
+      type: "item_completed",
+      item: {
+        type: "CommandExecution",
+        command: ["/bin/sh", "-c", command],
+        cwd: workspace,
+        status: "completed",
+        exit_code: 0,
+        aggregated_output: output,
+      },
+    },
+  };
+  expect(await codexNativeReadDiagnostic([native], workspace)).toMatchObject({
+    completeness: "partial",
+    observedSkills: [],
+    completedReads: [],
+    readAttempts: 1,
+  });
+  expect(
+    await codexSkillReadObservation(stream([read(command, output)]), workspace),
+  ).toMatchObject({
+    completeness: "partial",
+    data: { primarySkill: null, observedSkills: [] },
+  });
+});
+
+test("mounted frontmatter leaks remain partial when skill bodies exceed the verification bound", async () => {
+  const workspace = await fixture();
+  const installed = await mkdtemp(join(tmpdir(), "sevro-installed-oversized-"));
+  roots.push(installed);
+  const mountedPath = join(
+    workspace,
+    ".agents",
+    "skills",
+    "example",
+    "SKILL.md",
+  );
+  const installedPath = join(installed, "skills", "example", "SKILL.md");
+  await mkdir(join(installed, "skills", "example"), { recursive: true });
+  const oversizedBody = `${body}${"x".repeat(1024 * 1024)}`;
+  await writeFile(mountedPath, oversizedBody);
+  await writeFile(installedPath, oversizedBody);
+  const command = "printf 'name: example'";
+  const output = "name: example\n";
+  for (const { pluginRoots } of [
+    { pluginRoots: [] },
+    { pluginRoots: [installed] },
+  ]) {
+    const native = {
+      ordinal: 0,
+      payload: {
+        type: "item_completed",
+        item: {
+          type: "CommandExecution",
+          command: ["/bin/sh", "-c", command],
+          cwd: workspace,
+          status: "completed",
+          exit_code: 0,
+          aggregated_output: output,
+        },
+      },
+    };
+    expect(
+      await codexNativeReadDiagnostic([native], workspace, pluginRoots),
+    ).toMatchObject({
+      completeness: "partial",
+      observedSkills: [],
+      completedReads: [],
+      readAttempts: 1,
+    });
+    expect(
+      await codexSkillReadObservation(
+        stream([read(command, output)]),
+        workspace,
+        pluginRoots,
+      ),
+    ).toMatchObject({
+      completeness: "partial",
+      data: { primarySkill: null, observedSkills: [] },
+    });
+  }
+});
+
+async function expectPluginFrontmatterObservation(
+  workspace: string,
+  pluginRoots: string[],
+  completeness: "complete" | "partial",
+): Promise<void> {
+  const command = "printf 'name: example'";
+  const output = "name: example\n";
+  const native = {
+    ordinal: 0,
+    payload: {
+      type: "item_completed",
+      item: {
+        type: "CommandExecution",
+        command: ["/bin/sh", "-c", command],
+        cwd: workspace,
+        status: "completed",
+        exit_code: 0,
+        aggregated_output: output,
+      },
+    },
+  };
+  expect(
+    await codexNativeReadDiagnostic([native], workspace, pluginRoots),
+  ).toMatchObject({
+    completeness,
+    observedSkills: [],
+    completedReads: [],
+    readAttempts: completeness === "partial" ? 1 : 0,
+    truncated: false,
+  });
+  expect(
+    await codexSkillReadObservation(
+      stream([read(command, output)]),
+      workspace,
+      pluginRoots,
+    ),
+  ).toMatchObject({
+    completeness,
+    data: { primarySkill: null, observedSkills: [] },
+  });
+}
+
+test("installed skill frontmatter evidence requires its bound plugin root", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "sevro-unmounted-workspace-"));
+  roots.push(workspace);
+  const installed = await mkdtemp(
+    join(tmpdir(), "sevro-receipt-bound-plugin-"),
+  );
+  roots.push(installed);
+  const skillDirectory = join(installed, "skills", "example");
+  await mkdir(skillDirectory, { recursive: true });
+
+  await expectPluginFrontmatterObservation(workspace, [installed], "partial");
+  await writeFile(
+    join(skillDirectory, "SKILL.md"),
+    `${body}${"x".repeat(1024 * 1024)}`,
+  );
+  await expectPluginFrontmatterObservation(workspace, [installed], "partial");
+  await expectPluginFrontmatterObservation(workspace, [], "complete");
+});
+
+test("native malformed commands retain mounted frontmatter evidence within caps", async () => {
+  const workspace = await fixture();
+  const entry = (ordinal: number, output = "name: example\n") => ({
+    ordinal,
+    payload: {
+      type: "item_completed",
+      item: {
+        type: "CommandExecution",
+        command: null,
+        cwd: workspace,
+        status: "completed",
+        exit_code: 0,
+        aggregated_output: output,
+      },
+    },
+  });
+  const observed = await codexNativeReadDiagnostic([entry(0)], workspace);
+  expect(observed).toMatchObject({
+    completeness: "partial",
+    observedSkills: [],
+    completedReads: [],
+    recoverySources: [{ ordinal: 0, nativeOutput: true }],
+    commandExecutions: 1,
+    readAttempts: 1,
+    truncated: false,
+  });
+  expect(
+    await codexNativeReadDiagnostic([entry(0, "SKILL.md\n")], workspace),
+  ).toMatchObject({
+    completeness: "complete",
+    observedSkills: [],
+    readAttempts: 0,
+    truncated: false,
+  });
+
+  const capped = await codexNativeReadDiagnostic(
+    Array.from({ length: 65 }, (_, ordinal) => entry(ordinal)),
+    workspace,
+  );
+  expect(capped).toMatchObject({
+    completeness: "partial",
+    commandExecutions: 65,
+    readAttempts: 64,
+    truncated: true,
+  });
+  expect(capped.recoverySources).toHaveLength(64);
+  expect(JSON.stringify(capped)).not.toContain(body);
+  expect(JSON.stringify(capped)).not.toContain(workspace);
+});
+
+test("sed pages beyond a mounted skill body remain partial without a receipt", async () => {
+  const workspace = await fixture();
+  const command = "sed -n '99,100p' .agents/skills/example/SKILL.md";
+  const streamResult = await codexSkillReadObservation(
+    stream([read(command, "")]),
+    workspace,
+  );
+  expect(streamResult).toMatchObject({
+    completeness: "partial",
+    data: { primarySkill: null, observedSkills: [] },
+  });
+  const nativeResult = await codexNativeReadDiagnostic(
+    [
+      {
+        ordinal: 0,
+        payload: {
+          type: "item_completed",
+          item: {
+            type: "CommandExecution",
+            command: ["/bin/sh", "-c", command],
+            cwd: workspace,
+            status: "completed",
+            exit_code: 0,
+            aggregated_output: "",
+          },
+        },
+      },
+    ],
+    workspace,
+  );
+  expect(nativeResult).toMatchObject({
+    completeness: "partial",
+    observedSkills: [],
+    completedReads: [],
+    readAttempts: 1,
+  });
+});
+
+test("mounted identity after unrelated frontmatter remains partial", async () => {
+  const workspace = await fixture();
+  const unrelated = Array.from(
+    { length: 64 },
+    (_, index) => `name: unrelated-${index}\n`,
+  ).join("");
+  const output = `${unrelated}name: example\n`;
+  const observed = await codexSkillReadObservation(
+    stream([read("printf ready", output)]),
+    workspace,
+  );
+  expect(observed).toMatchObject({
+    completeness: "partial",
+    data: { primarySkill: null, observedSkills: [] },
+  });
+
+  const entry = {
+    ordinal: 0,
+    payload: {
+      type: "item_completed",
+      item: {
+        type: "CommandExecution",
+        command: ["printf", "ready"],
+        cwd: workspace,
+        status: "completed",
+        exit_code: 0,
+        aggregated_output: output,
+      },
+    },
+  };
+  expect(await codexNativeReadDiagnostic([entry], workspace)).toMatchObject({
+    completeness: "partial",
+    observedSkills: [],
+    readAttempts: 1,
+    truncated: false,
+  });
+
+  const unrelatedOnly = `${unrelated}name: unrelated-final\n`;
+  expect(
+    await codexSkillReadObservation(
+      stream([read("printf ready", unrelatedOnly)]),
+      workspace,
+    ),
+  ).toMatchObject({ completeness: "complete", data: { observedSkills: [] } });
+  expect(
+    await codexNativeReadDiagnostic(
+      [
+        {
+          ...entry,
+          payload: {
+            ...entry.payload,
+            item: { ...entry.payload.item, aggregated_output: unrelatedOnly },
+          },
+        },
+      ],
+      workspace,
+    ),
+  ).toMatchObject({
+    completeness: "complete",
+    observedSkills: [],
+    readAttempts: 0,
+  });
+});
+
+test("mounted operands after unresolved skill paths remain partial", async () => {
+  const workspace = await fixture();
+  const unresolved = Array.from(
+    { length: 64 },
+    (_, index) => `.agents/skills/missing-${index}/SKILL.md`,
+  );
+  const command = `cat ${[...unresolved, ".agents/skills/example/SKILL.md"].join(" ")}`;
+  const failedRead = {
+    ...read(command, "cat: one or more files could not be read\n"),
+    item: {
+      ...read(command).item,
+      exit_code: 1,
+      status: "failed",
+    },
+  };
+  expect(
+    await codexSkillReadObservation(stream([failedRead]), workspace),
+  ).toMatchObject({ completeness: "partial", data: { observedSkills: [] } });
+
+  const native = {
+    ordinal: 0,
+    payload: {
+      type: "item_completed",
+      item: {
+        type: "CommandExecution",
+        command: ["/bin/sh", "-c", command],
+        cwd: workspace,
+        status: "failed",
+        exit_code: 1,
+        aggregated_output: "cat: one or more files could not be read\n",
+      },
+    },
+  };
+  expect(await codexNativeReadDiagnostic([native], workspace)).toMatchObject({
+    completeness: "partial",
+    observedSkills: [],
+    readAttempts: 1,
+  });
+
+  const unresolvedOnly = `cat ${unresolved.join(" ")}`;
+  expect(
+    await codexSkillReadObservation(
+      stream([read(unresolvedOnly, "cat: no such files\n")]),
+      workspace,
+    ),
+  ).toMatchObject({ completeness: "complete", data: { observedSkills: [] } });
+  expect(
+    await codexNativeReadDiagnostic(
+      [
+        {
+          ...native,
+          payload: {
+            ...native.payload,
+            item: {
+              ...native.payload.item,
+              command: ["/bin/sh", "-c", unresolvedOnly],
+              status: "completed",
+              exit_code: 1,
+            },
+          },
+        },
+      ],
+      workspace,
+    ),
+  ).toMatchObject({
+    completeness: "complete",
+    observedSkills: [],
+    readAttempts: 0,
+  });
 });
 
 test("native sed receipts accumulate one whole mounted read across pages", async () => {

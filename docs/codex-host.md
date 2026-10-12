@@ -22,16 +22,24 @@ evidence and are available to extension grading; the stream bytes stay out of
 the run JSON.
 The host also retains a bounded `sevro.codex.skill-reads` observation. It
 records the first verified mounted skill and ordered skill names, without
-commands or skill bodies. A completed direct `cat` of one mounted `SKILL.md`,
-alone or alongside literal documentation paths, counts only when the command
-output contains that file's exact body. Batched reads naming multiple
-`SKILL.md` files or more than 64 paths remain partial. Direct
+commands or skill bodies. A `cat` or `sed -n` attempt counts only when its path
+resolves to a mounted skill or a skill below an installed plugin root verified
+by Codex's installation receipt. Missing targets outside a mounted skill
+directory, listings, and other harmless mentions of `SKILL.md` do not make the
+observation partial. A missing `SKILL.md` target does not count as a read just
+because its parent directory belongs to a mounted skill; an existing mounted
+target that fails or produces incomplete bytes remains partial. A completed direct
+`cat` of one mounted `SKILL.md`, alone or alongside literal documentation
+paths, counts only when the command output contains that file's exact body.
+Batched reads naming multiple `SKILL.md` files or more than 64 paths remain
+partial, as do failed, malformed, or incomplete recognized reads. Direct
 `sed -n` pages count after their verified line ranges cover the whole body. An
 exact `cat` wrapped by `lean-ctx -c` is accepted only when its reported output
-still contains the full body; a compressed summary cannot prove the read. An
-attempted indirect, malformed, or incomplete read makes the observation
-partial. This is a host observation; an extension decides what selection means
-for its case.
+still contains the full body; a compressed summary cannot prove the read.
+Unrecognized commands remain partial when their output contains the identifying
+`name: <skill>` line from a mounted or receipt-bound installed-plugin skill.
+This is a host observation; an extension decides what selection means for its
+case.
 The same check accepts skill files below the exact installed plugin roots from
 Codex's installation receipts. It does not infer activation from arbitrary
 files in the private plugin cache.
