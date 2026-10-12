@@ -769,6 +769,67 @@ test("mounted frontmatter leaks remain partial when skill bodies exceed the veri
   }
 });
 
+async function expectPluginFrontmatterObservation(
+  workspace: string,
+  pluginRoots: string[],
+  completeness: "complete" | "partial",
+): Promise<void> {
+  const command = "printf 'name: example'";
+  const output = "name: example\n";
+  const native = {
+    ordinal: 0,
+    payload: {
+      type: "item_completed",
+      item: {
+        type: "CommandExecution",
+        command: ["/bin/sh", "-c", command],
+        cwd: workspace,
+        status: "completed",
+        exit_code: 0,
+        aggregated_output: output,
+      },
+    },
+  };
+  expect(
+    await codexNativeReadDiagnostic([native], workspace, pluginRoots),
+  ).toMatchObject({
+    completeness,
+    observedSkills: [],
+    completedReads: [],
+    readAttempts: completeness === "partial" ? 1 : 0,
+    truncated: false,
+  });
+  expect(
+    await codexSkillReadObservation(
+      stream([read(command, output)]),
+      workspace,
+      pluginRoots,
+    ),
+  ).toMatchObject({
+    completeness,
+    data: { primarySkill: null, observedSkills: [] },
+  });
+}
+
+test("installed skill frontmatter evidence requires its bound plugin root", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "sevro-unmounted-workspace-"));
+  roots.push(workspace);
+  const installed = await mkdtemp(
+    join(tmpdir(), "sevro-receipt-bound-plugin-"),
+  );
+  roots.push(installed);
+  const skillDirectory = join(installed, "skills", "example");
+  await mkdir(skillDirectory, { recursive: true });
+
+  await expectPluginFrontmatterObservation(workspace, [installed], "partial");
+  await writeFile(
+    join(skillDirectory, "SKILL.md"),
+    `${body}${"x".repeat(1024 * 1024)}`,
+  );
+  await expectPluginFrontmatterObservation(workspace, [installed], "partial");
+  await expectPluginFrontmatterObservation(workspace, [], "complete");
+});
+
 test("native malformed commands retain mounted frontmatter evidence within caps", async () => {
   const workspace = await fixture();
   const entry = (ordinal: number, output = "name: example\n") => ({
