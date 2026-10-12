@@ -87,7 +87,8 @@ test("evaluation keeps candidate review artifacts readable through isolated grad
           id: "read-review",
           grader: "sevro.shell",
           configuration: {
-            run: 'test "$SEVRO_CANDIDATE_ARTIFACT_REVIEWS" = "$(cat runtime-home)/.darrow/reviews"; cat "$SEVRO_CANDIDATE_ARTIFACT_REVIEWS/result"; ! printf changed > "$SEVRO_CANDIDATE_ARTIFACT_REVIEWS/result"; ! touch "$SEVRO_CANDIDATE_ARTIFACT_REVIEWS/new"; ! rm "$SEVRO_CANDIDATE_ARTIFACT_REVIEWS/result"; ! mv "$SEVRO_CANDIDATE_ARTIFACT_REVIEWS/result" moved; ! cat "$SEVRO_CANDIDATE_ARTIFACT_REVIEWS/../../private-sibling"; ! ls "$SEVRO_CANDIDATE_ARTIFACT_REVIEWS/../.."',
+            // Linux may list synthetic mount ancestors, but no private sibling.
+            run: 'test "$SEVRO_CANDIDATE_ARTIFACT_REVIEWS" = "$(cat runtime-home)/.darrow/reviews" && cat "$SEVRO_CANDIDATE_ARTIFACT_REVIEWS/result" && ! printf changed > "$SEVRO_CANDIDATE_ARTIFACT_REVIEWS/result" && ! touch "$SEVRO_CANDIDATE_ARTIFACT_REVIEWS/new" && ! rm "$SEVRO_CANDIDATE_ARTIFACT_REVIEWS/result" && ! mv "$SEVRO_CANDIDATE_ARTIFACT_REVIEWS/result" moved && ! cat "$SEVRO_CANDIDATE_ARTIFACT_REVIEWS/../../private-sibling" && ! ls -A "$SEVRO_CANDIDATE_ARTIFACT_REVIEWS/../.." 2>/dev/null | grep -Fq private-sibling',
             expectExact: "review",
           },
         },
