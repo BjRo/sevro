@@ -3,6 +3,10 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
+import {
+  HostProcessDiagnostics,
+  type HostDiagnostics,
+} from "../host-diagnostics";
 interface HarnessRunRequest {
   repoDir: string;
   prompt: string;
@@ -155,8 +159,15 @@ class AppServerRpc {
   private reads: Promise<void>;
   private errors: Promise<void>;
   stderr = "";
+  readonly capture: HostProcessDiagnostics;
 
-  constructor(argv: string[], cwd: string, env: Record<string, string>) {
+  constructor(
+    argv: string[],
+    cwd: string,
+    env: Record<string, string>,
+    diagnostics?: HostDiagnostics,
+  ) {
+    this.capture = new HostProcessDiagnostics(diagnostics);
     this.process = spawn(identifier(argv[0]), argv.slice(1), {
       detached: process.platform !== "win32",
       cwd,
@@ -170,6 +181,9 @@ class AppServerRpc {
         resolve(null);
       });
     });
+    this.process.stdout.on("data", (chunk: Buffer) => {
+      this.capture.stdout.add(chunk);
+    });
     this.reads = this.readLines().catch((error: unknown) => {
       this.fail(error);
     });
@@ -177,7 +191,8 @@ class AppServerRpc {
       this.fail(error);
     });
     this.errors = new Promise((resolve) => {
-      this.process.stderr.on("data", (chunk) => {
+      this.process.stderr.on("data", (chunk: Buffer) => {
+        this.capture.stderr.add(chunk);
         this.stderr = (this.stderr + String(chunk)).slice(-16000);
       });
       this.process.stderr.on("end", resolve);
@@ -471,6 +486,7 @@ function requireGoalObjective(objective: unknown): void {
 }
 
 export interface AppServerRunOptions {
+  diagnostics?: HostDiagnostics;
   vettedHooks?: boolean;
   request: HarnessRunRequest;
   argv: string[];
@@ -861,6 +877,7 @@ function requireAppServerRun(request: HarnessRunRequest, bound: number): void {
     throw new Error("Invalid app-server time bound");
 }
 function sessionFailure(session: AppServerSession, error: unknown): void {
+  if (session.options.diagnostics) session.options.diagnostics.failure = error;
   session.evidence.failure =
     error instanceof Error ? error.message : String(error);
   session.emit({ type: "turn.failed" });
@@ -911,11 +928,15 @@ export async function runCodexAppServer(options: AppServerRunOptions): Promise<{
   const { request, argv, env } = options;
   const bound = request.control?.appServerTimeoutMs ?? 3600000;
   requireAppServerRun(request, bound);
-  const rpc = new AppServerRpc(argv, request.repoDir, env);
+  const rpc = new AppServerRpc(argv, request.repoDir, env, options.diagnostics);
   const session = new AppServerSession(rpc, options);
   const code = await completeSession(session, rpc, request, bound);
   // Flush stdout before accepting success, including trailing data and terminal errors.
   const finalCode = settlementCode(session, code);
+  await rpc.capture.record(
+    { exited: rpc.exited, signalCode: rpc.process.signalCode },
+    finalCode === 0 ? "exit" : "error",
+  );
   return {
     out: session.out.join("\n"),
     err: rpc.stderr,

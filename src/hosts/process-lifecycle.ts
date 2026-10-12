@@ -13,6 +13,7 @@ export async function boundedProcessText(
   stream: ReadableStream<Uint8Array>,
   limit: number,
   exceededMessage: string,
+  observe?: (bytes: Uint8Array) => void,
 ): Promise<string> {
   const reader = stream.getReader();
   const chunks: Uint8Array[] = [];
@@ -20,6 +21,7 @@ export async function boundedProcessText(
   for (;;) {
     const { value, done } = await reader.read();
     if (done) break;
+    observe?.(value);
     size += value.byteLength;
     if (size > limit) throw new Error(exceededMessage);
     chunks.push(value);

@@ -61,6 +61,50 @@ Codex route, including semantic and advisory roles, and to both `exec` and
 `--codex-entrypoint app-server --codex-timeout-ms 1200000` to the Codex command
 above. The option requires a Codex host route; invalid values fail before a run.
 
+### Retain native host diagnostics
+
+Add `--retain-host-diagnostics` to a failing invocation to retain private
+diagnostics from bundled Codex and Claude hosts. The switch defaults to off,
+applies to every selected native role, and is independent of runtime
+`nativeTranscripts`. It does not enable transcript access or change the
+candidate's permissions. This switch is available in the development checkout;
+the published `0.1.0-rc.8` does not accept it.
+
+For example, add the switch to the Codex command above:
+
+```sh
+sevro run --json \
+  --case-file /absolute/path/case.json \
+  --host codex --codex-bin /absolute/path/codex \
+  --codex-auth-file /absolute/path/auth.json \
+  --model <model> --effort medium \
+  --project-root /absolute/path/project \
+  --results-root /absolute/path/results \
+  --condition passive --trials 1 --threshold 1 \
+  --retain-host-diagnostics
+```
+
+Failed preparation or execution retains `sevro.host.diagnostics`, including
+when no native session or final response exists. Its private JSON records the
+failing stage, original error/cause chain, and recent subprocess receipts.
+Receipts contain actual exit code or signal, monotonic duration, bounded
+stdout/stderr prefixes, and truncation markers. App-server protocol failure is
+separate from its process exit code.
+
+The CLI's failure diagnostic names the artifact's file URL when it fits the
+diagnostic length limit. The result's `evidencePath` and each trial's
+`artifactPath` always lead to retained artifact references; semantic and
+advisory artifacts carry their existing role prefixes. Files have private
+permissions and are persisted before native state cleanup. The
+[results contract](results-v1.md#native-host-diagnostics) defines the format,
+bounds, redaction, and failure semantics.
+
+Enabled native roles record `sevro.host.retain-diagnostics: true` in redacted
+host configuration. This changes configuration identity, so a diagnostic rerun
+is not an exact-repeat comparison with an invocation that omitted the switch.
+Injected adapters own their diagnostic behavior; the CLI switch configures the
+bundled native routes.
+
 ### Trial concurrency
 
 `--jobs <positive integer>` bounds simultaneous trials within one case and

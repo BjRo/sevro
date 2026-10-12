@@ -23,6 +23,7 @@ import {
 import { sha256 } from "./identity";
 import type { CheckOutcome } from "./results";
 import type { RuntimePolicy } from "./runtime-config";
+import { HostDiagnosticPersistenceError } from "./host-diagnostics";
 
 interface SemanticObservation {
   id: string;
@@ -150,6 +151,13 @@ class SemanticGrading {
       if (!host) throw new Error("semantic host is unavailable");
       const response = await host
         .run({
+          retainHostDiagnostics: (bytes) =>
+            this.effects.retainArtifacts([
+              {
+                id: `sevro.semantic${suffix}.sevro.host.diagnostics`,
+                bytes: Buffer.from(bytes),
+              },
+            ]),
           candidateTranscriptRoot: this.input.candidateTranscriptRoot,
           candidateArtifactRoots: this.input.candidateArtifactRoots,
           prompt: semanticHostPrompt(message, group, artifact),
@@ -174,7 +182,8 @@ class SemanticGrading {
         `sevro.semantic.verdicts${suffix}`,
       );
       return { result: response, artifacts, source, hostId: host.id };
-    } catch {
+    } catch (cause) {
+      if (cause instanceof HostDiagnosticPersistenceError) throw cause;
       this.effects.failGrading("semantic grading did not complete");
       return { result: null, artifacts: [], source, hostId: null };
     }

@@ -44,6 +44,7 @@ export interface CodexHostOptions {
   agentConcurrencyLimit?: number | null;
   timeoutMs?: number;
   entrypoint?: "exec" | "app-server";
+  retainHostDiagnostics?: boolean;
   /** Integration-test seam; production uses the same CLI for execution and preflight. */
   sandboxBinary?: string;
 }

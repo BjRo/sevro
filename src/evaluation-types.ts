@@ -50,6 +50,8 @@ export interface HostAdapter {
   hostCapabilities?: string[];
   configuration?: Record<string, unknown>;
   run(request: {
+    /** Persist private diagnostic bytes before the native host removes its state. */
+    retainHostDiagnostics?: (bytes: Uint8Array) => Promise<void>;
     runtimePolicy?: RuntimePolicy;
     runtimeRole?: RuntimeRole;
     candidateTranscriptRoot?: string;

@@ -5,6 +5,11 @@ import {
   HostProcessInterruption,
 } from "./process-lifecycle";
 import type { HostResult } from "../evaluation-types";
+import {
+  HostProcessDiagnostics,
+  type DiagnosticStream,
+  type HostDiagnostics,
+} from "../host-diagnostics";
 
 type Phase = NonNullable<HostResult["processFailure"]>["phase"];
 type Result = {
@@ -84,11 +89,15 @@ export class CodexProcessFailure extends Error {
 }
 
 /** Drain stderr even after the retained 64 KiB prefix is full. */
-async function captureStderr(stream: ReadableStream<Uint8Array>) {
+async function captureStderr(
+  stream: ReadableStream<Uint8Array>,
+  observe?: DiagnosticStream,
+) {
   const chunks: Uint8Array[] = [];
   let size = 0;
   let truncated = false;
   for await (const bytes of stream) {
+    observe?.add(bytes);
     const retained = bytes.subarray(0, Math.max(0, 64 * 1024 - size));
     if (retained.byteLength) chunks.push(retained);
     size += retained.byteLength;
@@ -114,6 +123,7 @@ function stopProcess(proc: Bun.Subprocess): void {
 }
 
 interface CodexProcessOptions {
+  diagnostics?: HostDiagnostics;
   argv: string[];
   cwd: string;
   env: Record<string, string>;
@@ -134,55 +144,92 @@ async function writeCodexInput(
   await proc.stdin.end();
 }
 
-function spawnCodexProcess(options: CodexProcessOptions) {
-  return Bun.spawn(options.argv, {
-    cwd: options.cwd,
-    env: options.env,
-    detached: process.platform !== "win32",
-    stdin: options.input === undefined ? "ignore" : "pipe",
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+function spawnCodexProcess(
+  options: CodexProcessOptions,
+  capture: HostProcessDiagnostics,
+) {
+  try {
+    return Bun.spawn(options.argv, {
+      cwd: options.cwd,
+      env: options.env,
+      detached: process.platform !== "win32",
+      stdin: options.input === undefined ? "ignore" : "pipe",
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+  } catch (cause) {
+    capture.recordUnstarted();
+    throw cause;
+  }
 }
 
 function processPhase(options: CodexProcessOptions): Phase {
   return options.phase ?? "execution";
 }
 
+function requireCodexProcess(options: CodexProcessOptions): void {
+  if (options.signal?.aborted) throw new Error("Codex run cancelled");
+}
+
+function codexCompletion(
+  proc: ReturnType<typeof spawnCodexProcess>,
+  options: CodexProcessOptions,
+  capture: HostProcessDiagnostics,
+) {
+  const started = performance.now();
+  const stdout = boundedProcessText(
+    proc.stdout,
+    MAX_EVENT_BYTES,
+    "Codex event stream exceeds the size limit",
+    (bytes) => {
+      capture.stdout.add(bytes);
+    },
+  );
+  const stderr = captureStderr(proc.stderr, capture.stderr);
+  const input = writeCodexInput(proc, options.input);
+  const completed = Promise.all([stdout, proc.exited, stderr, input]).then(
+    ([out, code, err]) => ({
+      out,
+      code,
+      stderr: err.bytes,
+      stderrTruncated: err.truncated,
+      signal: proc.signalCode ?? null,
+      durationMs: performance.now() - started,
+    }),
+  );
+  return { completed, drains: [stdout, stderr, input] };
+}
+
+function codexInterruptionReason(cause: unknown) {
+  return cause instanceof HostProcessInterruption ? cause.reason : "error";
+}
+
 export async function runCodexProcess(
   options: CodexProcessOptions,
 ): Promise<Result> {
-  if (options.signal?.aborted) throw new Error("Codex run cancelled");
-  const started = performance.now();
-  const proc = spawnCodexProcess(options);
-  const completed = Promise.all([
-    boundedProcessText(
-      proc.stdout,
-      MAX_EVENT_BYTES,
-      "Codex event stream exceeds the size limit",
-    ),
-    proc.exited,
-    captureStderr(proc.stderr),
-    writeCodexInput(proc, options.input),
-  ]).then(([out, code, stderr]) => ({
-    out,
-    code,
-    stderr: stderr.bytes,
-    stderrTruncated: stderr.truncated,
-    signal: proc.signalCode ?? null,
-    durationMs: performance.now() - started,
-  }));
+  requireCodexProcess(options);
+  const capture = new HostProcessDiagnostics(options.diagnostics);
+  const proc = spawnCodexProcess(options, capture);
+  const { completed, drains } = codexCompletion(proc, options, capture);
   try {
-    return await awaitHostProcess(proc, completed, {
+    const result = await awaitHostProcess(proc, completed, {
       ...options,
       host: "Codex",
       stop: stopProcess,
     });
+    await capture.record(proc);
+    return result;
   } catch (cause) {
-    if (!(cause instanceof HostProcessInterruption)) throw cause;
+    if (!(cause instanceof HostProcessInterruption)) {
+      await Promise.allSettled(drains);
+      await capture.record(proc, codexInterruptionReason(cause));
+      throw cause;
+    }
+    const result = await completed;
+    await capture.record(proc, cause.reason);
     throw new CodexProcessFailure(
       processPhase(options),
-      await completed,
+      result,
       cause.reason,
       options.timeoutMs,
     );

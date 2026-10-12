@@ -41,6 +41,16 @@ import {
 } from "./codex-state";
 import { codexNativeControls } from "./native-controls";
 import { workspaceFingerprint } from "./workspace-fingerprint";
+import {
+  cleanupNativeState,
+  createHostDiagnostics,
+  diagnoseHostRequest,
+  diagnosticConfiguration,
+  diagnosticStage,
+  readDiagnosticCredentials,
+  retainReturnedHostFailure,
+  type HostDiagnostics,
+} from "../host-diagnostics";
 export type { CodexHostOptions } from "./codex-state";
 const MAX_EVENT_BYTES = 8 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 10 * 60_000;
@@ -65,6 +75,7 @@ interface ExecutionContext {
   timeoutMs: number;
   installedPluginRoots: string[];
   hooks?: HookMounts;
+  diagnostics?: HostDiagnostics;
 }
 interface TurnResult {
   execution: ProcessResult;
@@ -137,8 +148,10 @@ function codexCapabilities(
 function codexConfiguration(
   limit: number | null,
   entrypoint: CodexHostOptions["entrypoint"],
+  retainDiagnostics?: boolean,
 ) {
   return {
+    ...diagnosticConfiguration(retainDiagnostics),
     "sevro.codex.agent-concurrency-limit": limit,
     ...(entrypoint === "app-server"
       ? { "sevro.codex.entrypoint": "app-server" }
@@ -160,7 +173,11 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
     hostCapabilities: codexCapabilities(options.entrypoint),
     model: options.model,
     effort: options.effort,
-    configuration: codexConfiguration(limit, options.entrypoint),
+    configuration: codexConfiguration(
+      limit,
+      options.entrypoint,
+      options.retainHostDiagnostics,
+    ),
     run(request) {
       return runCodexRequest(options, timeoutMs, limit, request);
     },
@@ -197,19 +214,27 @@ async function runCodexRequest(
   limit: number | null,
   request: Request,
 ): Promise<HostResult> {
-  requireCodexFollowUp(request);
-  await requireNativeTranscriptView(request.candidateTranscriptRoot);
-  await requireCandidateRuntime(
-    request.candidateRuntimeRoot,
-    request.runtimeRole,
+  const diagnostics = createHostDiagnostics(
+    "codex",
+    options.retainHostDiagnostics,
+    request,
   );
-  await requireCandidateArtifactRoots(request.candidateArtifactRoots);
-  requireCodexFixtureBin(request);
-  requirePassiveCodexRequest(request);
-  requireCodexGoalRoute(request, options);
-  await verifyCodexInvocation(request);
-  if (existsSync(join(request.workspace, ".codex")))
-    throw new Error("fixture Codex configuration is unsupported");
+  return diagnoseHostRequest(diagnostics, async () => {
+    diagnosticStage(diagnostics, "request-validation");
+    await readDiagnosticCredentials(diagnostics, options.authFile);
+    return executeCodexRequest(options, timeoutMs, limit, request, diagnostics);
+  });
+}
+
+async function executeCodexRequest(
+  options: CodexHostOptions,
+  timeoutMs: number,
+  limit: number | null,
+  request: Request,
+  diagnostics?: HostDiagnostics,
+): Promise<HostResult> {
+  await validateCodexRequest(options, request);
+  diagnosticStage(diagnostics, "state-allocation");
   const stateRoot = await allocateCodexRequestState(request);
   const helperRoot =
     process.platform === "linux"
@@ -217,6 +242,7 @@ async function runCodexRequest(
       : undefined;
   let activeHooks: HookMounts | undefined;
   try {
+    diagnosticStage(diagnostics, "state-preparation");
     const state = await prepareCodexState(
       stateRoot,
       options,
@@ -229,10 +255,11 @@ async function runCodexRequest(
       env: state.env,
       pluginCacheRoot: state.pluginCacheRoot,
       request,
+      diagnostics,
     });
     const hooks = await codexHookMounts(request, state, installedPluginRoots);
     activeHooks = hooks;
-    await codexPreflight(options, request, state);
+    await codexPreflight(options, request, state, diagnostics);
     const context: ExecutionContext = {
       options,
       request,
@@ -240,9 +267,17 @@ async function runCodexRequest(
       timeoutMs,
       installedPluginRoots,
       hooks,
+      diagnostics,
     };
     const turns = await new CodexTurnExecution(context).run();
+    if (turns.summary.complete)
+      diagnosticStage(diagnostics, "result-processing");
     const result = await codexHostResult(context, turns);
+    await retainReturnedHostFailure(
+      diagnostics,
+      result,
+      "Codex host execution did not complete",
+    );
     await retainEnabledNativeTranscripts(
       result,
       request.runtimePolicy,
@@ -259,12 +294,34 @@ async function runCodexRequest(
       join(stateRoot, "codex-home", "sessions"),
       "codex",
       request.runtimeRole,
+      diagnostics,
     );
   } finally {
-    await releaseRuntimeHooks(activeHooks);
-    await rm(stateRoot, { recursive: true, force: true });
-    if (helperRoot) await rm(helperRoot, { recursive: true, force: true });
+    await cleanupNativeState(diagnostics, async () => {
+      await releaseRuntimeHooks(activeHooks);
+      await rm(stateRoot, { recursive: true, force: true });
+      if (helperRoot) await rm(helperRoot, { recursive: true, force: true });
+    });
   }
+}
+
+async function validateCodexRequest(
+  options: CodexHostOptions,
+  request: Request,
+): Promise<void> {
+  requireCodexFollowUp(request);
+  await requireNativeTranscriptView(request.candidateTranscriptRoot);
+  await requireCandidateRuntime(
+    request.candidateRuntimeRoot,
+    request.runtimeRole,
+  );
+  await requireCandidateArtifactRoots(request.candidateArtifactRoots);
+  requireCodexFixtureBin(request);
+  requirePassiveCodexRequest(request);
+  requireCodexGoalRoute(request, options);
+  await verifyCodexInvocation(request);
+  if (existsSync(join(request.workspace, ".codex")))
+    throw new Error("fixture Codex configuration is unsupported");
 }
 
 function requireCodexGoalRoute(
@@ -296,8 +353,10 @@ async function sandboxPreflight(
   state: CodexState,
   request: Request,
   command: string[],
+  diagnostics?: HostDiagnostics,
 ) {
   return runCodexProcess({
+    diagnostics,
     argv: sandboxArgs(state, request, command),
     cwd: request.workspace,
     env: state.env,
@@ -310,20 +369,27 @@ async function codexPreflight(
   options: CodexHostOptions,
   request: Request,
   state: CodexState,
+  diagnostics?: HostDiagnostics,
 ): Promise<void> {
+  diagnosticStage(diagnostics, "isolation-preflight");
   const probe = join(state.commandTemp, "isolation-probe");
   await writeFile(probe, "probe\n", { flag: "wx", mode: 0o600 });
-  const checked = await sandboxPreflight(state, request, [
-    "/bin/sh",
-    "-c",
-    '/bin/cat "$1" >/dev/null && ! /bin/ls "$2" >/dev/null 2>&1 && ! /bin/cat "$3" >/dev/null 2>&1 && ! /bin/cat "$4" >/dev/null 2>&1 || exit 70; "$5" --version >/dev/null 2>&1 || exit 71',
-    "sevro-probe",
-    probe,
-    options.projectRoot,
-    join(state.codexHome, "auth.json"),
-    join(state.codexHome, "config.toml"),
-    state.sandboxBinary,
-  ]);
+  const checked = await sandboxPreflight(
+    state,
+    request,
+    [
+      "/bin/sh",
+      "-c",
+      '/bin/cat "$1" >/dev/null && ! /bin/ls "$2" >/dev/null 2>&1 && ! /bin/cat "$3" >/dev/null 2>&1 && ! /bin/cat "$4" >/dev/null 2>&1 || exit 70; "$5" --version >/dev/null 2>&1 || exit 71',
+      "sevro-probe",
+      probe,
+      options.projectRoot,
+      join(state.codexHome, "auth.json"),
+      join(state.codexHome, "config.toml"),
+      state.sandboxBinary,
+    ],
+    diagnostics,
+  );
   if (checked.code === 71)
     throw new CodexProcessFailure("executable-preflight", checked);
   if (checked.code !== 0)
@@ -387,7 +453,9 @@ async function codexProcessTurn(
   argv: string[],
   input: string,
 ): Promise<ProcessResult> {
-  return runCodexProcess({
+  diagnosticStage(context.diagnostics, "exec");
+  const result = await runCodexProcess({
+    diagnostics: context.diagnostics,
     argv,
     cwd: context.request.workspace,
     env: context.state.env,
@@ -395,6 +463,7 @@ async function codexProcessTurn(
     timeoutMs: context.timeoutMs,
     signal: context.request.signal,
   });
+  return result;
 }
 async function initialFingerprint(request: Request): Promise<string | null> {
   return request.followUpPrompt
@@ -513,7 +582,9 @@ class CodexTurnExecution {
   ): Promise<AppServerResult | null> {
     const { options, request, state, timeoutMs } = this.context;
     if (options.entrypoint !== "app-server") return null;
+    diagnosticStage(this.context.diagnostics, "app-server");
     return runCodexAppServer({
+      diagnostics: this.context.diagnostics,
       argv: [
         options.binary,
         "app-server",

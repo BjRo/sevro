@@ -136,6 +136,55 @@ duration, and stderr truncation) and `codex.stderr` (the first 64 KiB), with rol
 prefixes for semantic/advisory hosts. Diagnostics distinguish failure, timeout,
 and cancellation without exposing raw stderr.
 
+## Native host diagnostics
+
+The CLI's opt-in
+[`--retain-host-diagnostics`](development-cli.md#retain-native-host-diagnostics)
+retains candidate artifact `sevro.host.diagnostics` with format
+`sevro.host-diagnostics.v1`. Semantic and advisory requests use the existing
+`sevro.semantic[.<source digest>].` and `sevro.advisory.` artifact ID prefixes.
+The flag is independent of native transcript retention.
+
+The private JSON contains `host`, `role`, `stage`, `error`, `processes`,
+and `processesDropped`. Error evidence preserves the original name, message,
+stack and available error code, plus up to eight cause-chain entries. Repeated
+or deeper causes end in an explicit `truncated` entry. Messages and stacks
+are bounded to 8,192 characters per entry. A host-returned failure without a
+thrown exception receives a runner failure summary; subprocess receipts and
+bounded output supply its native evidence.
+
+Each process receipt records stage, actual `code`, `signal`, `durationMs`,
+reason, stdout/stderr prefixes, and separate truncation markers. Unknown native
+exit information remains `null`; app-server's synthesized protocol result is
+not substituted for a process exit code. Each stream retains at most 64 KiB,
+and hosts continue consuming output after filling the diagnostic prefix.
+Stream parsing and decoding failures also retain available prefixes.
+Text uses replacement decoding for diagnostic inspection; it is not an exact
+native-byte archive.
+
+The journal keeps at most 32 recent process receipts and at most 2 MiB of
+encoded receipt data. It drops oldest receipts first and reports their count.
+The failing stage and bounded error remain independent of those dropped
+receipts. Known credentials from selected authentication files, forwarded
+Claude authentication variables, and common credential patterns are redacted
+from the diagnostic JSON. Sevro does not explicitly dump environment values,
+full argv, or settings into diagnostics. Treat retained diagnostics as private evidence and keep
+them out of Git; redaction is not authorization to publish subprocess output.
+
+The engine supplies an optional `retainHostDiagnostics(bytes)` callback to
+host adapters. Bundled opted-in hosts invoke it before removing native state.
+The callback saves the artifact with private permissions and registers its
+file URL and SHA-256 in trial evidence. Direct adapter calls without that
+callback return diagnostic bytes in ordinary host artifacts.
+
+Failure diagnostics name the retained file URL when it fits the CLI message
+limit; `evidencePath` and trial `artifactPath` resolve artifact references
+even when a message cannot contain the URL. Native failures retain the existing
+execution, grading, task and exit semantics. Failed diagnostic persistence is
+an internal runner error, not a successful assessment or an ordinary host
+failure. Cleanup errors do not replace an earlier host or diagnostic-persistence
+failure; cleanup warnings contain no raw error/output bodies.
+
 ## Native transcript bundles
 
 With [runtime transcript opt-in](runtime-v1.md#native-transcript-access), each
