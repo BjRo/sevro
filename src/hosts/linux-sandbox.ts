@@ -7,6 +7,7 @@ import {
   requireNativeHookRoots,
 } from "../native-transcript-state";
 import { requireRuntimeReadRoots } from "../runtime-paths";
+import { requireCandidateArtifactRoots } from "../candidate-artifacts";
 import {
   commandRuntimeRoot,
   HostIsolationError,
@@ -52,6 +53,7 @@ export async function prepareLinuxSandboxCommand(
 ): Promise<IsolatedCommand> {
   requireLinuxSandbox();
   await requireNativeTranscriptViews(options.transcriptReadRoots);
+  await requireCandidateArtifactRoots(options.candidateArtifactRoots);
   await requireNativeHookRoots(options.hookReadRoots);
   requireIsolationPaths(options);
   const workspace = await realpath(options.workspace);
@@ -101,6 +103,7 @@ export async function prepareLinuxSandboxCommand(
         workspace,
         ...readRoots.flatMap((path) => ["--ro-bind", path, path]),
         ...transcriptMounts(options),
+        ...candidateArtifactMounts(options),
         ...hookMounts(options),
         ...(ownedRoot ? ["--bind", ownedRoot, ownedRoot] : []),
         "--chdir",
@@ -120,6 +123,14 @@ export async function prepareLinuxSandboxCommand(
 
 function transcriptMounts(options: IsolationOptions): string[] {
   return (options.transcriptReadRoots ?? []).flatMap((path) => [
+    "--ro-bind",
+    path,
+    path,
+  ]);
+}
+
+function candidateArtifactMounts(options: IsolationOptions): string[] {
+  return Object.values(options.candidateArtifactRoots ?? {}).flatMap((path) => [
     "--ro-bind",
     path,
     path,

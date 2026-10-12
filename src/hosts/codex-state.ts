@@ -1,4 +1,8 @@
 import { runtimeSeedSources } from "../runtime-config";
+import {
+  candidateArtifactEnvironment,
+  candidateArtifactReadRoots,
+} from "../candidate-artifacts";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import {
@@ -176,6 +180,7 @@ function codexProfileEnvironment(
     ...codexCommandEnvironment(request, environment),
     ...codexTranscriptEnvironment(request, paths.codexHome),
     ...candidateTranscriptEnvironment(request.candidateTranscriptRoot),
+    ...candidateArtifactEnvironment(request.candidateArtifactRoots),
   };
 }
 
@@ -193,6 +198,7 @@ function codexNativeReadRoots(request: Request, home: string) {
     ...linuxArg0ReadRoots(home),
     ...codexTranscriptRoots(request, home),
     ...candidateTranscriptRoots(request.candidateTranscriptRoot),
+    ...candidateArtifactReadRoots(request.candidateArtifactRoots),
   ];
 }
 
@@ -293,7 +299,7 @@ async function codexRuntime(
     request.workspace,
     request.runtimePolicy,
     request.runtimeRole ?? "candidate",
-    join(stateRoot, "runtime"),
+    request.candidateRuntimeRoot ?? join(stateRoot, "runtime"),
   );
   paths.commandHome = runtime.home;
   paths.commandTemp = runtime.temp;

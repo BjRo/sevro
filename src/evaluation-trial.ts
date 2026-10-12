@@ -1,4 +1,10 @@
 import { rm, writeFile } from "node:fs/promises";
+import {
+  allocateCandidateRuntime,
+  candidateArtifactRoots,
+  releaseCandidateRuntime,
+  type CandidateArtifactRoots,
+} from "./candidate-artifacts";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -215,6 +221,8 @@ function selectedTrialTaskPolicy(
 
 class EvaluationTrial {
   private candidateTranscriptRoot?: string;
+  private candidateRuntimeRoot?: string;
+  private candidateArtifacts?: CandidateArtifactRoots;
   private diagnostic: { code: string; message: string } | undefined = undefined;
   private persisted: boolean = false;
   private gitHeadBase: string | null = null;
@@ -268,6 +276,7 @@ class EvaluationTrial {
       await this.runCandidate();
       await this.retainCandidateArtifacts();
       this.observeCandidate();
+      await this.prepareCandidateArtifacts();
       this.gradeOutput();
       await this.gradeShell();
       await this.gradeGitHead();
@@ -298,6 +307,7 @@ class EvaluationTrial {
   }
   private candidateRequest(): Parameters<HostAdapter["run"]>[0] {
     return {
+      candidateRuntimeRoot: this.candidateRuntimeRoot,
       prompt: this.fixture.trialPrompt,
       ...(this.fixture.trialFollowUpPrompt !== undefined
         ? { followUpPrompt: this.fixture.trialFollowUpPrompt }
@@ -384,6 +394,9 @@ class EvaluationTrial {
     const started = performance.now();
     try {
       ensureNotCancelled(this.options.signal);
+      this.candidateRuntimeRoot = await allocateCandidateRuntime(
+        this.options.runtimePolicy,
+      );
       this.hostResult = await this.options.host.run(this.candidateRequest());
       this.acceptCandidateResult(this.hostResult);
       if (this.options.signal?.aborted) {
@@ -487,6 +500,17 @@ class EvaluationTrial {
     return this.execution === "completed" && !this.graderError;
   }
 
+  private async prepareCandidateArtifacts(): Promise<void> {
+    if (this.execution !== "completed") return;
+    try {
+      this.candidateArtifacts = await candidateArtifactRoots(
+        this.candidateRuntimeRoot,
+      );
+    } catch {
+      this.failGrading("candidate artifact directories are missing or unsafe");
+    }
+  }
+
   private gradeOutput(): void {
     if (this.execution !== "completed") return;
     try {
@@ -530,6 +554,7 @@ class EvaluationTrial {
   ): Promise<void> {
     const result = await runShellCheck(check, {
       candidateTranscriptRoot: this.candidateTranscriptRoot,
+      candidateArtifactRoots: this.candidateArtifacts,
       workspace: this.fixture.workspace,
       fixtureBinDir: this.fixture.fixtureBinDir,
       toolchainBinDir: this.options.shellIsolation?.toolchainBinDir,
@@ -631,6 +656,7 @@ class EvaluationTrial {
         message: this.completeCandidateMessage(),
         candidateWorkspace: this.fixture.workspace,
         candidateTranscriptRoot: this.candidateTranscriptRoot,
+        candidateArtifactRoots: this.candidateArtifacts,
         projectRoot: this.context.projectRoot,
         reservedWorkspace:
           this.context.reservedSemanticWorkspaces[this.trial - 1],
@@ -819,6 +845,7 @@ class EvaluationTrial {
       });
       const response = await host.run({
         candidateTranscriptRoot: this.candidateTranscriptRoot,
+        candidateArtifactRoots: this.candidateArtifacts,
         prompt: advisoryPrompt(this.fixture.trialPrompt, this.checks),
         runtimePolicy: gradingRuntimePolicy(this.options.runtimePolicy),
         runtimeRole: "advisory",
@@ -945,6 +972,7 @@ class EvaluationTrial {
     );
   }
   private async cleanup(): Promise<void> {
+    await releaseCandidateRuntime(this.candidateRuntimeRoot);
     if (this.candidateTranscriptRoot)
       await rm(this.candidateTranscriptRoot, { recursive: true, force: true });
     if (this.persisted && !this.retainFailedWorkspace()) {

@@ -1,4 +1,8 @@
 import { existsSync } from "node:fs";
+import {
+  requireCandidateRuntime,
+  requireCandidateArtifactRoots,
+} from "../candidate-artifacts";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
@@ -195,6 +199,11 @@ async function runCodexRequest(
 ): Promise<HostResult> {
   requireCodexFollowUp(request);
   await requireNativeTranscriptView(request.candidateTranscriptRoot);
+  await requireCandidateRuntime(
+    request.candidateRuntimeRoot,
+    request.runtimeRole,
+  );
+  await requireCandidateArtifactRoots(request.candidateArtifactRoots);
   requireCodexFixtureBin(request);
   requirePassiveCodexRequest(request);
   requireCodexGoalRoute(request, options);

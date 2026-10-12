@@ -2,6 +2,7 @@ import { realpath } from "node:fs/promises";
 import { isAbsolute, relative, sep } from "node:path";
 import { insideRuntimeRoot } from "../runtime-paths";
 import { workspaceBoundaryException } from "../workspace-state";
+import type { CandidateArtifactRoots } from "../candidate-artifacts";
 
 export class HostIsolationError extends Error {
   constructor(message: string) {
@@ -19,6 +20,7 @@ export interface IsolationOptions {
   denyNetwork?: boolean;
   readOnlyRoots?: string[];
   transcriptReadRoots?: string[];
+  candidateArtifactRoots?: CandidateArtifactRoots;
   hookReadRoots?: string[];
   writableRuntimeRoot?: string;
 }

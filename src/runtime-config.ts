@@ -8,6 +8,10 @@ import {
   requireRuntimeReadRoots,
 } from "./runtime-paths";
 import validate from "./generated/runtime.cjs";
+import {
+  requireArtifactDirectories,
+  type RuntimeArtifactDirectory,
+} from "./candidate-artifacts";
 import { runtimeSeedDigest } from "./runtime-seeds";
 import {
   discoverRuntimeSupport,
@@ -26,12 +30,16 @@ export interface RuntimeConfiguration {
   nativeTranscripts?: boolean;
   environment?: { inherit?: string[]; set?: Record<string, string> };
   filesystem?: { readOnlyRoots?: string[]; optionalReadOnlyRoots?: string[] };
-  runtime?: { seedDirectories?: RuntimeSeed[] };
+  runtime?: {
+    seedDirectories?: RuntimeSeed[];
+    artifactDirectories?: RuntimeArtifactDirectory[];
+  };
   hooks?: { nativeGoal?: boolean; plugins?: string[] };
 }
 
 export interface RuntimePolicy {
   format: "sevro.runtime.v1";
+  artifactDirectories?: RuntimeArtifactDirectory[];
   nativeTranscripts?: boolean;
   environment: Record<string, string>;
   readOnlyRoots: string[];
@@ -56,6 +64,7 @@ export function runtimePolicySnapshot(
   if (!policy) return undefined;
   requireRuntimeEnvironment(policy.environment);
   const snapshot = structuredClone(policy);
+  freezeArtifactDirectories(snapshot);
   Object.freeze(snapshot.environment);
   Object.freeze(snapshot.readOnlyRoots);
   freezeDiscovery(snapshot);
@@ -80,6 +89,13 @@ function freezeDiscovery(snapshot: RuntimePolicy): void {
   }
   Object.freeze(snapshot.discovery);
   Object.freeze(snapshot.skippedOptionalReadOnlyRoots);
+}
+
+function freezeArtifactDirectories(snapshot: RuntimePolicy): void {
+  const directories = snapshot.artifactDirectories ?? [];
+  requireArtifactDirectories(directories);
+  for (const directory of directories) Object.freeze(directory);
+  Object.freeze(snapshot.artifactDirectories);
 }
 
 function assertRuntimeConfiguration(
@@ -292,6 +308,7 @@ async function resolveRuntimeConfiguration(
   requireRuntimeReadRoots(readOnlyRoots, protectedRoots);
   return {
     format: value.format,
+    ...artifactConfiguration(value.runtime),
     ...(value.nativeTranscripts === undefined
       ? {}
       : { nativeTranscripts: value.nativeTranscripts }),
@@ -317,6 +334,13 @@ async function resolvedRuntimeEnvironment(value: RuntimeConfiguration) {
 function configurationEnvironment(value: RuntimeConfiguration) {
   const environment = value.environment;
   return { inherit: environment?.inherit ?? [], set: environment?.set ?? {} };
+}
+
+function artifactConfiguration(runtime: RuntimeConfiguration["runtime"]) {
+  const directories = runtime?.artifactDirectories;
+  if (directories === undefined) return {};
+  requireArtifactDirectories(directories);
+  return { artifactDirectories: directories };
 }
 function configurationReadRoots(value: RuntimeConfiguration): string[] {
   return value.filesystem?.readOnlyRoots ?? [];
