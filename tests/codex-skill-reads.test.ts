@@ -300,6 +300,51 @@ test("compound fallback bounds the total read operands across clauses", async ()
   expect(observed.completeness).toBe("partial");
   expect(observed.data.observedSkills).toEqual([]);
 });
+
+test("compound transformed cat output cannot borrow an exact body from search results", async () => {
+  const workspace = await fixture();
+  await mkdir(join(workspace, "docs"));
+  await writeFile(join(workspace, "docs/copy.md"), body);
+  const command =
+    "cat -n .agents/skills/example/SKILL.md; rg --no-heading --no-filename '' docs/copy.md";
+  const process = Bun.spawn(["/bin/sh", "-c", command], {
+    cwd: workspace,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [output, error, exitCode] = await Promise.all([
+    new Response(process.stdout).text(),
+    new Response(process.stderr).text(),
+    process.exited,
+  ]);
+  expect(exitCode, error).toBe(0);
+  expect(output).toContain(body);
+  const observed = await codexSkillReadObservation(
+    stream([read(command, output)]),
+    workspace,
+  );
+  expect(observed.completeness).toBe("partial");
+  expect(observed.data.observedSkills).toEqual([]);
+  const diagnostic = await codexNativeReadDiagnostic(
+    [
+      {
+        ordinal: 0,
+        payload: {
+          type: "item_completed",
+          item: {
+            ...read(command, output).item,
+            type: "CommandExecution",
+            command: ["/bin/sh", "-c", command],
+            cwd: workspace,
+          },
+        },
+      },
+    ],
+    workspace,
+  );
+  expect(diagnostic.completeness).toBe("partial");
+  expect(diagnostic.observedSkills).toEqual([]);
+});
 test("completed direct Codex reads produce bounded ordered skill evidence", async () => {
   const workspace = await fixture();
   const path = join(workspace, ".agents/skills/example/SKILL.md");

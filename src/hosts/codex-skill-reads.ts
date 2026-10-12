@@ -116,6 +116,11 @@ function fallbackOperandCount(reads: Array<DirectRead | null>): number {
   return reads.reduce((count, read) => count + (read?.operandCount ?? 0), 0);
 }
 
+function unsupportedCatOptions(payload: string, paths: string[]): boolean {
+  if (/^(?:\/bin\/)?cat\s+--\s/.test(payload)) return false;
+  return paths.some((path) => path.startsWith("-"));
+}
+
 function catRead(payload: string, path: string): DirectRead | null {
   const cat = payload.match(
     new RegExp(`^(?:/bin/)?cat\\s+(?:--\\s+)?(${path}(?:\\s+${path})*)$`),
@@ -125,7 +130,11 @@ function catRead(payload: string, path: string): DirectRead | null {
     ...cat.slice(1, 2).join("").matchAll(new RegExp(path, "g")),
   ].map((match) => capturedReadPath(match, 1));
   const skills = paths.filter((value) => /(?:^|\/)SKILL\.md$/.test(value));
-  if (skills.length !== 1 || paths.length > MAX_NATIVE_READ_ATTEMPTS)
+  if (
+    skills.length !== 1 ||
+    paths.length > MAX_NATIVE_READ_ATTEMPTS ||
+    unsupportedCatOptions(payload, paths)
+  )
     return null;
   return { path: skills.join(""), operandCount: paths.length };
 }

@@ -44,7 +44,8 @@ canonical file across all its read operands; absent alternate targets do not
 invalidate the read. Multiple existing targets, including unmounted copies,
 cannot establish an attributable read. The total read operands remain bounded
 at 64. The complete command must succeed and expose the mounted file's entire
-exact body. Substitutions, pipelines, other shell control flow, and dynamic
+exact body. `cat` accepts literal file operands and the optional `--` delimiter;
+other options cannot prove an unchanged read. Substitutions, pipelines, other shell control flow, and dynamic
 search arguments cannot establish a compound read through this check.
 Unrecognized commands remain partial when their output contains the identifying
 `name: <skill>` line from a mounted or receipt-bound installed-plugin skill.

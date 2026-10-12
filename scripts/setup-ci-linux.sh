@@ -2,7 +2,7 @@
 set -euo pipefail
 
 sudo apt-get update -qq
-sudo apt-get install -y bubblewrap socat
+sudo apt-get install -y bubblewrap ripgrep socat
 
 # Ubuntu 24.04 confines unprivileged user namespaces unless bwrap has a profile.
 if [[ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)" == "1" ]]; then
