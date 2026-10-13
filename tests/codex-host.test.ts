@@ -5,8 +5,10 @@ import {
   parseRunEvidence,
 } from "./fixtures/assertions";
 import { afterEach, test, expect } from "bun:test";
+import { existsSync } from "node:fs";
 import {
   chmod,
+  cp,
   mkdir,
   mkdtemp,
   readFile,
@@ -20,6 +22,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { runEvaluation } from "../src/engine";
 import { createCodexHost } from "../src/hosts/codex";
+import { allocateWorkspace, removeWorkspace } from "../src/workspace-state";
 const roots: string[] = [];
 const isolatedNativeHost =
   process.platform === "darwin" ||
@@ -891,6 +894,154 @@ test("Codex host refuses a continuation from another thread", async () => {
     }),
   ).rejects.toThrow(/original thread/);
 });
+test.each(["exec", "app-server"] as const)(
+  "Codex prepares a hook-free native plugin in a managed workspace: %s",
+  async (entrypoint) => {
+    const selected = await ordinaryMarketplace();
+    const workspace = await allocateWorkspace();
+    try {
+      await mkdir(join(workspace, ".git"));
+      await cp(selected.root, join(workspace, "marketplace"), {
+        recursive: true,
+      });
+      await writeFile(join(workspace, "require-plugin.flag"), "\n");
+      const binary = join(
+        dirname(selected.paths.fakeBinary),
+        "native-plugin-peer",
+      );
+      await writeFile(
+        binary,
+        `#!/bin/sh
+if [ "$1" = app-server ]; then
+  test -f "$CODEX_HOME/plugins/cache/sevro-probe/probe/0.1.0/skills/probe/SKILL.md" || exit 95
+  exec '${process.execPath}' '${join(import.meta.dir, "fixtures/app-server-peer.ts")}' "$@"
+fi
+exec '${selected.paths.fakeBinary}' "$@"
+`,
+        { mode: 0o700 },
+      );
+      const host = createCodexHost({
+        ...ordinaryCodexOptions,
+        ...selected.paths,
+        binary,
+        sandboxBinary: defined(Bun.which("codex")),
+        entrypoint,
+      });
+      const result = await host.run({
+        ...selected.request,
+        workspace,
+        codexMarketplace: selected.declaration,
+        runtimePolicy: {
+          format: "sevro.runtime.v1",
+          environment: {},
+          readOnlyRoots: [],
+          seeds: [
+            {
+              source: selected.paths.projectRoot,
+              target: "hook-cache",
+              sha256: digest,
+              roles: ["hooks"],
+            },
+          ],
+        },
+      });
+      expect(result.complete).toBe(true);
+      expect(result.finalMessage).toBe("ready");
+      expectUnknown(result.observations).toContainEqual({
+        id: "sevro.codex.skill-reads",
+        completeness: "complete",
+        data: {
+          method: "skill_file_read_probe",
+          primarySkill: entrypoint === "exec" ? "probe" : null,
+          observedSkills: entrypoint === "exec" ? ["probe"] : [],
+        },
+      });
+      expectUnknown(result.observations).toContainEqual({
+        id: "sevro.host.hooks",
+        completeness: "complete",
+        data: {
+          plugins: [objectContaining({ name: "probe", allowed: false })],
+          executions: [],
+        },
+      });
+    } finally {
+      await removeWorkspace(workspace);
+    }
+  },
+);
+
+test.each(["preparation-failure", "cancellation"] as const)(
+  "Codex removes private plugin projections after %s",
+  async (ending) => {
+    const selected = await ordinaryMarketplace();
+    const workspace = await allocateWorkspace();
+    const controller = new AbortController();
+    let running: ReturnType<typeof selected.host.run> | undefined;
+    try {
+      await cp(selected.root, join(workspace, "marketplace"), {
+        recursive: true,
+      });
+      await writeFile(join(workspace, "require-plugin.flag"), "\n");
+      const binary = join(
+        dirname(selected.paths.fakeBinary),
+        "cleanup-plugin-peer",
+      );
+      await writeFile(
+        binary,
+        `#!/bin/sh
+printf '%s' "$CODEX_HOME" > "$PWD/private-plugin-home"
+exec '${selected.paths.fakeBinary}' "$@"
+`,
+        { mode: 0o700 },
+      );
+      if (ending === "preparation-failure") {
+        await writeFile(
+          join(workspace, "marketplace/plugin/.claude-plugin/plugin.json"),
+          JSON.stringify({ name: "probe", version: "0.1.0", mods: {} }),
+        );
+      } else {
+        await writeFile(join(workspace, "slow.flag"), "\n");
+      }
+      const host = createCodexHost({
+        ...ordinaryCodexOptions,
+        ...selected.paths,
+        binary,
+        sandboxBinary: defined(Bun.which("codex")),
+      });
+      running = host.run({
+        ...selected.request,
+        workspace,
+        codexMarketplace: selected.declaration,
+        signal: controller.signal,
+        runtimePolicy: {
+          format: "sevro.runtime.v1",
+          environment: {},
+          readOnlyRoots: [],
+        },
+      });
+      if (ending === "preparation-failure") {
+        expect(running).rejects.toThrow("runtime plugin mods are unsupported");
+        await running.catch(() => undefined);
+      } else {
+        await waitForCodexMarker(join(workspace, "child.pid"));
+        controller.abort("SIGTERM");
+        expect(running).rejects.toThrow("Codex run cancelled");
+        await running.catch(() => undefined);
+      }
+      const privateHome = await readFile(
+        join(workspace, "private-plugin-home"),
+        "utf8",
+      );
+      expect(existsSync(dirname(privateHome))).toBe(false);
+    } finally {
+      controller.abort("SIGTERM");
+      await running?.catch(() => undefined);
+      await removeWorkspace(workspace);
+    }
+  },
+  15000,
+);
+
 // eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("Codex host installs a declared local plugin in its isolated home", async () => {
   const installedCodex = Bun.which("codex");

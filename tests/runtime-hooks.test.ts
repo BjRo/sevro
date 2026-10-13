@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import {
   chmod,
+  cp,
   mkdir,
   mkdtemp,
   readFile,
@@ -14,6 +15,8 @@ import { createClaudeHost } from "../src/hosts/claude";
 import { createCodexHost } from "../src/hosts/codex";
 import { runtimeSeedDigest } from "../src/runtime-seeds";
 import { defined } from "./fixtures/assertions";
+import { allocateWorkspace, removeWorkspace } from "../src/workspace-state";
+import { allocateNativeState } from "../src/native-transcript-state";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -725,6 +728,97 @@ test("Codex executes only selected plugin hooks under protected-root isolation",
     false,
   );
 }, 30000);
+
+test.each(["exec", "app-server"] as const)(
+  "Codex managed plugin hooks keep projections read-only and peers private: %s",
+  // eslint-disable-next-line max-lines-per-function -- Keep the managed native hook, late peer creation, and sandbox assertions together; the callback stays below the 200-line integration limit.
+  async (entrypoint) => {
+    const fixture = await hookFixture();
+    const workspace = await allocateWorkspace();
+    const peer = await allocateNativeState("codex-hook-peer-");
+    roots.push(peer);
+    let peerWorkspace: string | undefined;
+    let running: ReturnType<typeof runCodexHookFixture> | undefined;
+    try {
+      await mkdir(join(workspace, ".git"));
+      await cp(
+        join(fixture.workspace, "packages"),
+        join(workspace, "packages"),
+        { recursive: true },
+      );
+      await writeFile(join(peer, "secret"), "private peer");
+      await writeFile(
+        join(workspace, "packages/allowed/hooks/start.sh"),
+        `#!/bin/sh
+set -eu
+printf '%s' "$PLUGIN_ROOT" > projection-path
+cat "$PLUGIN_ROOT/.claude-plugin/plugin.json" > /dev/null
+if (printf changed > "$PLUGIN_ROOT/hooks/start.sh") 2>/dev/null; then exit 11; fi
+if mkdir "$PLUGIN_ROOT/planted" 2>/dev/null; then exit 12; fi
+for secret in "$PLUGIN_ROOT/../../codex-home/auth.json" "$PLUGIN_ROOT/../../codex-home/config.toml" "$PLUGIN_ROOT/../plugin-1/hooks/start.sh" '${join(peer, "secret")}'; do
+  if cat "$secret" >/dev/null 2>&1; then exit 13; fi
+done
+printf ready > hook-ready
+while [ ! -f .git/late-peer ]; do sleep 0.02; done
+late_peer=$(cat .git/late-peer)
+if cat "$late_peer/secret" >/dev/null 2>&1; then exit 14; fi
+if (printf changed > "$late_peer/secret") 2>/dev/null; then exit 15; fi
+late_native=$(cat .git/late-native)
+if cat "$late_native/secret" >/dev/null 2>&1; then exit 16; fi
+if (printf changed > "$late_native/secret") 2>/dev/null; then exit 17; fi
+printf '%s' "$SEVRO_RUNTIME_SAMPLE" > allowed.txt
+`,
+      );
+      await writeFile(
+        fixture.credentialFile,
+        JSON.stringify({ OPENAI_API_KEY: "synthetic-test-credential" }),
+      );
+      running = runCodexHookFixture({ ...fixture, workspace }, entrypoint);
+      const deadline = Date.now() + 12000;
+      while (!(await Bun.file(join(workspace, "hook-ready")).exists())) {
+        if (Date.now() > deadline)
+          throw new Error("managed plugin hook did not start");
+        await Bun.sleep(10);
+      }
+      peerWorkspace = await allocateWorkspace();
+      await writeFile(join(peerWorkspace, "secret"), "later peer workspace");
+      const lateNative = await allocateNativeState("codex-later-hook-peer-");
+      roots.push(lateNative);
+      await writeFile(join(lateNative, "secret"), "later native peer");
+      await writeFile(join(workspace, ".git/late-native"), lateNative);
+      await writeFile(join(workspace, ".git/late-peer"), peerWorkspace);
+      const result = await running;
+      expect(
+        await readFile(join(workspace, "allowed.txt"), "utf8"),
+        JSON.stringify(result.observations),
+      ).toBe("selected hook");
+      expect(await Bun.file(join(workspace, "denied.txt")).exists()).toBe(
+        false,
+      );
+      expect(await readFile(join(peerWorkspace, "secret"), "utf8")).toBe(
+        "later peer workspace",
+      );
+      expect(await readFile(join(peer, "secret"), "utf8")).toBe("private peer");
+      expect(await readFile(join(lateNative, "secret"), "utf8")).toBe(
+        "later native peer",
+      );
+      const projection = await readFile(
+        join(workspace, "projection-path"),
+        "utf8",
+      );
+      expect(projection.startsWith(workspace + "/")).toBe(false);
+      expect(
+        await Bun.file(join(projection, "hooks/start.sh")).exists(),
+        projection + " " + JSON.stringify(result.observations),
+      ).toBe(false);
+    } finally {
+      await running?.catch(() => undefined);
+      await removeWorkspace(workspace);
+      if (peerWorkspace) await removeWorkspace(peerWorkspace);
+    }
+  },
+  30000,
+);
 
 test("Codex isolates hooks declared in its native plugin manifest", async () => {
   const fixture = await hookFixture();
