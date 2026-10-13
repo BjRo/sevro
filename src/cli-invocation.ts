@@ -36,6 +36,7 @@ function conditionOption(value: string | undefined): "passive" | "enforced" {
 
 const RUN_OPTIONS = {
   json: { type: "boolean" },
+  "retain-host-diagnostics": { type: "boolean" },
   dry: { type: "boolean" },
   "case-file": { type: "string" },
   "case-id": { type: "string" },
@@ -360,6 +361,7 @@ function commonCodexOptions(
   return {
     binary: absoluteOption(values["codex-bin"], "--codex-bin"),
     authFile: absoluteOption(values["codex-auth-file"], "--codex-auth-file"),
+    retainHostDiagnostics: values["retain-host-diagnostics"] === true,
     timeoutMs:
       values["codex-timeout-ms"] === undefined
         ? undefined
@@ -379,6 +381,7 @@ function claudeHostOptions(
 ) {
   if (!routes.claude) return undefined;
   return {
+    retainHostDiagnostics: values["retain-host-diagnostics"] === true,
     binary: absoluteOption(values["claude-bin"], "--claude-bin"),
     ...(values["claude-credential-file"]
       ? {

@@ -44,6 +44,7 @@ export interface ClaudeHostOptions {
   toolchainBinDir?: string;
   projectSettings?: boolean;
   timeoutMs?: number;
+  retainHostDiagnostics?: boolean;
 }
 
 function minimalRoots(roots: string[]): string[] {

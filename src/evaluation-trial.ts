@@ -73,6 +73,10 @@ import {
 import type { RunEvidenceData } from "./schema-types";
 import { atomicWriteJson } from "./storage";
 import { scheduleTrials } from "./trial-scheduler";
+import {
+  HostDiagnosticPersistenceError,
+  rethrowDiagnosticPersistenceError,
+} from "./host-diagnostics";
 
 const MAX_FINAL_MESSAGE_BYTES = 8 * 1024 * 1024;
 
@@ -164,9 +168,23 @@ function defaultAdvisoryReview(host: HostAdapter): AdvisoryReview {
 
 function isTrialPersistenceFailure(error: unknown): boolean {
   return (
-    error instanceof Error &&
-    error.message.startsWith("trial persistence failed")
+    error instanceof HostDiagnosticPersistenceError ||
+    (error instanceof Error &&
+      error.message.startsWith("trial persistence failed"))
   );
+}
+
+function diagnosticArtifactLocation(
+  diagnostic: { code: string; message: string } | undefined,
+  refs: EvaluationContext["artifactRefs"],
+) {
+  if (!diagnostic) return diagnostic;
+  const artifact = refs.find((ref) =>
+    ref.id.endsWith("sevro.host.diagnostics"),
+  );
+  if (!artifact) return diagnostic;
+  const message = `${diagnostic.message}; diagnostics: ${artifact.path}`;
+  return message.length <= 4096 ? { ...diagnostic, message } : diagnostic;
 }
 
 function completeAdvisoryAssessment(response: HostResult): AdvisoryAssessment {
@@ -267,6 +285,7 @@ class EvaluationTrial {
     private readonly fixture: Awaited<ReturnType<typeof prepareTrialWorkspace>>,
   ) {
     this.execution = options.dry ? "not_run" : "completed";
+    this.trialArtifactRefs = [...context.artifactRefs];
   }
   async run(): Promise<boolean> {
     try {
@@ -307,6 +326,11 @@ class EvaluationTrial {
   }
   private candidateRequest(): Parameters<HostAdapter["run"]>[0] {
     return {
+      retainHostDiagnostics: (bytes) =>
+        this.retainArtifacts(
+          [{ id: "sevro.host.diagnostics", bytes: Buffer.from(bytes) }],
+          "host-",
+        ),
       candidateRuntimeRoot: this.candidateRuntimeRoot,
       prompt: this.fixture.trialPrompt,
       ...(this.fixture.trialFollowUpPrompt !== undefined
@@ -405,6 +429,7 @@ class EvaluationTrial {
         this.diagnostic = hostFailureDiagnostic("cancelled", undefined);
       }
     } catch (error) {
+      rethrowDiagnosticPersistenceError(error);
       this.failCandidate(error);
     } finally {
       this.candidateDurationMs = Math.max(0, performance.now() - started);
@@ -444,7 +469,6 @@ class EvaluationTrial {
   }
 
   private async retainCandidateArtifacts(): Promise<void> {
-    this.trialArtifactRefs = [...this.context.artifactRefs];
     await this.retainArtifacts(this.producedArtifacts, "host-");
     await verifyRetainedArtifacts(this.trialArtifactRefs);
     const bundle = this.producedArtifacts.find(
@@ -844,6 +868,13 @@ class EvaluationTrial {
         excludedPaths: this.options.advisoryExcludedPaths,
       });
       const response = await host.run({
+        retainHostDiagnostics: (bytes) =>
+          this.retainArtifacts([
+            {
+              id: "sevro.advisory.sevro.host.diagnostics",
+              bytes: Buffer.from(bytes),
+            },
+          ]),
         candidateTranscriptRoot: this.candidateTranscriptRoot,
         candidateArtifactRoots: this.candidateArtifacts,
         prompt: advisoryPrompt(this.fixture.trialPrompt, this.checks),
@@ -960,6 +991,10 @@ class EvaluationTrial {
     this.context.trialSummaries.sort((left, right) => left.trial - right.trial);
     this.context.trialEvidence.push(evidence);
     this.context.trialEvidence.sort((left, right) => left.trial - right.trial);
+    this.diagnostic = diagnosticArtifactLocation(
+      this.diagnostic,
+      this.trialArtifactRefs,
+    );
     if (this.diagnostic)
       this.context.diagnostics.push({
         trial: this.trial,

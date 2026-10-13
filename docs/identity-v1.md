@@ -64,6 +64,12 @@ for the host default. Configuration paths and unrelated TOML bytes are not
 imported settings; a relocated configuration with the same effective values
 keeps this component unchanged.
 
+Opted-in bundled native roles also record `sevro.host.retain-diagnostics: true`.
+The [diagnostic retention switch](development-cli.md#retain-native-host-diagnostics)
+therefore changes `configurationDigest`. Omission leaves that host setting
+absent and preserves the previous configuration shape. Retained diagnostic
+contents and temporary native state paths do not enter identity.
+
 Selected [runtime configuration](runtime-v1.md) is retained under
 `configuration.redacted.runtimePolicy` and enters `configurationDigest`.
 It includes declared non-secret environment values, canonical read roots,

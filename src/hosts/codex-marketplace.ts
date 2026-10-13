@@ -5,6 +5,7 @@ import { fixtureParts } from "../preparation";
 import type { HostAdapter } from "../engine";
 import { runCodexProcess } from "./codex-process";
 import { isRecord, isUnknownArray } from "../value-guards";
+import { diagnosticStage, type HostDiagnostics } from "../host-diagnostics";
 type Request = Parameters<HostAdapter["run"]>[0];
 type Declaration = NonNullable<Request["codexMarketplace"]>;
 interface InstallContext {
@@ -12,6 +13,7 @@ interface InstallContext {
   env: Record<string, string>;
   pluginCacheRoot: string;
   request: Request;
+  diagnostics?: HostDiagnostics;
 }
 
 function inside(root: string, path: string): boolean {
@@ -174,20 +176,24 @@ function verifyPackageEntry(
 }
 
 async function pluginCommand(context: InstallContext, args: string[]) {
-  return runCodexProcess({
+  const result = await runCodexProcess({
+    diagnostics: context.diagnostics,
     argv: [context.binary, "plugin", ...args, "--json"],
     cwd: context.request.workspace,
     env: context.env,
     timeoutMs: 30_000,
     signal: context.request.signal,
   });
+  return result;
 }
 export async function installCodexPlugins(
   context: InstallContext,
 ): Promise<string[]> {
   const declaration = context.request.codexMarketplace;
   if (!declaration) return [];
+  diagnosticStage(context.diagnostics, "marketplace-validation");
   const root = await marketplaceRoot(context.request.workspace, declaration);
+  diagnosticStage(context.diagnostics, "marketplace-install");
   const added = await pluginCommand(context, ["marketplace", "add", root]);
   if (added.code !== 0)
     throw new Error("Codex local marketplace installation failed");
@@ -201,12 +207,14 @@ async function installPlugin(
   declaration: Declaration,
   pluginName: string,
 ): Promise<string> {
+  diagnosticStage(context.diagnostics, "plugin-install");
   const installed = await pluginCommand(context, [
     "add",
     `${pluginName}@${declaration.marketplaceName}`,
   ]);
   if (installed.code !== 0)
     throw new Error("Codex local plugin installation failed");
+  diagnosticStage(context.diagnostics, "plugin-receipt");
   const path = await installedPluginPath(
     installed.out,
     declaration.marketplaceName,

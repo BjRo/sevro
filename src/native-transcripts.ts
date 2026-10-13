@@ -6,6 +6,10 @@ import type { RuntimeRole } from "./runtime-state";
 import type { RuntimePolicy } from "./runtime-config";
 import { isRecord } from "./value-guards";
 import { CodexProcessFailure } from "./hosts/codex-process";
+import {
+  rethrowDiagnosticPersistenceError,
+  type HostDiagnostics,
+} from "./host-diagnostics";
 
 export function candidateTranscriptRoots(root: string | undefined): string[] {
   return root ? [root] : [];
@@ -49,8 +53,10 @@ export async function failedNativeTranscripts(
   root: string,
   host: "codex" | "claude",
   role?: RuntimeRole,
+  diagnostics?: HostDiagnostics,
 ): Promise<HostResult> {
-  if (policy?.nativeTranscripts !== true) throw cause;
+  rethrowDiagnosticPersistenceError(cause);
+  requireFailureCapture(cause, policy, diagnostics);
   const result: HostResult =
     cause instanceof CodexProcessFailure
       ? cause.result
@@ -60,8 +66,17 @@ export async function failedNativeTranscripts(
           executionFailed: true,
           actualCondition: "passive",
         };
-  await retainNativeTranscripts(result, root, host, role);
+  await diagnostics?.retain(result, cause);
+  await retainEnabledNativeTranscripts(result, policy, root, host, role);
   return result;
+}
+
+function requireFailureCapture(
+  cause: unknown,
+  policy: RuntimePolicy | undefined,
+  diagnostics: HostDiagnostics | undefined,
+): void {
+  if (policy?.nativeTranscripts !== true && !diagnostics) throw cause;
 }
 
 const MAX_FILES = 4096;
