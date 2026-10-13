@@ -5,6 +5,7 @@ import {
   parseRunEvidence,
 } from "./fixtures/assertions";
 import { afterEach, test, expect } from "bun:test";
+import { existsSync } from "node:fs";
 import {
   chmod,
   cp,
@@ -967,6 +968,78 @@ exec '${selected.paths.fakeBinary}' "$@"
       await removeWorkspace(workspace);
     }
   },
+);
+
+test.each(["preparation-failure", "cancellation"] as const)(
+  "Codex removes private plugin projections after %s",
+  async (ending) => {
+    const selected = await ordinaryMarketplace();
+    const workspace = await allocateWorkspace();
+    const controller = new AbortController();
+    let running: ReturnType<typeof selected.host.run> | undefined;
+    try {
+      await cp(selected.root, join(workspace, "marketplace"), {
+        recursive: true,
+      });
+      await writeFile(join(workspace, "require-plugin.flag"), "\n");
+      const binary = join(
+        dirname(selected.paths.fakeBinary),
+        "cleanup-plugin-peer",
+      );
+      await writeFile(
+        binary,
+        `#!/bin/sh
+printf '%s' "$CODEX_HOME" > "$PWD/private-plugin-home"
+exec '${selected.paths.fakeBinary}' "$@"
+`,
+        { mode: 0o700 },
+      );
+      if (ending === "preparation-failure") {
+        await writeFile(
+          join(workspace, "marketplace/plugin/.claude-plugin/plugin.json"),
+          JSON.stringify({ name: "probe", version: "0.1.0", mods: {} }),
+        );
+      } else {
+        await writeFile(join(workspace, "slow.flag"), "\n");
+      }
+      const host = createCodexHost({
+        ...ordinaryCodexOptions,
+        ...selected.paths,
+        binary,
+        sandboxBinary: defined(Bun.which("codex")),
+      });
+      running = host.run({
+        ...selected.request,
+        workspace,
+        codexMarketplace: selected.declaration,
+        signal: controller.signal,
+        runtimePolicy: {
+          format: "sevro.runtime.v1",
+          environment: {},
+          readOnlyRoots: [],
+        },
+      });
+      if (ending === "preparation-failure") {
+        expect(running).rejects.toThrow("runtime plugin mods are unsupported");
+        await running.catch(() => undefined);
+      } else {
+        await waitForCodexMarker(join(workspace, "child.pid"));
+        controller.abort("SIGTERM");
+        expect(running).rejects.toThrow("Codex run cancelled");
+        await running.catch(() => undefined);
+      }
+      const privateHome = await readFile(
+        join(workspace, "private-plugin-home"),
+        "utf8",
+      );
+      expect(existsSync(dirname(privateHome))).toBe(false);
+    } finally {
+      controller.abort("SIGTERM");
+      await running?.catch(() => undefined);
+      await removeWorkspace(workspace);
+    }
+  },
+  15000,
 );
 
 // eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
