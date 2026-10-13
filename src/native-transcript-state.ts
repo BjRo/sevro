@@ -84,18 +84,37 @@ export async function requireNativeTranscriptViews(
 /** Curated hook copies are a separate runner-owned exception, never policy roots. */
 export async function requireNativeHookRoots(
   roots: string[] | undefined,
+  privateRoot: string,
 ): Promise<void> {
-  for (const root of roots ?? []) await requireNativeHookRoot(root);
+  for (const root of roots ?? [])
+    await requireNativeHookRoot(root, privateRoot);
 }
 
-async function requireNativeHookRoot(root: string): Promise<void> {
+async function requireNativeHookRoot(
+  root: string,
+  privateRoot: string,
+): Promise<void> {
   const parent = await nativeStateParent();
   const state = dirname(dirname(root));
   if (!nativeHookLayout(root, state, parent) || (await realpath(root)) !== root)
     throw new Error("native hook read root must be a canonical curated mount");
+  await requireNativeHookOwner(state, privateRoot);
   const info = await lstat(root);
   if (!info.isDirectory() || info.uid !== userInfo().uid)
     throw new Error("native hook read root must be owned");
+}
+
+async function requireNativeHookOwner(
+  state: string,
+  privateRoot: string,
+): Promise<void> {
+  if (
+    dirname(privateRoot) !== state ||
+    (await realpath(privateRoot)) !== privateRoot
+  )
+    throw new Error("native hook read root must belong to the current request");
+  requirePrivateNamespace(await lstat(state));
+  requirePrivateNamespace(await lstat(privateRoot));
 }
 
 function nativeHookLayout(
@@ -105,7 +124,7 @@ function nativeHookLayout(
 ): boolean {
   return (
     dirname(state) === parent &&
-    basename(state).startsWith("claude-") &&
+    /^(?:claude|codex)-/.test(basename(state)) &&
     basename(dirname(root)) === "runtime-plugins" &&
     /^plugin-[0-9]+$/.test(basename(root))
   );

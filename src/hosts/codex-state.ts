@@ -77,7 +77,7 @@ export async function codexHookMounts(
   if (!request.runtimePolicy) return undefined;
   const hooks = await prepareHookMounts({
     workspace: request.workspace,
-    stateRoot: join(request.workspace, ".git", "sevro-runtime"),
+    stateRoot: state.stateRoot,
     privateRoot: state.codexHome,
     pluginRoots: installedPluginRoots,
     protectedRoots: state.protectedRoots,
@@ -380,7 +380,7 @@ export async function prepareCodexState(
   const shellRoot = await fixtureShellRoot(request, paths.parentHome);
   const env = codexEnvironment(paths, request, shellRoot);
   applyCodexRuntime(runtime, env, paths);
-  return { ...paths, sandboxBinary, profileId, env, protectedRoots };
+  return { ...paths, stateRoot, sandboxBinary, profileId, env, protectedRoots };
 }
 
 function requireCodexRuntimeReadRoots(

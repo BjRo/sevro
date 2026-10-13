@@ -217,7 +217,7 @@ async function hookReadRoots(
   ];
   const curated = trusted ? [root] : [];
   requireRuntimeReadRoots(ordinary, options.protectedRoots);
-  await requireNativeHookRoots(curated);
+  await requireNativeHookRoots(curated, options.privateRoot);
   return { ordinary, curated };
 }
 

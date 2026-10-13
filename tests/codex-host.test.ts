@@ -7,6 +7,7 @@ import {
 import { afterEach, test, expect } from "bun:test";
 import {
   chmod,
+  cp,
   mkdir,
   mkdtemp,
   readFile,
@@ -20,6 +21,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { runEvaluation } from "../src/engine";
 import { createCodexHost } from "../src/hosts/codex";
+import { allocateWorkspace, removeWorkspace } from "../src/workspace-state";
 const roots: string[] = [];
 const isolatedNativeHost =
   process.platform === "darwin" ||
@@ -891,6 +893,82 @@ test("Codex host refuses a continuation from another thread", async () => {
     }),
   ).rejects.toThrow(/original thread/);
 });
+test.each(["exec", "app-server"] as const)(
+  "Codex prepares a hook-free native plugin in a managed workspace: %s",
+  async (entrypoint) => {
+    const selected = await ordinaryMarketplace();
+    const workspace = await allocateWorkspace();
+    try {
+      await mkdir(join(workspace, ".git"));
+      await cp(selected.root, join(workspace, "marketplace"), {
+        recursive: true,
+      });
+      await writeFile(join(workspace, "require-plugin.flag"), "\n");
+      const binary = join(
+        dirname(selected.paths.fakeBinary),
+        "native-plugin-peer",
+      );
+      await writeFile(
+        binary,
+        `#!/bin/sh
+if [ "$1" = app-server ]; then
+  test -f "$CODEX_HOME/plugins/cache/sevro-probe/probe/0.1.0/skills/probe/SKILL.md" || exit 95
+  exec '${process.execPath}' '${join(import.meta.dir, "fixtures/app-server-peer.ts")}' "$@"
+fi
+exec '${selected.paths.fakeBinary}' "$@"
+`,
+        { mode: 0o700 },
+      );
+      const host = createCodexHost({
+        ...ordinaryCodexOptions,
+        ...selected.paths,
+        binary,
+        sandboxBinary: defined(Bun.which("codex")),
+        entrypoint,
+      });
+      const result = await host.run({
+        ...selected.request,
+        workspace,
+        codexMarketplace: selected.declaration,
+        runtimePolicy: {
+          format: "sevro.runtime.v1",
+          environment: {},
+          readOnlyRoots: [],
+          seeds: [
+            {
+              source: selected.paths.projectRoot,
+              target: "hook-cache",
+              sha256: digest,
+              roles: ["hooks"],
+            },
+          ],
+        },
+      });
+      expect(result.complete).toBe(true);
+      expect(result.finalMessage).toBe("ready");
+      expectUnknown(result.observations).toContainEqual({
+        id: "sevro.codex.skill-reads",
+        completeness: "complete",
+        data: {
+          method: "skill_file_read_probe",
+          primarySkill: entrypoint === "exec" ? "probe" : null,
+          observedSkills: entrypoint === "exec" ? ["probe"] : [],
+        },
+      });
+      expectUnknown(result.observations).toContainEqual({
+        id: "sevro.host.hooks",
+        completeness: "complete",
+        data: {
+          plugins: [objectContaining({ name: "probe", allowed: false })],
+          executions: [],
+        },
+      });
+    } finally {
+      await removeWorkspace(workspace);
+    }
+  },
+);
+
 // eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("Codex host installs a declared local plugin in its isolated home", async () => {
   const installedCodex = Bun.which("codex");

@@ -54,7 +54,7 @@ export async function prepareLinuxSandboxCommand(
   requireLinuxSandbox();
   await requireNativeTranscriptViews(options.transcriptReadRoots);
   await requireCandidateArtifactRoots(options.candidateArtifactRoots);
-  await requireNativeHookRoots(options.hookReadRoots);
+  await requireNativeHookRoots(options.hookReadRoots, options.privateStateRoot);
   requireIsolationPaths(options);
   const workspace = await realpath(options.workspace);
   const roots = options.protectedRootsCanonical

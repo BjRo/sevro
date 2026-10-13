@@ -289,6 +289,15 @@ instead of being skipped. The wrapper denies network access and protected
 roots and owns asynchronous hook cleanup. Native timeout/cancellation stops
 owned hook descendants before private state is removed.
 
+Prepared native plugin projections live outside the fixture in the current
+host request's private native state. Curated hook read grants validate the
+canonical projection layout, ownership, private state permissions, and binding
+to that request. Only the selected plugin subtree is readable; it stays
+read-only, and credentials, private siblings, and peer requests remain denied.
+Ordinary filesystem declarations cannot select this exception. Codex still
+validates and filters installed plugins with a runtime policy when hooks are
+disabled. Projections are removed with their owning host request.
+
 Auxiliary `.mcp.json` and `.lsp.json` files and plugin mods are unsupported under
 hook authority. Manifest MCP/LSP declarations are removed from curated mounts.
 

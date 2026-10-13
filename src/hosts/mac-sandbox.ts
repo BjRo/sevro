@@ -2,7 +2,10 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { requireNativeTranscriptViews } from "../native-transcript-state";
+import {
+  requireNativeTranscriptViews,
+  requireNativeHookRoots,
+} from "../native-transcript-state";
 import { requireCandidateArtifactRoots } from "../candidate-artifacts";
 import { workspaceBoundaryException } from "../workspace-state";
 import {
@@ -148,6 +151,7 @@ export async function prepareMacSandboxCommand(
   requireSandboxAvailable();
   await requireNativeTranscriptViews(options.transcriptReadRoots);
   await requireCandidateArtifactRoots(options.candidateArtifactRoots);
+  await requireNativeHookRoots(options.hookReadRoots, options.privateStateRoot);
   requireIsolationPaths(options);
   const workspace = await realpath(options.workspace);
   const roots = options.protectedRootsCanonical
@@ -170,10 +174,7 @@ export async function prepareMacSandboxCommand(
       options.denyNetwork,
       readRoots,
       ownedRoot,
-      [
-        ...(options.transcriptReadRoots ?? []),
-        ...Object.values(options.candidateArtifactRoots ?? {}),
-      ],
+      curatedReadRoots(options),
       workspace,
     ),
     { flag: "wx", mode: 0o600 },
@@ -184,6 +185,14 @@ export async function prepareMacSandboxCommand(
       await rm(profilePath, { force: true });
     },
   };
+}
+
+function curatedReadRoots(options: IsolationOptions): string[] {
+  return [
+    ...(options.transcriptReadRoots ?? []),
+    ...(options.hookReadRoots ?? []),
+    ...Object.values(options.candidateArtifactRoots ?? {}),
+  ];
 }
 
 function requireSandboxAvailable(): void {
