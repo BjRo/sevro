@@ -37,7 +37,24 @@ partial, as do failed, malformed, or incomplete recognized reads. Direct
 exact `cat` wrapped by `lean-ctx -c` is accepted only when its reported output
 still contains the full body; a compressed summary cannot prove the read.
 The same exact-body check accepts a literal read followed by one literal `rg`
-command, separated by a semicolon or newline. It also accepts a chain of literal
+command, separated by a semicolon or newline. It also accepts a single-file
+literal `cat` of the skill followed by one or more literal `cat` reads of
+non-skill files, then one literal `rg` command, with the same separators. For
+example:
+
+```sh
+cat .agents/skills/darrow-guide/SKILL.md; cat docs/specs/repository-guide.md; rg -n -i 'offline|\bsla\b|service.level|guarantee|deployment' --glob '*.md' --glob '!docs/research/**' --glob '!**/SKILL.md' .
+```
+
+This sequence uses the shared stream and native read check. Quoted separators
+remain part of their literal operand. The initial skill body must match the
+beginning of the retained output, so later documentation or search output cannot
+replace an altered or incomplete initial read. Subsequent reads must not name
+another `SKILL.md` or resolve to a mounted or receipt-bound skill through an alias.
+The 64-operand bound applies across all reads in the sequence. Shell expansions,
+including unquoted glob and tilde operands, are unsupported in this form.
+
+The check also accepts a chain of literal
 `cat` fallbacks with `2>/dev/null` and `||`, ending in `true` followed by a newline
 and one literal `rg` discovery command. A fallback chain must resolve to one
 canonical file across all its read operands; absent alternate targets do not
