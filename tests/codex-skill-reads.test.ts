@@ -157,6 +157,283 @@ const compoundCommand =
   "cat .agents/skills/example/SKILL.md; rg -n -i 'offline|deployment' README.md";
 const fallbackCommand =
   "cat .agents/skills/example/SKILL.md 2>/dev/null || cat .agents/skills/absent/SKILL.md 2>/dev/null || true\nrg --files -g 'SKILL.md'";
+const sequentialCommand =
+  "cat .agents/skills/example/SKILL.md; cat docs/guide.md; rg -n offline README.md";
+
+test.each([
+  { label: "semicolons", command: sequentialCommand },
+  { label: "newlines", command: sequentialCommand.replaceAll("; ", "\n") },
+  {
+    label: "64 read commands",
+    command:
+      "cat .agents/skills/example/SKILL.md; " +
+      Array(63).fill("cat docs/guide.md; ").join("") +
+      "rg -n offline README.md",
+  },
+  {
+    label: "quoted separators and search pattern",
+    command:
+      "cat '.agents/skills/example/SKILL.md'; /bin/cat -- 'docs/notes;next.md' 'docs/guide.md'; rg -n 'offline|\\bsla\\b' README.md",
+  },
+  {
+    label: "64 total operands",
+    command:
+      "cat .agents/skills/example/SKILL.md; cat " +
+      Array(63).fill("docs/guide.md").join(" ") +
+      "; rg -n offline README.md",
+  },
+])(
+  "sequential $label verifies real shell output through both probes",
+  async ({ command }) => {
+    const workspace = await fixture();
+    await mkdir(join(workspace, "docs"));
+    await writeFile(
+      join(workspace, "docs/guide.md"),
+      "Repository documentation\n",
+    );
+    await writeFile(join(workspace, "docs/notes;next.md"), "Quoted file\n");
+    await writeFile(join(workspace, "README.md"), "offline deployment\n");
+    const process = Bun.spawn(["/bin/sh", "-c", command], {
+      cwd: workspace,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [output, error, code] = await Promise.all([
+      new Response(process.stdout).text(),
+      new Response(process.stderr).text(),
+      process.exited,
+    ]);
+    expect(code, error).toBe(0);
+    const { observed, diagnostic } = await sequentialObservations(
+      workspace,
+      command,
+      output,
+    );
+    expect(observed).toMatchObject({
+      completeness: "complete",
+      data: { primarySkill: "example", observedSkills: ["example"] },
+    });
+    expect(diagnostic).toMatchObject({
+      completeness: "complete",
+      observedSkills: ["example"],
+      completedReads: [{ skill: "example", ordinal: 0 }],
+      readAttempts: 1,
+      truncated: false,
+    });
+  },
+);
+
+test.each([
+  {
+    label: "incomplete body",
+    command: sequentialCommand,
+    output: body.slice(0, -4),
+  },
+  {
+    label: "altered body",
+    command: sequentialCommand,
+    output: body.replace("Do the task.", "Altered."),
+  },
+  { label: "empty output", command: sequentialCommand, output: "" },
+  { label: "summary", command: sequentialCommand, output: "summarized" },
+  {
+    label: "batched first read",
+    command: sequentialCommand.replace("; cat", " docs/guide.md; cat"),
+    output: body,
+  },
+  {
+    label: "too many operands",
+    command:
+      "cat .agents/skills/example/SKILL.md; cat " +
+      Array(64).fill("docs/guide.md").join(" ") +
+      "; rg -n offline README.md",
+    output: body,
+  },
+  {
+    label: "too many commands",
+    command:
+      "cat .agents/skills/example/SKILL.md; " +
+      Array(65).fill("cat docs/guide.md; ").join("") +
+      "rg -n offline README.md",
+    output: body,
+  },
+  {
+    label: "second skill",
+    command: sequentialCommand.replace(
+      "docs/guide.md",
+      ".agents/skills/example/SKILL.md",
+    ),
+    output: body,
+  },
+  {
+    label: "transformed read",
+    command: sequentialCommand.replace("cat .agents", "cat -n .agents"),
+    output: body,
+  },
+  {
+    label: "transformed documentation",
+    command: sequentialCommand.replace("cat docs", "cat -n docs"),
+    output: body,
+  },
+  {
+    label: "conditional read",
+    command: "false && " + sequentialCommand,
+    output: body,
+  },
+  {
+    label: "pipeline",
+    command: sequentialCommand.replace("; cat", " | tee /tmp/copy; cat"),
+    output: body,
+  },
+  {
+    label: "dynamic documentation",
+    command: sequentialCommand.replace("docs/guide.md", '"$DOC"'),
+    output: body,
+  },
+  {
+    label: "dynamic search",
+    command: sequentialCommand + " $(printf README.md)",
+    output: body,
+  },
+  {
+    label: "extra command",
+    command: sequentialCommand + "; printf extra",
+    output: body,
+  },
+])(
+  "sequential $label preserves partial evidence",
+  async ({ command, output }) => {
+    const workspace = await fixture();
+    const { observed, diagnostic } = await sequentialObservations(
+      workspace,
+      command,
+      output,
+    );
+    expect(observed).toMatchObject({
+      completeness: "partial",
+      data: { observedSkills: [] },
+    });
+    expect(diagnostic).toMatchObject({
+      completeness: "partial",
+      observedSkills: [],
+      completedReads: [],
+    });
+  },
+);
+
+async function sequentialObservations(
+  workspace: string,
+  command: string,
+  output = body,
+) {
+  const item = read(command, output).item;
+  const observed = await codexSkillReadObservation(
+    stream([read(command, output)]),
+    workspace,
+  );
+  const diagnostic = await codexNativeReadDiagnostic(
+    [
+      {
+        ordinal: 0,
+        payload: {
+          type: "item_completed",
+          item: {
+            ...item,
+            type: "CommandExecution",
+            command: ["/bin/sh", "-c", command],
+            cwd: workspace,
+          },
+        },
+      },
+    ],
+    workspace,
+  );
+  return { observed, diagnostic };
+}
+
+test("sequential reads reject expanded documentation operands", async () => {
+  const workspace = await fixture();
+  const command =
+    "cat .agents/skills/example/SKILL.md; cat docs/*.md; rg -n offline README.md";
+  const { observed, diagnostic } = await sequentialObservations(
+    workspace,
+    command,
+  );
+  expect(observed).toMatchObject({
+    completeness: "partial",
+    data: { observedSkills: [] },
+  });
+  expect(diagnostic).toMatchObject({
+    completeness: "partial",
+    observedSkills: [],
+    completedReads: [],
+  });
+});
+
+test("sequential unsupported tails cannot prove absence when output is missing", async () => {
+  const workspace = await fixture();
+  const command = sequentialCommand + " $(printf README.md)";
+  const { observed, diagnostic } = await sequentialObservations(
+    workspace,
+    command,
+    "",
+  );
+  expect(observed).toMatchObject({
+    completeness: "partial",
+    data: { observedSkills: [] },
+  });
+  expect(diagnostic).toMatchObject({
+    completeness: "partial",
+    observedSkills: [],
+    completedReads: [],
+    readAttempts: 1,
+  });
+});
+
+test("sequential reads reject documentation aliases of a mounted skill", async () => {
+  const workspace = await fixture();
+  await mkdir(join(workspace, "docs"));
+  await symlink(
+    join(workspace, ".agents/skills/example/SKILL.md"),
+    join(workspace, "docs/guide.md"),
+  );
+  const command =
+    "cat .agents/skills/example/SKILL.md; cat docs/guide.md; rg -n offline README.md";
+  const { observed, diagnostic } = await sequentialObservations(
+    workspace,
+    command,
+  );
+  expect(observed).toMatchObject({
+    completeness: "partial",
+    data: { observedSkills: [] },
+  });
+  expect(diagnostic).toMatchObject({
+    completeness: "partial",
+    observedSkills: [],
+    completedReads: [],
+  });
+});
+test("sequential reads cannot borrow an exact body from later documentation", async () => {
+  const workspace = await fixture();
+  const command =
+    "cat .agents/skills/example/SKILL.md; cat docs/copy.md; rg -n offline README.md";
+  const output = body.replace("Do the task.", "Altered first read.") + body;
+  const { observed, diagnostic } = await sequentialObservations(
+    workspace,
+    command,
+    output,
+  );
+  expect(observed).toMatchObject({
+    completeness: "partial",
+    data: { observedSkills: [] },
+  });
+  expect(diagnostic).toMatchObject({
+    completeness: "partial",
+    observedSkills: [],
+    completedReads: [],
+  });
+});
+
 test.each([
   {
     label: "truncated body",

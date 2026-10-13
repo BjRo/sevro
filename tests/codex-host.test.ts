@@ -205,7 +205,12 @@ async function compoundReadFixture(skill: string, command: string) {
   const body = `---\nname: ${skill}\ndescription: Compound read fixture\n---\nRead this complete skill body.\n`;
   await mkdir(skillRoot, { recursive: true });
   await mkdir(join(selected.workspace, "docs"));
+  await mkdir(join(selected.workspace, "docs/specs"));
   await writeFile(join(skillRoot, "SKILL.md"), body);
+  await writeFile(
+    join(selected.workspace, "docs/specs/repository-guide.md"),
+    "Repository guide contract\n",
+  );
   await writeFile(
     join(selected.workspace, "README.md"),
     "offline deployment\n",
@@ -259,55 +264,66 @@ async function compoundReadFixture(skill: string, command: string) {
   return selected;
 }
 
-test("Codex compound read followed by search retains complete activation evidence", async () => {
-  if (!isolatedNativeHost || !Bun.which("codex")) return;
-  const skill = "darrow-guide";
-  const selected = await compoundReadFixture(
-    skill,
-    "cat .agents/skills/darrow-guide/SKILL.md; rg -n -i 'offline|\\bSLA\\b|service.level|guaranteed|deployment' README.md docs .agents/skills/darrow-guide",
-  );
-  const result = await selected.host.run({
-    ...selected.request,
-    prompt: `Use $${skill} and return ready.`,
-    explicitSkillInvocation: {
-      scope: "repository",
-      skillName: skill,
-      token: `$${skill}`,
-    },
-  });
-  expect(result.complete).toBe(true);
-  expectUnknown(result.observations).toContainEqual({
-    id: "sevro.codex.skill-reads",
-    completeness: "complete",
-    data: {
-      method: "skill_file_read_probe",
-      primarySkill: skill,
-      observedSkills: [skill],
-    },
-  });
-  expectUnknown(result.observations).toContainEqual({
-    id: "sevro.codex.explicit-invocation",
-    completeness: "complete",
-    data: {
-      method: "explicit_invocation",
-      primarySkill: skill,
-      observedSkills: [skill],
-    },
-  });
-  expectUnknown(result.observations).toContainEqual(
-    objectContaining({
-      id: "sevro.codex.native-calls",
+test.each([
+  {
+    label: "read followed by search",
+    command:
+      "cat .agents/skills/darrow-guide/SKILL.md; rg -n -i 'offline|\\bSLA\\b|service.level|guaranteed|deployment' README.md docs .agents/skills/darrow-guide",
+  },
+  {
+    label: "additional literal file read",
+    command:
+      "cat .agents/skills/darrow-guide/SKILL.md; cat docs/specs/repository-guide.md; rg -n -i 'offline|\\bsla\\b|service.level|guarantee|deployment' --glob '*.md' --glob '!docs/research/**' --glob '!**/SKILL.md' .",
+  },
+])(
+  "Codex compound $label retains complete activation evidence",
+  async ({ command }) => {
+    if (!isolatedNativeHost || !Bun.which("codex")) return;
+    const skill = "darrow-guide";
+    const selected = await compoundReadFixture(skill, command);
+    const result = await selected.host.run({
+      ...selected.request,
+      prompt: `Use $${skill} and return ready.`,
+      explicitSkillInvocation: {
+        scope: "repository",
+        skillName: skill,
+        token: `$${skill}`,
+      },
+    });
+    expect(result.complete).toBe(true);
+    expectUnknown(result.observations).toContainEqual({
+      id: "sevro.codex.skill-reads",
       completeness: "complete",
-      data: objectContaining({
-        parentReadDiagnostics: objectContaining({
-          completeness: "complete",
-          observedSkills: [skill],
-          completedReads: [{ skill, ordinal: 0 }],
+      data: {
+        method: "skill_file_read_probe",
+        primarySkill: skill,
+        observedSkills: [skill],
+      },
+    });
+    expectUnknown(result.observations).toContainEqual({
+      id: "sevro.codex.explicit-invocation",
+      completeness: "complete",
+      data: {
+        method: "explicit_invocation",
+        primarySkill: skill,
+        observedSkills: [skill],
+      },
+    });
+    expectUnknown(result.observations).toContainEqual(
+      objectContaining({
+        id: "sevro.codex.native-calls",
+        completeness: "complete",
+        data: objectContaining({
+          parentReadDiagnostics: objectContaining({
+            completeness: "complete",
+            observedSkills: [skill],
+            completedReads: [{ skill, ordinal: 0 }],
+          }),
         }),
       }),
-    }),
-  );
-});
+    );
+  },
+);
 
 test("Codex compound fallback read followed by discovery retains complete activation evidence", async () => {
   if (!isolatedNativeHost || !Bun.which("codex")) return;

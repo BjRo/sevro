@@ -38,6 +38,7 @@ function shellPayload(command: string): string {
 interface DirectRead {
   path: string;
   fallbackPaths?: string[];
+  documentationPaths?: string[];
   operandCount?: number;
   firstLine?: number;
   lastLine?: number;
@@ -68,9 +69,11 @@ function sedRead(payload: string, path: string): DirectRead | null {
   return { path: capturedReadPath(sed, 3), firstLine, lastLine };
 }
 function directRead(command: string): DirectRead | null {
-  const payload = compoundReadPayload(shellPayload(command).trim());
+  const shell = shellPayload(command).trim();
+  const payload = compoundReadPayload(shell);
   const path = "(?:\"([^\"]+)\"|'([^']+)'|([^\\s'\"`$;&|<>]+))";
   return (
+    sequentialRead(shell, path) ??
     catRead(payload, path) ??
     sedRead(payload, path) ??
     fallbackRead(payload, path)
@@ -79,6 +82,65 @@ function directRead(command: string): DirectRead | null {
 
 const LITERAL_WORD = "(?:\"[^\"$`\\\\]*\"|'[^']*'|[^\\s\"'\\\\`$;&|<>(){}#]+)";
 const LITERAL_WORDS = `${LITERAL_WORD}(?:[ \\t]+${LITERAL_WORD})*`;
+const SEQUENTIAL_WORD =
+  "(?:\"[^\"$`\\\\]*\"|'[^']*'|[^\\s\"'\\\\`$;&|<>(){}#*?\\[\\]~]+)";
+const SEQUENTIAL_WORDS = `${SEQUENTIAL_WORD}(?:[ \\t]+${SEQUENTIAL_WORD})*`;
+
+// Recognize only literal commands; quoted separators remain part of their word.
+function literalCommands(payload: string): string[] | null {
+  const clause = new RegExp(
+    `[ \\t\\r\\n]*(${SEQUENTIAL_WORDS})[ \\t]*(?:[;\\n]|$)`,
+    "gy",
+  );
+  const commands: string[] = [];
+  while (clause.lastIndex < payload.length) {
+    const match = clause.exec(payload);
+    if (!match || commands.length > MAX_NATIVE_READ_ATTEMPTS) return null;
+    commands.push(match.slice(1, 2).join(""));
+  }
+  return commands;
+}
+
+function sequentialRead(payload: string, path: string): DirectRead | null {
+  const commands = literalCommands(payload);
+  if (!commands || commands.length < 3) return null;
+  const search = commands.slice(-1).join("");
+  if (!new RegExp(`^(?:/usr/bin/)?rg[ \\t]+${LITERAL_WORDS}$`).test(search))
+    return null;
+  return sequentialCatRead(commands.slice(0, -1), path);
+}
+
+function sequentialCatRead(
+  commands: string[],
+  path: string,
+): DirectRead | null {
+  const first = singleSkillRead(commands.slice(0, 1).join(""), path);
+  if (!first) return null;
+  const operands = commands
+    .slice(1)
+    .map((command) => catOperands(command, path));
+  if (!operands.every((paths): paths is string[] => paths !== null))
+    return null;
+  const paths = operands.flat();
+  if (unsupportedDocumentationOperands(paths)) return null;
+  return {
+    ...first,
+    documentationPaths: paths,
+    operandCount: paths.length + 1,
+  };
+}
+
+function singleSkillRead(payload: string, path: string): DirectRead | null {
+  const read = catRead(payload, path);
+  return read?.operandCount === 1 ? read : null;
+}
+
+function unsupportedDocumentationOperands(paths: string[]): boolean {
+  return (
+    paths.length >= MAX_NATIVE_READ_ATTEMPTS ||
+    paths.some((path) => /(?:^|\/)SKILL\.md$/.test(path))
+  );
+}
 
 function compoundReadPayload(payload: string): string {
   const sequential = payload.match(
@@ -102,14 +164,11 @@ function fallbackRead(payload: string, path: string): DirectRead | null {
   ].map((match) => catRead(match.slice(1, 2).join(""), path));
   if (
     fallbackOperandCount(reads) > MAX_NATIVE_READ_ATTEMPTS ||
-    reads.some((read) => read === null)
+    !reads.every((read): read is DirectRead => read !== null)
   )
     return null;
-  const paths = reads.flatMap((read) => (read ? [read.path] : []));
-  const first = paths[0];
-  return first === undefined
-    ? null
-    : { path: first, fallbackPaths: paths.slice(1) };
+  const paths = reads.map((read) => read.path);
+  return { path: paths.slice(0, 1).join(""), fallbackPaths: paths.slice(1) };
 }
 
 function fallbackOperandCount(reads: Array<DirectRead | null>): number {
@@ -121,7 +180,7 @@ function unsupportedCatOptions(payload: string, paths: string[]): boolean {
   return paths.some((path) => path.startsWith("-"));
 }
 
-function catRead(payload: string, path: string): DirectRead | null {
+function catOperands(payload: string, path: string): string[] | null {
   const cat = payload.match(
     new RegExp(`^(?:/bin/)?cat\\s+(?:--\\s+)?(${path}(?:\\s+${path})*)$`),
   );
@@ -129,12 +188,14 @@ function catRead(payload: string, path: string): DirectRead | null {
   const paths = [
     ...cat.slice(1, 2).join("").matchAll(new RegExp(path, "g")),
   ].map((match) => capturedReadPath(match, 1));
+  return unsupportedCatOptions(payload, paths) ? null : paths;
+}
+
+function catRead(payload: string, path: string): DirectRead | null {
+  const paths = catOperands(payload, path);
+  if (!paths) return null;
   const skills = paths.filter((value) => /(?:^|\/)SKILL\.md$/.test(value));
-  if (
-    skills.length !== 1 ||
-    paths.length > MAX_NATIVE_READ_ATTEMPTS ||
-    unsupportedCatOptions(payload, paths)
-  )
+  if (skills.length !== 1 || paths.length > MAX_NATIVE_READ_ATTEMPTS)
     return null;
   return { path: skills.join(""), operandCount: paths.length };
 }
@@ -197,11 +258,26 @@ async function mountedReadPath(
   );
 }
 function readAttemptPaths(command: string): string[] {
-  const payload = compoundReadPayload(shellPayload(command).trim());
+  const shell = shellPayload(command).trim();
+  const payload = compoundReadPayload(shell);
   const path = "(?:\"([^\"]+)\"|'([^']+)'|([^\\s'\"`$;&|<>]+))";
   const fallback = fallbackRead(payload, path);
   if (fallback) return [fallback.path, ...(fallback.fallbackPaths ?? [])];
-  return literalReadAttemptPaths(payload, path);
+  const sequential = sequentialRead(shell, path);
+  if (sequential) return [sequential.path];
+  return [
+    ...literalReadAttemptPaths(payload, path),
+    ...sequentialReadAttemptPaths(shell, path),
+  ];
+}
+
+function sequentialReadAttemptPaths(payload: string, path: string): string[] {
+  const first = payload.match(
+    new RegExp(`^(${SEQUENTIAL_WORDS})[ \\t]*[;\\n]`),
+  );
+  if (!first) return [];
+  // The suffix may be unsupported. This records an attempt, never read credit.
+  return literalReadAttemptPaths(first.slice(1, 2).join(""), path);
 }
 function literalReadAttemptPaths(payload: string, path: string): string[] {
   const cat = payload.match(
@@ -323,7 +399,28 @@ async function resolvedSkillRead(
   if (skill === null) return null;
   const text = await verifiedSkillBody(actual, skill);
   if (text === null) return null;
+  if (
+    await ambiguousSequentialRead(
+      declaration.read,
+      commandCwd,
+      workspace,
+      pluginRoots,
+    )
+  )
+    return null;
   return skillReadReceipt(actual, skill, declaration, text);
+}
+
+async function ambiguousSequentialRead(
+  read: DirectRead,
+  commandCwd: string,
+  workspace: string,
+  pluginRoots: string[],
+): Promise<boolean> {
+  for (const path of read.documentationPaths ?? [])
+    if (await mountedReadPath(path, commandCwd, workspace, pluginRoots))
+      return true;
+  return false;
 }
 async function resolvedReadPath(
   read: DirectRead,
@@ -344,8 +441,17 @@ function skillReadReceipt(
 ): VerifiedRead | null {
   const range = readRange(text, declaration.read);
   if (range[0] === range[1]) return null;
-  if (!declaration.output.includes(text.slice(...range))) return null;
+  if (!matchesReadOutput(declaration, text.slice(...range))) return null;
   return { skill, path: actual, range, bodyLength: text.length };
+}
+
+function matchesReadOutput(
+  declaration: { read: DirectRead; output: string },
+  expected: string,
+): boolean {
+  if (declaration.read.documentationPaths !== undefined)
+    return declaration.output.startsWith(expected);
+  return declaration.output.includes(expected);
 }
 
 function fullCoverage(
