@@ -516,6 +516,115 @@ test("Codex compound fallback read followed by discovery retains complete activa
   );
 });
 
+test("Codex recognizes the reviewer-route repository-prefixed skill read", async () => {
+  if (!isolatedNativeHost || !Bun.which("codex")) return;
+  const skill = "code-review";
+  const selected = await compoundReadFixture(
+    skill,
+    'unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES\n git -C "$PWD" rev-parse --show-toplevel\ncat .agents/skills/code-review/SKILL.md',
+  );
+  const result = await selected.host.run({
+    ...selected.request,
+    prompt: "Use $code-review and return ready.",
+    explicitSkillInvocation: {
+      scope: "repository",
+      skillName: skill,
+      token: "$code-review",
+    },
+  });
+  expectUnknown(result.observations).toContainEqual(
+    objectContaining({
+      id: "sevro.codex.skill-reads",
+      completeness: "complete",
+      data: objectContaining({ primarySkill: skill, observedSkills: [skill] }),
+    }),
+  );
+  expectUnknown(result.observations).toContainEqual(
+    objectContaining({
+      id: "sevro.codex.explicit-invocation",
+      completeness: "complete",
+    }),
+  );
+});
+
+test.each([
+  {
+    name: "read",
+    input: 'text(await tools.exec_command({cmd:"private read"}));',
+    completeness: "complete",
+  },
+  {
+    name: "rejected launch",
+    input: 'text(await tools.spawn_agent({message:"private task"}));',
+    completeness: "complete",
+  },
+  {
+    name: "dynamic launch",
+    input: 'tools[load("private tool")]({});',
+    completeness: "partial",
+  },
+] as const)(
+  "Codex host retains Code Mode $name evidence",
+  async ({ input, completeness }) => {
+    if (!isolatedNativeHost || !Bun.which("codex")) return;
+    const selected = await ordinaryCodexRequest();
+    const entries = [
+      {
+        ordinal: 0,
+        payload: {
+          type: "custom_tool_call",
+          name: "exec",
+          call_id: "submitted",
+          input,
+        },
+      },
+      {
+        ordinal: 1,
+        payload: {
+          type: "custom_tool_call_output",
+          call_id: "submitted",
+          output: [
+            {
+              type: "input_text",
+              text: "Script completed\nWall time 0.1 seconds\nOutput:\n",
+            },
+            { type: "input_text", text: "private rejected result" },
+          ],
+        },
+      },
+    ];
+    await writeFile(
+      join(selected.workspace, "compound-native.jsonl"),
+      entries.map((e) => JSON.stringify(e)).join("\n") + "\n",
+    );
+    await writeFile(
+      join(selected.workspace, "compound-events.jsonl"),
+      [
+        { type: "thread.started", thread_id: "thread-1" },
+        {
+          type: "item.completed",
+          item: { type: "agent_message", text: "ready" },
+        },
+        { type: "turn.completed" },
+      ]
+        .map((e) => JSON.stringify(e))
+        .join("\n") + "\n",
+    );
+    const result = await selected.host.run(selected.request);
+    expect(result.complete).toBe(true);
+    expectUnknown(result.observations).toContainEqual(
+      objectContaining({
+        id: "sevro.host.native-controls",
+        completeness,
+        data: objectContaining({
+          execCalls: [objectContaining({ ordinal: 0, completeness })],
+        }),
+      }),
+    );
+    expect(JSON.stringify(result.observations)).not.toContain("private");
+  },
+);
+
 async function ordinaryMarketplace() {
   const selected = await ordinaryCodexRequest();
   const root = join(selected.workspace, "marketplace");

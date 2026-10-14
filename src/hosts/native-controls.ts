@@ -1,6 +1,7 @@
 import { isRecord, isUnknownArray } from "../value-guards";
 import { summarizeClaudeEvents } from "./claude-events";
 import type { codexNativeCallObservation } from "./codex-native-calls";
+import type { ExecCallReceipt } from "./codex-exec-controls";
 
 const MAX_CALLS = 128;
 type Call = { ordinal: number; namespace: string; name: string };
@@ -14,6 +15,7 @@ export interface NativeControlObservation {
     calls: Call[];
     acceptedAgentCount: number | null;
     submittedExecCalls: number | null;
+    execCalls?: ExecCallReceipt[];
     truncated: boolean | null;
   };
 }
@@ -30,10 +32,11 @@ function label(value: unknown, max: number): value is string {
 export function codexNativeControls(
   observation: Awaited<ReturnType<typeof codexNativeCallObservation>>,
 ): NativeControlObservation {
-  const complete = observation.completeness === "complete";
+  const complete =
+    observation.completeness === "complete" && inspectedExecCalls(observation);
   return {
     id: "sevro.host.native-controls",
-    completeness: observation.completeness,
+    completeness: controlCompleteness(observation.completeness, complete),
     data: {
       method: "native_control_calls",
       calls: observation.data.toolCalls.map(({ ordinal, namespace, name }) => ({
@@ -45,9 +48,38 @@ export function codexNativeControls(
         ? observation.data.acceptedSpawns.length
         : null,
       submittedExecCalls: complete ? observation.data.submittedExecCalls : null,
+      ...execEvidence(observation.data.execCalls),
       truncated: complete ? false : null,
     },
   };
+}
+function controlCompleteness(
+  source: NativeControlObservation["completeness"],
+  complete: boolean,
+): NativeControlObservation["completeness"] {
+  return source === "complete" && !complete ? "partial" : source;
+}
+function execEvidence(receipts: ExecCallReceipt[] | undefined) {
+  return receipts ? { execCalls: receipts } : {};
+}
+
+function inspectedExecCalls(
+  observation: Awaited<ReturnType<typeof codexNativeCallObservation>>,
+): boolean {
+  const receipts = observation.data.execCalls ?? [];
+  const submissions = observation.data.toolCalls.filter(
+    (call) => call.name === "exec",
+  );
+  if (
+    submissions.length !== observation.data.submittedExecCalls ||
+    receipts.length !== submissions.length
+  )
+    return false;
+  return receipts.every(
+    (receipt, index) =>
+      receipt.completeness === "complete" &&
+      receipt.ordinal === submissions[index]?.ordinal,
+  );
 }
 
 const MALFORMED = Symbol("malformed native control event");

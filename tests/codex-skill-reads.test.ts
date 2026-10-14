@@ -18,6 +18,45 @@ import {
 const roots: string[] = [];
 const body =
   "---\nname: example\ndescription: Example skill\n---\n\nDo the task.\n";
+test.each([
+  {
+    label: "altered final read",
+    suffix: "cat .agents/skills/example/SKILL.md",
+    output: body.replace("Do the task.", "Altered."),
+  },
+  {
+    label: "extra output",
+    suffix: "cat .agents/skills/example/SKILL.md; printf trailing",
+    output: body + "trailing",
+  },
+  {
+    label: "dynamic target",
+    suffix: 'cat "$(printf .agents/skills/example/SKILL.md)"',
+    output: body,
+  },
+  {
+    label: "different root command",
+    suffix: "cat .agents/skills/example/SKILL.md",
+    output: body,
+    rootCommand: 'git -C "$PWD" show HEAD:SKILL.md',
+  },
+])(
+  "repository-prefixed $label cannot establish a skill read",
+  async ({ suffix, output, rootCommand }) => {
+    const workspace = await fixture();
+    const command =
+      "unset GIT_DIR GIT_WORK_TREE\n" +
+      (rootCommand ?? 'git -C "$PWD" rev-parse --show-toplevel') +
+      "\n" +
+      suffix;
+    const observed = await codexSkillReadObservation(
+      stream([read(command, output)]),
+      workspace,
+    );
+    expect(observed.completeness).toBe("partial");
+    expect(observed.data.observedSkills).toEqual([]);
+  },
+);
 afterEach(async () => {
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),

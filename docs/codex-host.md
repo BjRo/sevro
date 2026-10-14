@@ -159,8 +159,11 @@ discarded. Extensions interpret task names and decide whether a nested reader
 satisfies their policy.
 The record proves an invocation attempt, not its success. A missing, ambiguous,
 unreadable, oversized, or malformed session is unavailable or partial, so its
-absence cannot prove that a control was unused. Calls made through submitted
-code are not classified by this first observation.
+absence cannot prove that a control was unused. Code Mode submissions now have
+separate bounded `execCalls` inspection receipts, described in the
+[native control contract](native-controls.md). Direct native call ordinals and
+acceptance receipts keep their original meaning; submitted requests do not
+acquire direct native acceptance receipts.
 For an explicitly declared `$plugin:skill`, the host verifies that the installed
 skill exists and that the exact token occurs once in the delivered prompt. A
 completed turn yields a complete `sevro.codex.explicit-invocation` with the owner
