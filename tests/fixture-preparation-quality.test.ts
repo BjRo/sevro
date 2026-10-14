@@ -897,7 +897,7 @@ test("repository source resolution refuses a nested directory instead of the dec
   expect(await fixtureGit(source.repository, "status", "--porcelain")).toBe("");
 });
 
-test("repository source resolution refuses real submodules without modifying the source", async () => {
+async function repositoryWithSubmodule() {
   const source = await repositoryFixture();
   const child = await repositoryFixture();
   await fixtureGit(
@@ -912,24 +912,193 @@ test("repository source resolution refuses real submodules without modifying the
   );
   await fixtureGit(
     source.repository,
+    "config",
+    "--file",
+    ".gitmodules",
+    "submodule.dependency.url",
+    "https://example.invalid/unavailable-dependency.git",
+  );
+  await fixtureGit(source.repository, "add", ".gitmodules");
+  await fixtureGit(
+    source.repository,
     "commit",
     "--quiet",
     "-m",
     "Add fixture dependency",
   );
-  const revision = await fixtureGit(source.repository, "rev-parse", "HEAD");
-  const sources = {
-    root: join(source.root, "sources"),
-    refs: { source: pathToFileURL(source.repository).href },
-  };
-  expect(resolveRepositorySource("source", sources)).rejects.toThrow(
-    "submodules are not supported",
-  );
-  expect(await fixtureGit(source.repository, "rev-parse", "HEAD")).toBe(
-    revision,
-  );
-  expect(await fixtureGit(source.repository, "status", "--porcelain")).toBe("");
-});
+  return { source, child };
+}
+
+test.each(["uninitialized", "initialized"])(
+  "repository fixtures preserve pinned submodule declarations with %s sources",
+  // eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
+  async (initialized) => {
+    const { source, child } = await repositoryWithSubmodule();
+    if (initialized === "uninitialized")
+      await fixtureGit(
+        source.repository,
+        "submodule",
+        "deinit",
+        "--force",
+        "dependency",
+      );
+    const revision = await fixtureGit(source.repository, "rev-parse", "HEAD");
+    const modules = await readFile(
+      join(source.repository, ".gitmodules"),
+      "utf8",
+    );
+    const submoduleStatus = await fixtureGit(
+      source.repository,
+      "submodule",
+      "status",
+    );
+    const sources = {
+      root: join(source.root, "sources"),
+      refs: { source: pathToFileURL(source.repository).href },
+    };
+    let calls = 0;
+    const outcome = await runEvaluation({
+      projectRoot: source.root,
+      resultsRoot: join(source.root, "results"),
+      runnerBuildDigest: "a".repeat(64),
+      projectDigest: "b".repeat(64),
+      condition: "passive",
+      trialCount: 1,
+      passThreshold: 1,
+      preparationSources: sources,
+      case: {
+        id: "submodule-source",
+        prompt: "Return ready.",
+        fixture: { sourceRef: "source" },
+        checks: [
+          {
+            id: "ready",
+            grader: "sevro.regex",
+            configuration: { pattern: "^ready$" },
+          },
+        ],
+        requiredEvidence: [],
+      },
+      host: {
+        id: "example.host",
+        model: "fixture",
+        effort: "none",
+        async run({ workspace }) {
+          calls++;
+          expect(await fixtureGit(workspace, "rev-parse", "HEAD")).toBe(
+            revision,
+          );
+          expect(
+            await fixtureGit(workspace, "ls-tree", "HEAD", "dependency"),
+          ).toBe(`160000 commit ${child.revision}\tdependency`);
+          expect(await readFile(join(workspace, ".gitmodules"), "utf8")).toBe(
+            modules,
+          );
+          expect(await readdir(join(workspace, "dependency"))).toEqual([]);
+          expect(await fixtureGit(workspace, "submodule", "status")).toBe(
+            `-${child.revision} dependency`,
+          );
+          expect(await fixtureGit(workspace, "remote")).toBe("");
+          expect(await fixtureGit(workspace, "status", "--porcelain")).toBe("");
+          return { finalMessage: "ready", complete: true };
+        },
+      },
+    });
+    expect(calls).toBe(1);
+    expect(outcome.result.execution.status).toBe("completed");
+    expect(outcome.result.grading.status).toBe("completed");
+    expect(outcome.result.task.verdict).toBe("passed");
+    expect(outcome.result.exitCode).toBe(0);
+    expect(await fixtureGit(source.repository, "rev-parse", "HEAD")).toBe(
+      revision,
+    );
+    expect(await fixtureGit(source.repository, "status", "--porcelain")).toBe(
+      "",
+    );
+    expect(await fixtureGit(source.repository, "submodule", "status")).toBe(
+      submoduleStatus,
+    );
+    expect(await readFile(join(source.repository, ".gitmodules"), "utf8")).toBe(
+      modules,
+    );
+  },
+);
+
+test.each(["tracked", "untracked", "revision"])(
+  "repository fixtures refuse ignored submodule %s changes before candidate execution",
+  async (change) => {
+    const { source } = await repositoryWithSubmodule();
+    await fixtureGit(
+      source.repository,
+      "config",
+      "--file",
+      ".gitmodules",
+      "submodule.dependency.ignore",
+      "all",
+    );
+    await fixtureGit(source.repository, "add", ".gitmodules");
+    await fixtureGit(
+      source.repository,
+      "commit",
+      "--quiet",
+      "-m",
+      "Ignore dependency changes",
+    );
+    const dependency = join(source.repository, "dependency");
+    if (change === "revision")
+      await fixtureGit(
+        dependency,
+        "commit",
+        "--allow-empty",
+        "--quiet",
+        "-m",
+        "Advance dependency",
+      );
+    else
+      await writeFile(
+        join(dependency, change === "tracked" ? "README.md" : "untracked.txt"),
+        "changed dependency\n",
+      );
+    expect(await fixtureGit(source.repository, "status", "--porcelain")).toBe(
+      "",
+    );
+    let calls = 0;
+    const pending = runEvaluation({
+      projectRoot: source.root,
+      resultsRoot: join(source.root, "results"),
+      runnerBuildDigest: "a".repeat(64),
+      projectDigest: "b".repeat(64),
+      condition: "passive",
+      trialCount: 1,
+      passThreshold: 1,
+      preparationSources: {
+        root: join(source.root, "sources"),
+        refs: { source: pathToFileURL(source.repository).href },
+      },
+      case: {
+        id: "dirty-submodule-source",
+        prompt: "Return ready.",
+        fixture: { sourceRef: "source" },
+        checks: [],
+        requiredEvidence: [],
+      },
+      host: {
+        id: "example.host",
+        model: "fixture",
+        effort: "none",
+        run() {
+          calls++;
+          return Promise.resolve({ finalMessage: "ready", complete: true });
+        },
+      },
+    });
+    expect(pending).rejects.toThrow(
+      "repository source has uncommitted changes",
+    );
+    await pending.catch(() => undefined);
+    expect(calls).toBe(0);
+  },
+);
 
 test("repository cloning refuses a source revision that changed after resolution", async () => {
   const source = await repositoryFixture();

@@ -272,10 +272,18 @@ async function repositoryCommit(path: string): Promise<string> {
   const revision = await git(["rev-parse", "--verify", "HEAD^{commit}"], path);
   if (!/^[a-f0-9]{40,64}$/.test(revision))
     throw new Error("repository source has no valid commit");
-  if (await git(["status", "--porcelain=v1", "--untracked-files=all"], path))
+  if (
+    await git(
+      [
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=all",
+        "--ignore-submodules=none",
+      ],
+      path,
+    )
+  )
     throw new Error("repository source has uncommitted changes");
-  if (await git(["submodule", "status"], path))
-    throw new Error("repository submodules are not supported");
   return revision;
 }
 function requireRepositorySnapshot(
@@ -306,6 +314,7 @@ export async function cloneRepositorySource(
       "--local",
       "--no-hardlinks",
       "--no-checkout",
+      "--no-recurse-submodules",
       "--quiet",
       current.path,
       workspace,
