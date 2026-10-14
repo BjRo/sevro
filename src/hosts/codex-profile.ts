@@ -1,4 +1,4 @@
-import { isAbsolute, sep } from "node:path";
+import { isAbsolute, join, sep } from "node:path";
 import { insideRuntimeRoot, isRuntimeHomeRoot } from "../runtime-paths";
 import { workspaceBoundaryException } from "../workspace-state";
 import {
@@ -82,6 +82,8 @@ export function codexPermissionProfile(options: {
     `${toml(options.commandHome)} = "write"`,
     `${toml(options.commandTemp)} = "write"`,
     ...optionalRootLines(options.runtimeWriteRoot, "write"),
+    // Override Codex's metadata carveout only for this isolated fixture.
+    `${toml(join(options.workspace, ".git"))} = "write"`,
     "",
     `[permissions.${name}.filesystem.":workspace_roots"]`,
     '"." = "write"',

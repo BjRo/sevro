@@ -1545,6 +1545,141 @@ printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_token
   return { host, workspace, root, bin };
 }
 
+function gitMetadataCommand(): string {
+  return [
+    "set -eu",
+    "git switch -c docs/native-publication-authority 1>&2",
+    "printf accepted > NOTES.md",
+    "git add NOTES.md",
+    "git write-tree > captured-tree",
+    "git -c user.name=Fixture -c user.email=fixture@example.invalid commit -qm accepted",
+    "mkdir -p .git/artificer",
+    "(set -C; printf locked > .git/artificer/admission.lock)",
+    "printf revoked > .git/artificer/grant",
+    "rm .git/artificer/admission.lock",
+    "git init --bare -q remote.git",
+    "git push ./remote.git HEAD:refs/heads/published 1>&2",
+    'for path in "$PROTECTED_SOURCE" "$PROTECTED_RESULTS" "$PROTECTED_LOGIN"; do',
+    '  if cat "$path" >/dev/null 2>&1; then exit 81; fi',
+    '  if printf changed > "$path" 2>/dev/null; then exit 82; fi',
+    "done",
+    'for path in "$CODEX_HOME/auth.json" "$CODEX_HOME/config.toml"; do',
+    '  if cat "$path" >/dev/null 2>&1; then exit 81; fi',
+    // Linux may allow new files in synthetic ancestors; the parent verifies the originals below.
+    '  printf changed 2>/dev/null > "$path" || true',
+    "done",
+    "if printf changed > .agents/skills/probe/SKILL.md 2>/dev/null; then exit 83; fi",
+    "if mkdir -p .codex 2>/dev/null && printf changed 2>/dev/null > .codex/config.toml; then exit 84; fi",
+    "printf accepted",
+  ].join("\n");
+}
+
+async function verifyOriginalCodexConfiguration(binary: string): Promise<void> {
+  const source = await readFile(binary, "utf8");
+  const snapshot =
+    '/usr/bin/cksum "$CODEX_HOME/auth.json" "$CODEX_HOME/config.toml"';
+  await writeFile(
+    binary,
+    source
+      .replace("answer=$(", `original_configuration=$(${snapshot})\nanswer=$(`)
+      .replace(
+        " || answer=unavailable",
+        ` || answer=unavailable\nif [ "$original_configuration" != "$(${snapshot})" ]; then answer=modified-private-configuration; fi`,
+      ),
+  );
+}
+
+test("Codex candidate can commit, publish local refs and update admission state", async () => {
+  const { host, root, workspace } = await codexFixture(gitMetadataCommand());
+  await verifyOriginalCodexConfiguration(join(root, "candidate"));
+  const source = join(root, "project", "hidden.txt");
+  const results = join(root, "results", "hidden.txt");
+  await Promise.all([
+    writeFile(source, "hidden source"),
+    writeFile(results, "hidden grading"),
+    mkdir(join(workspace, ".agents/skills/probe"), { recursive: true }),
+  ]);
+  await writeFile(join(workspace, ".agents/skills/probe/SKILL.md"), "skill");
+  expect(await Bun.spawn(["git", "init", "-q", workspace]).exited).toBe(0);
+  await writeFile(
+    join(root, "runtime.json"),
+    JSON.stringify({
+      format: "sevro.runtime.v1",
+      environment: {
+        set: {
+          PATH: "/usr/bin:/bin",
+          PROTECTED_SOURCE: source,
+          PROTECTED_RESULTS: results,
+          PROTECTED_LOGIN: join(root, "auth.json"),
+        },
+      },
+      nativeTranscripts: true,
+    }),
+  );
+  const runtimePolicy = await loadRuntimeConfiguration(
+    join(root, "project"),
+    join(root, "runtime.json"),
+  );
+  const result = await host.run({
+    prompt:
+      "Commit and publish to the local fixture remote, then revoke the grant.",
+    workspace,
+    condition: "passive",
+    runtimePolicy,
+  });
+  expect(
+    result.finalMessage,
+    await readFile(join(workspace, "sandbox-error"), "utf8"),
+  ).toBe("accepted");
+  const head = await readFile(
+    join(workspace, ".git/refs/heads/docs/native-publication-authority"),
+    "utf8",
+  );
+  expect(
+    await readFile(join(workspace, "remote.git/refs/heads/published"), "utf8"),
+  ).toBe(head);
+  expect(await readFile(join(workspace, ".git/HEAD"), "utf8")).toBe(
+    "ref: refs/heads/docs/native-publication-authority\n",
+  );
+  expect(await readFile(join(workspace, ".git/artificer/grant"), "utf8")).toBe(
+    "revoked",
+  );
+  expect(existsSync(join(workspace, ".git/artificer/admission.lock"))).toBe(
+    false,
+  );
+  expect(await readFile(join(workspace, "NOTES.md"), "utf8")).toBe("accepted");
+  expect(await readFile(source, "utf8")).toBe("hidden source");
+  expect(await readFile(results, "utf8")).toBe("hidden grading");
+});
+
+test("Codex Git metadata grant cannot write through a link into protected source", async () => {
+  const { host, root, workspace } = await codexFixture(
+    "if printf changed > .git/private.txt 2>/dev/null; then printf exposed; else printf blocked; fi",
+  );
+  const metadata = join(root, "project", "metadata");
+  await mkdir(metadata);
+  await writeFile(join(metadata, "private.txt"), "protected");
+  await symlink(metadata, join(workspace, ".git"));
+  const result = await host
+    .run({
+      prompt: "Try writing protected metadata.",
+      workspace,
+      condition: "passive",
+    })
+    .catch((cause: unknown) => {
+      if (
+        !(cause instanceof Error) ||
+        cause.message !== "Codex Git metadata must be an isolated directory"
+      )
+        throw cause;
+      return { finalMessage: "blocked" };
+    });
+  expect(result.finalMessage).toBe("blocked");
+  expect(await readFile(join(metadata, "private.txt"), "utf8")).toBe(
+    "protected",
+  );
+});
+
 test("Codex opt-in exposes live native transcripts read-only while protecting private siblings", async () => {
   const { host, workspace } = await codexFixture(
     '/bin/cat "$CODEX_HOME/sessions/rollout-runtime-test.jsonl" >/dev/null && printf native-root; ! /bin/cat "$CODEX_HOME/auth.json"; ! /bin/cat "$CODEX_HOME/config.toml"; ! /bin/echo changed > "$CODEX_HOME/sessions/rollout-runtime-test.jsonl"',

@@ -163,6 +163,17 @@ or change network isolation.
 
 ## Private writable state
 
+Codex candidate commands can write the isolated fixture's `.git` directory,
+including its index, refs, objects, and task-owned admission locks. Sevro grants
+that exact path explicitly because Codex's workspace permission otherwise keeps
+Git metadata read-only. Real commits and publication to a fixture-local remote
+need no additional runtime option. This grant does not authorize writes to
+source repositories, grading inputs, host authentication or configuration, or
+peer trials. Command network access remains disabled.
+An existing fixture `.git` must be a physical directory. Symlinks and Git
+directory pointer files are refused before launch because their metadata may
+belong to a protected source repository rather than the isolated trial.
+
 `runtime.seedDirectories` copies prepared public dependencies into a private
 slot for each execution role. `source` uses the filesystem path rules above;
 `target` is a single lowercase slot name, up to 64 characters, with letters,

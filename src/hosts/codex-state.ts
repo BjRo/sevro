@@ -5,8 +5,10 @@ import {
 } from "../candidate-artifacts";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
+import { isMissingFile } from "../fixture-tools";
 import {
   cp,
+  lstat,
   mkdir,
   readFile,
   realpath,
@@ -332,6 +334,7 @@ export async function prepareCodexState(
   request: Request,
   helperRoot?: string,
 ) {
+  await requireIsolatedGitMetadata(request.workspace);
   const paths = await privateCodexDirectories(stateRoot);
   const runtime = await codexRuntime(request, paths, stateRoot);
   await copyAuth(options.authFile, join(paths.codexHome, "auth.json"));
@@ -381,6 +384,15 @@ export async function prepareCodexState(
   const env = codexEnvironment(paths, request, shellRoot);
   applyCodexRuntime(runtime, env, paths);
   return { ...paths, stateRoot, sandboxBinary, profileId, env, protectedRoots };
+}
+
+async function requireIsolatedGitMetadata(workspace: string): Promise<void> {
+  try {
+    if (!(await lstat(join(workspace, ".git"))).isDirectory())
+      throw new Error("Codex Git metadata must be an isolated directory");
+  } catch (cause) {
+    if (!isMissingFile(cause)) throw cause;
+  }
 }
 
 function requireCodexRuntimeReadRoots(
