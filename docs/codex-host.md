@@ -31,8 +31,8 @@ because its parent directory belongs to a mounted skill; an existing mounted
 target that fails or produces incomplete bytes remains partial. A completed direct
 `cat` of one mounted `SKILL.md`, alone or alongside literal documentation
 paths, counts only when the command output contains that file's exact body.
-Batched reads naming multiple `SKILL.md` files or more than 64 paths remain
-partial, as do failed, malformed, or incomplete recognized reads. Direct
+Batched reads naming more than 64 paths remain partial, as do failed,
+malformed, or incomplete recognized reads. Direct
 `sed -n` pages count after their verified line ranges cover the whole body. An
 exact `cat` wrapped by `lean-ctx -c` is accepted only when its reported output
 still contains the full body; a compressed summary cannot prove the read.
@@ -47,12 +47,28 @@ cat .agents/skills/darrow-guide/SKILL.md; cat docs/specs/repository-guide.md; rg
 ```
 
 This sequence uses the shared stream and native read check. Quoted separators
-remain part of their literal operand. The initial skill body must match the
-beginning of the retained output, so later documentation or search output cannot
-replace an altered or incomplete initial read. Subsequent reads must not name
-another `SKILL.md` or resolve to a mounted or receipt-bound skill through an alias.
+remain part of their literal operand. The ordered file bodies must match the
+retained output, so documentation or search output cannot replace an altered
+or incomplete skill read. Literal `cat` commands may read multiple mounted
+skills and documentation, before or after skills, with or without a terminal
+search. Each verified skill receives its own ordered receipt. Documentation
+must resolve within the workspace or a receipt-bound installed plugin root;
+each file is bounded to 1 MiB. Aliases of mounted skills without a literal
+`SKILL.md` operand remain unsupported.
 The 64-operand bound applies across all reads in the sequence. Shell expansions,
 including unquoted glob and tilde operands, are unsupported in this form.
+
+The bounded composed-read grammar also accepts `unset` with literal variable
+names, `pwd` or `pwd -P`, `git rev-parse --show-toplevel` (optionally with
+`-C "$PWD"`), `printenv` with literal variable names, and `rg --files` with
+literal arguments before the reads. Prefix `printenv` requires the reads to
+end the command, so environment output cannot replace missing read bytes.
+Literal `printenv` commands may follow reads without prefix `printenv`.
+The fixed pair `repo=$(git -C "$PWD" rev-parse --show-toplevel)` and
+`cd "$repo" && pwd -P` is supported only with absolute read operands. Other
+assignments, substitutions, directory changes, or control flow remain
+unsupported. Prefix and environment output cannot supply skill frontmatter;
+ambiguous repeated output cannot establish an attributable read.
 
 The check also accepts a chain of literal
 `cat` fallbacks with `2>/dev/null` and `||`, ending in `true` followed by a newline
@@ -99,6 +115,10 @@ The host also retains separate `sevro.codex.initial-skill-reads` and
 `sevro.codex.follow-up-skill-reads` observations. Each applies the same exact
 mounted-skill read check to one completed turn, so an extension can grade read
 order or a missing repeat read without inferring it from the combined list.
+For `app-server`, the verified same-thread feedback boundary separates the
+initial phase from the follow-up phase, including subsequent native goal turns.
+Absent, duplicated, foreign-thread, or failed boundaries do not yield phase
+receipts.
 
 It also checks native parent command records for exact mounted skill bodies,
 including sessions with no spawn request. The bounded diagnostic distinguishes
@@ -141,8 +161,13 @@ absence cannot prove that a control was unused. Calls made through submitted
 code are not classified by this first observation.
 For an explicitly declared `$plugin:skill`, the host verifies that the installed
 skill exists and that the exact token occurs once in the delivered prompt. A
-completed turn yields `sevro.codex.explicit-invocation` with the owner first and
-verified supporting reads after it. Incomplete reads make that receipt partial.
+completed turn yields a complete `sevro.codex.explicit-invocation` with the owner
+first and verified supporting reads after it. This receipt proves verified
+owner dispatch independently of file reads; it does not prove that all
+supporting skills were read. Consumers requiring complete supporting-read
+evidence must also require `sevro.codex.skill-reads` (or the applicable phase
+receipt) to be complete. Failed execution cannot yield a complete dispatch
+receipt.
 The `sevro.codex.repository-invocation` capability supports an explicitly
 declared `$skill` from `.agents/skills/<skill>/SKILL.md`. The host checks that
 the repository mount is a bounded regular file with no symlink components and
@@ -207,3 +232,8 @@ yielded chunk count, and separate `completedCall` and `literalCommandCall`
 flags. These facts distinguish recovery sources without retaining commands,
 submitted code, or skill bodies. The diagnostic's completeness and truncation
 fields still determine whether its read evidence can support grading.
+
+[Issue #70 representative retests](evidence/skill-reads-70/results.json) retain
+separate task, activation, and phase-read outcomes from the private candidate,
+plus its source fingerprints and test-first regression results. Private native
+transcripts remain outside the repository.

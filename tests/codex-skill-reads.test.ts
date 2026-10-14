@@ -155,10 +155,280 @@ test("compound fallback output from an unmounted copy cannot prove a skipped mou
 
 const compoundCommand =
   "cat .agents/skills/example/SKILL.md; rg -n -i 'offline|deployment' README.md";
+
+test("fixed repository discovery and trailing environment inspection preserve skill attribution", async () => {
+  const workspace = await fixture();
+  expect(Bun.spawnSync(["git", "init", workspace]).exitCode).toBe(0);
+  const command = `unset GIT_DIR\nrepo=$(git -C "$PWD" rev-parse --show-toplevel)\ncd "$repo" && pwd -P\ncat '${join(workspace, ".agents/skills/example/SKILL.md")}'\nprintenv PATH`;
+  const process = Bun.spawn(["/bin/sh", "-c", command], {
+    cwd: workspace,
+    stdout: "pipe",
+  });
+  const output = await new Response(process.stdout).text();
+  expect(await process.exited).toBe(0);
+  const { observed, diagnostic } = await sequentialObservations(
+    workspace,
+    command,
+    output,
+  );
+  expect(observed).toMatchObject({
+    completeness: "complete",
+    data: { observedSkills: ["example"] },
+  });
+  expect(diagnostic).toMatchObject({
+    completeness: "complete",
+    completedReads: [{ skill: "example", ordinal: 0 }],
+  });
+});
 const fallbackCommand =
   "cat .agents/skills/example/SKILL.md 2>/dev/null || cat .agents/skills/absent/SKILL.md 2>/dev/null || true\nrg --files -g 'SKILL.md'";
 const sequentialCommand =
   "cat .agents/skills/example/SKILL.md; cat docs/guide.md; rg -n offline README.md";
+
+test.each([
+  {
+    label: "incomplete initial skill",
+    prefix: "pwd; ",
+    tail: "",
+    output: "path\n" + body.slice(0, -3),
+  },
+  {
+    label: "body supplied twice",
+    prefix: "printenv PATH; ",
+    tail: "; rg --passthru '^' README.md",
+    output: body + body,
+  },
+  {
+    label: "environment supplies identity",
+    prefix: "printenv PATH; ",
+    tail: "",
+    output: "name: example\n" + body,
+  },
+  {
+    label: "trailing environment supplies identity",
+    prefix: "",
+    tail: "; printenv PATH",
+    output: body + "name: example\n",
+  },
+  {
+    label: "arbitrary assignment",
+    prefix: "repo=$(pwd); ",
+    tail: "",
+    output: body,
+  },
+  { label: "unbound output", prefix: "pwd; ", tail: "", output: "unrelated\n" },
+  {
+    label: "extra output without suffix",
+    prefix: "",
+    tail: "",
+    output: body + "extra",
+  },
+])("composed $label remains partial", async ({ prefix, tail, output }) => {
+  const workspace = await fixture();
+  const command = prefix + "cat .agents/skills/example/SKILL.md" + tail;
+  const { observed, diagnostic } = await sequentialObservations(
+    workspace,
+    command,
+    output,
+  );
+  expect(observed).toMatchObject({
+    completeness: "partial",
+    data: { observedSkills: [] },
+  });
+  expect(diagnostic).toMatchObject({
+    completeness: "partial",
+    completedReads: [],
+  });
+});
+
+test("composed reads cannot substitute a documentation copy for altered mounted bytes", async () => {
+  const workspace = await fixture();
+  await writeFile(join(workspace, "README.md"), body);
+  const command = "pwd; cat .agents/skills/example/SKILL.md; cat README.md";
+  const { observed, diagnostic } = await sequentialObservations(
+    workspace,
+    command,
+    body.replace("Do the task.", "Altered.") + body,
+  );
+  expect(observed).toMatchObject({
+    completeness: "partial",
+    data: { observedSkills: [] },
+  });
+  expect(diagnostic).toMatchObject({
+    completeness: "partial",
+    completedReads: [],
+  });
+});
+
+test("environment output on both sides cannot supply missing mounted bytes", async () => {
+  const workspace = await fixture();
+  const command =
+    "printenv PATH; cat .agents/skills/example/SKILL.md; printenv PATH";
+  const { observed, diagnostic } = await sequentialObservations(
+    workspace,
+    command,
+    body + "missing skill output\n/environment\n",
+  );
+  expect(observed).toMatchObject({
+    completeness: "partial",
+    data: { observedSkills: [] },
+  });
+  expect(diagnostic).toMatchObject({
+    completeness: "partial",
+    completedReads: [],
+  });
+});
+
+test("composed documentation remains bounded and regular", async () => {
+  const workspace = await fixture();
+  await mkdir(join(workspace, "directory"));
+  await writeFile(join(workspace, "oversized.md"), "x".repeat(1024 * 1024 + 1));
+  for (const path of ["missing.md", "directory", "oversized.md"]) {
+    const { observed, diagnostic } = await sequentialObservations(
+      workspace,
+      "cat .agents/skills/example/SKILL.md; cat " + path,
+    );
+    expect(observed).toMatchObject({
+      completeness: "partial",
+      data: { observedSkills: [] },
+    });
+    expect(diagnostic).toMatchObject({
+      completeness: "partial",
+      completedReads: [],
+    });
+  }
+});
+
+test("paged reads cannot borrow an exact mounted body from later search output", async () => {
+  const workspace = await fixture();
+  const command =
+    "sed -n '1,100p' .agents/skills/example/SKILL.md; rg --passthru '^' README.md";
+  const { observed, diagnostic } = await sequentialObservations(
+    workspace,
+    command,
+    body.replace("Do the task.", "Altered.") + body,
+  );
+  expect(observed).toMatchObject({
+    completeness: "partial",
+    data: { observedSkills: [] },
+  });
+  expect(diagnostic).toMatchObject({
+    completeness: "partial",
+    completedReads: [],
+  });
+});
+
+test("unsupported tails after prefixed reads cannot prove absence from empty output", async () => {
+  const workspace = await fixture();
+  const command = "pwd; cat .agents/skills/example/SKILL.md; printf extra";
+  const { observed, diagnostic } = await sequentialObservations(
+    workspace,
+    command,
+    "",
+  );
+  expect(observed).toMatchObject({
+    completeness: "partial",
+    data: { observedSkills: [] },
+  });
+  expect(diagnostic).toMatchObject({
+    completeness: "partial",
+    completedReads: [],
+  });
+});
+
+test("composed skill and documentation reads need no terminal search", async () => {
+  const workspace = await fixture();
+  await writeFile(join(workspace, "README.md"), "Documentation\n");
+  const command = "cat .agents/skills/example/SKILL.md; cat README.md";
+  const process = Bun.spawn(["/bin/sh", "-c", command], {
+    cwd: workspace,
+    stdout: "pipe",
+  });
+  const output = await new Response(process.stdout).text();
+  expect(await process.exited).toBe(0);
+  const { observed, diagnostic } = await sequentialObservations(
+    workspace,
+    command,
+    output,
+  );
+  expect(observed).toMatchObject({
+    completeness: "complete",
+    data: { observedSkills: ["example"] },
+  });
+  expect(diagnostic).toMatchObject({
+    completeness: "complete",
+    completedReads: [{ skill: "example", ordinal: 0 }],
+  });
+});
+
+test.each(["; cat ", " "])(
+  "composed multiple skills retain ordered evidence: %s",
+  async (separator) => {
+    const workspace = await fixture();
+    const second = body.replace("example", "second");
+    await mkdir(join(workspace, ".agents/skills/second"));
+    await writeFile(join(workspace, ".agents/skills/second/SKILL.md"), second);
+    await writeFile(join(workspace, "README.md"), "Documentation\n");
+    const command =
+      "cat README.md; cat .agents/skills/example/SKILL.md" +
+      separator +
+      ".agents/skills/second/SKILL.md";
+    const process = Bun.spawn(["/bin/sh", "-c", command], {
+      cwd: workspace,
+      stdout: "pipe",
+    });
+    const output = await new Response(process.stdout).text();
+    expect(await process.exited).toBe(0);
+    const { observed, diagnostic } = await sequentialObservations(
+      workspace,
+      command,
+      output,
+    );
+    expect(observed).toMatchObject({
+      completeness: "complete",
+      data: { observedSkills: ["example", "second"] },
+    });
+    expect(diagnostic).toMatchObject({
+      completeness: "complete",
+      completedReads: [
+        { skill: "example", ordinal: 0 },
+        { skill: "second", ordinal: 0 },
+      ],
+    });
+  },
+);
+
+test.each([
+  "unset GIT_DIR GIT_WORK_TREE; pwd -P; ",
+  'unset GIT_DIR; git -C "$PWD" rev-parse --show-toplevel; printenv PATH; ',
+  "pwd; rg --files -g 'SKILL.md'; ",
+])(
+  "prefixed literal skill reads retain exact attributable evidence: %s",
+  async (prefix) => {
+    const workspace = await fixture();
+    expect(Bun.spawnSync(["git", "init", workspace]).exitCode).toBe(0);
+    const command = prefix + "cat .agents/skills/example/SKILL.md";
+    const process = Bun.spawn(["/bin/sh", "-c", command], {
+      cwd: workspace,
+      stdout: "pipe",
+    });
+    const output = await new Response(process.stdout).text();
+    expect(await process.exited).toBe(0);
+    const { observed, diagnostic } = await sequentialObservations(
+      workspace,
+      command,
+      output,
+    );
+    expect(observed).toMatchObject({
+      completeness: "complete",
+      data: { observedSkills: ["example"] },
+    });
+    expect(diagnostic).toMatchObject({
+      completeness: "complete",
+      completedReads: [{ skill: "example", ordinal: 0 }],
+    });
+  },
+);
 
 test.each([
   { label: "semicolons", command: sequentialCommand },
@@ -681,7 +951,14 @@ test.each([
     const workspace = await fixture();
     await writeFile(join(workspace, "README.md"), "Repository documentation\n");
     const observed = await codexSkillReadObservation(
-      stream([read(command, "Repository documentation\n" + body)]),
+      stream([
+        read(
+          command,
+          complete && command.startsWith("cat --")
+            ? body + "Repository documentation\n"
+            : "Repository documentation\n" + body,
+        ),
+      ]),
       workspace,
     );
     expect(observed.completeness).toBe(complete ? "complete" : "partial");
