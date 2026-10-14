@@ -422,6 +422,8 @@ function codexStateWriteRoots(
     ? [
         join(paths.codexHome, "skills"),
         join(paths.parentHome, ".agents", "skills"),
+        join(paths.commandHome, ".agents", "skills"),
+        join(paths.commandHome, ".codex", "skills"),
       ]
     : [];
 }
@@ -432,11 +434,7 @@ async function prepareCodexStateEvidence(
   paths: Awaited<ReturnType<typeof privateCodexDirectories>>,
 ): Promise<void> {
   if (!codexStateEnabled(request.runtimePolicy)) return;
-  const skillRoots = [
-    ...codexStateWriteRoots(request, paths),
-    join(paths.commandHome, ".agents", "skills"),
-    join(paths.commandHome, ".codex", "skills"),
-  ];
+  const skillRoots = codexStateWriteRoots(request, paths);
   await Promise.all(
     skillRoots.map((root) => mkdir(root, { recursive: true, mode: 0o700 })),
   );

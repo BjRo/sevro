@@ -13,12 +13,22 @@ requested candidate `gpt-6.1-sol/medium`, requested semantic grader
 `gpt-6-luna/medium`, passive owner evaluation, N=1 per invocation, jobs=1,
 threshold=1 and a 1,200,000 ms Codex deadline.
 
-| Invocation     | Case                                        | Task checks | Activation | Result                                      |
-| -------------- | ------------------------------------------- | ----------- | ---------- | ------------------------------------------- |
-| `doctor-01`    | `doctor-adaptive-goal-direct-codex`         | 2/4         | Passed     | Failed: missing offline `hatchling==1.32.3` |
-| `doctor-02`    | `doctor-adaptive-goal-direct-codex`         | 3/4         | Passed     | Failed: semantic false negative             |
-| `doctor-03`    | `doctor-adaptive-goal-direct-codex`         | 4/4         | Passed     | Passed                                      |
-| `authoring-01` | `create-agent-skill-refuse-undefined-skill` | 4/4         | Passed     | Passed                                      |
+Repair reruns initially kept that semantic route. After repeated false negatives
+on responses explicitly reporting effective capacity `8`, the final matched pair
+uses semantic grader `gpt-6.1-sol/medium` with the same cases and checks.
+
+| Invocation     | Case                                        | Task checks | Activation | Result                                                       |
+| -------------- | ------------------------------------------- | ----------- | ---------- | ------------------------------------------------------------ |
+| `doctor-01`    | `doctor-adaptive-goal-direct-codex`         | 2/4         | Passed     | Failed: missing offline `hatchling==1.32.3`                  |
+| `doctor-02`    | `doctor-adaptive-goal-direct-codex`         | 3/4         | Passed     | Failed: semantic false negative                              |
+| `doctor-03`    | `doctor-adaptive-goal-direct-codex`         | 4/4         | Passed     | Passed                                                       |
+| `authoring-01` | `create-agent-skill-refuse-undefined-skill` | 4/4         | Passed     | Passed                                                       |
+| `doctor-04`    | `doctor-adaptive-goal-direct-codex`         | 2/4         | Passed     | Failed: offline build dependency missing                     |
+| `authoring-02` | `create-agent-skill-refuse-undefined-skill` | 4/4         | Passed     | Passed after Linux command-skill grant repair                |
+| `doctor-05`    | `doctor-adaptive-goal-direct-codex`         | 2/4         | Passed     | Failed: semantic false negative; partial skill-read evidence |
+| `doctor-06`    | `doctor-adaptive-goal-direct-codex`         | 3/4         | Passed     | Failed: semantic false negative                              |
+| `doctor-07`    | `doctor-adaptive-goal-direct-codex`         | 4/4         | Passed     | Passed with semantic grader `gpt-6.1-sol/medium`             |
+| `authoring-03` | `create-agent-skill-refuse-undefined-skill` | 4/4         | Passed     | Passed with semantic grader `gpt-6.1-sol/medium`             |
 
 The doctor retained the fixture's `.codex/config.toml` value `99`. Operator
 configuration selected concurrency `8`, which the private Codex home contained
@@ -31,6 +41,16 @@ dependencies were prepared before retrying. In the second trial, the response
 explicitly reported effective capacity `8`, but the semantic grader said it
 reported only the recommendation `4`. The unchanged case and checks were rerun;
 the third trial passed. These observations do not establish a stability rate.
+
+After the Linux repair, `doctor-04` again could not find the offline build
+dependency. Preparing only runtime dependencies can reuse an existing local
+environment without caching `hatchling`; preparation now includes the locked
+development group so each fresh isolated backend can build offline.
+
+`doctor-05` reported effective capacity `8`, but its semantic check missed that
+claim and the skill-read trace was partial. `doctor-06` again reported `8` and
+retained complete native evidence; the capacity check still produced a false
+negative. The original requirements were preserved throughout these invocations.
 
 The undefined-skill case kept its repository-preservation, no-commit,
 missing-contract and activation checks. Its user-skill check now requires all
@@ -55,18 +75,18 @@ prepare the public dependency cache before native execution:
 ```sh
 export SEVRO_CHECKOUT=/absolute/path/to/sevro-candidate
 export UV_PYTHON_INSTALL_DIR="$(uv python dir)"
-UV_CACHE_DIR="$HOME/.darrow/cache/sevro-uv-cache" uv sync --locked --no-dev --project plugins/orchestration/darrow-adaptive-goal/backend
-UV_CACHE_DIR="$HOME/.darrow/cache/sevro-uv-cache" uv sync --locked --no-dev --project plugins/foundation/darrow-skill-authoring/backend
+UV_DEFAULT_INDEX=https://pypi.org/simple UV_CACHE_DIR="$HOME/.darrow/cache/sevro-uv-cache" uv sync --locked --group dev --project plugins/orchestration/darrow-adaptive-goal/backend
+UV_DEFAULT_INDEX=https://pypi.org/simple UV_CACHE_DIR="$HOME/.darrow/cache/sevro-uv-cache" uv sync --locked --group dev --project plugins/foundation/darrow-skill-authoring/backend
 bun eval --harness codex --skill doctor-adaptive-goal --case doctor-adaptive-goal-direct-codex \
   --codex-entrypoint app-server --model gpt-6.1-sol --effort medium \
-  --semantic-check-model gpt-6-luna --semantic-check-effort medium \
+  --semantic-check-model gpt-6.1-sol --semantic-check-effort medium \
   --owner-evaluation passive --trials 1 --jobs 1 --threshold 1 \
   --results-root "$PWD/evals/results/codex-state-doctor" -- \
   --codex-timeout-ms 1200000 --retain-host-diagnostics \
   --runtime-config-file "$PWD/evals/sevro-extension/runtime-codex-state.json"
 bun eval --harness codex --skill create-agent-skill --case create-agent-skill-refuse-undefined-skill \
   --codex-entrypoint app-server --model gpt-6.1-sol --effort medium \
-  --semantic-check-model gpt-6-luna --semantic-check-effort medium \
+  --semantic-check-model gpt-6.1-sol --semantic-check-effort medium \
   --owner-evaluation passive --trials 1 --jobs 1 --threshold 1 \
   --results-root "$PWD/evals/results/codex-state-authoring" -- \
   --codex-timeout-ms 1200000 --retain-host-diagnostics \
@@ -106,3 +126,29 @@ credential denial, read-only grading, failure/cancellation cleanup, concurrent
 trials and refusal to reuse a native state binding. No integration tests were
 removed. Full acceptance remains the GitHub CI gate on the published candidate,
 as required by [Contributing](../../../CONTRIBUTING.md).
+
+## Linux CI repair
+
+The [first published CI run](https://github.com/BjRo/sevro/actions/runs/38564333137)
+retained 1,871 passing tests, 28 platform skips and five failures around the
+command-home skill directories. A non-root Ubuntu 24.04 arm64 reproduction with
+CI's pinned Codex 0.160.1 confirmed that HOME was correct, but the existing
+`.agents/skills` and `.codex/skills` directories remained read-only despite the
+enclosing HOME grant. The opt-in now grants writes explicitly to both skill
+directories; credential and grading grants remain bounded.
+
+The existing command-home integration supplied the Linux red/green slice:
+
+```text
+Red — docker exec --user sevro --workdir /work sevro-73-linux-diagnosis env TMPDIR=/ci-tmp PATH=/tools/node_modules/@openai/codex-linux-arm64/vendor/aarch64-unknown-linux-musl/bin:/usr/local/bin:/usr/bin:/bin bun test ./tests/runtime-host.test.ts -t 'Codex state grading observes command-home skill creation': expected exit 0, received 1; mkdir failed with read-only filesystem.
+Green — docker exec --user sevro --workdir /work sevro-73-linux-diagnosis env TMPDIR=/ci-tmp PATH=/tools/node_modules/@openai/codex-linux-arm64/vendor/aarch64-unknown-linux-musl/bin:/usr/local/bin:/usr/bin:/bin bun test ./tests/runtime-host.test.ts -t 'Codex state grading observes command-home skill creation': 1 passed.
+```
+
+After the repair, all 27 Codex-state integration cases passed on Ubuntu and
+macOS, the fast TypeScript gate passed, and all 37 Darrow integration tests
+passed again. Additional checks refuse all five reserved artifact names and
+exercise semantic and advisory native grading with each combination of Codex
+state and transcript selection. All four native-grading combinations passed on
+both platforms, including original-path reads, write denial and credential denial.
+The original native source hashes remain historical; subsequent
+invocations name their repair source snapshot in [the results](results.json).

@@ -151,6 +151,211 @@
           "status": "passed"
         }
       ]
+    },
+    {
+      "invocation": "doctor-04",
+      "sourceSnapshot": "repairSourceFiles",
+      "caseId": "doctor-adaptive-goal-direct-codex",
+      "runId": "3d5768e5-3df3-4a59-becc-b65c471c1cd9",
+      "evaluationIdentityDigest": "46a7761eaeeddc62ebdd3cc979229ef6f7c15b5e02e5afee6da6c7dd63651182",
+      "configurationDigest": "a12a09ab260f227a0748a93015816eb32afa7259169255281a9749b7529a8528",
+      "execution": "completed",
+      "grading": "completed",
+      "task": "failed",
+      "exitCode": 1,
+      "activation": "passed",
+      "checks": [
+        {
+          "id": "darrow.shell.1",
+          "status": "passed"
+        },
+        {
+          "id": "darrow.semantic.1",
+          "status": "failed"
+        },
+        {
+          "id": "darrow.semantic.2",
+          "status": "failed"
+        },
+        {
+          "id": "darrow.evals.transcript.1",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "invocation": "authoring-02",
+      "sourceSnapshot": "repairSourceFiles",
+      "caseId": "create-agent-skill-refuse-undefined-skill",
+      "runId": "e37dda8b-18d5-4d55-a9c5-2b9b6122aa99",
+      "evaluationIdentityDigest": "11480309c9d1e7ef4015e4eeb5e275bb80bc9dc4d86412b1352fc2542323c564",
+      "configurationDigest": "d99821da4925d5d61eb692125741bb68944bd9c1dd63d39fadbfc04b7637f8ee",
+      "execution": "completed",
+      "grading": "completed",
+      "task": "passed",
+      "exitCode": 0,
+      "activation": "passed",
+      "checks": [
+        {
+          "id": "darrow.shell.1",
+          "status": "passed"
+        },
+        {
+          "id": "darrow.shell.2",
+          "status": "passed"
+        },
+        {
+          "id": "darrow.shell.3",
+          "status": "passed"
+        },
+        {
+          "id": "darrow.semantic.1",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "invocation": "doctor-05",
+      "sourceSnapshot": "repairSourceFiles",
+      "caseId": "doctor-adaptive-goal-direct-codex",
+      "runId": "34e22ee5-7a6f-444a-b526-9569ba0b0a07",
+      "evaluationIdentityDigest": "74cd1daef63c21e4f40c91fb626e4eb2279dab8c879c2c8d48cd8f8b8724a7d3",
+      "configurationDigest": "1f550988ed24dfe49ca565b2c19bedd134090760f2346d97235f5f150917b2f3",
+      "execution": "completed",
+      "grading": "unavailable",
+      "task": "failed",
+      "exitCode": 4,
+      "activation": "passed",
+      "checks": [
+        {
+          "id": "darrow.shell.1",
+          "status": "passed"
+        },
+        {
+          "id": "darrow.semantic.1",
+          "status": "failed"
+        },
+        {
+          "id": "darrow.semantic.2",
+          "status": "passed"
+        },
+        {
+          "id": "darrow.evals.transcript.1",
+          "status": "unavailable"
+        }
+      ]
+    },
+    {
+      "invocation": "doctor-06",
+      "sourceSnapshot": "repairSourceFiles",
+      "caseId": "doctor-adaptive-goal-direct-codex",
+      "runId": "fb7cdbac-a617-43b8-9491-90667ba06d27",
+      "evaluationIdentityDigest": "42e84cceee343f8a9de6ba3a412972258ceef5e0836ec0706ae6d963bbf183ce",
+      "configurationDigest": "1f550988ed24dfe49ca565b2c19bedd134090760f2346d97235f5f150917b2f3",
+      "execution": "completed",
+      "grading": "completed",
+      "task": "failed",
+      "exitCode": 1,
+      "activation": "passed",
+      "checks": [
+        {
+          "id": "darrow.shell.1",
+          "status": "passed"
+        },
+        {
+          "id": "darrow.semantic.1",
+          "status": "failed"
+        },
+        {
+          "id": "darrow.semantic.2",
+          "status": "passed"
+        },
+        {
+          "id": "darrow.evals.transcript.1",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "invocation": "doctor-07",
+      "sourceSnapshot": "repairSourceFiles",
+      "caseId": "doctor-adaptive-goal-direct-codex",
+      "runId": "6b7f58b3-cfde-4527-8a13-80908f50c496",
+      "evaluationIdentityDigest": "ea8a2da192ab891bd58b583c0effab4cd659cc1495af6271a5cb0548d0a4463a",
+      "configurationDigest": "1f550988ed24dfe49ca565b2c19bedd134090760f2346d97235f5f150917b2f3",
+      "execution": "completed",
+      "grading": "completed",
+      "task": "passed",
+      "exitCode": 0,
+      "activation": "passed",
+      "checks": [
+        {
+          "id": "darrow.shell.1",
+          "status": "passed"
+        },
+        {
+          "id": "darrow.semantic.1",
+          "status": "passed"
+        },
+        {
+          "id": "darrow.semantic.2",
+          "status": "passed"
+        },
+        {
+          "id": "darrow.evals.transcript.1",
+          "status": "passed"
+        }
+      ],
+      "semanticGrader": {
+        "model": "gpt-6.1-sol",
+        "effort": "medium"
+      }
+    },
+    {
+      "invocation": "authoring-03",
+      "sourceSnapshot": "repairSourceFiles",
+      "caseId": "create-agent-skill-refuse-undefined-skill",
+      "runId": "4bc791ad-3990-4318-b79f-4a053a0b240c",
+      "evaluationIdentityDigest": "ee367c23f643d2582d6cd50358161a38a29e57557b0ad671c637aa3ebac76423",
+      "configurationDigest": "b97881513ed2824c07ac254980f01734e7a021628c77a4104af83a308c8a06e8",
+      "execution": "completed",
+      "grading": "completed",
+      "task": "passed",
+      "exitCode": 0,
+      "activation": "passed",
+      "checks": [
+        {
+          "id": "darrow.shell.1",
+          "status": "passed"
+        },
+        {
+          "id": "darrow.shell.2",
+          "status": "passed"
+        },
+        {
+          "id": "darrow.shell.3",
+          "status": "passed"
+        },
+        {
+          "id": "darrow.semantic.1",
+          "status": "passed"
+        }
+      ],
+      "semanticGrader": {
+        "model": "gpt-6.1-sol",
+        "effort": "medium"
+      }
     }
-  ]
+  ],
+  "repairSourceFiles": {
+    "src/candidate-artifacts.ts": "72bc3fb458e6614116abba927d51dd50aa96721a95cc653dc765024d249a7817",
+    "src/candidate-codex-state.ts": "f588d2aa30f0ee69fa434ff840db439ebbeac7c5cf75530ebcb897e2dfe71bfb",
+    "src/hosts/codex-profile.ts": "47dd50cf8b5ae4ee42ced2d1f180f1fa6d6e10708af748661e608ea8a883ef18",
+    "src/hosts/codex-state.ts": "054c0fd9ddbea0cf57b30dbf940106133fb1a85c44ee079aefdd7b7c3abb16ba",
+    "src/hosts/codex.ts": "0c3fe80de64553b0c5ce19f16f14eeae6477b8a2c8e063ae70599a94f39fc3c9",
+    "src/runtime-config.ts": "bdc03ca5ee0c34c68c8a26a9855190adb82bc72b73fb51e8fe6f86245bd4e784",
+    "src/generated/runtime.cjs": "d3d6d6ab1c22f37b7e8e6eeaa2bbbff068c548b31447f67aad9c445d96fcb791",
+    "schemas/runtime-v1.schema.json": "48cc9b45789920987805eb7a2d19805e173bd02497549b73d5e6e622fe733470",
+    "typescript-sources.json": "e33af2db9e697280e007322ef286a21680a87f1a6ce954ba921d57376943ae66"
+  }
 }

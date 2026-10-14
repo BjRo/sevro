@@ -167,6 +167,28 @@ test("runtime configuration opts into candidate-bound Codex state", async () => 
   expect(defined(await loadRuntimeConfiguration(root)).codexState).toBe(true);
 });
 
+test.each([
+  "codex_config",
+  "codex_skills",
+  "agent_skills",
+  "command_agent_skills",
+  "command_codex_skills",
+])("Codex state artifact names cannot be rebound: %s", async (name) => {
+  const root = await mkdtemp(join(tmpdir(), "sevro-codex-state-config-"));
+  roots.push(root);
+  await writeFile(
+    join(root, "sevro.json"),
+    JSON.stringify({
+      format: "sevro.runtime.v1",
+      codexState: true,
+      runtime: { artifactDirectories: [{ name, path: ".darrow/reviews" }] },
+    }),
+  );
+  expect(loadRuntimeConfiguration(root)).rejects.toThrow(
+    "reserved for Codex state",
+  );
+});
+
 test("Codex state grading observes command-home skill creation", async () => {
   const { host, root } = await codexFixture(
     '/bin/mkdir -p "$HOME/.agents/skills/created" && printf command > "$HOME/.agents/skills/created/SKILL.md" && printf "%s" "$HOME" > command-home && printf created',
@@ -650,19 +672,40 @@ test.each([
   expect(await readdir(join(root, "results"))).toEqual([]);
 });
 
-test.each([false, true])(
-  "native Codex grading reads candidate artifacts with transcripts %s",
+test.each(
+  [false, true].flatMap((nativeTranscripts) =>
+    [false, true].map((codexState) => ({ nativeTranscripts, codexState })),
+  ),
+)(
+  "native Codex grading reads candidate artifacts with transcripts $nativeTranscripts, Codex state $codexState",
   // eslint-disable-next-line max-lines-per-function -- Keep the real candidate, both grader roles and evidence assertions together.
-  async function verifyCodexArtifactGrading(nativeTranscripts) {
+  async function verifyCodexArtifactGrading({ nativeTranscripts, codexState }) {
     const { host, root } = await codexFixture(
-      'if test -n "$SEVRO_CANDIDATE_ARTIFACT_REVIEWS"; then test "$SEVRO_CANDIDATE_ARTIFACT_REVIEWS" != "$HOME/.darrow/reviews"; printf writable > "$HOME/own-state"; /bin/cat "$SEVRO_CANDIDATE_ARTIFACT_REVIEWS/result"; ! printf changed > "$SEVRO_CANDIDATE_ARTIFACT_REVIEWS/result"; else /bin/mkdir -p "$HOME/.darrow/reviews"; printf review > "$HOME/.darrow/reviews/result"; printf review; fi',
+      'if test -n "$SEVRO_CANDIDATE_ARTIFACT_REVIEWS"; then if test -n "$SEVRO_CANDIDATE_ARTIFACT_CODEX_CONFIG"; then test "$SEVRO_CANDIDATE_ARTIFACT_CODEX_CONFIG" != "$CODEX_HOME/config.toml" || exit 82; test -s "$SEVRO_CANDIDATE_ARTIFACT_CODEX_CONFIG" || exit 83; test "$(cat "$SEVRO_CANDIDATE_ARTIFACT_CODEX_SKILLS/new/SKILL.md")" = skill || exit 84; ! printf changed > "$SEVRO_CANDIDATE_ARTIFACT_CODEX_CONFIG" || exit 85; ! cat "$SEVRO_CANDIDATE_ARTIFACT_CODEX_SKILLS/../auth.json" || exit 86; fi; test "$SEVRO_CANDIDATE_ARTIFACT_REVIEWS" != "$HOME/.darrow/reviews"; printf writable > "$HOME/own-state"; /bin/cat "$SEVRO_CANDIDATE_ARTIFACT_REVIEWS/result"; ! printf changed > "$SEVRO_CANDIDATE_ARTIFACT_REVIEWS/result"; else if test -n "$SEVRO_CODEX_AGENT_SKILLS"; then /bin/mkdir -p "$CODEX_HOME/skills/new"; printf skill > "$CODEX_HOME/skills/new/SKILL.md"; printf "%s" "$CODEX_HOME" > native-home; fi; /bin/mkdir -p "$HOME/.darrow/reviews"; printf review > "$HOME/.darrow/reviews/result"; printf review; fi',
     );
+    let candidateHome = "";
+    const candidate: HostAdapter = {
+      ...host,
+      async run(request) {
+        const response = await host.run(request);
+        if (codexState)
+          candidateHome = await readFile(
+            join(request.workspace, "native-home"),
+            "utf8",
+          );
+        return response;
+      },
+    };
     const roles: string[] = [];
     const gradingHost: HostAdapter = {
       ...host,
       async run(request) {
         expect(request.candidateRuntimeRoot).toBeUndefined();
         const roots = defined(request.candidateArtifactRoots);
+        if (codexState) {
+          expect(roots.codex_config).toBe(join(candidateHome, "config.toml"));
+          expect(roots.codex_skills).toBe(join(candidateHome, "skills"));
+        }
         const native = await host.run(request);
         expect(native.finalMessage).toBe("review");
         expect(
@@ -696,7 +739,7 @@ test.each([false, true])(
         return { ...native, finalMessage: JSON.stringify(finalMessage) };
       },
     };
-    const { result } = await artifactEvaluation(root, host, {
+    const { result } = await artifactEvaluation(root, candidate, {
       semanticHost: gradingHost,
       advisoryHost: gradingHost,
       runtimePolicy: {
@@ -704,6 +747,7 @@ test.each([false, true])(
         environment: {},
         readOnlyRoots: [],
         nativeTranscripts,
+        codexState,
         artifactDirectories: [{ name: "reviews", path: ".darrow/reviews" }],
       },
       case: {
