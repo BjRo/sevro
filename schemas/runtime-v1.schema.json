@@ -6,6 +6,9 @@
   "additionalProperties": false,
   "required": ["format"],
   "properties": {
+    "codexState": {
+      "type": "boolean"
+    },
     "nativeTranscripts": {
       "type": "boolean"
     },

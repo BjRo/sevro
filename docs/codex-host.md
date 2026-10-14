@@ -188,7 +188,11 @@ symlinks, and installs it with `codex plugin marketplace add` followed by
 `codex plugin add`. It checks each installation receipt against the private
 plugin cache. Candidate commands can read that cache, while the rest of the
 private Codex home, including authentication and configuration, remains denied.
-It refuses fixture-local `.codex` configuration, unsupported enforced
+With the [Codex state opt-in](runtime-v1.md#candidate-codex-configuration-and-user-skills),
+commands may read generated configuration and write actual non-system user skills;
+graders retain read-only access to that request's original paths. Fixture-local
+configuration is accepted as inert represented input on this route. Otherwise,
+the host refuses fixture-local `.codex` configuration. It also refuses unsupported enforced
 conditions, unreadable or oversized auth files, malformed event streams, and
 incomplete turns. The host bounds output and runtime, kills its process group
 on timeout or cancellation, and removes private state after the turn. It is
@@ -217,7 +221,8 @@ source/auth reads, and executable access. The process adapter verifies these
 properties in one sandbox invocation before each fresh host request, with a
 60-second bounded startup deadline. The combined probe still requires readable
 private command storage, denied project listing, denied authentication and
-configuration reads, and a successful native executable `--version`. Continuation
+configuration reads (unless configuration access was explicitly enabled), and a
+successful native executable `--version`. Continuation
 turns reuse the same isolated state. The longer deadline accommodates observed
 native policy startup; it is not counted as a performance saving.
 

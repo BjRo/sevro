@@ -1,6 +1,14 @@
 import { lstat, readdir, realpath, rm } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
 import {
+  allocateCodexStateLease,
+  candidateCodexArtifactBinding,
+  candidateCodexArtifactRoots,
+  codexStateEnabled,
+  releaseCandidateCodexState,
+  requireUnreservedArtifactName,
+} from "./candidate-codex-state";
+import {
   allocateNativeState,
   nativeStatePath,
 } from "./native-transcript-state";
@@ -35,6 +43,7 @@ export function requireArtifactDirectories(
 function requireArtifactDirectory(directory: RuntimeArtifactDirectory): void {
   if (!/^[a-z][a-z0-9_]{0,63}$/.test(directory.name))
     throw new Error("runtime artifact directory name is invalid");
+  requireUnreservedArtifactName(directory.name);
   const path = directory.path;
   if (!validArtifactPath(path))
     throw new Error("runtime artifact directory path is invalid");
@@ -58,10 +67,12 @@ export async function allocateCandidateRuntime(
   policy: RuntimePolicy | undefined,
 ): Promise<string | undefined> {
   const directories = policy?.artifactDirectories ?? [];
-  if (!directories.length) return undefined;
+  const codexState = codexStateEnabled(policy);
+  if (!directories.length && !codexState) return undefined;
   requireArtifactDirectories(directories);
   const root = await allocateNativeState("candidate-runtime-");
   leases.set(root, directories);
+  allocateCodexStateLease(root, codexState);
   return root;
 }
 
@@ -91,6 +102,7 @@ export async function candidateArtifactRoots(
   const roots = Object.fromEntries(
     directories.map(({ name, path }) => [name, join(root, "home", path)]),
   );
+  Object.assign(roots, candidateCodexArtifactRoots(root));
   await requireCandidateArtifactRoots(roots);
   return roots;
 }
@@ -100,19 +112,29 @@ export async function requireCandidateArtifactRoots(
   roots: CandidateArtifactRoots | undefined,
 ): Promise<void> {
   for (const [name, path] of Object.entries(roots ?? {})) {
-    const { root, directory } = artifactRootBinding(name, path);
-    await requireArtifactAncestors(root, directory.path);
+    const binding = artifactRootBinding(name, path);
+    await requireArtifactAncestors(binding.root, binding.directoryPath);
+    if (binding.file && !(await lstat(path)).isFile())
+      throw new Error(
+        "candidate Codex configuration must remain a regular file",
+      );
     await requireArtifactTree(path);
   }
 }
 
 function artifactRootBinding(name: string, path: string) {
+  const codex = candidateCodexArtifactBinding(name, path);
+  if (codex) return codex;
+  return homeArtifactBinding(name, path);
+}
+
+function homeArtifactBinding(name: string, path: string) {
   const parts = relative(nativeStatePath(), path).split(sep);
   const root = join(nativeStatePath(), parts[0] ?? "");
   const directory = leases.get(root)?.find((item) => item.name === name);
   if (!directory || path !== join(root, "home", directory.path))
     throw new Error("candidate artifact grant is not bound to an active trial");
-  return { root, directory };
+  return { root, directoryPath: join("home", directory.path), file: false };
 }
 
 async function requireArtifactAncestors(
@@ -120,7 +142,7 @@ async function requireArtifactAncestors(
   path: string,
 ): Promise<void> {
   let current = root;
-  for (const part of ["", "home", ...path.split("/")]) {
+  for (const part of ["", ...path.split(sep)]) {
     current = join(current, part);
     const info = await lstat(current);
     if (!info.isDirectory() || (await realpath(current)) !== current)
@@ -169,6 +191,7 @@ export async function releaseCandidateRuntime(
   root: string | undefined,
 ): Promise<void> {
   if (root === undefined) return;
+  await releaseCandidateCodexState(root);
   await clearFixtureContents(root);
   await rm(root, { recursive: true, force: true });
   leases.delete(root);

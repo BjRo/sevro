@@ -40,6 +40,7 @@ export function codexPermissionProfile(options: {
   commandEnvironment?: Record<string, string>;
   runtimeReadRoots?: string[];
   nativeReadRoots?: string[];
+  nativeWriteRoots?: string[];
   runtimeWriteRoot?: string;
 }): string {
   if (!/^[a-z][a-z0-9_]*$/.test(options.id))
@@ -79,6 +80,9 @@ export function codexPermissionProfile(options: {
       .sort()
       .map((root) => `${toml(root)} = "deny"`),
     ...readRootLines(options),
+    ...(options.nativeWriteRoots ?? []).map(
+      (root) => `${toml(root)} = "write"`,
+    ),
     `${toml(options.commandHome)} = "write"`,
     `${toml(options.commandTemp)} = "write"`,
     ...optionalRootLines(options.runtimeWriteRoot, "write"),
@@ -100,11 +104,13 @@ function profileProtectedRoots(
   const readRoots = profileReadRoots(options);
   const trustedRoots = [
     ...readRoots,
+    ...(options.nativeWriteRoots ?? []),
     ...(options.runtimeWriteRoot ? [options.runtimeWriteRoot] : []),
   ];
   const baselines = [
     ...LINUX_MINIMAL_READ_ROOTS,
     ...readRoots,
+    ...(options.nativeWriteRoots ?? []),
     options.workspace,
     options.commandHome,
     options.commandTemp,

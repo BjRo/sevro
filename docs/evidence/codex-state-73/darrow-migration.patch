@@ -1,0 +1,182 @@
+diff --git a/docs/eval-development.md b/docs/eval-development.md
+index ee78c685..f97de87b 100644
+--- a/docs/eval-development.md
++++ b/docs/eval-development.md
+@@ -66,7 +66,15 @@ constraints for producing and interpreting that evidence.
+   the prompt. Sevro rejects a fixture's top-level `.codex` directory; a nested
+   represented configuration diagnoses that input, not the eval host itself.
+   Cases that require the real isolated host configuration must retain that
+-  distinction and remain unavailable if the host cannot expose it.
++  distinction and remain unavailable if the host cannot expose it. Sevro's
++  source-checkout `codexState` opt-in accepts the top-level represented fixture
++  while exposing the actual isolated config read-only. Select
++  `evals/sevro-extension/runtime-codex-state.json` explicitly for the direct doctor
++  and undefined-skill Codex cases; rc.11 does not support this option. Prepare the
++  selected offline UV cache with each mounted plugin's locked runtime dependencies
++  before execution. User-skill absence checks require all four candidate-bound
++  skill roots and exclude only the read-only native `.system` subtree. Missing
++  evidence fails; the grader's own home and retired state are not substitutes.
+ - Keep packaged Python oracles under `backend/tests/evals/` so participant mounts
+   omit them. Copy them into `.git/eval-checks/` during fixture setup for hidden
+   grading; agents cannot read or write that reserved subtree.
+diff --git a/evals/domain/user-skill-state-eval-checks.test.ts b/evals/domain/user-skill-state-eval-checks.test.ts
+new file mode 100644
+index 00000000..6044f7cd
+--- /dev/null
++++ b/evals/domain/user-skill-state-eval-checks.test.ts
+@@ -0,0 +1,71 @@
++import { afterEach, expect, test } from "bun:test";
++import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
++import { tmpdir } from "node:os";
++import { join, resolve } from "node:path";
++import { spawnSync } from "node:child_process";
++import { parse as parseYaml } from "yaml";
++
++const roots: string[] = [];
++afterEach(async () => {
++  await Promise.all(
++    roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
++  );
++});
++
++type OracleCase = { checks: { name: string; run?: string }[] };
++
++async function absenceCheck() {
++  const value = parseYaml(
++    await readFile(
++      resolve(
++        import.meta.dir,
++        "../../plugins/foundation/darrow-skill-authoring/skills/create-agent-skill/evals/refuse-undefined-skill.yaml",
++      ),
++      "utf8",
++    ),
++  ) as OracleCase;
++  const check = value.checks.find(
++    (check) =>
++      check.name === "undefined capability creates no user-level skill",
++  );
++  if (!check?.run) throw new Error("user-skill absence check is unavailable");
++  return check.run;
++}
++
++test.each([
++  "none",
++  "codex",
++  "agent",
++  "command_agent",
++  "command_codex",
++  "missing",
++])("user-skill absence oracle observes %s candidate state", async (mode) => {
++  const root = await mkdtemp(join(tmpdir(), "darrow-user-skills-"));
++  roots.push(root);
++  const locations = ["codex", "agent", "command_agent", "command_codex"];
++  const environment: Record<string, string> = { PATH: "/usr/bin:/bin" };
++  for (const name of locations) {
++    const path = join(root, name);
++    if (mode !== "missing" || name !== "agent") await mkdir(path);
++    environment[`SEVRO_CANDIDATE_ARTIFACT_${name.toUpperCase()}_SKILLS`] = path;
++    if (mode === name) {
++      await mkdir(join(path, "created"));
++      await writeFile(join(path, "created/SKILL.md"), "user skill");
++    }
++  }
++  await mkdir(join(root, "codex/.system/bundled"), { recursive: true });
++  await writeFile(
++    join(root, "codex/.system/bundled/SKILL.md"),
++    "bundled skill",
++  );
++  const result = spawnSync("/bin/bash", ["-c", await absenceCheck()], {
++    cwd: root,
++    env: environment,
++    encoding: "utf8",
++  });
++  expect(result.error).toBeUndefined();
++  expect(result.status).toBe(mode === "missing" ? 2 : 0);
++  if (mode === "none") expect(result.stdout).toBe("");
++  else if (mode !== "missing")
++    expect(result.stdout).toContain(`${mode}/created/SKILL.md`);
++});
+diff --git a/evals/sevro-extension/runtime-codex-state.json b/evals/sevro-extension/runtime-codex-state.json
+new file mode 100644
+index 00000000..9574e333
+--- /dev/null
++++ b/evals/sevro-extension/runtime-codex-state.json
+@@ -0,0 +1,19 @@
++{
++  "format": "sevro.runtime.v1",
++  "codexState": true,
++  "nativeTranscripts": true,
++  "environment": {
++    "inherit": ["PATH", "UV_PYTHON_INSTALL_DIR"],
++    "set": { "UV_CACHE_DIR": "{{sevro.runtime}}/uv-cache" }
++  },
++  "filesystem": {
++    "readOnlyRoots": ["${UV_PYTHON_INSTALL_DIR}"],
++    "optionalReadOnlyRoots": ["/System/Library/OpenSSL"]
++  },
++  "runtime": {
++    "seedDirectories": [
++      { "source": "~/.darrow/cache/sevro-uv-cache", "target": "uv-cache" }
++    ]
++  },
++  "hooks": { "nativeGoal": true }
++}
+diff --git a/plugins/foundation/darrow-skill-authoring/.claude-plugin/plugin.json b/plugins/foundation/darrow-skill-authoring/.claude-plugin/plugin.json
+index 824b8f34..713fcc7f 100644
+--- a/plugins/foundation/darrow-skill-authoring/.claude-plugin/plugin.json
++++ b/plugins/foundation/darrow-skill-authoring/.claude-plugin/plugin.json
+@@ -1,7 +1,7 @@
+ {
+   "name": "darrow-skill-authoring",
+   "description": "Create and audit reliable cross-runtime agent skills",
+-  "version": "0.3.1",
++  "version": "0.3.2",
+   "license": "BUSL-1.1",
+   "author": {
+     "name": "Björn Rochel",
+diff --git a/plugins/foundation/darrow-skill-authoring/.codex-plugin/plugin.json b/plugins/foundation/darrow-skill-authoring/.codex-plugin/plugin.json
+index f6607ac4..aea7b4a0 100644
+--- a/plugins/foundation/darrow-skill-authoring/.codex-plugin/plugin.json
++++ b/plugins/foundation/darrow-skill-authoring/.codex-plugin/plugin.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "darrow-skill-authoring",
+-  "version": "0.3.1",
++  "version": "0.3.2",
+   "description": "Create and audit reliable cross-runtime agent skills",
+   "author": {
+     "name": "Björn Rochel",
+diff --git a/plugins/foundation/darrow-skill-authoring/skills/create-agent-skill/evals/refuse-undefined-skill.yaml b/plugins/foundation/darrow-skill-authoring/skills/create-agent-skill/evals/refuse-undefined-skill.yaml
+index ff148fc3..19e9727c 100644
+--- a/plugins/foundation/darrow-skill-authoring/skills/create-agent-skill/evals/refuse-undefined-skill.yaml
++++ b/plugins/foundation/darrow-skill-authoring/skills/create-agent-skill/evals/refuse-undefined-skill.yaml
+@@ -20,16 +20,19 @@ checks:
+     run: git diff --exit-code && test -z "$(git ls-files --others --exclude-standard)"
+   - name: undefined capability creates no user-level skill
+     run: |
+-      state_root=".git/darrow-eval/state/$(cat .git/fixture-host)"
+-      test -d "$state_root" || {
+-        printf '%s\n' 'Candidate user-skill state is unavailable to the isolated grader; the retired state tree is absent.' >&2
+-        exit 2
+-      }
+-      find "$state_root" \
+-        -path "$state_root/config/plugins/cache" -prune -o \
+-        -path "$state_root/config/skills/.system" -prune -o \
+-        -path "$state_root/.codex/skills/.system" -prune -o \
+-        -type f -name SKILL.md -print
++      for root in \
++        "$SEVRO_CANDIDATE_ARTIFACT_CODEX_SKILLS" \
++        "$SEVRO_CANDIDATE_ARTIFACT_AGENT_SKILLS" \
++        "$SEVRO_CANDIDATE_ARTIFACT_COMMAND_AGENT_SKILLS" \
++        "$SEVRO_CANDIDATE_ARTIFACT_COMMAND_CODEX_SKILLS"; do
++        test -n "$root" && test -d "$root" || {
++          printf '%s\n' 'Candidate-bound user-skill evidence is unavailable; select the codexState runtime opt-in.' >&2
++          exit 2
++        }
++        find "$root" \
++          -path "$SEVRO_CANDIDATE_ARTIFACT_CODEX_SKILLS/.system" -prune -o \
++          -type f -name SKILL.md -print
++      done
+     expect_exact: ""
+   - name: authoring creates no commit
+     run: git rev-list --all --reflog --count

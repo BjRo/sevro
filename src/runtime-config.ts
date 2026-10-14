@@ -27,6 +27,7 @@ export interface RuntimeSeed {
 }
 export interface RuntimeConfiguration {
   format: "sevro.runtime.v1";
+  codexState?: boolean;
   nativeTranscripts?: boolean;
   environment?: { inherit?: string[]; set?: Record<string, string> };
   filesystem?: { readOnlyRoots?: string[]; optionalReadOnlyRoots?: string[] };
@@ -39,6 +40,7 @@ export interface RuntimeConfiguration {
 
 export interface RuntimePolicy {
   format: "sevro.runtime.v1";
+  codexState?: boolean;
   artifactDirectories?: RuntimeArtifactDirectory[];
   nativeTranscripts?: boolean;
   environment: Record<string, string>;
@@ -105,7 +107,7 @@ function assertRuntimeConfiguration(
 }
 
 const RESERVED_ENVIRONMENT =
-  /^(HOME|TMPDIR|TMP|TEMP|CODEX_HOME|CODEX_THREAD_ID|CLAUDE_CONFIG_DIR|CLAUDE_EFFORT|BASH_ENV|ENV|ZDOTDIR|NODE_OPTIONS|BUN_OPTIONS|UV_OFFLINE|GIT_CONFIG.*|LD_.*|DYLD_.*|CLAUDE_CODE_.*|SEVRO_NATIVE_.*|SEVRO_CANDIDATE_.*)$/i;
+  /^(HOME|TMPDIR|TMP|TEMP|CODEX_HOME|CODEX_THREAD_ID|CLAUDE_CONFIG_DIR|CLAUDE_EFFORT|BASH_ENV|ENV|ZDOTDIR|NODE_OPTIONS|BUN_OPTIONS|UV_OFFLINE|GIT_CONFIG.*|LD_.*|DYLD_.*|CLAUDE_CODE_.*|SEVRO_CODEX_.*|SEVRO_NATIVE_.*|SEVRO_CANDIDATE_.*)$/i;
 
 function requireEnvironmentName(name: string): void {
   if (!/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(name))
@@ -309,6 +311,7 @@ async function resolveRuntimeConfiguration(
   return {
     format: value.format,
     ...artifactConfiguration(value.runtime),
+    ...(value.codexState === undefined ? {} : { codexState: value.codexState }),
     ...(value.nativeTranscripts === undefined
       ? {}
       : { nativeTranscripts: value.nativeTranscripts }),
