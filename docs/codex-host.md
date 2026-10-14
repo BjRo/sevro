@@ -51,7 +51,8 @@ remain part of their literal operand. The ordered file bodies must match the
 retained output, so documentation or search output cannot replace an altered
 or incomplete skill read. Literal `cat` commands may read multiple mounted
 skills and documentation, before or after skills, with or without a terminal
-search. Each verified skill receives its own ordered receipt. Documentation
+search. Multiple literal terminal `rg` commands are accepted within the command
+bound. Each verified skill receives its own ordered receipt. Documentation
 must resolve within the workspace or a receipt-bound installed plugin root;
 each file is bounded to 1 MiB. Aliases of mounted skills without a literal
 `SKILL.md` operand remain unsupported.
@@ -74,7 +75,8 @@ The check also accepts a chain of literal
 `cat` fallbacks with `2>/dev/null` and `||`, ending in `true` followed by a newline
 and one literal `rg` discovery command. A fallback chain must resolve to one
 canonical file across all its read operands; absent alternate targets do not
-invalidate the read. Multiple existing targets, including unmounted copies,
+invalidate the read. Each fallback `cat` names one literal file. Multiple
+existing targets, including unmounted copies,
 cannot establish an attributable read. The total read operands remain bounded
 at 64. The complete command must succeed and expose the mounted file's entire
 exact body. `cat` accepts literal file operands and the optional `--` delimiter;

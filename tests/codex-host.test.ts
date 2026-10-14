@@ -415,6 +415,52 @@ test("Codex app-server continuation retains separate completed phase reads", asy
   }
 });
 
+test("failed app-server execution cannot yield a complete owner-dispatch receipt", async () => {
+  if (!isolatedNativeHost || !Bun.which("codex")) return;
+  const selected = await ordinaryCodexRequest();
+  await mkdir(join(selected.workspace, ".git"));
+  await writeFile(join(selected.workspace, "failure.txt"), "Fail the turn");
+  const skillRoot = join(selected.workspace, ".agents/skills/probe");
+  await mkdir(skillRoot, { recursive: true });
+  await writeFile(
+    join(skillRoot, "SKILL.md"),
+    "---\nname: probe\n---\nRead the skill.\n",
+  );
+  const binary = join(dirname(selected.paths.fakeBinary), "failed-owner-peer");
+  await writeFile(
+    binary,
+    `#!/bin/sh\nexec '${process.execPath}' '${join(import.meta.dir, "fixtures/app-server-peer.ts")}' "$@"\n`,
+    { mode: 0o700 },
+  );
+  const host = createCodexHost({
+    ...ordinaryCodexOptions,
+    ...selected.paths,
+    binary,
+    authFile: selected.paths.authFile,
+    sandboxBinary: defined(Bun.which("codex")),
+    entrypoint: "app-server",
+  });
+  const result = await host.run({
+    ...selected.request,
+    prompt: "Use $probe and return ready.",
+    explicitSkillInvocation: {
+      scope: "repository",
+      skillName: "probe",
+      token: "$probe",
+    },
+  });
+  expect(result.complete).toBe(false);
+  expectUnknown(result.observations).toContainEqual({
+    id: "sevro.codex.explicit-invocation",
+    completeness: "partial",
+    data: {
+      method: "explicit_invocation",
+      primarySkill: "probe",
+      observedSkills: ["probe"],
+    },
+  });
+});
+
 test("Codex compound fallback read followed by discovery retains complete activation evidence", async () => {
   if (!isolatedNativeHost || !Bun.which("codex")) return;
   const skill = "tdd";

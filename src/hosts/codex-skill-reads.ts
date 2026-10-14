@@ -38,7 +38,6 @@ function shellPayload(command: string): string {
 interface DirectRead {
   path: string;
   fallbackPaths?: string[];
-  documentationPaths?: string[];
   operandCount?: number;
   firstLine?: number;
   lastLine?: number;
@@ -63,6 +62,7 @@ function sedRead(payload: string, path: string): DirectRead | null {
     new RegExp(`^(?:/bin/)?sed\\s+-n\\s+['"]?(\\d+),(\\d+)p['"]?\\s+${path}$`),
   );
   if (!sed) return null;
+  if (!literalReadPath(sed, 3)) return null;
   const firstLine = Number(sed[1]),
     lastLine = Number(sed[2]);
   if (!validReadLines(firstLine, lastLine)) return null;
@@ -72,12 +72,7 @@ function directRead(command: string): DirectRead | null {
   const shell = shellPayload(command).trim();
   const payload = compoundReadPayload(shell);
   const path = "(?:\"([^\"]+)\"|'([^']+)'|([^\\s'\"`$;&|<>]+))";
-  return (
-    sequentialRead(shell, path) ??
-    catRead(payload, path) ??
-    sedRead(payload, path) ??
-    fallbackRead(payload, path)
-  );
+  return sedRead(payload, path) ?? fallbackRead(payload, path);
 }
 
 const LITERAL_WORD = "(?:\"[^\"$`\\\\]*\"|'[^']*'|[^\\s\"'\\\\`$;&|<>(){}#]+)";
@@ -99,50 +94,6 @@ function literalCommands(payload: string): string[] | null {
     commands.push(match.slice(1, 2).join(""));
   }
   return commands;
-}
-
-function sequentialRead(payload: string, path: string): DirectRead | null {
-  const commands = literalCommands(payload);
-  if (!commands || commands.length < 2) return null;
-  const search = commands.slice(-1).join("");
-  const reads = new RegExp(`^(?:/usr/bin/)?rg[ \\t]+${LITERAL_WORDS}$`).test(
-    search,
-  )
-    ? commands.slice(0, -1)
-    : commands;
-  return sequentialCatRead(reads, path);
-}
-
-function sequentialCatRead(
-  commands: string[],
-  path: string,
-): DirectRead | null {
-  const first = singleSkillRead(commands.slice(0, 1).join(""), path);
-  if (!first) return null;
-  const operands = commands
-    .slice(1)
-    .map((command) => catOperands(command, path));
-  if (!operands.every((paths): paths is string[] => paths !== null))
-    return null;
-  const paths = operands.flat();
-  if (unsupportedDocumentationOperands(paths)) return null;
-  return {
-    ...first,
-    documentationPaths: paths,
-    operandCount: paths.length + 1,
-  };
-}
-
-function singleSkillRead(payload: string, path: string): DirectRead | null {
-  const read = catRead(payload, path);
-  return read?.operandCount === 1 ? read : null;
-}
-
-function unsupportedDocumentationOperands(paths: string[]): boolean {
-  return (
-    paths.length >= MAX_NATIVE_READ_ATTEMPTS ||
-    paths.some((path) => /(?:^|\/)SKILL\.md$/.test(path))
-  );
 }
 
 function compoundReadPayload(payload: string): string {
@@ -167,11 +118,15 @@ function fallbackRead(payload: string, path: string): DirectRead | null {
   ].map((match) => catRead(match.slice(1, 2).join(""), path));
   if (
     fallbackOperandCount(reads) > MAX_NATIVE_READ_ATTEMPTS ||
-    !reads.every((read): read is DirectRead => read !== null)
+    !reads.every(singleFallbackRead)
   )
     return null;
   const paths = reads.map((read) => read.path);
   return { path: paths.slice(0, 1).join(""), fallbackPaths: paths.slice(1) };
+}
+
+function singleFallbackRead(read: DirectRead | null): read is DirectRead {
+  return read !== null && read.operandCount === 1;
 }
 
 function fallbackOperandCount(reads: Array<DirectRead | null>): number {
@@ -188,10 +143,19 @@ function catOperands(payload: string, path: string): string[] | null {
     new RegExp(`^(?:/bin/)?cat\\s+(?:--\\s+)?(${path}(?:\\s+${path})*)$`),
   );
   if (!cat) return null;
-  const paths = [
+  const operands = [
     ...cat.slice(1, 2).join("").matchAll(new RegExp(path, "g")),
-  ].map((match) => capturedReadPath(match, 1));
+  ];
+  if (!operands.every((match) => literalReadPath(match, 1))) return null;
+  const paths = operands.map((match) => capturedReadPath(match, 1));
   return unsupportedCatOptions(payload, paths) ? null : paths;
+}
+
+function literalReadPath(match: RegExpMatchArray, first: number): boolean {
+  const path = capturedReadPath(match, first);
+  if (match[first] !== undefined) return !/[$`\\]/.test(path);
+  if (match[first + 1] !== undefined) return true;
+  return !/[\\*?[\]~(){}#]/.test(path);
 }
 
 function catRead(payload: string, path: string): DirectRead | null {
@@ -258,17 +222,20 @@ interface ComposedPlan {
 
 function normalizedReadPayload(command: string) {
   const shell = shellPayload(command).trim();
+  const firstRead = shell.search(/(?:^|[;\n])[ \t]*(?:\/bin\/)?cat\s/);
+  if (firstRead < 0) return { payload: shell, relocated: false };
+  const prefix = shell.slice(0, firstRead);
   const repository =
     /(^|[;\n])[ \t]*repo=\$\(git -C "\$PWD" rev-parse --show-toplevel\)[ \t]*[;\n][ \t]*cd "\$repo" && pwd -P(?=[;\n]|$)/g;
-  const relocated = repository.test(shell);
+  const relocated = repository.test(prefix);
   repository.lastIndex = 0;
-  const payload = shell
+  const payload = prefix
     .replace(repository, "$1pwd -P")
     .replace(
       /(^|[;\n])[ \t]*git -C "\$PWD" rev-parse --show-toplevel(?=[;\n]|$)/g,
       "$1git rev-parse --show-toplevel",
     );
-  return { payload, relocated };
+  return { payload: payload + shell.slice(firstRead), relocated };
 }
 
 function composedPlan(command: string): ComposedPlan | null {
@@ -332,8 +299,9 @@ function readSuffix(commands: string[]): ComposedPlan["suffix"] | null {
     )
   )
     return "environment";
-  return commands.length === 1 &&
-    new RegExp(`^(?:/usr/bin/)?rg\\s+${LITERAL_WORDS}$`).test(commands.join(""))
+  return commands.every((command) =>
+    new RegExp(`^(?:/usr/bin/)?rg\\s+${LITERAL_WORDS}$`).test(command),
+  )
     ? "search"
     : null;
 }
@@ -524,8 +492,6 @@ function readAttemptPaths(command: string): string[] {
   const path = "(?:\"([^\"]+)\"|'([^']+)'|([^\\s'\"`$;&|<>]+))";
   const fallback = fallbackRead(payload, path);
   if (fallback) return [fallback.path, ...(fallback.fallbackPaths ?? [])];
-  const sequential = sequentialRead(shell, path);
-  if (sequential) return [sequential.path];
   return [
     ...literalReadAttemptPaths(payload, path),
     ...sequentialReadAttemptPaths(shell, path),
@@ -559,7 +525,7 @@ function literalReadAttemptPaths(payload: string, path: string): string[] {
     new RegExp(`^(?:/bin/)?sed\\s+-n\\s+[^\\s]+\\s+${path}$`),
   );
   if (sed) {
-    const value = capturedReadPath(sed, 2);
+    const value = capturedReadPath(sed, 1);
     if (/(?:^|\/)SKILL\.md$/.test(value)) return [value];
   }
   return [];
@@ -666,28 +632,7 @@ async function resolvedSkillRead(
   if (skill === null) return null;
   const text = await verifiedSkillBody(actual, skill);
   if (text === null) return null;
-  if (
-    await ambiguousSequentialRead(
-      declaration.read,
-      commandCwd,
-      workspace,
-      pluginRoots,
-    )
-  )
-    return null;
   return skillReadReceipt(actual, skill, declaration, text);
-}
-
-async function ambiguousSequentialRead(
-  read: DirectRead,
-  commandCwd: string,
-  workspace: string,
-  pluginRoots: string[],
-): Promise<boolean> {
-  for (const path of read.documentationPaths ?? [])
-    if (await mountedReadPath(path, commandCwd, workspace, pluginRoots))
-      return true;
-  return false;
 }
 async function resolvedReadPath(
   read: DirectRead,

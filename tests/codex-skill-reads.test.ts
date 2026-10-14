@@ -1,7 +1,14 @@
 import { expectUnknown } from "./fixtures/assertions";
 import { defined } from "./fixtures/assertions";
 import { afterEach, test, expect } from "bun:test";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -279,6 +286,293 @@ test("environment output on both sides cannot supply missing mounted bytes", asy
   });
 });
 
+test("repository-prefix normalization never rewrites quoted documentation operands", async () => {
+  const workspace = await fixture();
+  const original = 'notes;\ngit -C "$PWD" rev-parse --show-toplevel\ncopy.md';
+  const normalized = "notes;\ngit rev-parse --show-toplevel\ncopy.md";
+  await writeFile(join(workspace, original), body);
+  await writeFile(join(workspace, normalized), "");
+  const command = `cat '${original}'; cat .agents/skills/example/SKILL.md`;
+  const { observed, diagnostic } = await sequentialObservations(
+    workspace,
+    command,
+    body,
+  );
+  expect(observed).toMatchObject({
+    completeness: "partial",
+    data: { observedSkills: [] },
+  });
+  expect(diagnostic).toMatchObject({
+    completeness: "partial",
+    completedReads: [],
+  });
+});
+
+test("fallback reads cannot attribute a documentation copy to a missing mounted body", async () => {
+  const workspace = await fixture();
+  await writeFile(join(workspace, "README.md"), body);
+  const command =
+    "cat README.md .agents/skills/example/SKILL.md 2>/dev/null || true\nrg --files -g 'SKILL.md'";
+  const { observed, diagnostic } = await sequentialObservations(
+    workspace,
+    command,
+    body,
+  );
+  expect(observed).toMatchObject({
+    completeness: "partial",
+    data: { observedSkills: [] },
+  });
+  expect(diagnostic).toMatchObject({
+    completeness: "partial",
+    completedReads: [],
+  });
+});
+
+test("dynamic sed paths cannot borrow mounted identity from a literal alias", async () => {
+  const workspace = await fixture();
+  await mkdir(join(workspace, "unmounted"));
+  await writeFile(join(workspace, "unmounted/SKILL.md"), body);
+  await symlink(
+    join(workspace, ".agents/skills/example"),
+    join(workspace, "$DOC"),
+  );
+  const command = "sed -n '1,100p' \"$DOC/SKILL.md\"";
+  const process = Bun.spawn(["/bin/sh", "-c", command], {
+    cwd: workspace,
+    env: { ...globalThis.process.env, DOC: "unmounted" },
+    stdout: "pipe",
+  });
+  const output = await new Response(process.stdout).text();
+  expect(await process.exited).toBe(0);
+  const { observed, diagnostic } = await sequentialObservations(
+    workspace,
+    command,
+    output,
+  );
+  expect(observed).toMatchObject({
+    completeness: "partial",
+    data: { observedSkills: [] },
+  });
+  expect(diagnostic).toMatchObject({
+    completeness: "partial",
+    completedReads: [],
+  });
+});
+
+test("double-quoted literal sed paths retain complete mounted evidence", async () => {
+  const workspace = await fixture();
+  const command = "sed -n '1,100p' \".agents/skills/example/SKILL.md\"";
+  const process = Bun.spawn(["/bin/sh", "-c", command], {
+    cwd: workspace,
+    stdout: "pipe",
+  });
+  const output = await new Response(process.stdout).text();
+  expect(await process.exited).toBe(0);
+  expect(output).toBe(body);
+  const { observed, diagnostic } = await sequentialObservations(
+    workspace,
+    command,
+    output,
+  );
+  expect(observed).toMatchObject({
+    completeness: "complete",
+    data: { observedSkills: ["example"] },
+  });
+  expect(diagnostic).toMatchObject({
+    completeness: "complete",
+    completedReads: [{ skill: "example", ordinal: 0 }],
+  });
+});
+
+test("portable sed alias reads preserve mounted evidence before terminal search output", async () => {
+  const workspace = await fixture();
+  await writeFile(join(workspace, "README.md"), body);
+  await symlink(
+    join(workspace, ".agents/skills/example"),
+    join(workspace, "-alias"),
+  );
+  const command =
+    "sed -n '1,100p' ./-alias/SKILL.md; rg --passthru '^' README.md";
+  const process = Bun.spawn(["/bin/sh", "-c", command], {
+    cwd: workspace,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [output, error, code] = await Promise.all([
+    new Response(process.stdout).text(),
+    new Response(process.stderr).text(),
+    process.exited,
+  ]);
+  expect(code).toBe(0);
+  expect(error).toBe("");
+  expect(output).toBe(body + body);
+  const { observed, diagnostic } = await sequentialObservations(
+    workspace,
+    command,
+    output,
+  );
+  expect(observed).toMatchObject({
+    completeness: "complete",
+    data: { observedSkills: ["example"] },
+  });
+  expect(diagnostic).toMatchObject({
+    completeness: "complete",
+    completedReads: [{ skill: "example", ordinal: 0 }],
+  });
+});
+
+test.each([
+  { operand: "literal*/SKILL.md", completeness: "partial", skills: [] },
+  {
+    operand: "'literal*/SKILL.md'",
+    completeness: "complete",
+    skills: ["example"],
+  },
+])(
+  "sed expansion characters require literal quoting: $operand",
+  async ({ operand, completeness, skills }) => {
+    const workspace = await fixture();
+    await symlink(
+      join(workspace, ".agents/skills/example"),
+      join(workspace, "literal*"),
+    );
+    const command = "sed -n '1,100p' " + operand;
+    const process = Bun.spawn(["/bin/sh", "-c", command], {
+      cwd: workspace,
+      stdout: "pipe",
+    });
+    const output = await new Response(process.stdout).text();
+    expect(await process.exited).toBe(0);
+    expect(output).toBe(body);
+    const { observed, diagnostic } = await sequentialObservations(
+      workspace,
+      command,
+      output,
+    );
+    expect(observed).toMatchObject({
+      completeness,
+      data: { observedSkills: skills },
+    });
+    expect(diagnostic).toMatchObject({ completeness, observedSkills: skills });
+  },
+);
+
+test("repository relocation with relative read operands remains unbound", async () => {
+  const workspace = await fixture();
+  const command =
+    'repo=$(git -C "$PWD" rev-parse --show-toplevel)\ncd "$repo" && pwd -P\ncat .agents/skills/example/SKILL.md';
+  const { observed, diagnostic } = await sequentialObservations(
+    workspace,
+    command,
+  );
+  expect(observed).toMatchObject({
+    completeness: "partial",
+    data: { observedSkills: [] },
+  });
+  expect(diagnostic).toMatchObject({
+    completeness: "partial",
+    completedReads: [],
+  });
+});
+
+test("composed reads refuse documentation outside the mounted roots", async () => {
+  const workspace = await fixture();
+  const outside = await mkdtemp(join(tmpdir(), "sevro-unbound-doc-"));
+  roots.push(outside);
+  await writeFile(join(outside, "README.md"), "Outside documentation\n");
+  const command = `cat .agents/skills/example/SKILL.md; cat '${join(outside, "README.md")}'`;
+  const { observed, diagnostic } = await sequentialObservations(
+    workspace,
+    command,
+    body + "Outside documentation\n",
+  );
+  expect(observed).toMatchObject({
+    completeness: "partial",
+    data: { observedSkills: [] },
+  });
+  expect(diagnostic).toMatchObject({
+    completeness: "partial",
+    completedReads: [],
+  });
+});
+
+test("unreadable current documentation cannot verify retained composed output", async () => {
+  const workspace = await fixture();
+  const path = join(workspace, "README.md");
+  await writeFile(path, "Documentation\n");
+  await chmod(path, 0);
+  try {
+    const command = "cat .agents/skills/example/SKILL.md; cat README.md";
+    const { observed, diagnostic } = await sequentialObservations(
+      workspace,
+      command,
+      body + "Documentation\n",
+    );
+    expect(observed).toMatchObject({
+      completeness: "partial",
+      data: { observedSkills: [] },
+    });
+    expect(diagnostic).toMatchObject({
+      completeness: "partial",
+      completedReads: [],
+    });
+  } finally {
+    await chmod(path, 0o600);
+  }
+});
+
+test("duplicate mounted bytes from a terminal search remain ambiguous", async () => {
+  const workspace = await fixture();
+  await writeFile(join(workspace, "README.md"), body);
+  const command =
+    "pwd; cat .agents/skills/example/SKILL.md; rg --passthru '^' README.md";
+  const process = Bun.spawn(["/bin/sh", "-c", command], {
+    cwd: workspace,
+    stdout: "pipe",
+  });
+  const output = await new Response(process.stdout).text();
+  expect(await process.exited).toBe(0);
+  const { observed, diagnostic } = await sequentialObservations(
+    workspace,
+    command,
+    output,
+  );
+  expect(observed).toMatchObject({
+    completeness: "partial",
+    data: { observedSkills: [] },
+  });
+  expect(diagnostic).toMatchObject({
+    completeness: "partial",
+    completedReads: [],
+  });
+});
+
+test("a missing first page remains partial until out-of-order pages cover the body", async () => {
+  const workspace = await fixture();
+  const tail = "sed -n '4,100p' .agents/skills/example/SKILL.md";
+  const head = "sed -n '1,3p' .agents/skills/example/SKILL.md";
+  const items = [tail, head].map((command) => {
+    const process = Bun.spawnSync(["/bin/sh", "-c", command], {
+      cwd: workspace,
+    });
+    expect(process.exitCode).toBe(0);
+    return read(command, process.stdout.toString());
+  });
+  const incomplete = await codexSkillReadObservation(
+    stream(items.slice(0, 1)),
+    workspace,
+  );
+  expect(incomplete).toMatchObject({
+    completeness: "partial",
+    data: { observedSkills: [] },
+  });
+  const complete = await codexSkillReadObservation(stream(items), workspace);
+  expect(complete).toMatchObject({
+    completeness: "complete",
+    data: { observedSkills: ["example"] },
+  });
+});
+
 test("composed documentation remains bounded and regular", async () => {
   const workspace = await fixture();
   await mkdir(join(workspace, "directory"));
@@ -340,6 +634,32 @@ test("composed skill and documentation reads need no terminal search", async () 
   const workspace = await fixture();
   await writeFile(join(workspace, "README.md"), "Documentation\n");
   const command = "cat .agents/skills/example/SKILL.md; cat README.md";
+  const process = Bun.spawn(["/bin/sh", "-c", command], {
+    cwd: workspace,
+    stdout: "pipe",
+  });
+  const output = await new Response(process.stdout).text();
+  expect(await process.exited).toBe(0);
+  const { observed, diagnostic } = await sequentialObservations(
+    workspace,
+    command,
+    output,
+  );
+  expect(observed).toMatchObject({
+    completeness: "complete",
+    data: { observedSkills: ["example"] },
+  });
+  expect(diagnostic).toMatchObject({
+    completeness: "complete",
+    completedReads: [{ skill: "example", ordinal: 0 }],
+  });
+});
+
+test("composed reads support multiple bounded literal discovery searches", async () => {
+  const workspace = await fixture();
+  await writeFile(join(workspace, "README.md"), "offline deployment\n");
+  const command =
+    "cat .agents/skills/example/SKILL.md; cat README.md; rg --files -g '*.md'; rg -n offline README.md";
   const process = Bun.spawn(["/bin/sh", "-c", command], {
     cwd: workspace,
     stdout: "pipe",
