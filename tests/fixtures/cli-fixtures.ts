@@ -2,7 +2,6 @@ import { fixtureCase, parseCliResult } from "./assertions";
 import { mkdtemp, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { extensionFixtureCommand } from "./extension-command";
 
 const testDirectory = join(import.meta.dir, "..");
 
@@ -23,8 +22,6 @@ export const semanticAdapter = join(
 export const extensionSource = join(testDirectory, "fixtures", "extension.ts");
 
 export const digest = "a".repeat(64);
-
-export const fixtureExtensionCommand = extensionFixtureCommand();
 
 export function createFixture(roots: string[]) {
   async function fixture() {

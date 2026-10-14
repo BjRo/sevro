@@ -8,12 +8,9 @@ import {
 import { afterEach, test, expect } from "bun:test";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import {
-  extensionSource,
-  fixtureExtensionCommand,
-  invoke,
-} from "../fixtures/cli-fixtures";
+import { extensionSource, invoke } from "../fixtures/cli-fixtures";
 import { createFixture } from "../fixtures/cli-fixtures";
+import { extensionFixtureCommand } from "../fixtures/extension-command";
 
 const roots: string[] = [];
 
@@ -24,6 +21,7 @@ afterEach(async () => {
 });
 
 const fixture = createFixture(roots);
+const fixtureExtensionCommand = extensionFixtureCommand();
 
 test("CLI resolves an explicit extension case and retains extension evidence", async () => {
   const { args, caseFile } = await fixture();

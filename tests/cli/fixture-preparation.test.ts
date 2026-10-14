@@ -8,12 +8,12 @@ import { pathToFileURL } from "node:url";
 import {
   isolatedNativeHost,
   extensionSource,
-  fixtureExtensionCommand,
   invoke,
   git,
   installLinuxCodexHelper,
 } from "../fixtures/cli-fixtures";
 import { createFixture } from "../fixtures/cli-fixtures";
+import { extensionFixtureCommand } from "../fixtures/extension-command";
 
 const testDirectory = join(import.meta.dir, "..");
 
@@ -26,6 +26,7 @@ afterEach(async () => {
 });
 
 const fixture = createFixture(roots);
+const fixtureExtensionCommand = extensionFixtureCommand();
 
 const instrumentedAdapter = join(
   testDirectory,
