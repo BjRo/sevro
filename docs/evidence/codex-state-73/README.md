@@ -193,3 +193,12 @@ natural-language execution limitation, and the latest doctor outcome is not a
 pass. An attempted exec-route comparison refused the unchanged native-goal
 policy before either candidate ran; native-goal authorization requires
 app-server. That refusal is retained and is not counted as a native trial.
+
+The [combined-source CI run](https://github.com/BjRo/sevro/actions/runs/38579747776)
+passed every test but measured 5,807/6,113 branches, below the unchanged 95%
+threshold. A further public-boundary regression exercises a composed native host
+that permits command-only configuration reads while the evaluator selects only
+review artifacts. It verifies that no Codex state bindings appear in grading,
+the native home is immediately cleaned up, and the declared review artifact
+remains readable. Local host visibility does not implicitly authorize evaluator
+retention or state sharing.

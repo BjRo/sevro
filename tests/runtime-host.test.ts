@@ -458,6 +458,52 @@ test("Codex state cannot be fabricated by a host without native evidence", async
   expect(defined(result.diagnostic).message).toContain("missing or unsafe");
 });
 
+test("Codex state command visibility does not enable evaluator state sharing", async () => {
+  const { host, root } = await codexFixture(
+    'test -s "$CODEX_HOME/config.toml" && printf "%s" "$CODEX_HOME" > native-home && mkdir -p "$HOME/.darrow/reviews" && printf review > "$HOME/.darrow/reviews/result" && printf review',
+  );
+  let nativeHome = "";
+  const candidate: HostAdapter = {
+    ...host,
+    configuration: {
+      ...host.configuration,
+      "fixture.command-config-visibility": true,
+    },
+    async run(request) {
+      const response = await host.run({
+        ...request,
+        runtimePolicy: { ...defined(request.runtimePolicy), codexState: true },
+      });
+      expect(response.finalMessage).toBe("review");
+      nativeHome = await readFile(
+        join(request.workspace, "native-home"),
+        "utf8",
+      );
+      return response;
+    },
+  };
+  const { result } = await artifactEvaluation(root, candidate, {
+    case: {
+      id: "command-only-config-visibility",
+      prompt: "Read local configuration and create review evidence.",
+      fixture: { files: {} },
+      requiredEvidence: [],
+      checks: [
+        {
+          id: "declared-artifacts-only",
+          grader: "sevro.shell",
+          configuration: {
+            run: 'test -z "$SEVRO_CANDIDATE_ARTIFACT_CODEX_CONFIG" && test -z "$SEVRO_CANDIDATE_ARTIFACT_CODEX_SKILLS" && test -z "$SEVRO_CANDIDATE_ARTIFACT_AGENT_SKILLS" && test -z "$SEVRO_CANDIDATE_ARTIFACT_COMMAND_AGENT_SKILLS" && test -z "$SEVRO_CANDIDATE_ARTIFACT_COMMAND_CODEX_SKILLS" && cat "$SEVRO_CANDIDATE_ARTIFACT_REVIEWS/result"',
+            expectExact: "review",
+          },
+        },
+      ],
+    },
+  });
+  expect(result.exitCode).toBe(0);
+  expect(existsSync(nativeHome)).toBe(false);
+});
+
 test("Codex state evidence stays bound to each native request", async () => {
   const { host, root } = await codexFixture(
     'printf "%s" "$CODEX_HOME" > native-home; printf ready',
