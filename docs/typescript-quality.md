@@ -120,7 +120,7 @@ macOS `sandbox-exec`, Keychain and Apple metadata modules are excluded; on macOS
 `bubblewrap` module is excluded. Shared isolation and credential code is counted
 on both.
 
-Apple developer-tool discovery lives in `src/runtime-discovery-apple.ts`, which
+Apple developer-tool discovery lives in `src/runtime/discovery-apple.ts`, which
 the public loader imports only under its explicit Darwin guard. Linux excludes
 that exact native module; macOS measures it, and both platforms still typecheck
 and lint it. The provider lookup, bounded query and read-root safeguards remain

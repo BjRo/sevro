@@ -8,10 +8,10 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises";
-import { constants } from "node:fs";
+import { constants, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import type { RuntimePolicy } from "../src/runtime-config";
+import type { RuntimePolicy } from "../src/runtime/config";
 
 const sourceRoot = resolve(required(process.argv[2]));
 const output = resolve(required(process.argv[3]));
@@ -25,6 +25,10 @@ function required(value: string | null | undefined): string {
       "usage: bun scripts/benchmark-runtime-startup.ts SOURCE_ROOT OUTPUT_JSON",
     );
   return value;
+}
+function sourceModule(grouped: string, legacy: string): string {
+  const path = join(sourceRoot, grouped);
+  return existsSync(path) ? path : join(sourceRoot, legacy);
 }
 async function measure<T>(phase: string, action: () => Promise<T>): Promise<T> {
   const start = performance.now();
@@ -51,10 +55,13 @@ async function measure<T>(phase: string, action: () => Promise<T>): Promise<T> {
   }
 }
 async function instrumentation() {
-  const runtimePath = join(sourceRoot, "src/runtime-state.ts");
+  const runtimePath = sourceModule(
+    "src/runtime/state.ts",
+    "src/runtime-state.ts",
+  );
   const runtime = (await import(
     runtimePath
-  )) as typeof import("../src/runtime-state");
+  )) as typeof import("../src/runtime/state");
   const prepareRuntimeState = runtime.prepareRuntimeState;
   await mock.module(runtimePath, () => ({
     ...runtime,
@@ -138,8 +145,8 @@ async function dependencies(root: string): Promise<RuntimePolicy> {
   for (let index = 0; index < 2048; index++)
     await writeFile(join(source, `dependency-${index}`), bytes);
   const config = (await import(
-    join(sourceRoot, "src/runtime-config.ts")
-  )) as typeof import("../src/runtime-config");
+    sourceModule("src/runtime/config.ts", "src/runtime-config.ts")
+  )) as typeof import("../src/runtime/config");
   const path = join(root, "runtime.json");
   await writeFile(
     path,
@@ -210,8 +217,11 @@ async function trial(root: string, policy: RuntimePolicy, binary: string) {
     join(sourceRoot, "src/hosts/codex.ts")
   )) as typeof import("../src/hosts/codex");
   const grading = (await import(
-    join(sourceRoot, "src/evaluation-grading-host.ts")
-  )) as typeof import("../src/evaluation-grading-host");
+    sourceModule(
+      "src/evaluation/grading-host.ts",
+      "src/evaluation-grading-host.ts",
+    )
+  )) as typeof import("../src/evaluation/grading-host");
   for (const selected of ["candidate", "semantic"] as const) {
     role = selected;
     const workspace = join(root, `workspace-${repetition}-${role}`);

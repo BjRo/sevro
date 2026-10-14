@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import validExchange from "./generated/extension.cjs";
 import { isRecord, isStringArray } from "./value-guards";
+import {
+  captureBoundedBytes,
+  ProcessDeadline,
+  terminateOwnedProcessGroup,
+} from "./process-lifecycle";
 
 const MAX_MESSAGE_BYTES = 8 * 1024 * 1024;
 const MAX_DIAGNOSTIC_BYTES = 64 * 1024;
@@ -33,61 +38,6 @@ export interface ExchangeOptions {
   cwd?: string;
   timeoutMs?: number;
   signal?: AbortSignal;
-}
-
-function boundedChunk(
-  value: Uint8Array,
-  size: number,
-  limit: number,
-  truncate: boolean,
-): Uint8Array {
-  if (!truncate && size + value.byteLength > limit)
-    throw new ExtensionProtocolError("extension message exceeds 8 MiB");
-  return value.subarray(0, Math.max(0, limit - size));
-}
-
-async function readBounded(
-  stream: ReadableStream<Uint8Array>,
-  limit: number,
-  truncate: boolean,
-): Promise<Uint8Array> {
-  const reader = stream.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    const kept = boundedChunk(value, size, limit, truncate);
-    if (kept.byteLength) chunks.push(kept);
-    size += kept.byteLength;
-  }
-  return concatenateChunks(chunks, size);
-}
-
-function concatenateChunks(chunks: Uint8Array[], size: number): Uint8Array {
-  const result = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) {
-    result.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return result;
-}
-
-function terminate(proc: Bun.Subprocess): void {
-  if (process.platform !== "win32") {
-    try {
-      process.kill(-proc.pid, "SIGKILL");
-      return;
-    } catch {
-      // The group may have exited while the runner was handling the error.
-    }
-  }
-  try {
-    proc.kill("SIGKILL");
-  } catch {
-    // The process already exited.
-  }
 }
 
 interface SuccessfulExtensionResponse extends ExtensionResponse {
@@ -217,13 +167,23 @@ function assertSuccessfulResponse(
 }
 
 class ExtensionExchange {
-  private timer: ReturnType<typeof setTimeout> | undefined;
-  private cancel: (() => void) | undefined;
+  private readonly deadline: ProcessDeadline;
   constructor(
     private readonly proc: Bun.Subprocess,
-    private readonly options: ExchangeOptions,
-    private readonly timeoutMs: number,
-  ) {}
+    options: ExchangeOptions,
+    timeoutMs: number,
+  ) {
+    this.deadline = new ProcessDeadline({
+      timeoutMs,
+      signal: options.signal,
+      interruption: (reason) =>
+        new ExtensionProtocolError(
+          reason === "timeout"
+            ? "extension timed out"
+            : "extension request cancelled",
+        ),
+    });
+  }
 
   private async output(
     request: ExtensionRequest,
@@ -232,9 +192,17 @@ class ExtensionExchange {
     const stdin = extensionWriter(this.proc);
     const { stdout, stderr } = extensionReaders(this.proc);
     const write = writeExtensionRequest(stdin, payload);
-    const [bytes, , exitCode] = await Promise.all([
-      readBounded(stdout, MAX_MESSAGE_BYTES, false),
-      readBounded(stderr, MAX_DIAGNOSTIC_BYTES, true),
+    const [{ bytes }, , exitCode] = await Promise.all([
+      captureBoundedBytes(stdout, {
+        limit: MAX_MESSAGE_BYTES,
+        overflow: "reject",
+        exceeded: () =>
+          new ExtensionProtocolError("extension message exceeds 8 MiB"),
+      }),
+      captureBoundedBytes(stderr, {
+        limit: MAX_DIAGNOSTIC_BYTES,
+        overflow: "truncate",
+      }),
       this.proc.exited,
       write,
     ]);
@@ -248,48 +216,18 @@ class ExtensionExchange {
     return response;
   }
 
-  private timeout(): Promise<never> {
-    return new Promise((_resolve, reject) => {
-      this.timer = setTimeout(() => {
-        reject(new ExtensionProtocolError("extension timed out"));
-      }, this.timeoutMs);
-    });
-  }
-
-  private aborted(): Promise<never> {
-    return new Promise((_resolve, reject) => {
-      const signal = this.options.signal;
-      if (!signal) return;
-      this.cancel = () => {
-        reject(new ExtensionProtocolError("extension request cancelled"));
-      };
-      if (signal.aborted) this.cancel();
-      else signal.addEventListener("abort", this.cancel, { once: true });
-    });
-  }
-
-  private dispose(): void {
-    if (this.timer) clearTimeout(this.timer);
-    if (this.cancel)
-      this.options.signal?.removeEventListener("abort", this.cancel);
-  }
-
   async run(
     request: ExtensionRequest,
     payload: Uint8Array,
   ): Promise<SuccessfulExtensionResponse> {
     try {
-      return await Promise.race([
-        this.output(request, payload),
-        this.timeout(),
-        this.aborted(),
-      ]);
+      return await this.deadline.wait(this.output(request, payload));
     } catch (cause) {
-      terminate(this.proc);
+      terminateOwnedProcessGroup(this.proc);
       if (cause instanceof ExtensionProtocolError) throw cause;
       throw new ExtensionProtocolError("extension transport failed", { cause });
     } finally {
-      this.dispose();
+      this.deadline.dispose();
     }
   }
 }

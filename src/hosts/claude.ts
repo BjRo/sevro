@@ -14,16 +14,16 @@ import {
   failedNativeTranscripts,
   retainEnabledNativeTranscripts,
 } from "../native-transcripts";
-import { fixtureParts } from "../preparation";
+import { fixtureParts } from "../fixtures/preparation";
 import {
   prepareHookMounts,
   releaseRuntimeHooks,
   runtimeHookObservation,
   runtimeHooksEnabled,
   type HookMounts,
-} from "../runtime-hooks";
-import { insideRuntimeRoot as inside } from "../runtime-paths";
-import { runtimeObservations } from "../runtime-state";
+} from "../runtime/hooks";
+import { insideRuntimeRoot as inside } from "../runtime/paths";
+import { runtimeObservations } from "../runtime/state";
 import { isOptionalNonblankString, isRecord } from "../value-guards";
 import { runClaudeTurns, type ClaudeSession } from "./claude-continuation";
 import { summarizeClaudeEvents } from "./claude-events";

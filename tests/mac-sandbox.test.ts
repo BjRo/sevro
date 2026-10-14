@@ -24,11 +24,10 @@ import {
   allocateNativeState,
   nativeStatePath,
 } from "../src/native-transcript-state";
-import {
-  cleanupTemporaryFixtures,
-  fixtureGit,
-  repositoryFixture,
-} from "./quality-fixtures/fixture-preparation-tools";
+import { createTemporaryFixtures, fixtureGit } from "./fixtures/filesystem";
+
+const { cleanupTemporaryFixtures, repositoryFixture } =
+  createTemporaryFixtures();
 
 const invalidSandboxCommands: {
   label: string;

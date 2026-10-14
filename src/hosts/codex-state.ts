@@ -1,4 +1,4 @@
-import { runtimeLocalHttpEnabled, runtimeSeedSources } from "../runtime-config";
+import { runtimeLocalHttpEnabled, runtimeSeedSources } from "../runtime/config";
 import {
   candidateArtifactEnvironment,
   candidateArtifactReadRoots,
@@ -9,7 +9,7 @@ import {
 } from "../candidate-codex-state";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { isMissingFile } from "../fixture-tools";
+import { isMissingFile } from "../fixtures/tools";
 import {
   cp,
   lstat,
@@ -27,12 +27,12 @@ import {
   candidateTranscriptEnvironment,
   candidateTranscriptRoots,
 } from "../native-transcripts";
-import { prepareHookMounts } from "../runtime-hooks";
+import { prepareHookMounts } from "../runtime/hooks";
 import {
   requireRuntimeReadRoots,
   runtimeExecutableProtection,
-} from "../runtime-paths";
-import { prepareRuntimeState } from "../runtime-state";
+} from "../runtime/paths";
+import { prepareRuntimeState } from "../runtime/state";
 import { codexPermissionProfile } from "./codex-profile";
 import { evaluationProtectedRoots } from "./isolation-roots";
 type Request = Parameters<HostAdapter["run"]>[0];

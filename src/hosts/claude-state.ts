@@ -1,4 +1,4 @@
-import { runtimeSeedSources } from "../runtime-config";
+import { runtimeSeedSources } from "../runtime/config";
 import {
   candidateArtifactEnvironment,
   candidateArtifactReadRoots,
@@ -17,17 +17,17 @@ import { nativeStateParent } from "../native-transcript-state";
 import {
   workspaceBoundaryException,
   workspaceStatePath,
-} from "../workspace-state";
+} from "../fixtures/workspace-state";
 import {
   candidateTranscriptEnvironment,
   candidateTranscriptRoots,
 } from "../native-transcripts";
-import { prepareHookMounts, runtimeHooksEnabled } from "../runtime-hooks";
+import { prepareHookMounts, runtimeHooksEnabled } from "../runtime/hooks";
 import {
   insideRuntimeRoot as inside,
   runtimeExecutableProtection,
-} from "../runtime-paths";
-import { prepareRuntimeState } from "../runtime-state";
+} from "../runtime/paths";
+import { prepareRuntimeState } from "../runtime/state";
 import { stageClaudeAuthentication } from "./claude-credential";
 import { claudeHostSettings } from "./claude-settings";
 import { evaluationProtectedRoots } from "./isolation-roots";

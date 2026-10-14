@@ -3,8 +3,8 @@ import fc from "fast-check";
 import { canonicalJson, hashJson } from "../src/identity";
 import { summarizeCodexEvents } from "../src/hosts/codex-events";
 import { assertCliResult } from "../src/schema";
-import { prepareRepositoryFixture } from "../src/repository-fixture";
-import { prepareGeneratedFixture } from "../src/generated-fixture";
+import { prepareRepositoryFixture } from "../src/fixtures/repository";
+import { prepareGeneratedFixture } from "../src/fixtures/generated";
 import { resolvedFixture } from "../src/resolved-case";
 
 const settings = { seed: 20261007, numRuns: 200, endOnFailure: true };

@@ -15,7 +15,7 @@ import { join } from "node:path";
 import {
   advisoryBaseRevision,
   buildBlindAdvisoryFixture,
-} from "../src/advisory-fixture";
+} from "../src/fixtures/advisory";
 const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(

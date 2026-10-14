@@ -1,6 +1,11 @@
 import { isRecord } from "../value-guards";
 import { lstat } from "node:fs/promises";
 import { join } from "node:path";
+import {
+  captureBoundedText,
+  ProcessDeadline,
+  terminateOwnedProcessGroup,
+} from "../process-lifecycle";
 
 const MAX_OUTPUT_BYTES = 128;
 const TIMEOUT_MS = 10_000;
@@ -45,41 +50,6 @@ function validGitHeadConfiguration(
   );
 }
 
-async function boundedOutput(
-  stream: ReadableStream<Uint8Array>,
-): Promise<string> {
-  const reader = stream.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > MAX_OUTPUT_BYTES)
-      throw new Error("Git HEAD output is oversized");
-    chunks.push(value);
-  }
-  return new TextDecoder("utf-8", { fatal: true }).decode(
-    Buffer.concat(chunks),
-  );
-}
-
-function stopProcess(proc: Bun.Subprocess): void {
-  if (process.platform !== "win32") {
-    try {
-      process.kill(-proc.pid, "SIGKILL");
-      return;
-    } catch {
-      // The process group may already have exited.
-    }
-  }
-  try {
-    proc.kill("SIGKILL");
-  } catch {
-    // The process already exited.
-  }
-}
-
 function gitEnvironment() {
   return {
     PATH: process.env.PATH ?? "/usr/bin:/bin",
@@ -98,58 +68,43 @@ async function validateGitMetadata(workspace: string): Promise<void> {
 }
 
 class GitHeadExecution {
-  private timer: ReturnType<typeof setTimeout> | undefined;
-  private cancel: (() => void) | undefined;
+  private readonly deadline: ProcessDeadline;
   constructor(
     private readonly proc: Bun.Subprocess<"ignore", "pipe", "ignore">,
-    private readonly signal: AbortSignal | undefined,
-  ) {}
+    signal: AbortSignal | undefined,
+  ) {
+    this.deadline = new ProcessDeadline({
+      timeoutMs: TIMEOUT_MS,
+      signal,
+      interruption: (reason) =>
+        new Error(
+          reason === "timeout"
+            ? "Git HEAD check timed out"
+            : "Git HEAD check cancelled",
+        ),
+    });
+  }
 
   private complete() {
     return Promise.all([
-      boundedOutput(this.proc.stdout),
+      captureBoundedText(this.proc.stdout, {
+        limit: MAX_OUTPUT_BYTES,
+        overflow: "reject",
+        exceeded: () => new Error("Git HEAD output is oversized"),
+      }),
       this.proc.exited,
     ]).then(([output, code]) => ({ output: output.trim(), code }));
   }
 
-  private timeout(): Promise<never> {
-    return new Promise((_resolve, reject) => {
-      this.timer = setTimeout(() => {
-        reject(new Error("Git HEAD check timed out"));
-      }, TIMEOUT_MS);
-    });
-  }
-
-  private aborted(): Promise<never> {
-    return new Promise((_resolve, reject) => {
-      const signal = this.signal;
-      if (!signal) return;
-      this.cancel = () => {
-        reject(new Error("Git HEAD check cancelled"));
-      };
-      signal.addEventListener("abort", this.cancel, { once: true });
-      if (signal.aborted) this.cancel();
-    });
-  }
-
-  private dispose(): void {
-    if (this.timer) clearTimeout(this.timer);
-    if (this.cancel) this.signal?.removeEventListener("abort", this.cancel);
-  }
-
   async run(): Promise<{ output: string; code: number }> {
     try {
-      return await Promise.race([
-        this.complete(),
-        this.timeout(),
-        this.aborted(),
-      ]);
+      return await this.deadline.wait(this.complete());
     } catch (error) {
-      stopProcess(this.proc);
+      terminateOwnedProcessGroup(this.proc);
       await this.proc.exited;
       throw error;
     } finally {
-      this.dispose();
+      this.deadline.dispose();
     }
   }
 }

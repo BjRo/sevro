@@ -1,4 +1,4 @@
-import { runtimeLocalHttpEnabled, runtimeSeedSources } from "../runtime-config";
+import { runtimeLocalHttpEnabled, runtimeSeedSources } from "../runtime/config";
 import {
   candidateArtifactEnvironment,
   type CandidateArtifactRoots,
@@ -6,9 +6,14 @@ import {
 import { mkdir, stat } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 import { prepareIsolatedCommand } from "../hosts/isolation";
-import type { RuntimePolicy } from "../runtime-config";
-import { prepareRuntimeState } from "../runtime-state";
+import type { RuntimePolicy } from "../runtime/config";
+import { prepareRuntimeState } from "../runtime/state";
 import { hashJson } from "../identity";
+import {
+  captureBoundedText,
+  ProcessDeadline,
+  terminateOwnedProcessGroup,
+} from "../process-lifecycle";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 120_000;
@@ -239,32 +244,12 @@ function forbiddenPatternFailure(
 async function boundedOutput(
   stream: ReadableStream<Uint8Array>,
 ): Promise<string> {
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  for await (const chunk of stream) {
-    size += chunk.byteLength;
-    if (size > MAX_OUTPUT_BYTES) throw new Error("shell stdout exceeds 1 MiB");
-    chunks.push(chunk);
-  }
-  return new TextDecoder("utf-8", { fatal: true }).decode(
-    Buffer.concat(chunks),
-  );
-}
-
-function stopProcess(proc: Bun.Subprocess): void {
-  if (process.platform !== "win32") {
-    try {
-      process.kill(-proc.pid, "SIGKILL");
-      return;
-    } catch {
-      // The group may already be gone.
-    }
-  }
-  try {
-    proc.kill("SIGKILL");
-  } catch {
-    // The process already exited.
-  }
+  return captureBoundedText(stream, {
+    limit: MAX_OUTPUT_BYTES,
+    overflow: "reject",
+    exceeded: () => new Error("shell stdout exceeds 1 MiB"),
+    cancelOnError: true,
+  });
 }
 
 interface ShellRunOptions {
@@ -368,30 +353,39 @@ function shellStdout(
 }
 class ShellExecution {
   private proc?: Bun.Subprocess;
-  private timer?: ReturnType<typeof setTimeout>;
-  private cancel?: () => void;
+  private readonly deadline: ProcessDeadline;
   constructor(
     private check: PreparedShellCheck,
     private options: ShellRunOptions,
     private isolation: Isolation,
     private runtime: ShellRuntime,
-  ) {}
+  ) {
+    this.deadline = new ProcessDeadline({
+      timeoutMs: check.timeoutMs,
+      signal: options.signal,
+      interruption: (reason) =>
+        new Error(
+          reason === "timeout"
+            ? "shell check timed out"
+            : "shell check cancelled",
+        ),
+    });
+  }
   async run(): Promise<ShellCheckResult> {
     try {
       const running = this.spawn();
       const stream = shellStdout(this.check, running.stdout);
-      const timeout = this.deadline();
-      const aborted = this.cancellation();
-      const completed = Promise.all([
-        running.exited,
-        stream ? boundedOutput(stream) : Promise.resolve(null),
-      ]).then(([exitCode, stdout]) => ({ exitCode, stdout }));
-      return await Promise.race([completed, timeout, aborted]);
+      return await this.deadline.wait(() =>
+        Promise.all([
+          running.exited,
+          stream ? boundedOutput(stream) : Promise.resolve(null),
+        ]).then(([exitCode, stdout]) => ({ exitCode, stdout })),
+      );
     } catch (error) {
       await this.stop();
       throw error;
     } finally {
-      this.releaseListeners();
+      this.deadline.dispose();
       await this.isolation.release();
     }
   }
@@ -406,34 +400,11 @@ class ShellExecution {
     });
     return this.proc;
   }
-  private deadline(): Promise<never> {
-    return new Promise((_resolve, reject) => {
-      this.timer = setTimeout(() => {
-        reject(new Error("shell check timed out"));
-      }, this.check.timeoutMs);
-    });
-  }
-  private cancellation(): Promise<never> {
-    return new Promise((_resolve, reject) => {
-      const signal = this.options.signal;
-      if (!signal) return;
-      this.cancel = () => {
-        reject(new Error("shell check cancelled"));
-      };
-      if (signal.aborted) this.cancel();
-      else signal.addEventListener("abort", this.cancel, { once: true });
-    });
-  }
   private async stop(): Promise<void> {
     const proc = this.proc;
     if (!proc) return;
-    stopProcess(proc);
+    terminateOwnedProcessGroup(proc);
     await proc.exited;
-  }
-  private releaseListeners(): void {
-    if (this.timer) clearTimeout(this.timer);
-    if (this.cancel)
-      this.options.signal?.removeEventListener("abort", this.cancel);
   }
 }
 

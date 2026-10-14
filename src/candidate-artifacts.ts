@@ -12,8 +12,8 @@ import {
   allocateNativeState,
   nativeStatePath,
 } from "./native-transcript-state";
-import type { RuntimePolicy, RuntimeRole } from "./runtime-config";
-import { clearFixtureContents } from "./fixture-cleanup";
+import type { RuntimePolicy, RuntimeRole } from "./runtime/config";
+import { clearFixtureContents } from "./fixtures/cleanup";
 
 export interface RuntimeArtifactDirectory {
   name: string;

@@ -9,7 +9,7 @@ import {
   optionalMutationPaths,
   remove,
   replace,
-} from "./quality-fixtures/schema-boundaries";
+} from "./fixtures/schema/boundaries";
 
 const digest = "a".repeat(64);
 const configuration = { feature: { enabled: true, values: [1, "two", null] } };

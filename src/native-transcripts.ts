@@ -1,11 +1,10 @@
 import { lstat, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { sha256 } from "./identity";
-import type { HostResult } from "./evaluation-types";
-import type { RuntimeRole } from "./runtime-state";
-import type { RuntimePolicy } from "./runtime-config";
+import { HostExecutionFailure, type HostResult } from "./evaluation/types";
+import type { RuntimeRole } from "./runtime/state";
+import type { RuntimePolicy } from "./runtime/config";
 import { isRecord } from "./value-guards";
-import { CodexProcessFailure } from "./hosts/codex-process";
 import {
   rethrowDiagnosticPersistenceError,
   type HostDiagnostics,
@@ -58,7 +57,7 @@ export async function failedNativeTranscripts(
   rethrowDiagnosticPersistenceError(cause);
   requireFailureCapture(cause, policy, diagnostics);
   const result: HostResult =
-    cause instanceof CodexProcessFailure
+    cause instanceof HostExecutionFailure
       ? cause.result
       : {
           finalMessage: null,

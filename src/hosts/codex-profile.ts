@@ -1,6 +1,6 @@
 import { isAbsolute, join, sep } from "node:path";
-import { insideRuntimeRoot, isRuntimeHomeRoot } from "../runtime-paths";
-import { workspaceBoundaryException } from "../workspace-state";
+import { insideRuntimeRoot, isRuntimeHomeRoot } from "../runtime/paths";
+import { workspaceBoundaryException } from "../fixtures/workspace-state";
 import {
   nativeStatePath,
   nativeStateProtectedRoots,

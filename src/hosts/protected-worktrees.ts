@@ -1,4 +1,4 @@
-import { isMissingFile } from "../fixture-tools";
+import { isMissingFile } from "../fixtures/tools";
 import { lstat, readdir, realpath, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";

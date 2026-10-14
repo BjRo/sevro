@@ -22,7 +22,10 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { runEvaluation } from "../src/engine";
 import { createCodexHost } from "../src/hosts/codex";
-import { allocateWorkspace, removeWorkspace } from "../src/workspace-state";
+import {
+  allocateWorkspace,
+  removeWorkspace,
+} from "../src/fixtures/workspace-state";
 const roots: string[] = [];
 const isolatedNativeHost =
   process.platform === "darwin" ||

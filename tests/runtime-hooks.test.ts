@@ -13,9 +13,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createClaudeHost } from "../src/hosts/claude";
 import { createCodexHost } from "../src/hosts/codex";
-import { runtimeSeedDigest } from "../src/runtime-seeds";
+import { runtimeSeedDigest } from "../src/runtime/seeds";
 import { defined } from "./fixtures/assertions";
-import { allocateWorkspace, removeWorkspace } from "../src/workspace-state";
+import {
+  allocateWorkspace,
+  removeWorkspace,
+} from "../src/fixtures/workspace-state";
 import { allocateNativeState } from "../src/native-transcript-state";
 
 const roots: string[] = [];

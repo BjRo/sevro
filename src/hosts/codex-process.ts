@@ -1,13 +1,16 @@
 import {
   awaitHostProcess,
-  boundedProcessText,
   MAX_EVENT_BYTES,
   HostProcessInterruption,
 } from "./process-lifecycle";
-import type { HostResult } from "../evaluation-types";
+import {
+  captureBoundedBytes,
+  captureBoundedText,
+  terminateOwnedProcessGroup,
+} from "../process-lifecycle";
+import { HostExecutionFailure, type HostResult } from "../evaluation/types";
 import {
   HostProcessDiagnostics,
-  type DiagnosticStream,
   type HostDiagnostics,
 } from "../host-diagnostics";
 
@@ -47,8 +50,7 @@ function failureSuffix(
   return failure.reason === "cancelled" ? "cancelled" : "failed";
 }
 
-export class CodexProcessFailure extends Error {
-  readonly result: HostResult;
+export class CodexProcessFailure extends HostExecutionFailure {
   constructor(
     phase: Phase,
     process: Result,
@@ -56,14 +58,7 @@ export class CodexProcessFailure extends Error {
     timeoutMs = 60_000,
   ) {
     const failure = { phase, reason, timeoutMs };
-    super(
-      codexFailureMessage({
-        finalMessage: null,
-        complete: false,
-        processFailure: failure,
-      }),
-    );
-    this.result = {
+    const result: HostResult = {
       finalMessage: null,
       complete: false,
       executionFailed: true,
@@ -85,40 +80,7 @@ export class CodexProcessFailure extends Error {
         { id: "codex.stderr", bytes: process.stderr },
       ],
     };
-  }
-}
-
-/** Drain stderr even after the retained 64 KiB prefix is full. */
-async function captureStderr(
-  stream: ReadableStream<Uint8Array>,
-  observe?: DiagnosticStream,
-) {
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  let truncated = false;
-  for await (const bytes of stream) {
-    observe?.add(bytes);
-    const retained = bytes.subarray(0, Math.max(0, 64 * 1024 - size));
-    if (retained.byteLength) chunks.push(retained);
-    size += retained.byteLength;
-    truncated ||= retained.byteLength !== bytes.byteLength;
-  }
-  return { bytes: Buffer.concat(chunks), truncated };
-}
-
-function stopProcess(proc: Bun.Subprocess): void {
-  if (process.platform !== "win32") {
-    try {
-      process.kill(-proc.pid, "SIGKILL");
-      return;
-    } catch {
-      // The group may have exited before cancellation.
-    }
-  }
-  try {
-    proc.kill("SIGKILL");
-  } catch {
-    // The process already exited.
+    super(codexFailureMessage(result), result);
   }
 }
 
@@ -177,15 +139,22 @@ function codexCompletion(
   capture: HostProcessDiagnostics,
 ) {
   const started = performance.now();
-  const stdout = boundedProcessText(
-    proc.stdout,
-    MAX_EVENT_BYTES,
-    "Codex event stream exceeds the size limit",
-    (bytes) => {
+  const stdout = captureBoundedText(proc.stdout, {
+    limit: MAX_EVENT_BYTES,
+    overflow: "reject",
+    exceeded: () => new Error("Codex event stream exceeds the size limit"),
+    observe: (bytes) => {
       capture.stdout.add(bytes);
     },
-  );
-  const stderr = captureStderr(proc.stderr, capture.stderr);
+  });
+  const stderr = captureBoundedBytes(proc.stderr, {
+    limit: 64 * 1024,
+    overflow: "truncate",
+    cancelOnError: true,
+    observe: (bytes) => {
+      capture.stderr.add(bytes);
+    },
+  });
   const input = writeCodexInput(proc, options.input);
   const completed = Promise.all([stdout, proc.exited, stderr, input]).then(
     ([out, code, err]) => ({
@@ -211,7 +180,7 @@ export async function runCodexProcess(
     const result = await awaitHostProcess(proc, completed, {
       ...options,
       host: "Codex",
-      stop: stopProcess,
+      stop: terminateOwnedProcessGroup,
     });
     await capture.record(proc);
     return result;

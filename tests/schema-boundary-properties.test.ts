@@ -18,13 +18,13 @@ import {
   optionalMutationPaths,
   remove,
   replace,
-} from "./quality-fixtures/schema-boundaries";
-import type { Path } from "./quality-fixtures/schema-boundaries";
+} from "./fixtures/schema/boundaries";
+import type { Path } from "./fixtures/schema/boundaries";
 import {
   richCli,
   richEvidence,
   richReport,
-} from "./quality-fixtures/rich-schema-results";
+} from "./fixtures/schema/rich-results";
 
 type Document = {
   name: string;
