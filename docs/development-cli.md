@@ -323,7 +323,13 @@ isolated shell checks receive `.git/fixture-bin` on `PATH`. Host adapters
 receive `fixtureBinDir` and must add it to their native tool environment; the
 bundled Codex adapter also preserves it across login shells. A negotiated
 fixture setup command may then prepare the clone before the host runs.
-Repository submodules and preparation artifacts targeting `.git/` are refused.
+Repository fixtures preserve committed `.gitmodules` files and submodule gitlink
+revisions. Trial clones leave submodules uninitialized and do not fetch their
+contents, even when the source has initialized submodules. A fixture that needs
+those contents must initialize them during its negotiated setup. Modified or
+untracked files and revision changes in initialized source submodules are
+refused, including when Git's submodule ignore settings hide them. Preparation
+artifacts targeting `.git/` are refused.
 
 A direct case or extension can declare a generated Git fixture:
 
