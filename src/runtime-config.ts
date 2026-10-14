@@ -28,6 +28,7 @@ export interface RuntimeSeed {
 export interface RuntimeConfiguration {
   format: "sevro.runtime.v1";
   codexState?: boolean;
+  network?: { localHttp?: boolean };
   nativeTranscripts?: boolean;
   environment?: { inherit?: string[]; set?: Record<string, string> };
   filesystem?: { readOnlyRoots?: string[]; optionalReadOnlyRoots?: string[] };
@@ -41,6 +42,7 @@ export interface RuntimeConfiguration {
 export interface RuntimePolicy {
   format: "sevro.runtime.v1";
   codexState?: boolean;
+  network?: { localHttp?: boolean };
   artifactDirectories?: RuntimeArtifactDirectory[];
   nativeTranscripts?: boolean;
   environment: Record<string, string>;
@@ -51,6 +53,14 @@ export interface RuntimePolicy {
   seedReadDenyRoots?: string[];
   seeds?: (RuntimeSeed & { sha256: string })[];
   hooks?: { nativeGoal?: boolean; plugins?: string[] };
+}
+
+export function runtimeLocalHttpEnabled(
+  policy: RuntimePolicy | undefined,
+  role: RuntimeRole,
+): boolean {
+  const network = policy?.network;
+  return network?.localHttp === true && ["candidate", "checks"].includes(role);
 }
 
 export function runtimeNativeGoalEnabled(
@@ -66,6 +76,7 @@ export function runtimePolicySnapshot(
   if (!policy) return undefined;
   requireRuntimeEnvironment(policy.environment);
   const snapshot = structuredClone(policy);
+  Object.freeze(snapshot.network);
   freezeArtifactDirectories(snapshot);
   Object.freeze(snapshot.environment);
   Object.freeze(snapshot.readOnlyRoots);
@@ -310,17 +321,24 @@ async function resolveRuntimeConfiguration(
   requireRuntimeReadRoots(readOnlyRoots, protectedRoots);
   return {
     format: value.format,
+    ...selectedRuntimeCapabilities(value),
     ...artifactConfiguration(value.runtime),
-    ...(value.codexState === undefined ? {} : { codexState: value.codexState }),
-    ...(value.nativeTranscripts === undefined
-      ? {}
-      : { nativeTranscripts: value.nativeTranscripts }),
     environment,
     readOnlyRoots: [...new Set(readOnlyRoots)].sort(),
     discovery: discovery.sources,
     skippedOptionalReadOnlyRoots: optional.skipped,
     seeds: await resolvedSeeds(configurationSeeds(value), environment, base),
     hooks: resolvedHooks(value.hooks),
+  };
+}
+
+function selectedRuntimeCapabilities(value: RuntimeConfiguration) {
+  return {
+    ...(value.network === undefined ? {} : { network: value.network }),
+    ...(value.codexState === undefined ? {} : { codexState: value.codexState }),
+    ...(value.nativeTranscripts === undefined
+      ? {}
+      : { nativeTranscripts: value.nativeTranscripts }),
   };
 }
 

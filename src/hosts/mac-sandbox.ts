@@ -46,12 +46,14 @@ export function macSandboxProfile(
   writableRuntimeRoot?: string,
   transcriptReadRoots: string[] = [],
   workspace?: string,
+  localHttp?: boolean,
 ): string {
   requireProfileRoots(deniedRoots);
   return [
     "(version 1)",
     "(allow default)",
     ...(denyNetwork ? ["(deny network*)"] : []),
+    ...localHttpRules(localHttp),
     ...[...new Set(deniedRoots)]
       .sort()
       .flatMap((path) => [
@@ -80,6 +82,16 @@ export function macSandboxProfile(
     ),
     "",
   ].join("\n");
+}
+
+function localHttpRules(enabled: boolean | undefined): string[] {
+  return enabled
+    ? [
+        '(allow network-bind (local ip "*:*"))',
+        '(allow network-inbound (local ip "localhost:*"))',
+        '(allow network-outbound (remote ip "localhost:*"))',
+      ]
+    : [];
 }
 
 function ancestorMetadataRules(root: string, readRoots: string[]): string[] {
@@ -176,6 +188,7 @@ export async function prepareMacSandboxCommand(
       ownedRoot,
       curatedReadRoots(options),
       workspace,
+      options.localHttp,
     ),
     { flag: "wx", mode: 0o600 },
   );

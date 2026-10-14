@@ -1,4 +1,4 @@
-import { runtimeSeedSources } from "../runtime-config";
+import { runtimeLocalHttpEnabled, runtimeSeedSources } from "../runtime-config";
 import {
   candidateArtifactEnvironment,
   candidateArtifactReadRoots,
@@ -155,6 +155,10 @@ async function writeCodexProfile(
   runtimeWriteRoot?: string,
 ): Promise<void> {
   const profile = codexPermissionProfile({
+    localHttp: runtimeLocalHttpEnabled(
+      request.runtimePolicy,
+      request.runtimeRole ?? "candidate",
+    ),
     commandEnvironment: codexProfileEnvironment(
       request,
       paths,

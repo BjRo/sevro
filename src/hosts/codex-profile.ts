@@ -42,6 +42,7 @@ export function codexPermissionProfile(options: {
   nativeReadRoots?: string[];
   nativeWriteRoots?: string[];
   runtimeWriteRoot?: string;
+  localHttp?: boolean;
 }): string {
   if (!/^[a-z][a-z0-9_]*$/.test(options.id))
     throw new Error("invalid Codex permission profile ID");
@@ -52,8 +53,7 @@ export function codexPermissionProfile(options: {
     `default_permissions = ${toml(name)}`,
     'approval_policy = "never"',
     "allow_login_shell = false",
-    "[features]",
-    "hooks = false",
+    ...codexFeatureLines(options.localHttp),
     "",
     "[shell_environment_policy]",
     'inherit = "none"',
@@ -93,9 +93,27 @@ export function codexPermissionProfile(options: {
     '"." = "write"',
     "",
     `[permissions.${name}.network]`,
-    "enabled = false",
+    ...networkProfile(options.localHttp),
     "",
   ].join("\n");
+}
+
+function codexFeatureLines(localHttp: boolean | undefined): string[] {
+  return [
+    "[features]",
+    "hooks = false",
+    ...(localHttp ? ["network_proxy = true"] : []),
+  ];
+}
+
+function networkProfile(localHttp: boolean | undefined): string[] {
+  if (!localHttp) return ["enabled = false"];
+  return [
+    "enabled = true",
+    "allow_local_binding = true",
+    "allow_upstream_proxy = false",
+    'domains = { "localhost" = "allow", "127.0.0.1" = "allow", "::1" = "allow" }',
+  ];
 }
 
 function profileProtectedRoots(

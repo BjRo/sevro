@@ -1,4 +1,4 @@
-import { runtimeSeedSources } from "../runtime-config";
+import { runtimeLocalHttpEnabled, runtimeSeedSources } from "../runtime-config";
 import {
   candidateArtifactEnvironment,
   type CandidateArtifactRoots,
@@ -451,6 +451,7 @@ export async function runShellCheck(
     protectedRootsCanonical: options.protectedRootsCanonical,
     privateStateRoot: options.privateStateRoot,
     denyNetwork: true,
+    localHttp: runtimeLocalHttpEnabled(options.runtimePolicy, "checks"),
     readOnlyRoots: options.runtimePolicy?.readOnlyRoots,
     candidateArtifactRoots: options.candidateArtifactRoots,
     transcriptReadRoots: options.candidateTranscriptRoot

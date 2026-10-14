@@ -345,6 +345,278 @@
         "model": "gpt-6.1-sol",
         "effort": "medium"
       }
+    },
+    {
+      "invocation": "doctor-08",
+      "sourceSnapshot": "mergedSourceFiles",
+      "semanticGrader": {
+        "model": "gpt-6.1-sol",
+        "effort": "medium"
+      },
+      "caseId": "doctor-adaptive-goal-direct-codex",
+      "runId": "f85d5ed0-36c4-461e-aa97-d009561e0d41",
+      "evaluationIdentityDigest": "e0d638f6620323798a46b8e21319149e2c0f2249cf96cb42dc5348a9ea626859",
+      "configurationDigest": "1f550988ed24dfe49ca565b2c19bedd134090760f2346d97235f5f150917b2f3",
+      "execution": "completed",
+      "grading": "completed",
+      "task": "failed",
+      "exitCode": 1,
+      "activation": "passed",
+      "checks": [
+        {
+          "id": "darrow.shell.1",
+          "status": "passed"
+        },
+        {
+          "id": "darrow.semantic.1",
+          "status": "failed"
+        },
+        {
+          "id": "darrow.semantic.2",
+          "status": "failed"
+        },
+        {
+          "id": "darrow.evals.transcript.1",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "invocation": "authoring-04",
+      "sourceSnapshot": "mergedSourceFiles",
+      "semanticGrader": {
+        "model": "gpt-6.1-sol",
+        "effort": "medium"
+      },
+      "caseId": "create-agent-skill-refuse-undefined-skill",
+      "runId": "df6f8653-c25d-4ad2-8ea8-76cb7009663a",
+      "evaluationIdentityDigest": "939c67c92cdb7b48d6b2a0e842af801faf5e9a04e1dbfe62a6497e28ecfdb6e4",
+      "configurationDigest": "b97881513ed2824c07ac254980f01734e7a021628c77a4104af83a308c8a06e8",
+      "execution": "completed",
+      "grading": "completed",
+      "task": "passed",
+      "exitCode": 0,
+      "activation": "passed",
+      "checks": [
+        {
+          "id": "darrow.shell.1",
+          "status": "passed"
+        },
+        {
+          "id": "darrow.shell.2",
+          "status": "passed"
+        },
+        {
+          "id": "darrow.shell.3",
+          "status": "passed"
+        },
+        {
+          "id": "darrow.semantic.1",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "invocation": "doctor-09",
+      "sourceSnapshot": "finalSourceFiles",
+      "semanticGrader": {
+        "model": "gpt-6.1-sol",
+        "effort": "medium"
+      },
+      "caseId": "doctor-adaptive-goal-direct-codex",
+      "runId": "8927baae-fe09-4634-a620-9c792020a2eb",
+      "evaluationIdentityDigest": "d88fae17ec37200324dc924a82790e4e10d1c569991dfd4f4bbfedec0fa2a127",
+      "configurationDigest": "1f550988ed24dfe49ca565b2c19bedd134090760f2346d97235f5f150917b2f3",
+      "execution": "completed",
+      "grading": "unavailable",
+      "task": "failed",
+      "exitCode": 4,
+      "activation": "passed",
+      "checks": [
+        {
+          "id": "darrow.shell.1",
+          "status": "passed"
+        },
+        {
+          "id": "darrow.semantic.1",
+          "status": "failed"
+        },
+        {
+          "id": "darrow.semantic.2",
+          "status": "failed"
+        },
+        {
+          "id": "darrow.evals.transcript.1",
+          "status": "unavailable"
+        }
+      ]
+    },
+    {
+      "invocation": "authoring-05",
+      "sourceSnapshot": "finalSourceFiles",
+      "semanticGrader": {
+        "model": "gpt-6.1-sol",
+        "effort": "medium"
+      },
+      "caseId": "create-agent-skill-refuse-undefined-skill",
+      "runId": "df04f6fe-f2a1-4a7f-b68b-f8bf4997a6eb",
+      "evaluationIdentityDigest": "26633362f4e738a00c39353bd1a5ee225778f960b7761f4df1e7ae859b98a18d",
+      "configurationDigest": "b97881513ed2824c07ac254980f01734e7a021628c77a4104af83a308c8a06e8",
+      "execution": "completed",
+      "grading": "completed",
+      "task": "passed",
+      "exitCode": 0,
+      "activation": "passed",
+      "checks": [
+        {
+          "id": "darrow.shell.1",
+          "status": "passed"
+        },
+        {
+          "id": "darrow.shell.2",
+          "status": "passed"
+        },
+        {
+          "id": "darrow.shell.3",
+          "status": "passed"
+        },
+        {
+          "id": "darrow.semantic.1",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "invocation": "doctor-10",
+      "sourceSnapshot": "finalSourceFiles",
+      "semanticGrader": {
+        "model": "gpt-6.1-sol",
+        "effort": "medium"
+      },
+      "caseId": "doctor-adaptive-goal-direct-codex",
+      "runId": "92551a4e-f226-4849-a261-c6b6165eef9e",
+      "evaluationIdentityDigest": "48a63d6a0020b6b5136a9c452111d50339d088f024a2e77bcc13a6ab923614e5",
+      "configurationDigest": "1f550988ed24dfe49ca565b2c19bedd134090760f2346d97235f5f150917b2f3",
+      "execution": "completed",
+      "grading": "completed",
+      "task": "failed",
+      "exitCode": 1,
+      "activation": "passed",
+      "checks": [
+        {
+          "id": "darrow.shell.1",
+          "status": "passed"
+        },
+        {
+          "id": "darrow.semantic.1",
+          "status": "failed"
+        },
+        {
+          "id": "darrow.semantic.2",
+          "status": "failed"
+        },
+        {
+          "id": "darrow.evals.transcript.1",
+          "status": "passed"
+        }
+      ],
+      "candidate": {
+        "model": "gpt-6.1-sol",
+        "effort": "high"
+      }
+    },
+    {
+      "invocation": "authoring-06",
+      "sourceSnapshot": "finalSourceFiles",
+      "semanticGrader": {
+        "model": "gpt-6.1-sol",
+        "effort": "medium"
+      },
+      "caseId": "create-agent-skill-refuse-undefined-skill",
+      "runId": "9e3c8344-e46a-4e0a-af9d-6257ff669dba",
+      "evaluationIdentityDigest": "d7737646321373e04ef3aa46cbda8348015ff35ba87a68333fc07711ce034ff8",
+      "configurationDigest": "b97881513ed2824c07ac254980f01734e7a021628c77a4104af83a308c8a06e8",
+      "execution": "completed",
+      "grading": "completed",
+      "task": "passed",
+      "exitCode": 0,
+      "activation": "passed",
+      "checks": [
+        {
+          "id": "darrow.shell.1",
+          "status": "passed"
+        },
+        {
+          "id": "darrow.shell.2",
+          "status": "passed"
+        },
+        {
+          "id": "darrow.shell.3",
+          "status": "passed"
+        },
+        {
+          "id": "darrow.semantic.1",
+          "status": "passed"
+        }
+      ],
+      "candidate": {
+        "model": "gpt-6.1-sol",
+        "effort": "high"
+      }
+    },
+    {
+      "invocation": "doctor-11",
+      "sourceSnapshot": "finalSourceFiles",
+      "semanticGrader": {
+        "model": "gpt-6.1-sol",
+        "effort": "medium"
+      },
+      "caseId": "doctor-adaptive-goal-direct-codex",
+      "runId": null,
+      "evaluationIdentityDigest": null,
+      "configurationDigest": null,
+      "execution": "not_run",
+      "grading": "not_requested",
+      "task": "not_assessed",
+      "exitCode": 64,
+      "activation": "unavailable",
+      "checks": [],
+      "candidate": {
+        "model": "gpt-6.1-sol",
+        "effort": "high"
+      },
+      "entrypoint": "exec",
+      "diagnostic": {
+        "code": "sevro.invocation.invalid",
+        "message": "native-goal runtime policy requires Codex app-server"
+      }
+    },
+    {
+      "invocation": "authoring-07",
+      "sourceSnapshot": "finalSourceFiles",
+      "semanticGrader": {
+        "model": "gpt-6.1-sol",
+        "effort": "medium"
+      },
+      "caseId": "create-agent-skill-refuse-undefined-skill",
+      "runId": null,
+      "evaluationIdentityDigest": null,
+      "configurationDigest": null,
+      "execution": "not_run",
+      "grading": "not_requested",
+      "task": "not_assessed",
+      "exitCode": 64,
+      "activation": "unavailable",
+      "checks": [],
+      "candidate": {
+        "model": "gpt-6.1-sol",
+        "effort": "high"
+      },
+      "entrypoint": "exec",
+      "diagnostic": {
+        "code": "sevro.invocation.invalid",
+        "message": "native-goal runtime policy requires Codex app-server"
+      }
     }
   ],
   "repairSourceFiles": {
@@ -357,5 +629,33 @@
     "src/generated/runtime.cjs": "d3d6d6ab1c22f37b7e8e6eeaa2bbbff068c548b31447f67aad9c445d96fcb791",
     "schemas/runtime-v1.schema.json": "48cc9b45789920987805eb7a2d19805e173bd02497549b73d5e6e622fe733470",
     "typescript-sources.json": "e33af2db9e697280e007322ef286a21680a87f1a6ce954ba921d57376943ae66"
+  },
+  "mergedSourceFiles": {
+    "src/candidate-artifacts.ts": "72bc3fb458e6614116abba927d51dd50aa96721a95cc653dc765024d249a7817",
+    "src/candidate-codex-state.ts": "f588d2aa30f0ee69fa434ff840db439ebbeac7c5cf75530ebcb897e2dfe71bfb",
+    "src/hosts/codex-profile.ts": "9a143e49d839cfac0145c9d22d53cd8fa6500983096bc677ddb187ea2a13fc11",
+    "src/hosts/codex-state.ts": "e51b25e49bd3c14d7b832f3896e8b187088db46023c4a388fd0afe06d3e58dac",
+    "src/hosts/codex.ts": "0c3fe80de64553b0c5ce19f16f14eeae6477b8a2c8e063ae70599a94f39fc3c9",
+    "src/runtime-config.ts": "7a544e22be5cf4c161b789b8b7d8d1ce941929e799500a36d07dc9d5ac36d3c7",
+    "src/generated/runtime.cjs": "59e40ce9d747608c997a31e701251f3287a820f7a3fb5d2e30907342ce4d09e6",
+    "schemas/runtime-v1.schema.json": "7d10b7f72e27e4c5d9a2893ab2a4e47734a78ec292e02bd1a054971f21b56dd5",
+    "typescript-sources.json": "43eda95b3414f66b4fcec7ea5c4055d8166f72a9d695e860b07c1e78ad2d9fcc",
+    "src/graders/shell.ts": "e2286a6d4c24e7c231768509b10a0bf147bb8c7687f64eb2d7903cb0171061da",
+    "src/hosts/mac-sandbox.ts": "35fbca0603582eccc76712272af5099f9199890c8013aaa3a1a0d9f893dbdaab",
+    "src/hosts/isolation-common.ts": "5a6384afadf4fbf5e8e1f6d6a06a613c6f4fd6aa2ca3226e3ee700aeb9576406"
+  },
+  "finalSourceFiles": {
+    "src/candidate-artifacts.ts": "72bc3fb458e6614116abba927d51dd50aa96721a95cc653dc765024d249a7817",
+    "src/candidate-codex-state.ts": "f588d2aa30f0ee69fa434ff840db439ebbeac7c5cf75530ebcb897e2dfe71bfb",
+    "src/hosts/codex-profile.ts": "9d2955dc398b934b2e76ca0e25059ee7d58f55d8936dc92f969fe4430b5b7557",
+    "src/hosts/codex-state.ts": "e51b25e49bd3c14d7b832f3896e8b187088db46023c4a388fd0afe06d3e58dac",
+    "src/hosts/codex.ts": "0c3fe80de64553b0c5ce19f16f14eeae6477b8a2c8e063ae70599a94f39fc3c9",
+    "src/runtime-config.ts": "c13222fecc447c88f42b1b5ace5c7fcd730ef50d0030619f85ee8ada80bd0e6f",
+    "src/generated/runtime.cjs": "59e40ce9d747608c997a31e701251f3287a820f7a3fb5d2e30907342ce4d09e6",
+    "schemas/runtime-v1.schema.json": "7d10b7f72e27e4c5d9a2893ab2a4e47734a78ec292e02bd1a054971f21b56dd5",
+    "typescript-sources.json": "43eda95b3414f66b4fcec7ea5c4055d8166f72a9d695e860b07c1e78ad2d9fcc",
+    "src/graders/shell.ts": "e2286a6d4c24e7c231768509b10a0bf147bb8c7687f64eb2d7903cb0171061da",
+    "src/hosts/mac-sandbox.ts": "35fbca0603582eccc76712272af5099f9199890c8013aaa3a1a0d9f893dbdaab",
+    "src/hosts/isolation-common.ts": "5a6384afadf4fbf5e8e1f6d6a06a613c6f4fd6aa2ca3226e3ee700aeb9576406"
   }
 }

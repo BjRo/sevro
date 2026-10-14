@@ -185,6 +185,7 @@
     "tests/fixtures/advisory-adapter.ts",
     "tests/fixtures/app-server-peer.ts",
     "tests/fixtures/assertions.ts",
+    "tests/fixtures/local-http.ts",
     "tests/fixtures/completed-read-peer.ts",
     "tests/fixtures/documentation-tools.ts",
     "tests/fixtures/extension-command.ts",
