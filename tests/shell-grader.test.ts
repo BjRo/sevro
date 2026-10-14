@@ -11,13 +11,32 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { localHttpProbe } from "./fixtures/local-http";
 import {
   assessShellCheck,
   prepareShellChecks,
   runShellCheck,
 } from "../src/graders/shell";
 const roots: string[] = [];
+test("shell local HTTP opt-in runs a real server while refusing outbound TCP", async () => {
+  const options = await shellWorkspace();
+  const node = defined(Bun.which("node"));
+  await writeFile(join(options.workspace, "http-probe.cjs"), localHttpProbe);
+  const result = await runShellCheck(
+    outputCheck({ run: "node http-probe.cjs", expectExact: "local-http-ok" }),
+    {
+      ...options,
+      runtimePolicy: {
+        format: "sevro.runtime.v1",
+        network: { localHttp: true },
+        environment: { PATH: `${dirname(node)}:/usr/bin:/bin` },
+        readOnlyRoots: [],
+      },
+    },
+  );
+  expect(result).toEqual({ exitCode: 0, stdout: "local-http-ok\n" });
+});
 const isolatedNativeHost =
   process.platform === "darwin" ||
   (process.platform === "linux" && Boolean(Bun.which("bwrap")));

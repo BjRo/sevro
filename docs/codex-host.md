@@ -210,7 +210,10 @@ explicit workspace rule, denies all other filesystem roots except minimal
 runtime files and the selected executable's install directories, and
 specifically denies protected roots and the private Codex home. An executable
 inside a protected root is rejected. The profile also disables command
-network access and clears inherited command environment variables. The Codex
+network access by default and clears inherited command environment variables.
+The runtime [local HTTP option](runtime-v1.md#local-http-test-servers) enables
+Codex's managed network proxy and local binding for socket-using tests.
+The Codex
 parent can read authentication before it starts sandboxed commands. Tests
 invoke the installed `codex sandbox` CLI to prove fixture access, denied
 source/auth reads, and executable access. The process adapter verifies these
