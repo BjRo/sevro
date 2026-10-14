@@ -3,7 +3,8 @@ import {
   requireCandidateRuntime,
   requireCandidateArtifactRoots,
 } from "../candidate-artifacts";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { candidateCodexStateRetained } from "../candidate-codex-state";
+import { lstat, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import type { HostAdapter, HostResult } from "../engine";
@@ -300,7 +301,8 @@ async function executeCodexRequest(
   } finally {
     await cleanupNativeState(diagnostics, async () => {
       await releaseRuntimeHooks(activeHooks);
-      await rm(stateRoot, { recursive: true, force: true });
+      if (!candidateCodexStateRetained(request.candidateRuntimeRoot, stateRoot))
+        await rm(stateRoot, { recursive: true, force: true });
       if (helperRoot) await rm(helperRoot, { recursive: true, force: true });
     });
   }
@@ -321,8 +323,18 @@ async function validateCodexRequest(
   requirePassiveCodexRequest(request);
   requireCodexGoalRoute(request, options);
   await verifyCodexInvocation(request);
-  if (existsSync(join(request.workspace, ".codex")))
+  await requireCodexFixtureConfiguration(request);
+}
+
+async function requireCodexFixtureConfiguration(
+  request: Request,
+): Promise<void> {
+  const path = join(request.workspace, ".codex");
+  if (!existsSync(path)) return;
+  if (request.runtimePolicy?.codexState !== true)
     throw new Error("fixture Codex configuration is unsupported");
+  if (!(await lstat(path)).isDirectory())
+    throw new Error("fixture Codex configuration must be a physical directory");
 }
 
 function requireCodexGoalRoute(
@@ -386,7 +398,13 @@ async function codexPreflight(
       probe,
       options.projectRoot,
       join(state.codexHome, "auth.json"),
-      join(state.codexHome, "config.toml"),
+      // The opt-in config read is tested separately; credentials always stay denied.
+      join(
+        state.codexHome,
+        request.runtimePolicy?.codexState === true
+          ? "auth.json"
+          : "config.toml",
+      ),
       state.sandboxBinary,
     ],
     diagnostics,

@@ -3,6 +3,10 @@ import {
   candidateArtifactEnvironment,
   candidateArtifactReadRoots,
 } from "../candidate-artifacts";
+import {
+  codexStateEnabled,
+  retainCandidateCodexState,
+} from "../candidate-codex-state";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { isMissingFile } from "../fixture-tools";
@@ -163,6 +167,7 @@ async function writeCodexProfile(
     runtimeWriteRoot,
     runtimeReadRoots: request.runtimePolicy?.readOnlyRoots,
     nativeReadRoots: codexNativeReadRoots(request, paths.codexHome),
+    nativeWriteRoots: codexStateWriteRoots(request, paths),
     id: profileId,
     workspace: request.workspace,
     commandHome: paths.commandHome,
@@ -173,9 +178,17 @@ async function writeCodexProfile(
   });
   await writeFile(
     join(paths.codexHome, "config.toml"),
-    profile + concurrencyConfiguration(limit),
+    profile +
+      concurrencyConfiguration(limit) +
+      fixtureTrustConfiguration(request),
     { flag: "wx", mode: 0o600 },
   );
+}
+
+function fixtureTrustConfiguration(request: Request): string {
+  return request.runtimePolicy?.codexState === true
+    ? `\n[projects.${JSON.stringify(request.workspace)}]\ntrust_level = "untrusted"\n`
+    : "";
 }
 
 function codexProfileEnvironment(
@@ -188,6 +201,11 @@ function codexProfileEnvironment(
     ...codexTranscriptEnvironment(request, paths.codexHome),
     ...candidateTranscriptEnvironment(request.candidateTranscriptRoot),
     ...candidateArtifactEnvironment(request.candidateArtifactRoots),
+    ...(request.runtimePolicy?.codexState === true
+      ? {
+          SEVRO_CODEX_AGENT_SKILLS: join(paths.parentHome, ".agents", "skills"),
+        }
+      : {}),
   };
 }
 
@@ -195,14 +213,23 @@ function codexTranscriptEnvironment(
   request: Request,
   home: string,
 ): Record<string, string> {
-  return request.runtimePolicy?.nativeTranscripts === true
-    ? { CODEX_HOME: home, SEVRO_NATIVE_TRANSCRIPT_ROOT: join(home, "sessions") }
-    : {};
+  return {
+    ...(request.runtimePolicy?.codexState === true ? { CODEX_HOME: home } : {}),
+    ...(request.runtimePolicy?.nativeTranscripts === true
+      ? {
+          CODEX_HOME: home,
+          SEVRO_NATIVE_TRANSCRIPT_ROOT: join(home, "sessions"),
+        }
+      : {}),
+  };
 }
 
 function codexNativeReadRoots(request: Request, home: string) {
   return [
     ...linuxArg0ReadRoots(home),
+    ...(request.runtimePolicy?.codexState === true
+      ? [join(home, "config.toml"), join(home, "skills", ".system")]
+      : []),
     ...codexTranscriptRoots(request, home),
     ...candidateTranscriptRoots(request.candidateTranscriptRoot),
     ...candidateArtifactReadRoots(request.candidateArtifactRoots),
@@ -387,7 +414,40 @@ export async function prepareCodexState(
   const shellRoot = await fixtureShellRoot(request, paths.parentHome);
   const env = codexEnvironment(paths, request, shellRoot);
   applyCodexRuntime(runtime, env, paths);
+  await prepareCodexStateEvidence(request, stateRoot, paths);
   return { ...paths, stateRoot, sandboxBinary, profileId, env, protectedRoots };
+}
+
+function codexStateWriteRoots(
+  request: Request,
+  paths: Awaited<ReturnType<typeof privateCodexDirectories>>,
+): string[] {
+  return codexStateEnabled(request.runtimePolicy)
+    ? [
+        join(paths.codexHome, "skills"),
+        join(paths.parentHome, ".agents", "skills"),
+        join(paths.commandHome, ".agents", "skills"),
+        join(paths.commandHome, ".codex", "skills"),
+      ]
+    : [];
+}
+
+async function prepareCodexStateEvidence(
+  request: Request,
+  stateRoot: string,
+  paths: Awaited<ReturnType<typeof privateCodexDirectories>>,
+): Promise<void> {
+  if (!codexStateEnabled(request.runtimePolicy)) return;
+  const skillRoots = codexStateWriteRoots(request, paths);
+  await Promise.all(
+    skillRoots.map((root) => mkdir(root, { recursive: true, mode: 0o700 })),
+  );
+  await mkdir(join(paths.codexHome, "skills", ".system"), { mode: 0o700 });
+  await retainCandidateCodexState(
+    request.candidateRuntimeRoot,
+    stateRoot,
+    paths,
+  );
 }
 
 async function requireIsolatedGitMetadata(workspace: string): Promise<void> {

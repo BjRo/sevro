@@ -27,6 +27,7 @@ export interface RuntimeSeed {
 }
 export interface RuntimeConfiguration {
   format: "sevro.runtime.v1";
+  codexState?: boolean;
   network?: { localHttp?: boolean };
   nativeTranscripts?: boolean;
   environment?: { inherit?: string[]; set?: Record<string, string> };
@@ -40,6 +41,7 @@ export interface RuntimeConfiguration {
 
 export interface RuntimePolicy {
   format: "sevro.runtime.v1";
+  codexState?: boolean;
   network?: { localHttp?: boolean };
   artifactDirectories?: RuntimeArtifactDirectory[];
   nativeTranscripts?: boolean;
@@ -116,7 +118,7 @@ function assertRuntimeConfiguration(
 }
 
 const RESERVED_ENVIRONMENT =
-  /^(HOME|TMPDIR|TMP|TEMP|CODEX_HOME|CODEX_THREAD_ID|CLAUDE_CONFIG_DIR|CLAUDE_EFFORT|BASH_ENV|ENV|ZDOTDIR|NODE_OPTIONS|BUN_OPTIONS|UV_OFFLINE|GIT_CONFIG.*|LD_.*|DYLD_.*|CLAUDE_CODE_.*|SEVRO_NATIVE_.*|SEVRO_CANDIDATE_.*)$/i;
+  /^(HOME|TMPDIR|TMP|TEMP|CODEX_HOME|CODEX_THREAD_ID|CLAUDE_CONFIG_DIR|CLAUDE_EFFORT|BASH_ENV|ENV|ZDOTDIR|NODE_OPTIONS|BUN_OPTIONS|UV_OFFLINE|GIT_CONFIG.*|LD_.*|DYLD_.*|CLAUDE_CODE_.*|SEVRO_CODEX_.*|SEVRO_NATIVE_.*|SEVRO_CANDIDATE_.*)$/i;
 
 function requireEnvironmentName(name: string): void {
   if (!/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(name))
@@ -319,17 +321,24 @@ async function resolveRuntimeConfiguration(
   requireRuntimeReadRoots(readOnlyRoots, protectedRoots);
   return {
     format: value.format,
-    ...(value.network === undefined ? {} : { network: value.network }),
+    ...selectedRuntimeCapabilities(value),
     ...artifactConfiguration(value.runtime),
-    ...(value.nativeTranscripts === undefined
-      ? {}
-      : { nativeTranscripts: value.nativeTranscripts }),
     environment,
     readOnlyRoots: [...new Set(readOnlyRoots)].sort(),
     discovery: discovery.sources,
     skippedOptionalReadOnlyRoots: optional.skipped,
     seeds: await resolvedSeeds(configurationSeeds(value), environment, base),
     hooks: resolvedHooks(value.hooks),
+  };
+}
+
+function selectedRuntimeCapabilities(value: RuntimeConfiguration) {
+  return {
+    ...(value.network === undefined ? {} : { network: value.network }),
+    ...(value.codexState === undefined ? {} : { codexState: value.codexState }),
+    ...(value.nativeTranscripts === undefined
+      ? {}
+      : { nativeTranscripts: value.nativeTranscripts }),
   };
 }
 

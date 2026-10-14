@@ -6,6 +6,9 @@
   "additionalProperties": false,
   "required": ["format"],
   "properties": {
+    "codexState": {
+      "type": "boolean"
+    },
     "network": {
       "type": "object",
       "additionalProperties": false,

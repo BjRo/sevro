@@ -320,6 +320,72 @@ hosts validate it before use. Grading adapters must preserve the read-only
 boundary. The directory declarations enter runtime configuration identity;
 per-trial absolute paths do not.
 
+## Candidate Codex configuration and user skills
+
+Set top-level `"codexState": true` to expose the bundled Codex candidate's actual
+isolated configuration and user-skill state. This opt-in is available in the
+current source checkout and is independent of `nativeTranscripts` and ordinary
+candidate-home artifact declarations:
+
+```json
+{
+  "format": "sevro.runtime.v1",
+  "codexState": true
+}
+```
+
+Candidate commands receive the real isolated `CODEX_HOME`. They may read its
+`config.toml` and write non-system skills below `CODEX_HOME/skills`. The native
+process's separate user-skill directory is available as
+`SEVRO_CODEX_AGENT_SKILLS`; it names that process's `HOME/.agents/skills`.
+Bundled `CODEX_HOME/skills/.system` skills remain read-only. Authentication,
+other private siblings, evaluator inputs and peer requests remain denied.
+Configuration remains read-only, and the preflight still checks credential denial.
+
+A physical fixture-local `.codex` directory is accepted only with this opt-in.
+Sevro marks the isolated project untrusted in its generated Codex configuration,
+so project-local configuration, hooks and rules remain represented inputs rather
+than effective host settings. The fixture is preserved. Diagnose the absolute
+`CODEX_HOME/config.toml`, not the checkout's `.codex/config.toml`. The runner's
+selected concurrency limit is written into the private config; an omitted limit
+still means the native host default, not a fabricated configured capacity.
+CLI model/effort and vetted-hook overrides keep their existing precedence; the
+file alone does not establish every effective native default or child route.
+
+After execution, isolated shell and native semantic/advisory graders receive
+read-only bindings to these original candidate paths:
+
+| Environment variable                            | Original candidate path                    |
+| ----------------------------------------------- | ------------------------------------------ |
+| `SEVRO_CANDIDATE_ARTIFACT_CODEX_CONFIG`         | Native `CODEX_HOME/config.toml` (one file) |
+| `SEVRO_CANDIDATE_ARTIFACT_CODEX_SKILLS`         | Native `CODEX_HOME/skills`                 |
+| `SEVRO_CANDIDATE_ARTIFACT_AGENT_SKILLS`         | Native process `HOME/.agents/skills`       |
+| `SEVRO_CANDIDATE_ARTIFACT_COMMAND_AGENT_SKILLS` | Command `HOME/.agents/skills`              |
+| `SEVRO_CANDIDATE_ARTIFACT_COMMAND_CODEX_SKILLS` | Command `HOME/.codex/skills`               |
+
+Native and command homes are separate. The runner initializes these actual
+skill locations before the candidate starts and retains their resulting state;
+it does not create replacement empty directories for grading. Graders keep their
+own homes and must use these bindings. To assert absence, require every selected
+directory to exist, then search for `SKILL.md`, excluding only the native Codex
+root's read-only `.system` subtree. Missing evidence is an error. Do not search
+the grader's home or retired fixture state.
+
+The five artifact names are reserved. Each binding belongs to one active trial
+and one native request; reuse by another host request is refused. The same
+canonical ancestor, entry-limit, symlink, hardlink and special-file checks as
+ordinary artifacts apply. Configuration cannot be replaced by a directory grant.
+The native home is retained through grading and removed with its trial, including
+failure and cancellation paths. Standalone host calls clean up immediately.
+These grants do not persist native files in run evidence; private absolute paths
+do not enter identity, while the `codexState` selection does. Other candidate
+hosts cannot supply this Codex evidence and fail grading when it is requested.
+
+For the Darrow doctor and undefined-skill cases, select this configuration with
+`--runtime-config-file`, preserve the doctor fixture's checkout value `99`, and
+replace the retired-state absence check with the four skill-directory bindings
+above. Keep the original repository, no-commit, activation and semantic checks.
+
 ## Goals and plugin hooks
 
 `hooks.nativeGoal` enables Claude's native goal Stop-hook path while preserving

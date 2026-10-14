@@ -40,6 +40,7 @@ export function codexPermissionProfile(options: {
   commandEnvironment?: Record<string, string>;
   runtimeReadRoots?: string[];
   nativeReadRoots?: string[];
+  nativeWriteRoots?: string[];
   runtimeWriteRoot?: string;
   localHttp?: boolean;
 }): string {
@@ -52,9 +53,7 @@ export function codexPermissionProfile(options: {
     `default_permissions = ${toml(name)}`,
     'approval_policy = "never"',
     "allow_login_shell = false",
-    "[features]",
-    "hooks = false",
-    ...(options.localHttp ? ["network_proxy = true"] : []),
+    ...codexFeatureLines(options.localHttp),
     "",
     "[shell_environment_policy]",
     'inherit = "none"',
@@ -81,6 +80,9 @@ export function codexPermissionProfile(options: {
       .sort()
       .map((root) => `${toml(root)} = "deny"`),
     ...readRootLines(options),
+    ...(options.nativeWriteRoots ?? []).map(
+      (root) => `${toml(root)} = "write"`,
+    ),
     `${toml(options.commandHome)} = "write"`,
     `${toml(options.commandTemp)} = "write"`,
     ...optionalRootLines(options.runtimeWriteRoot, "write"),
@@ -94,6 +96,14 @@ export function codexPermissionProfile(options: {
     ...networkProfile(options.localHttp),
     "",
   ].join("\n");
+}
+
+function codexFeatureLines(localHttp: boolean | undefined): string[] {
+  return [
+    "[features]",
+    "hooks = false",
+    ...(localHttp ? ["network_proxy = true"] : []),
+  ];
 }
 
 function networkProfile(localHttp: boolean | undefined): string[] {
@@ -112,11 +122,13 @@ function profileProtectedRoots(
   const readRoots = profileReadRoots(options);
   const trustedRoots = [
     ...readRoots,
+    ...(options.nativeWriteRoots ?? []),
     ...(options.runtimeWriteRoot ? [options.runtimeWriteRoot] : []),
   ];
   const baselines = [
     ...LINUX_MINIMAL_READ_ROOTS,
     ...readRoots,
+    ...(options.nativeWriteRoots ?? []),
     options.workspace,
     options.commandHome,
     options.commandTemp,

@@ -3,6 +3,7 @@
     "src/advisory-fixture.ts",
     "src/advisory.ts",
     "src/candidate-artifacts.ts",
+    "src/candidate-codex-state.ts",
     "src/case-validation.ts",
     "src/cli-invocation.ts",
     "src/cli.ts",
