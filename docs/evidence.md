@@ -7,6 +7,7 @@ Keep their observations intact:
 - [Cache ownership](cache-ownership-validation.md)
 - [Claude continuation](claude-continuation-validation.md)
 - [Concurrency](concurrency-validation.md)
+- [Code Mode control observations](evidence/code-mode-controls-71.md)
 - [Configuration roots](configuration-root-validation.md)
 - [Fixture cleanup](fixture-cleanup-validation.md)
 

@@ -1,6 +1,10 @@
 import { isRecord, isUnknownArray } from "../value-guards";
 import { nativeCommandOutputs } from "./codex-command-output";
 import {
+  codexExecCallReceipts,
+  type ExecCallReceipt,
+} from "./codex-exec-controls";
+import {
   readNativeSession,
   readNativeSessionText,
   locateNativeSession as sessionPath,
@@ -95,6 +99,7 @@ interface NativeCallObservation {
     calls: NativeCall[];
     toolCalls: NativeToolCall[];
     submittedExecCalls: number;
+    execCalls?: ExecCallReceipt[];
     acceptedSpawns: AcceptedSpawn[];
     feedbackCalls: NativeFeedbackCall[];
     parentReadDiagnostics?: NativeReadDiagnostic;
@@ -531,6 +536,9 @@ function sessionObservation(
       calls: state.calls,
       toolCalls: state.toolCalls,
       submittedExecCalls: state.submittedExecCalls,
+      ...(state.submittedExecCalls > 0
+        ? { execCalls: codexExecCallReceipts(state.entries) }
+        : {}),
       ...sessionReceipts(state, followUpPrompt),
       childSessions: [],
       childrenTruncated: false,

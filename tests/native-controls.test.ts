@@ -104,13 +104,13 @@ test("Codex projects bound labels and explicit acceptance and submitted-code cou
   const projected = codexNativeControls(observation);
   expect(projected).toEqual({
     id: "sevro.host.native-controls",
-    completeness: "complete",
+    completeness: "partial",
     data: {
       method: "native_control_calls",
       calls: [{ ordinal: 4, namespace: "collaboration", name: "spawn_agent" }],
-      acceptedAgentCount: 0,
-      submittedExecCalls: 2,
-      truncated: false,
+      acceptedAgentCount: null,
+      submittedExecCalls: null,
+      truncated: null,
     },
   });
   expect(JSON.stringify(projected)).not.toContain("private-target");
@@ -121,5 +121,30 @@ test("Codex projects bound labels and explicit acceptance and submitted-code cou
   expect(
     codexNativeControls({ ...observation, completeness: "partial" })
       .completeness,
+  ).toBe("partial");
+});
+test("Codex cannot project contradictory Code Mode receipt ordinals or counts", () => {
+  const data = {
+    method: "native_session" as const,
+    calls: [],
+    toolCalls: [{ ordinal: 4, namespace: "other" as const, name: "exec" }],
+    submittedExecCalls: 1,
+    acceptedSpawns: [],
+    feedbackCalls: [],
+    childSessions: [],
+    childrenTruncated: false,
+    execCalls: [{ ordinal: 5, completeness: "complete" as const, calls: [] }],
+  };
+  const observation = {
+    id: "sevro.codex.native-calls" as const,
+    completeness: "complete" as const,
+    data,
+  };
+  expect(codexNativeControls(observation).completeness).toBe("partial");
+  expect(
+    codexNativeControls({
+      ...observation,
+      data: { ...data, submittedExecCalls: 0 },
+    }).completeness,
   ).toBe("partial");
 });

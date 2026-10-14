@@ -68,6 +68,11 @@ Unrecognized commands remain partial when their output contains the identifying
 `name: <skill>` line from a mounted or receipt-bound installed-plugin skill.
 This is a host observation; an extension decides what selection means for its
 case.
+The check also accepts a read preceded by `unset` of literal Git environment
+variables and `git -C "$PWD" rev-parse --show-toplevel`, separated by semicolons
+or newlines. The final command must be a single literal skill-file `cat`, and
+its complete exact body must match the end of the output. Other prefixes,
+dynamic targets, extra commands, and incomplete bodies remain partial.
 The same check accepts skill files below the exact installed plugin roots from
 Codex's installation receipts. It does not infer activation from arbitrary
 files in the private plugin cache.
@@ -137,8 +142,11 @@ discarded. Extensions interpret task names and decide whether a nested reader
 satisfies their policy.
 The record proves an invocation attempt, not its success. A missing, ambiguous,
 unreadable, oversized, or malformed session is unavailable or partial, so its
-absence cannot prove that a control was unused. Calls made through submitted
-code are not classified by this first observation.
+absence cannot prove that a control was unused. Code Mode submissions now have
+separate bounded `execCalls` inspection receipts, described in the
+[native control contract](native-controls.md). Direct native call ordinals and
+acceptance receipts keep their original meaning; submitted requests do not
+acquire direct native acceptance receipts.
 For an explicitly declared `$plugin:skill`, the host verifies that the installed
 skill exists and that the exact token occurs once in the delivered prompt. A
 completed turn yields `sevro.codex.explicit-invocation` with the owner first and

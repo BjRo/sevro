@@ -40,6 +40,7 @@ interface DirectRead {
   fallbackPaths?: string[];
   documentationPaths?: string[];
   operandCount?: number;
+  requireOutputSuffix?: boolean;
   firstLine?: number;
   lastLine?: number;
 }
@@ -73,11 +74,28 @@ function directRead(command: string): DirectRead | null {
   const payload = compoundReadPayload(shell);
   const path = "(?:\"([^\"]+)\"|'([^']+)'|([^\\s'\"`$;&|<>]+))";
   return (
+    repositoryPrefixedRead(shell, path) ??
     sequentialRead(shell, path) ??
     catRead(payload, path) ??
     sedRead(payload, path) ??
     fallbackRead(payload, path)
   );
+}
+
+function repositoryPrefixedRead(
+  payload: string,
+  path: string,
+): DirectRead | null {
+  const variable =
+    "GIT_(?:DIR|WORK_TREE|COMMON_DIR|INDEX_FILE|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES)";
+  const prefix = payload.match(
+    new RegExp(
+      `^unset[ \\t]+${variable}(?:[ \\t]+${variable})*[ \\t]*[;\\n][ \\t\\r\\n]*git[ \\t]+-C[ \\t]+"\\$PWD"[ \\t]+rev-parse[ \\t]+--show-toplevel[ \\t]*[;\\n][ \\t\\r\\n]*([\\s\\S]+)$`,
+    ),
+  );
+  if (!prefix) return null;
+  const read = singleSkillRead(prefix.slice(1, 2).join(""), path);
+  return read ? { ...read, requireOutputSuffix: true } : null;
 }
 
 const LITERAL_WORD = "(?:\"[^\"$`\\\\]*\"|'[^']*'|[^\\s\"'\\\\`$;&|<>(){}#]+)";
@@ -263,7 +281,8 @@ function readAttemptPaths(command: string): string[] {
   const path = "(?:\"([^\"]+)\"|'([^']+)'|([^\\s'\"`$;&|<>]+))";
   const fallback = fallbackRead(payload, path);
   if (fallback) return [fallback.path, ...(fallback.fallbackPaths ?? [])];
-  const sequential = sequentialRead(shell, path);
+  const sequential =
+    repositoryPrefixedRead(shell, path) ?? sequentialRead(shell, path);
   if (sequential) return [sequential.path];
   return [
     ...literalReadAttemptPaths(payload, path),
@@ -449,6 +468,8 @@ function matchesReadOutput(
   declaration: { read: DirectRead; output: string },
   expected: string,
 ): boolean {
+  if (declaration.read.requireOutputSuffix)
+    return declaration.output.endsWith(expected);
   if (declaration.read.documentationPaths !== undefined)
     return declaration.output.startsWith(expected);
   return declaration.output.includes(expected);
