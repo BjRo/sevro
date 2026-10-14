@@ -144,6 +144,49 @@ minimal system read tree such as `/usr` or `/etc`, Sevro retains its explicit de
 the native preflight may refuse that overlapping setup rather than expose home
 contents.
 
+## Local HTTP test servers
+
+This source checkout supports local HTTP servers in isolated Codex candidate
+commands and `sevro.shell` graders through an explicit operator selection:
+
+```json
+{
+  "format": "sevro.runtime.v1",
+  "network": { "localHttp": true }
+}
+```
+
+Add this property to the selected `sevro.json`, or select a replacement with
+`--runtime-config-file`. Declare the existing Node/Python installations through
+the environment and filesystem options above. The selection is snapshotted and
+enters evaluation identity. Absent or `false` preserves existing permissions.
+Hooks and semantic/advisory hosts keep their existing network permissions; this
+option applies to Codex candidates and shell grading.
+
+On macOS, shell isolation permits IP socket binding, loopback inbound traffic,
+and outbound connections to loopback addresses. Wildcard listeners such as
+Node's `server.listen(0)` work with loopback clients. Other outbound IP traffic
+remains denied. On Linux, shell checks retain their private network namespace
+with usable loopback and no external route.
+
+Codex uses its managed command network proxy with `allow_local_binding = true`,
+upstream proxy chaining disabled, and only `localhost`, `127.0.0.1`, and `::1`
+allowlisted. Its native sandbox permits local binding and loopback traffic while
+refusing direct outbound TCP. The native proxy may permit DNS queries; public
+HTTP destinations are not allowlisted. The candidate can reach other services
+on the available loopback interface, so choose this option for evaluations
+that need that access. It does not provide a separate per-trial loopback service
+namespace on macOS.
+
+The supported host boundary is the native Codex sandbox and its experimental
+`network_proxy` feature, documented in the [OpenAI permission reference](https://learn.chatgpt.com/docs/permissions).
+Setting `allow_local_binding` while leaving command networking disabled still
+denies `listen()` on macOS. Integration tests execute the installed native
+Codex sandbox, a wildcard HTTP listener and loopback client, and an outbound TCP
+denial probe. Host versions and actual upstream evaluation outcomes belong in
+[validation evidence](evidence.md), rather than being inferred from a profile's
+text. An unsupported host must not be interpreted as a passing behavior test.
+
 ## macOS ancestor metadata
 
 Sevro's macOS outer sandbox for isolated shell checks and authorized command
@@ -169,7 +212,8 @@ that exact path explicitly because Codex's workspace permission otherwise keeps
 Git metadata read-only. Real commits and publication to a fixture-local remote
 need no additional runtime option. This grant does not authorize writes to
 source repositories, grading inputs, host authentication or configuration, or
-peer trials. Command network access remains disabled.
+peer trials. Command network access remains disabled unless the operator selects
+the [local HTTP option](#local-http-test-servers).
 An existing fixture `.git` must be a physical directory. Symlinks and Git
 directory pointer files are refused before launch because their metadata may
 belong to a protected source repository rather than the isolated trial.

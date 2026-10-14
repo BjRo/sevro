@@ -27,6 +27,7 @@ export interface RuntimeSeed {
 }
 export interface RuntimeConfiguration {
   format: "sevro.runtime.v1";
+  network?: { localHttp?: boolean };
   nativeTranscripts?: boolean;
   environment?: { inherit?: string[]; set?: Record<string, string> };
   filesystem?: { readOnlyRoots?: string[]; optionalReadOnlyRoots?: string[] };
@@ -39,6 +40,7 @@ export interface RuntimeConfiguration {
 
 export interface RuntimePolicy {
   format: "sevro.runtime.v1";
+  network?: { localHttp?: boolean };
   artifactDirectories?: RuntimeArtifactDirectory[];
   nativeTranscripts?: boolean;
   environment: Record<string, string>;
@@ -49,6 +51,14 @@ export interface RuntimePolicy {
   seedReadDenyRoots?: string[];
   seeds?: (RuntimeSeed & { sha256: string })[];
   hooks?: { nativeGoal?: boolean; plugins?: string[] };
+}
+
+export function runtimeLocalHttpEnabled(
+  policy: RuntimePolicy | undefined,
+  role: RuntimeRole,
+): boolean {
+  const network = policy?.network;
+  return network?.localHttp === true && ["candidate", "checks"].includes(role);
 }
 
 export function runtimeNativeGoalEnabled(
@@ -64,6 +74,7 @@ export function runtimePolicySnapshot(
   if (!policy) return undefined;
   requireRuntimeEnvironment(policy.environment);
   const snapshot = structuredClone(policy);
+  Object.freeze(snapshot.network);
   freezeArtifactDirectories(snapshot);
   Object.freeze(snapshot.environment);
   Object.freeze(snapshot.readOnlyRoots);
@@ -308,6 +319,7 @@ async function resolveRuntimeConfiguration(
   requireRuntimeReadRoots(readOnlyRoots, protectedRoots);
   return {
     format: value.format,
+    ...(value.network === undefined ? {} : { network: value.network }),
     ...artifactConfiguration(value.runtime),
     ...(value.nativeTranscripts === undefined
       ? {}

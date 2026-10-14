@@ -10,6 +10,7 @@ Keep their observations intact:
 - [Code Mode control observations](evidence/code-mode-controls-71.md)
 - [Configuration roots](configuration-root-validation.md)
 - [Fixture cleanup](fixture-cleanup-validation.md)
+- [Local HTTP servers](evidence/local-http-74.md)
 
 The [first engine slice](engine-slice.md) also records bounded implementation
 context. [Current contracts](contracts.md) and [architecture](architecture.md)

@@ -18,6 +18,7 @@ export interface IsolationOptions {
   protectedRootsCanonical?: boolean;
   privateStateRoot: string;
   denyNetwork?: boolean;
+  localHttp?: boolean;
   readOnlyRoots?: string[];
   transcriptReadRoots?: string[];
   candidateArtifactRoots?: CandidateArtifactRoots;

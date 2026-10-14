@@ -6,6 +6,13 @@
   "additionalProperties": false,
   "required": ["format"],
   "properties": {
+    "network": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "localHttp": { "type": "boolean" }
+      }
+    },
     "nativeTranscripts": {
       "type": "boolean"
     },

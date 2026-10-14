@@ -19,6 +19,32 @@ import {
 } from "./fixtures/assertions";
 
 const roots: string[] = [];
+test("CLI snapshots local HTTP opt-in and binds evaluation identity", async () => {
+  const { project, args } = await fixture();
+  const path = join(project, "sevro.json");
+  await writeFile(path, JSON.stringify({ format: "sevro.runtime.v1" }));
+  const disabled = await invoke([...args, "--dry"]);
+  expect(disabled.code, disabled.stderr).toBe(0);
+  const first = parseRunEvidence(
+    await readFile(defined(disabled.result.evidencePath), "utf8"),
+  );
+  await writeFile(
+    path,
+    JSON.stringify({
+      format: "sevro.runtime.v1",
+      network: { localHttp: true },
+    }),
+  );
+  const enabled = await invoke([...args, "--dry"]);
+  expect(enabled.code, enabled.stderr).toBe(0);
+  const second = parseRunEvidence(
+    await readFile(defined(enabled.result.evidencePath), "utf8"),
+  );
+  expect(second.configuration.redacted.runtimePolicy).toMatchObject({
+    network: { localHttp: true },
+  });
+  expect(second.configuration.digest).not.toBe(first.configuration.digest);
+});
 test("CLI refuses lexical native seed aliases before hashing public targets", async () => {
   const { root, project, args } = await fixture();
   const namespace = join(
