@@ -1,7 +1,7 @@
 import { isRecord, isUnknownArray } from "../value-guards";
 import type { RecoveredCommandOutput } from "./codex-command-output";
 import { nativeCommandOutputs } from "./codex-command-output";
-import { readFile, realpath } from "node:fs/promises";
+import { readFile, realpath, stat } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 
 const MAX_SKILL_BYTES = 1024 * 1024;
@@ -38,7 +38,6 @@ function shellPayload(command: string): string {
 interface DirectRead {
   path: string;
   fallbackPaths?: string[];
-  documentationPaths?: string[];
   operandCount?: number;
   firstLine?: number;
   lastLine?: number;
@@ -63,6 +62,7 @@ function sedRead(payload: string, path: string): DirectRead | null {
     new RegExp(`^(?:/bin/)?sed\\s+-n\\s+['"]?(\\d+),(\\d+)p['"]?\\s+${path}$`),
   );
   if (!sed) return null;
+  if (!literalReadPath(sed, 3)) return null;
   const firstLine = Number(sed[1]),
     lastLine = Number(sed[2]);
   if (!validReadLines(firstLine, lastLine)) return null;
@@ -72,12 +72,7 @@ function directRead(command: string): DirectRead | null {
   const shell = shellPayload(command).trim();
   const payload = compoundReadPayload(shell);
   const path = "(?:\"([^\"]+)\"|'([^']+)'|([^\\s'\"`$;&|<>]+))";
-  return (
-    sequentialRead(shell, path) ??
-    catRead(payload, path) ??
-    sedRead(payload, path) ??
-    fallbackRead(payload, path)
-  );
+  return sedRead(payload, path) ?? fallbackRead(payload, path);
 }
 
 const LITERAL_WORD = "(?:\"[^\"$`\\\\]*\"|'[^']*'|[^\\s\"'\\\\`$;&|<>(){}#]+)";
@@ -99,47 +94,6 @@ function literalCommands(payload: string): string[] | null {
     commands.push(match.slice(1, 2).join(""));
   }
   return commands;
-}
-
-function sequentialRead(payload: string, path: string): DirectRead | null {
-  const commands = literalCommands(payload);
-  if (!commands || commands.length < 3) return null;
-  const search = commands.slice(-1).join("");
-  if (!new RegExp(`^(?:/usr/bin/)?rg[ \\t]+${LITERAL_WORDS}$`).test(search))
-    return null;
-  return sequentialCatRead(commands.slice(0, -1), path);
-}
-
-function sequentialCatRead(
-  commands: string[],
-  path: string,
-): DirectRead | null {
-  const first = singleSkillRead(commands.slice(0, 1).join(""), path);
-  if (!first) return null;
-  const operands = commands
-    .slice(1)
-    .map((command) => catOperands(command, path));
-  if (!operands.every((paths): paths is string[] => paths !== null))
-    return null;
-  const paths = operands.flat();
-  if (unsupportedDocumentationOperands(paths)) return null;
-  return {
-    ...first,
-    documentationPaths: paths,
-    operandCount: paths.length + 1,
-  };
-}
-
-function singleSkillRead(payload: string, path: string): DirectRead | null {
-  const read = catRead(payload, path);
-  return read?.operandCount === 1 ? read : null;
-}
-
-function unsupportedDocumentationOperands(paths: string[]): boolean {
-  return (
-    paths.length >= MAX_NATIVE_READ_ATTEMPTS ||
-    paths.some((path) => /(?:^|\/)SKILL\.md$/.test(path))
-  );
 }
 
 function compoundReadPayload(payload: string): string {
@@ -164,11 +118,15 @@ function fallbackRead(payload: string, path: string): DirectRead | null {
   ].map((match) => catRead(match.slice(1, 2).join(""), path));
   if (
     fallbackOperandCount(reads) > MAX_NATIVE_READ_ATTEMPTS ||
-    !reads.every((read): read is DirectRead => read !== null)
+    !reads.every(singleFallbackRead)
   )
     return null;
   const paths = reads.map((read) => read.path);
   return { path: paths.slice(0, 1).join(""), fallbackPaths: paths.slice(1) };
+}
+
+function singleFallbackRead(read: DirectRead | null): read is DirectRead {
+  return read !== null && read.operandCount === 1;
 }
 
 function fallbackOperandCount(reads: Array<DirectRead | null>): number {
@@ -185,10 +143,19 @@ function catOperands(payload: string, path: string): string[] | null {
     new RegExp(`^(?:/bin/)?cat\\s+(?:--\\s+)?(${path}(?:\\s+${path})*)$`),
   );
   if (!cat) return null;
-  const paths = [
+  const operands = [
     ...cat.slice(1, 2).join("").matchAll(new RegExp(path, "g")),
-  ].map((match) => capturedReadPath(match, 1));
+  ];
+  if (!operands.every((match) => literalReadPath(match, 1))) return null;
+  const paths = operands.map((match) => capturedReadPath(match, 1));
   return unsupportedCatOptions(payload, paths) ? null : paths;
+}
+
+function literalReadPath(match: RegExpMatchArray, first: number): boolean {
+  const path = capturedReadPath(match, first);
+  if (match[first] !== undefined) return !/[$`\\]/.test(path);
+  if (match[first + 1] !== undefined) return true;
+  return !/[\\*?[\]~(){}#]/.test(path);
 }
 
 function catRead(payload: string, path: string): DirectRead | null {
@@ -228,10 +195,270 @@ async function verifiedSkillRead(
   workspace: string,
   pluginRoots: string[],
   commandCwd = workspace,
-): Promise<VerifiedRead | null> {
+): Promise<VerifiedRead[]> {
+  const composed = await composedSkillReads(
+    item,
+    workspace,
+    pluginRoots,
+    commandCwd,
+  );
+  if (composed !== null) return composed;
   const declaration = readDeclaration(item);
-  if (!declaration) return null;
-  return resolvedSkillRead(declaration, workspace, pluginRoots, commandCwd);
+  if (!declaration) return [];
+  const read = await resolvedSkillRead(
+    declaration,
+    workspace,
+    pluginRoots,
+    commandCwd,
+  );
+  return read ? [read] : [];
+}
+
+interface ComposedPlan {
+  paths: string[];
+  prefixed: boolean;
+  suffix: "none" | "search" | "environment";
+}
+
+function normalizedReadPayload(command: string) {
+  const shell = shellPayload(command).trim();
+  const firstRead = shell.search(/(?:^|[;\n])[ \t]*(?:\/bin\/)?cat\s/);
+  if (firstRead < 0) return { payload: shell, relocated: false };
+  const prefix = shell.slice(0, firstRead);
+  const repository =
+    /(^|[;\n])[ \t]*repo=\$\(git -C "\$PWD" rev-parse --show-toplevel\)[ \t]*[;\n][ \t]*cd "\$repo" && pwd -P(?=[;\n]|$)/g;
+  const relocated = repository.test(prefix);
+  repository.lastIndex = 0;
+  const payload = prefix
+    .replace(repository, "$1pwd -P")
+    .replace(
+      /(^|[;\n])[ \t]*git -C "\$PWD" rev-parse --show-toplevel(?=[;\n]|$)/g,
+      "$1git rev-parse --show-toplevel",
+    );
+  return { payload: payload + shell.slice(firstRead), relocated };
+}
+
+function composedPlan(command: string): ComposedPlan | null {
+  const normalized = normalizedReadPayload(command);
+  const commands = literalCommands(normalized.payload);
+  if (!commands) return null;
+  const plan = composedCommandPlan(commands);
+  if (!plan) return null;
+  if (normalized.relocated && !plan.paths.every(isAbsolute)) return null;
+  return plan;
+}
+
+function composedCommandPlan(commands: string[]): ComposedPlan | null {
+  const first = commands.findIndex((command) =>
+    /^(?:\/bin\/)?cat\s/.test(command),
+  );
+  if (first < 0 || !commands.slice(0, first).every(readPrefix)) return null;
+  const last =
+    commands.length -
+    1 -
+    [...commands]
+      .reverse()
+      .findIndex((command) => /^(?:\/bin\/)?cat\s/.test(command));
+  const suffix = boundReadSuffix(
+    commands.slice(0, first),
+    commands.slice(last + 1),
+  );
+  if (suffix === null) return null;
+  const paths = composedOperands(commands.slice(first, last + 1));
+  return paths ? { paths, prefixed: first > 0, suffix } : null;
+}
+
+function boundReadSuffix(
+  prefixes: string[],
+  commands: string[],
+): ComposedPlan["suffix"] | null {
+  const suffix = readSuffix(commands);
+  if (suffix === "none") return suffix;
+  return prefixes.some((command) =>
+    /^(?:\/usr\/bin\/)?printenv\s/.test(command),
+  )
+    ? null
+    : suffix;
+}
+
+function composedOperands(commands: string[]): string[] | null {
+  const path = "(?:\"([^\"]+)\"|'([^']+)'|([^\\s'\"`$;&|<>]+))";
+  const operands = commands.map((command) => catOperands(command, path));
+  if (!operands.every((paths): paths is string[] => paths !== null))
+    return null;
+  const paths = operands.flat();
+  return paths.length <= MAX_NATIVE_READ_ATTEMPTS ? paths : null;
+}
+
+function readSuffix(commands: string[]): ComposedPlan["suffix"] | null {
+  if (commands.length === 0) return "none";
+  if (
+    commands.every(
+      (command) =>
+        /^(?:\/usr\/bin\/)?printenv\s/.test(command) && readPrefix(command),
+    )
+  )
+    return "environment";
+  return commands.every((command) =>
+    new RegExp(`^(?:/usr/bin/)?rg\\s+${LITERAL_WORDS}$`).test(command),
+  )
+    ? "search"
+    : null;
+}
+
+function readPrefix(command: string): boolean {
+  return [
+    /^(?:unset|(?:\/usr\/bin\/)?printenv)\s+[A-Za-z_][A-Za-z0-9_]*(?:\s+[A-Za-z_][A-Za-z0-9_]*)*$/,
+    /^(?:\/bin\/)?pwd(?:\s+-P)?$/,
+    /^(?:\/usr\/bin\/)?git\s+rev-parse\s+--show-toplevel$/,
+    new RegExp(`^(?:/usr/bin/)?rg\\s+--files(?:\\s+${LITERAL_WORDS})?$`),
+  ].some((pattern) => pattern.test(command));
+}
+
+async function composedSkillReads(
+  item: CodexItem,
+  workspace: string,
+  pluginRoots: string[],
+  cwd: string,
+): Promise<VerifiedRead[] | null> {
+  if (typeof item.command !== "string") return null;
+  const plan = composedPlan(item.command);
+  if (!plan) return null;
+  const files = await composedFiles(plan.paths, cwd, workspace, pluginRoots);
+  if (!files) return [];
+  return composedReceipts(item.aggregated_output, files, plan);
+}
+
+async function composedFiles(
+  paths: string[],
+  cwd: string,
+  workspace: string,
+  pluginRoots: string[],
+) {
+  const files = [];
+  for (const path of paths) {
+    const file = await composedFile(path, cwd, workspace, pluginRoots);
+    if (!file) return null;
+    files.push(file);
+  }
+  return files;
+}
+
+function composedReceipts(
+  output: unknown,
+  files: Array<{ text: string; receipt: VerifiedRead | null }>,
+  plan: ComposedPlan,
+) {
+  if (
+    !matchesComposedOutput(
+      output,
+      files.map((file) => file.text).join(""),
+      plan,
+    )
+  )
+    return [];
+  return files.flatMap((file) => (file.receipt ? [file.receipt] : []));
+}
+
+function matchesComposedOutput(
+  output: unknown,
+  expected: string,
+  plan: ComposedPlan,
+): boolean {
+  if (typeof output !== "string" || expected.length === 0) return false;
+  const start = plan.prefixed ? output.indexOf(expected) : 0;
+  if (!composedOutputAt(output, expected, start)) return false;
+  const end = start + expected.length;
+  return matchesComposedOutside(output, start, end, plan.suffix);
+}
+
+function composedOutputAt(
+  output: string,
+  expected: string,
+  start: number,
+): boolean {
+  return (
+    start >= 0 &&
+    output.startsWith(expected, start) &&
+    output.indexOf(expected, start + 1) < 0
+  );
+}
+
+function matchesComposedOutside(
+  output: string,
+  start: number,
+  end: number,
+  suffix: ComposedPlan["suffix"],
+): boolean {
+  if (suffix === "none" && end !== output.length) return false;
+  const outside =
+    output.slice(0, start) +
+    (suffix === "environment" ? output.slice(end) : "");
+  return !/(?:^|\n)name: [A-Za-z0-9._-]+\r?$/m.test(outside);
+}
+
+async function composedFile(
+  path: string,
+  cwd: string,
+  workspace: string,
+  pluginRoots: string[],
+) {
+  const actual = await realpath(resolve(cwd, path)).catch(() => null);
+  if (
+    !actual ||
+    ![workspace, ...pluginRoots].some((root) => containedFile(root, actual))
+  )
+    return null;
+  const text = await composedFileText(actual);
+  if (text === null) return null;
+  const skill = mountedSkillName(actual, workspace, pluginRoots);
+  return composedFileReceipt(path, actual, text, skill);
+}
+
+async function composedFileText(actual: string): Promise<string | null> {
+  const metadata = await stat(actual).catch(() => null);
+  if (!metadata) return null;
+  if (!metadata.isFile() || metadata.size > MAX_SKILL_BYTES) return null;
+  const bytes = await readFile(actual).catch(() => null);
+  return boundedFileText(bytes);
+}
+
+function boundedFileText(bytes: Buffer | null): string | null {
+  return bytes && bytes.byteLength <= MAX_SKILL_BYTES
+    ? bytes.toString("utf8")
+    : null;
+}
+
+function containedFile(root: string, path: string): boolean {
+  const child = relative(root, path);
+  return (
+    child !== "" &&
+    !child.startsWith(`..${sep}`) &&
+    child !== ".." &&
+    !isAbsolute(child)
+  );
+}
+
+function composedFileReceipt(
+  path: string,
+  actual: string,
+  text: string,
+  skill: string | null,
+) {
+  if (skill === null) return { text, receipt: null };
+  if (
+    !/(?:^|\/)SKILL\.md$/.test(path) ||
+    !text.startsWith("---\n") ||
+    !text.includes(`\nname: ${skill}\n`)
+  )
+    return null;
+  const receipt: VerifiedRead = {
+    skill,
+    path: actual,
+    range: [0, text.length],
+    bodyLength: text.length,
+  };
+  return { text, receipt };
 }
 async function mountedSkillReadAttempt(
   command: string,
@@ -258,17 +485,23 @@ async function mountedReadPath(
   );
 }
 function readAttemptPaths(command: string): string[] {
+  const composed = composedPlan(command);
+  if (composed) return composed.paths;
   const shell = shellPayload(command).trim();
   const payload = compoundReadPayload(shell);
   const path = "(?:\"([^\"]+)\"|'([^']+)'|([^\\s'\"`$;&|<>]+))";
   const fallback = fallbackRead(payload, path);
   if (fallback) return [fallback.path, ...(fallback.fallbackPaths ?? [])];
-  const sequential = sequentialRead(shell, path);
-  if (sequential) return [sequential.path];
   return [
     ...literalReadAttemptPaths(payload, path),
     ...sequentialReadAttemptPaths(shell, path),
+    ...composedAttemptPaths(shell, path),
   ];
+}
+
+function composedAttemptPaths(shell: string, path: string): string[] {
+  const commands = literalCommands(normalizedReadPayload(shell).payload) ?? [];
+  return commands.flatMap((command) => literalReadAttemptPaths(command, path));
 }
 
 function sequentialReadAttemptPaths(payload: string, path: string): string[] {
@@ -292,7 +525,7 @@ function literalReadAttemptPaths(payload: string, path: string): string[] {
     new RegExp(`^(?:/bin/)?sed\\s+-n\\s+[^\\s]+\\s+${path}$`),
   );
   if (sed) {
-    const value = capturedReadPath(sed, 2);
+    const value = capturedReadPath(sed, 1);
     if (/(?:^|\/)SKILL\.md$/.test(value)) return [value];
   }
   return [];
@@ -399,28 +632,7 @@ async function resolvedSkillRead(
   if (skill === null) return null;
   const text = await verifiedSkillBody(actual, skill);
   if (text === null) return null;
-  if (
-    await ambiguousSequentialRead(
-      declaration.read,
-      commandCwd,
-      workspace,
-      pluginRoots,
-    )
-  )
-    return null;
   return skillReadReceipt(actual, skill, declaration, text);
-}
-
-async function ambiguousSequentialRead(
-  read: DirectRead,
-  commandCwd: string,
-  workspace: string,
-  pluginRoots: string[],
-): Promise<boolean> {
-  for (const path of read.documentationPaths ?? [])
-    if (await mountedReadPath(path, commandCwd, workspace, pluginRoots))
-      return true;
-  return false;
 }
 async function resolvedReadPath(
   read: DirectRead,
@@ -449,9 +661,7 @@ function matchesReadOutput(
   declaration: { read: DirectRead; output: string },
   expected: string,
 ): boolean {
-  if (declaration.read.documentationPaths !== undefined)
-    return declaration.output.startsWith(expected);
-  return declaration.output.includes(expected);
+  return declaration.output.startsWith(expected);
 }
 
 function fullCoverage(
@@ -713,11 +923,11 @@ async function completeNativeRead(
     context.pluginRoots,
     cwd,
   );
-  if (!read) {
+  if (read.length === 0) {
     state.partial = true;
     return;
   }
-  retainNativeRead(state, read, ordinal);
+  for (const receipt of read) retainNativeRead(state, receipt, ordinal);
 }
 function continuingNativeCoverage(
   state: NativeReadState,
@@ -890,15 +1100,17 @@ async function completeStreamRead(
     context.workspace,
     context.pluginRoots,
   );
-  if (!read) {
+  if (read.length === 0) {
     state.partial = true;
     return;
   }
-  const coverage = state.attempted.get(read.path) ?? {
-    ranges: [],
-    bodyLength: read.bodyLength,
-  };
-  retainStreamRead(state, read, coverage);
+  for (const receipt of read) {
+    const coverage = state.attempted.get(receipt.path) ?? {
+      ranges: [],
+      bodyLength: receipt.bodyLength,
+    };
+    retainStreamRead(state, receipt, coverage);
+  }
 }
 
 function retainStreamRead(

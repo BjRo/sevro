@@ -328,6 +328,139 @@ test.each([
   },
 );
 
+test("Codex verified owner dispatch remains complete when supporting reads are partial", async () => {
+  if (!isolatedNativeHost || !Bun.which("codex")) return;
+  const selected = await compoundReadFixture(
+    "darrow-guide",
+    "cat .agents/skills/darrow-guide/SKILL.md",
+  );
+  const path = join(selected.workspace, "compound-events.jsonl");
+  const events = await readFile(path, "utf8");
+  await writeFile(
+    path,
+    events.replace("Read this complete skill body.", "Incomplete."),
+  );
+  const result = await selected.host.run({
+    ...selected.request,
+    prompt: "Use $darrow-guide and return ready.",
+    explicitSkillInvocation: {
+      scope: "repository",
+      skillName: "darrow-guide",
+      token: "$darrow-guide",
+    },
+  });
+  expect(result.complete).toBe(true);
+  expectUnknown(result.observations).toContainEqual(
+    objectContaining({
+      id: "sevro.codex.skill-reads",
+      completeness: "partial",
+    }),
+  );
+  expectUnknown(result.observations).toContainEqual({
+    id: "sevro.codex.explicit-invocation",
+    completeness: "complete",
+    data: {
+      method: "explicit_invocation",
+      primarySkill: "darrow-guide",
+      observedSkills: ["darrow-guide"],
+    },
+  });
+});
+
+test("Codex app-server continuation retains separate completed phase reads", async () => {
+  if (!isolatedNativeHost || !Bun.which("codex")) return;
+  const selected = await ordinaryCodexRequest();
+  await mkdir(join(selected.workspace, ".git"));
+  await writeFile(join(selected.workspace, "feedback.txt"), "Continue");
+  for (const skill of ["initial", "follow-up"]) {
+    const root = join(selected.workspace, ".agents/skills", skill);
+    await mkdir(root, { recursive: true });
+    await writeFile(
+      join(root, "SKILL.md"),
+      `---\nname: ${skill}\n---\nRead the complete body.\n`,
+    );
+  }
+  const binary = join(dirname(selected.paths.fakeBinary), "phase-peer");
+  await writeFile(
+    binary,
+    `#!/bin/sh\nexec '${process.execPath}' '${join(import.meta.dir, "fixtures/app-server-peer.ts")}' "$@"\n`,
+    { mode: 0o700 },
+  );
+  const host = createCodexHost({
+    ...ordinaryCodexOptions,
+    ...selected.paths,
+    binary,
+    authFile: selected.paths.authFile,
+    sandboxBinary: defined(Bun.which("codex")),
+    entrypoint: "app-server",
+  });
+  const result = await host.run({
+    ...selected.request,
+    followUpPrompt: "Continue.",
+  });
+  expect(result.complete).toBe(true);
+  for (const [phase, skill] of [
+    ["initial", "initial"],
+    ["follow-up", "follow-up"],
+  ]) {
+    expectUnknown(result.observations).toContainEqual({
+      id: `sevro.codex.${phase}-skill-reads`,
+      completeness: "complete",
+      data: {
+        method: "skill_file_read_probe",
+        primarySkill: skill,
+        observedSkills: [skill],
+      },
+    });
+  }
+});
+
+test("failed app-server execution cannot yield a complete owner-dispatch receipt", async () => {
+  if (!isolatedNativeHost || !Bun.which("codex")) return;
+  const selected = await ordinaryCodexRequest();
+  await mkdir(join(selected.workspace, ".git"));
+  await writeFile(join(selected.workspace, "failure.txt"), "Fail the turn");
+  const skillRoot = join(selected.workspace, ".agents/skills/probe");
+  await mkdir(skillRoot, { recursive: true });
+  await writeFile(
+    join(skillRoot, "SKILL.md"),
+    "---\nname: probe\n---\nRead the skill.\n",
+  );
+  const binary = join(dirname(selected.paths.fakeBinary), "failed-owner-peer");
+  await writeFile(
+    binary,
+    `#!/bin/sh\nexec '${process.execPath}' '${join(import.meta.dir, "fixtures/app-server-peer.ts")}' "$@"\n`,
+    { mode: 0o700 },
+  );
+  const host = createCodexHost({
+    ...ordinaryCodexOptions,
+    ...selected.paths,
+    binary,
+    authFile: selected.paths.authFile,
+    sandboxBinary: defined(Bun.which("codex")),
+    entrypoint: "app-server",
+  });
+  const result = await host.run({
+    ...selected.request,
+    prompt: "Use $probe and return ready.",
+    explicitSkillInvocation: {
+      scope: "repository",
+      skillName: "probe",
+      token: "$probe",
+    },
+  });
+  expect(result.complete).toBe(false);
+  expectUnknown(result.observations).toContainEqual({
+    id: "sevro.codex.explicit-invocation",
+    completeness: "partial",
+    data: {
+      method: "explicit_invocation",
+      primarySkill: "probe",
+      observedSkills: ["probe"],
+    },
+  });
+});
+
 test("Codex compound fallback read followed by discovery retains complete activation evidence", async () => {
   if (!isolatedNativeHost || !Bun.which("codex")) return;
   const skill = "tdd";

@@ -1,0 +1,823 @@
+{
+  "format": "sevro.issue-70-validation.v1",
+  "date": "2026-10-14",
+  "issue": "https://github.com/BjRo/sevro/issues/70",
+  "candidate": {
+    "description": "Private npm-pack candidate; no registry publication or version change",
+    "packageVersion": "0.1.0-rc.11",
+    "tarballSha256": "91b9000b1a6d20e71313cf22b70e9202993b88f1c18a881af8f7db5189364fc0",
+    "sourceFiles": {
+      "src/hosts/codex-skill-reads.ts": "8f6e44e4d404c53df152fcc23c067a5cc1e490202f1552e4772879eb881d7e0b",
+      "src/hosts/codex.ts": "4906fd33095e8597ed83079b39c45426124cfa7b08ffec30451512523515b9e3"
+    }
+  },
+  "settings": {
+    "candidateModel": "gpt-6.1-sol",
+    "candidateEffort": "medium",
+    "semanticModel": "gpt-6-luna",
+    "semanticEffort": "medium",
+    "ownerEvaluation": "passive",
+    "trials": 1,
+    "jobs": 1,
+    "threshold": 1,
+    "codexTimeoutMs": 1200000,
+    "retainHostDiagnostics": true,
+    "runtimeOverride": "runtime-repository-skills.json for guide only",
+    "runnerRoute": "SEVRO_PACKAGE_BIN selects the private candidate; SEVRO_CHECKOUT is unset"
+  },
+  "privateEvidenceRoot": "/tmp/sevro-70-native",
+  "limitations": [
+    "One model-driven trial per representative case; this is not a complete rerun of the 13-case inventory.",
+    "Task checks, activation, and read completeness are independent outcomes.",
+    "Raw transcripts and model responses remain outside Git."
+  ],
+  "cases": [
+    {
+      "caseId": "guide-visual-absent",
+      "entrypoint": "exec",
+      "selectionFile": "guide-verified-selection.json",
+      "selectionSha256": "9463afeebb33f973b862f9b42a1a3ef0a6df355c087ef63f3af18884905cca4f",
+      "runId": "96cf207b-69f8-4f20-9c86-b0483ba96da9",
+      "execution": "completed",
+      "grading": "completed",
+      "task": "passed",
+      "checks": [
+        {
+          "id": "darrow.shell.1",
+          "status": "passed",
+          "evidenceRefs": ["sevro.observation.shell.darrow.shell.1"]
+        },
+        {
+          "id": "darrow.shell.2",
+          "status": "passed",
+          "evidenceRefs": ["sevro.observation.shell.darrow.shell.2"]
+        },
+        {
+          "id": "darrow.shell.3",
+          "status": "passed",
+          "evidenceRefs": ["sevro.observation.shell.darrow.shell.3"]
+        },
+        {
+          "id": "darrow.shell.4",
+          "status": "passed",
+          "evidenceRefs": ["sevro.observation.shell.darrow.shell.4"]
+        },
+        {
+          "id": "darrow.evals.disclosure.5",
+          "status": "passed",
+          "evidenceRefs": ["sevro.observation.final-message"]
+        },
+        {
+          "id": "darrow.output.1",
+          "status": "passed",
+          "evidenceRefs": ["sevro.observation.final-message"]
+        },
+        {
+          "id": "darrow.semantic.1",
+          "status": "passed",
+          "evidenceRefs": [
+            "sevro.observation.semantic.3ca2097d4f7ac4d95361ebb6f7c431251b752a81ed98ad07c477e8011aec4ade"
+          ]
+        },
+        {
+          "id": "darrow.semantic.2",
+          "status": "passed",
+          "evidenceRefs": [
+            "sevro.observation.semantic.12335bf9a89e2f87b653fe4d247475880cb27f29b839bf8b93ea9e85da0ac8c1"
+          ]
+        },
+        {
+          "id": "darrow.semantic.3",
+          "status": "passed",
+          "evidenceRefs": [
+            "sevro.observation.semantic.9feac9b022d2d95b10a590a31c45ab8f859249137ae9fc0fe86e28778a46d5d9"
+          ]
+        }
+      ],
+      "failedChecks": [],
+      "activation": {
+        "status": "passed",
+        "class": "positive",
+        "targetSkill": "darrow-guide",
+        "trials": 1,
+        "measured": 1,
+        "passed": 1,
+        "failed": 0,
+        "unavailable": 0,
+        "passRate": 1,
+        "threshold": 1,
+        "trueSelections": 1,
+        "falseSelections": 0
+      },
+      "skillEvidence": [
+        {
+          "id": "sevro.codex.skill-reads",
+          "completeness": "complete",
+          "primarySkill": "darrow-guide",
+          "observedSkills": ["darrow-guide"]
+        },
+        {
+          "id": "sevro.codex.explicit-invocation",
+          "completeness": "complete",
+          "primarySkill": "darrow-guide",
+          "observedSkills": ["darrow-guide"]
+        }
+      ]
+    },
+    {
+      "caseId": "verification-followup-no-progress",
+      "entrypoint": "app-server",
+      "selectionFile": "verification-verified-selection.json",
+      "selectionSha256": "2e6f0a472bd3ca00e433e3f930fb8ebbb36c9ab4958ce2fbe5fa5116ac2a8f23",
+      "runId": "c912d5eb-b23c-4b10-b3f2-5e9ee4654450",
+      "execution": "completed",
+      "grading": "completed",
+      "task": "failed",
+      "checks": [
+        {
+          "id": "darrow.shell.1",
+          "status": "passed",
+          "evidenceRefs": ["sevro.observation.shell.darrow.shell.1"]
+        },
+        {
+          "id": "darrow.shell.2",
+          "status": "passed",
+          "evidenceRefs": ["sevro.observation.shell.darrow.shell.2"]
+        },
+        {
+          "id": "darrow.shell.3",
+          "status": "passed",
+          "evidenceRefs": ["sevro.observation.shell.darrow.shell.3"]
+        },
+        {
+          "id": "darrow.shell.4",
+          "status": "passed",
+          "evidenceRefs": ["sevro.observation.shell.darrow.shell.4"]
+        },
+        {
+          "id": "darrow.shell.5",
+          "status": "passed",
+          "evidenceRefs": ["sevro.observation.shell.darrow.shell.5"]
+        },
+        {
+          "id": "darrow.semantic.1",
+          "status": "failed",
+          "evidenceRefs": [
+            "sevro.observation.semantic.3ca2097d4f7ac4d95361ebb6f7c431251b752a81ed98ad07c477e8011aec4ade"
+          ]
+        },
+        {
+          "id": "darrow.evals.transcript.1",
+          "status": "passed",
+          "evidenceRefs": ["sevro.codex.native-calls"]
+        },
+        {
+          "id": "darrow.evals.transcript.2",
+          "status": "passed",
+          "evidenceRefs": ["sevro.codex.native-calls"]
+        },
+        {
+          "id": "darrow.evals.transcript.3",
+          "status": "passed",
+          "evidenceRefs": ["sevro.codex.native-calls"]
+        }
+      ],
+      "failedChecks": [
+        {
+          "id": "darrow.semantic.1",
+          "detail": "It reports no progress, keeps F1 blocking and A1 nonblocking, records unchanged timeoutMs=1000 and the passing bash check.sh. But it does not return the required stop evidence, and it says the assessment makes no overall-completion decision rather than clearly returning the unchanged C1 acceptance failure."
+        }
+      ],
+      "activation": {
+        "status": "passed",
+        "class": "positive",
+        "targetSkill": "verify-change",
+        "trials": 1,
+        "measured": 1,
+        "passed": 1,
+        "failed": 0,
+        "unavailable": 0,
+        "passRate": 1,
+        "threshold": 1,
+        "trueSelections": 1,
+        "falseSelections": 0
+      },
+      "skillEvidence": [
+        {
+          "id": "sevro.codex.skill-reads",
+          "completeness": "complete",
+          "primarySkill": "inspect-candidate",
+          "observedSkills": ["inspect-candidate"]
+        },
+        {
+          "id": "sevro.codex.explicit-invocation",
+          "completeness": "complete",
+          "primarySkill": "verify-change",
+          "observedSkills": ["verify-change", "inspect-candidate"]
+        }
+      ]
+    },
+    {
+      "caseId": "goal-readiness-prior-assessed-omitted",
+      "entrypoint": "app-server",
+      "selectionFile": "goal-verified-selection.json",
+      "selectionSha256": "45abf6834800745cdc30742a35f77b945984c5999f92df0fa7e409ebf052ba97",
+      "runId": "fb5495d9-7ed3-436c-ae4e-c2b1bfbc0092",
+      "execution": "completed",
+      "grading": "completed",
+      "task": "passed",
+      "checks": [
+        {
+          "id": "darrow.shell.1",
+          "status": "passed",
+          "evidenceRefs": ["sevro.observation.shell.darrow.shell.1"]
+        },
+        {
+          "id": "darrow.shell.2",
+          "status": "passed",
+          "evidenceRefs": ["sevro.observation.shell.darrow.shell.2"]
+        },
+        {
+          "id": "darrow.semantic.1",
+          "status": "passed",
+          "evidenceRefs": [
+            "sevro.observation.semantic.3ca2097d4f7ac4d95361ebb6f7c431251b752a81ed98ad07c477e8011aec4ade"
+          ]
+        },
+        {
+          "id": "darrow.evals.native-goal",
+          "status": "passed",
+          "evidenceRefs": ["sevro.host.native-goal"]
+        },
+        {
+          "id": "darrow.evals.native-goal.internal-record",
+          "status": "passed",
+          "evidenceRefs": ["sevro.observation.final-message"]
+        },
+        {
+          "id": "darrow.evals.native-goal.canonical-report",
+          "status": "passed",
+          "evidenceRefs": ["sevro.observation.final-message"]
+        },
+        {
+          "id": "darrow.evals.transcript.3",
+          "status": "passed",
+          "evidenceRefs": ["sevro.codex.events"]
+        },
+        {
+          "id": "darrow.evals.transcript.1",
+          "status": "passed",
+          "evidenceRefs": ["sevro.codex.initial-skill-reads"]
+        },
+        {
+          "id": "darrow.evals.transcript.2",
+          "status": "passed",
+          "evidenceRefs": ["sevro.codex.follow-up-skill-reads"]
+        }
+      ],
+      "failedChecks": [],
+      "activation": {
+        "status": "not_requested"
+      },
+      "skillEvidence": [
+        {
+          "id": "sevro.codex.skill-reads",
+          "completeness": "complete",
+          "primarySkill": "assess-implementation-readiness",
+          "observedSkills": ["assess-implementation-readiness"]
+        },
+        {
+          "id": "sevro.codex.initial-skill-reads",
+          "completeness": "complete",
+          "primarySkill": "assess-implementation-readiness",
+          "observedSkills": ["assess-implementation-readiness"]
+        },
+        {
+          "id": "sevro.codex.follow-up-skill-reads",
+          "completeness": "complete",
+          "primarySkill": null,
+          "observedSkills": []
+        },
+        {
+          "id": "sevro.codex.explicit-invocation",
+          "completeness": "complete",
+          "primarySkill": "adaptive-goal",
+          "observedSkills": ["adaptive-goal", "assess-implementation-readiness"]
+        }
+      ]
+    }
+  ],
+  "testFirstSlices": [
+    {
+      "command": "lean-ctx -c 'bun test tests/codex-skill-reads.test.ts -t \"composed skill and documentation\"'",
+      "red": {
+        "exitCode": 1,
+        "reason": "Complete composed read was reported partial with no skill",
+        "line": "Red — lean-ctx -c 'bun test tests/codex-skill-reads.test.ts -t \"composed skill and documentation\"': Complete composed read was reported partial with no skill"
+      },
+      "green": {
+        "exitCode": 0,
+        "testsPassed": 1,
+        "line": "Green — lean-ctx -c 'bun test tests/codex-skill-reads.test.ts -t \"composed skill and documentation\"': 1 tests passed"
+      }
+    },
+    {
+      "command": "lean-ctx -c 'bun test tests/codex-skill-reads.test.ts -t \"composed multiple skills\"'",
+      "red": {
+        "exitCode": 1,
+        "reason": "Both ordered mounted skills were reported partial with no skills",
+        "line": "Red — lean-ctx -c 'bun test tests/codex-skill-reads.test.ts -t \"composed multiple skills\"': Both ordered mounted skills were reported partial with no skills"
+      },
+      "green": {
+        "exitCode": 0,
+        "testsPassed": 2,
+        "line": "Green — lean-ctx -c 'bun test tests/codex-skill-reads.test.ts -t \"composed multiple skills\"': 2 tests passed"
+      }
+    },
+    {
+      "command": "lean-ctx -c 'bun test tests/codex-skill-reads.test.ts -t \"prefixed literal skill\"'",
+      "red": {
+        "exitCode": 1,
+        "reason": "Complete prefixed reads were reported partial with no skill",
+        "line": "Red — lean-ctx -c 'bun test tests/codex-skill-reads.test.ts -t \"prefixed literal skill\"': Complete prefixed reads were reported partial with no skill"
+      },
+      "green": {
+        "exitCode": 0,
+        "testsPassed": 3,
+        "line": "Green — lean-ctx -c 'bun test tests/codex-skill-reads.test.ts -t \"prefixed literal skill\"': 3 tests passed"
+      }
+    },
+    {
+      "command": "lean-ctx -c 'bun test tests/codex-host.test.ts -t \"verified owner dispatch\"'",
+      "red": {
+        "exitCode": 1,
+        "reason": "Verified owner dispatch inherited partial supporting-read completeness",
+        "line": "Red — lean-ctx -c 'bun test tests/codex-host.test.ts -t \"verified owner dispatch\"': Verified owner dispatch inherited partial supporting-read completeness"
+      },
+      "green": {
+        "exitCode": 0,
+        "testsPassed": 1,
+        "line": "Green — lean-ctx -c 'bun test tests/codex-host.test.ts -t \"verified owner dispatch\"': 1 tests passed"
+      }
+    },
+    {
+      "command": "lean-ctx -c 'bun test tests/codex-host.test.ts -t \"app-server continuation retains\"'",
+      "red": {
+        "exitCode": 1,
+        "reason": "Completed app-server continuation omitted phase receipts",
+        "line": "Red — lean-ctx -c 'bun test tests/codex-host.test.ts -t \"app-server continuation retains\"': Completed app-server continuation omitted phase receipts"
+      },
+      "green": {
+        "exitCode": 0,
+        "testsPassed": 1,
+        "line": "Green — lean-ctx -c 'bun test tests/codex-host.test.ts -t \"app-server continuation retains\"': 1 tests passed"
+      }
+    },
+    {
+      "command": "lean-ctx -c 'bun test tests/codex-skill-reads.test.ts -t \"fixed repository discovery\"'",
+      "red": {
+        "exitCode": 1,
+        "reason": "Fixed repository-discovery read was reported partial",
+        "line": "Red — lean-ctx -c 'bun test tests/codex-skill-reads.test.ts -t \"fixed repository discovery\"': Fixed repository-discovery read was reported partial"
+      },
+      "green": {
+        "exitCode": 0,
+        "testsPassed": 1,
+        "line": "Green — lean-ctx -c 'bun test tests/codex-skill-reads.test.ts -t \"fixed repository discovery\"': 1 tests passed"
+      }
+    },
+    {
+      "command": "lean-ctx -c 'bun test tests/codex-skill-reads.test.ts -t \"unsupported tails after prefixed\"'",
+      "red": {
+        "exitCode": 1,
+        "reason": "Unsupported prefixed read with empty output was reported complete",
+        "line": "Red — lean-ctx -c 'bun test tests/codex-skill-reads.test.ts -t \"unsupported tails after prefixed\"': Unsupported prefixed read with empty output was reported complete"
+      },
+      "green": {
+        "exitCode": 0,
+        "testsPassed": 1,
+        "line": "Green — lean-ctx -c 'bun test tests/codex-skill-reads.test.ts -t \"unsupported tails after prefixed\"': 1 tests passed"
+      }
+    },
+    {
+      "command": "lean-ctx -c 'bun test tests/codex-skill-reads.test.ts -t \"paged reads cannot borrow\"'",
+      "red": {
+        "exitCode": 1,
+        "reason": "Altered paged read borrowed a complete body from later search output",
+        "line": "Red — lean-ctx -c 'bun test tests/codex-skill-reads.test.ts -t \"paged reads cannot borrow\"': Altered paged read borrowed a complete body from later search output"
+      },
+      "green": {
+        "exitCode": 0,
+        "testsPassed": 1,
+        "line": "Green — lean-ctx -c 'bun test tests/codex-skill-reads.test.ts -t \"paged reads cannot borrow\"': 1 tests passed"
+      }
+    },
+    {
+      "command": "lean-ctx -c 'bun test tests/codex-skill-reads.test.ts -t \"environment output on both sides\"'",
+      "red": {
+        "exitCode": 1,
+        "reason": "Environment output surrounding missing read bytes received false complete credit",
+        "line": "Red — lean-ctx -c 'bun test tests/codex-skill-reads.test.ts -t \"environment output on both sides\"': Environment output surrounding missing read bytes received false complete credit"
+      },
+      "green": {
+        "exitCode": 0,
+        "testsPassed": 1,
+        "line": "Green — lean-ctx -c 'bun test tests/codex-skill-reads.test.ts -t \"environment output on both sides\"': 1 tests passed"
+      }
+    },
+    {
+      "command": "lean-ctx -c 'bun test tests/codex-skill-reads.test.ts -t \"repository-prefix normalization\"'",
+      "red": {
+        "exitCode": 1,
+        "reason": "Prefix normalization rewrote a quoted documentation operand and credited missing skill bytes",
+        "line": "Red — lean-ctx -c 'bun test tests/codex-skill-reads.test.ts -t \"repository-prefix normalization\"': Prefix normalization rewrote a quoted documentation operand and credited missing skill bytes"
+      },
+      "green": {
+        "exitCode": 0,
+        "testsPassed": 1,
+        "line": "Green — lean-ctx -c 'bun test tests/codex-skill-reads.test.ts -t \"repository-prefix normalization\"': 1 tests passed"
+      }
+    },
+    {
+      "command": "lean-ctx -c 'bun test tests/codex-skill-reads.test.ts -t \"fallback reads cannot attribute\"'",
+      "red": {
+        "exitCode": 1,
+        "reason": "A multi-file fallback attributed a documentation copy to a missing mounted body",
+        "line": "Red — lean-ctx -c 'bun test tests/codex-skill-reads.test.ts -t \"fallback reads cannot attribute\"': A multi-file fallback attributed a documentation copy to a missing mounted body"
+      },
+      "green": {
+        "exitCode": 0,
+        "testsPassed": 1,
+        "line": "Green — lean-ctx -c 'bun test tests/codex-skill-reads.test.ts -t \"fallback reads cannot attribute\"': 1 tests passed"
+      }
+    },
+    {
+      "command": "lean-ctx -c 'bun test tests/codex-skill-reads.test.ts -t \"double-quoted literal sed\"'",
+      "red": {
+        "exitCode": 1,
+        "reason": "A complete quoted literal sed read was incorrectly reported partial",
+        "line": "Red — lean-ctx -c 'bun test tests/codex-skill-reads.test.ts -t \"double-quoted literal sed\"': A complete quoted literal sed read was incorrectly reported partial"
+      },
+      "green": {
+        "exitCode": 0,
+        "testsPassed": 1,
+        "line": "Green — lean-ctx -c 'bun test tests/codex-skill-reads.test.ts -t \"double-quoted literal sed\"': 1 tests passed"
+      }
+    },
+    {
+      "command": "lean-ctx -c 'bun test tests/codex-skill-reads.test.ts -t \"dynamic sed paths cannot\"'",
+      "red": {
+        "exitCode": 1,
+        "reason": "After quote recognition was repaired, an expanded path borrowed mounted identity from a literal alias",
+        "line": "Red — lean-ctx -c 'bun test tests/codex-skill-reads.test.ts -t \"dynamic sed paths cannot\"': After quote recognition was repaired, an expanded path borrowed mounted identity from a literal alias"
+      },
+      "green": {
+        "exitCode": 0,
+        "testsPassed": 1,
+        "line": "Green — lean-ctx -c 'bun test tests/codex-skill-reads.test.ts -t \"dynamic sed paths cannot\"': 1 tests passed"
+      }
+    },
+    {
+      "command": "lean-ctx -c 'bun test tests/codex-skill-reads.test.ts -t \"multiple bounded literal discovery\"'",
+      "red": {
+        "exitCode": 1,
+        "reason": "Complete mounted bytes followed by two literal searches were incorrectly reported partial",
+        "line": "Red — lean-ctx -c 'bun test tests/codex-skill-reads.test.ts -t \"multiple bounded literal discovery\"': Complete mounted bytes followed by two literal searches were incorrectly reported partial"
+      },
+      "green": {
+        "exitCode": 0,
+        "testsPassed": 1,
+        "line": "Green — lean-ctx -c 'bun test tests/codex-skill-reads.test.ts -t \"multiple bounded literal discovery\"': 1 tests passed"
+      }
+    }
+  ],
+  "localChecks": [
+    {
+      "command": "bun run check:typescript --fast",
+      "exitCode": 0
+    },
+    {
+      "command": "bun test --timeout 90000 tests/codex-host.test.ts tests/host-quality.test.ts tests/codex-skill-reads.test.ts tests/codex-native-calls.test.ts",
+      "exitCode": 0,
+      "testsPassed": 460
+    },
+    {
+      "command": "bun run check:docs:external",
+      "exitCode": 0
+    }
+  ],
+  "previousCandidateRuns": {
+    "description": "Previous candidate outcomes remain separate; no failed task is converted to a passing activation outcome.",
+    "sourceFiles": {
+      "src/hosts/codex-skill-reads.ts": "8fd3e8fda806882017b1df1fe666f8ce47d5f5934fe605907458192e217dec87",
+      "src/hosts/codex.ts": "4906fd33095e8597ed83079b39c45426124cfa7b08ffec30451512523515b9e3"
+    },
+    "cases": [
+      {
+        "caseId": "guide-visual-absent",
+        "entrypoint": "exec",
+        "selectionFile": "guide-delivery-selection.json",
+        "selectionSha256": "219b5691561e64a70c2a5f7e3709fdf8bcbc84a412d02acc757c32e5aed6be6e",
+        "runId": "44420aac-09b3-4858-9604-7d03e5ad623b",
+        "execution": "completed",
+        "grading": "completed",
+        "task": "passed",
+        "checks": [
+          {
+            "id": "darrow.shell.1",
+            "status": "passed",
+            "evidenceRefs": ["sevro.observation.shell.darrow.shell.1"]
+          },
+          {
+            "id": "darrow.shell.2",
+            "status": "passed",
+            "evidenceRefs": ["sevro.observation.shell.darrow.shell.2"]
+          },
+          {
+            "id": "darrow.shell.3",
+            "status": "passed",
+            "evidenceRefs": ["sevro.observation.shell.darrow.shell.3"]
+          },
+          {
+            "id": "darrow.shell.4",
+            "status": "passed",
+            "evidenceRefs": ["sevro.observation.shell.darrow.shell.4"]
+          },
+          {
+            "id": "darrow.evals.disclosure.5",
+            "status": "passed",
+            "evidenceRefs": ["sevro.observation.final-message"]
+          },
+          {
+            "id": "darrow.output.1",
+            "status": "passed",
+            "evidenceRefs": ["sevro.observation.final-message"]
+          },
+          {
+            "id": "darrow.semantic.1",
+            "status": "passed",
+            "evidenceRefs": [
+              "sevro.observation.semantic.3ca2097d4f7ac4d95361ebb6f7c431251b752a81ed98ad07c477e8011aec4ade"
+            ]
+          },
+          {
+            "id": "darrow.semantic.2",
+            "status": "passed",
+            "evidenceRefs": [
+              "sevro.observation.semantic.12335bf9a89e2f87b653fe4d247475880cb27f29b839bf8b93ea9e85da0ac8c1"
+            ]
+          },
+          {
+            "id": "darrow.semantic.3",
+            "status": "passed",
+            "evidenceRefs": [
+              "sevro.observation.semantic.9feac9b022d2d95b10a590a31c45ab8f859249137ae9fc0fe86e28778a46d5d9"
+            ]
+          }
+        ],
+        "failedChecks": [],
+        "activation": {
+          "status": "passed",
+          "class": "positive",
+          "targetSkill": "darrow-guide",
+          "trials": 1,
+          "measured": 1,
+          "passed": 1,
+          "failed": 0,
+          "unavailable": 0,
+          "passRate": 1,
+          "threshold": 1,
+          "trueSelections": 1,
+          "falseSelections": 0
+        },
+        "skillEvidence": [
+          {
+            "id": "sevro.codex.skill-reads",
+            "completeness": "partial",
+            "primarySkill": null,
+            "observedSkills": []
+          },
+          {
+            "id": "sevro.codex.explicit-invocation",
+            "completeness": "complete",
+            "primarySkill": "darrow-guide",
+            "observedSkills": ["darrow-guide"]
+          }
+        ]
+      },
+      {
+        "caseId": "verification-followup-no-progress",
+        "entrypoint": "app-server",
+        "selectionFile": "verification-delivery-selection.json",
+        "selectionSha256": "de32d9c4b74641d867162d5a1bf35541f67dcffdcbcb07faca01c0dc6a43df34",
+        "runId": "6cd7f9df-2097-48b8-ae13-83d4243ac66f",
+        "execution": "completed",
+        "grading": "completed",
+        "task": "failed",
+        "checks": [
+          {
+            "id": "darrow.shell.1",
+            "status": "passed",
+            "evidenceRefs": ["sevro.observation.shell.darrow.shell.1"]
+          },
+          {
+            "id": "darrow.shell.2",
+            "status": "passed",
+            "evidenceRefs": ["sevro.observation.shell.darrow.shell.2"]
+          },
+          {
+            "id": "darrow.shell.3",
+            "status": "passed",
+            "evidenceRefs": ["sevro.observation.shell.darrow.shell.3"]
+          },
+          {
+            "id": "darrow.shell.4",
+            "status": "passed",
+            "evidenceRefs": ["sevro.observation.shell.darrow.shell.4"]
+          },
+          {
+            "id": "darrow.shell.5",
+            "status": "passed",
+            "evidenceRefs": ["sevro.observation.shell.darrow.shell.5"]
+          },
+          {
+            "id": "darrow.semantic.1",
+            "status": "failed",
+            "evidenceRefs": [
+              "sevro.observation.semantic.3ca2097d4f7ac4d95361ebb6f7c431251b752a81ed98ad07c477e8011aec4ade"
+            ]
+          },
+          {
+            "id": "darrow.evals.transcript.1",
+            "status": "passed",
+            "evidenceRefs": ["sevro.codex.native-calls"]
+          },
+          {
+            "id": "darrow.evals.transcript.2",
+            "status": "passed",
+            "evidenceRefs": ["sevro.codex.native-calls"]
+          },
+          {
+            "id": "darrow.evals.transcript.3",
+            "status": "passed",
+            "evidenceRefs": ["sevro.codex.native-calls"]
+          }
+        ],
+        "failedChecks": [
+          {
+            "id": "darrow.semantic.1",
+            "detail": "Reports no progress, preserves F1 as a blocker and A1 as a nonblocking advisory, and records the unchanged timeoutMs=1000 failure and passing required bash check. But it says continuation and completion remain the repair owner's decisions, which does not clearly return the requested stop evidence as the outcome."
+          }
+        ],
+        "activation": {
+          "status": "passed",
+          "class": "positive",
+          "targetSkill": "verify-change",
+          "trials": 1,
+          "measured": 1,
+          "passed": 1,
+          "failed": 0,
+          "unavailable": 0,
+          "passRate": 1,
+          "threshold": 1,
+          "trueSelections": 1,
+          "falseSelections": 0
+        },
+        "skillEvidence": [
+          {
+            "id": "sevro.codex.skill-reads",
+            "completeness": "complete",
+            "primarySkill": "inspect-candidate",
+            "observedSkills": ["inspect-candidate"]
+          },
+          {
+            "id": "sevro.codex.explicit-invocation",
+            "completeness": "complete",
+            "primarySkill": "verify-change",
+            "observedSkills": ["verify-change", "inspect-candidate"]
+          }
+        ]
+      },
+      {
+        "caseId": "goal-readiness-prior-assessed-omitted",
+        "entrypoint": "app-server",
+        "selectionFile": "goal-delivery-selection.json",
+        "selectionSha256": "c13532190a164e9c43629a4621bdf352800832fd5e6a151dcff27b8c6643cf52",
+        "runId": "edf64720-2b19-4393-a111-06c52b96b4fa",
+        "execution": "completed",
+        "grading": "completed",
+        "task": "passed",
+        "checks": [
+          {
+            "id": "darrow.shell.1",
+            "status": "passed",
+            "evidenceRefs": ["sevro.observation.shell.darrow.shell.1"]
+          },
+          {
+            "id": "darrow.shell.2",
+            "status": "passed",
+            "evidenceRefs": ["sevro.observation.shell.darrow.shell.2"]
+          },
+          {
+            "id": "darrow.semantic.1",
+            "status": "passed",
+            "evidenceRefs": [
+              "sevro.observation.semantic.3ca2097d4f7ac4d95361ebb6f7c431251b752a81ed98ad07c477e8011aec4ade"
+            ]
+          },
+          {
+            "id": "darrow.evals.native-goal",
+            "status": "passed",
+            "evidenceRefs": ["sevro.host.native-goal"]
+          },
+          {
+            "id": "darrow.evals.native-goal.internal-record",
+            "status": "passed",
+            "evidenceRefs": ["sevro.observation.final-message"]
+          },
+          {
+            "id": "darrow.evals.native-goal.canonical-report",
+            "status": "passed",
+            "evidenceRefs": ["sevro.observation.final-message"]
+          },
+          {
+            "id": "darrow.evals.transcript.3",
+            "status": "passed",
+            "evidenceRefs": ["sevro.codex.events"]
+          },
+          {
+            "id": "darrow.evals.transcript.1",
+            "status": "passed",
+            "evidenceRefs": ["sevro.codex.initial-skill-reads"]
+          },
+          {
+            "id": "darrow.evals.transcript.2",
+            "status": "passed",
+            "evidenceRefs": ["sevro.codex.follow-up-skill-reads"]
+          }
+        ],
+        "failedChecks": [],
+        "activation": {
+          "status": "not_requested"
+        },
+        "skillEvidence": [
+          {
+            "id": "sevro.codex.skill-reads",
+            "completeness": "complete",
+            "primarySkill": "assess-implementation-readiness",
+            "observedSkills": ["assess-implementation-readiness"]
+          },
+          {
+            "id": "sevro.codex.initial-skill-reads",
+            "completeness": "complete",
+            "primarySkill": "assess-implementation-readiness",
+            "observedSkills": ["assess-implementation-readiness"]
+          },
+          {
+            "id": "sevro.codex.follow-up-skill-reads",
+            "completeness": "complete",
+            "primarySkill": null,
+            "observedSkills": []
+          },
+          {
+            "id": "sevro.codex.explicit-invocation",
+            "completeness": "complete",
+            "primarySkill": "adaptive-goal",
+            "observedSkills": [
+              "adaptive-goal",
+              "assess-implementation-readiness"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "localLimitations": [
+    {
+      "command": "bun run check:typescript",
+      "codexVersion": "0.162.1",
+      "platform": "macOS arm64",
+      "exitCode": 1,
+      "testsPassed": 1809,
+      "testsSkipped": 9,
+      "failedTests": [
+        "Codex managed plugin hooks keep projections read-only and peers private: app-server",
+        "Codex isolates hooks declared in its native plugin manifest",
+        "Codex app-server dispatches selected plugin hooks"
+      ],
+      "scope": "Earlier candidate; failures occurred before a native turn started."
+    },
+    {
+      "codexVersion": "0.160.1",
+      "platform": "macOS arm64",
+      "baselineRevision": "7487efbfa0681a534a38bb0ccf3733a7864f4931",
+      "baselinePassed": 2,
+      "baselineFailed": 2,
+      "baselineFailedTests": [
+        "Codex managed plugin hooks keep projections read-only and peers private: exec",
+        "Codex managed plugin hooks keep projections read-only and peers private: app-server"
+      ],
+      "scope": "The targeted managed-hook startup failures also reproduced on unchanged main; tests remain intact."
+    }
+  ]
+}

@@ -22,7 +22,7 @@ import {
   type HookMounts,
 } from "../runtime-hooks";
 import { runtimeObservations } from "../runtime-state";
-import { isOptionalNonblankString } from "../value-guards";
+import { isOptionalNonblankString, isRecord } from "../value-guards";
 import { runCodexAppServer } from "./codex-app-server";
 import { summarizeCodexEvents, type CodexEventSummary } from "./codex-events";
 import { verifyCodexInvocation } from "./codex-invocation";
@@ -661,10 +661,11 @@ async function phaseSkillReads(
   turns: TurnResult,
   recovered: Awaited<ReturnType<typeof codexNativeSkillReadRecovery>>,
 ) {
-  if (!turns.followUp) return { initial: null, followUp: null };
+  const streams = phaseReadStreams(turns);
+  if (!streams) return { initial: null, followUp: null };
   const initial = {
     ...(await codexSkillReadObservation(
-      turns.execution.out,
+      streams.initial,
       context.request.workspace,
       context.installedPluginRoots,
       recovered,
@@ -673,7 +674,7 @@ async function phaseSkillReads(
   };
   const followUp = {
     ...(await codexSkillReadObservation(
-      turns.followUp.out,
+      streams.followUp,
       context.request.workspace,
       context.installedPluginRoots,
       recovered,
@@ -682,14 +683,42 @@ async function phaseSkillReads(
   };
   return { initial, followUp };
 }
+
+function phaseReadStreams(turns: TurnResult) {
+  if (turns.followUp)
+    return { initial: turns.execution.out, followUp: turns.followUp.out };
+  if (!completedAppServer(turns.appServer)) return null;
+  const lines = turns.execution.out.trimEnd().split("\n");
+  const boundaries = lines.flatMap((line, index) =>
+    isFeedbackBoundary(line, turns.summary.threadId) ? [index] : [],
+  );
+  const [boundary] = boundaries;
+  if (boundaries.length !== 1 || boundary === undefined) return null;
+  return {
+    initial: lines.slice(0, boundary).join("\n"),
+    followUp: lines.slice(boundary + 1).join("\n"),
+  };
+}
+function completedAppServer(result: AppServerResult | null): boolean {
+  return result !== null && result.code === 0;
+}
+function isFeedbackBoundary(line: string, threadId: string): boolean {
+  const event: unknown = JSON.parse(line);
+  return (
+    isRecord(event) &&
+    event.type === "sevro.codex.feedback-boundary" &&
+    event.threadId === threadId
+  );
+}
 function explicitInvocationReceipt(
   selected: Request["explicitSkillInvocation"],
   reads: SkillReads,
+  completed: boolean,
 ) {
   if (!selected) return null;
   return {
     id: "sevro.codex.explicit-invocation",
-    completeness: reads.completeness,
+    completeness: completed ? ("complete" as const) : ("partial" as const),
     data: {
       method: "explicit_invocation",
       primarySkill: selected.skillName,
@@ -742,6 +771,7 @@ async function codexObservations(context: ExecutionContext, turns: TurnResult) {
   const explicit = explicitInvocationReceipt(
     context.request.explicitSkillInvocation,
     reads,
+    turns.summary.complete,
   );
   return [
     ...(await codexHookObservations(context.hooks)),
