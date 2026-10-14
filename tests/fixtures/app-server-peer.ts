@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { appendFileSync, existsSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { join } from "node:path";
 if (defined(process.argv[2]) === "sandbox") process.exit(0);
@@ -20,6 +20,22 @@ const begin = (id: string) => {
     method: "turn/started",
     params: { threadId: "root", turn: { id, status: "inProgress" } },
   });
+  const skill = clientTurns === 1 ? "initial" : "follow-up";
+  const path = join(process.cwd(), ".agents/skills", skill, "SKILL.md");
+  if (existsSync(path)) {
+    const item = {
+      type: "commandExecution",
+      id: "read-" + id,
+      command: "cat " + path,
+      status: "completed",
+      exitCode: 0,
+      aggregatedOutput: readFileSync(path, "utf8"),
+    };
+    send({
+      method: "item/completed",
+      params: { threadId: "root", turnId: id, item },
+    });
+  }
 };
 const finish = (id: string, text: string) => {
   const turn = defined(turns.find((row) => row.id === id));
