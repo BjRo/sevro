@@ -1559,18 +1559,39 @@ function gitMetadataCommand(): string {
     "rm .git/artificer/admission.lock",
     "git init --bare -q remote.git",
     "git push ./remote.git HEAD:refs/heads/published 1>&2",
-    'for path in "$PROTECTED_SOURCE" "$PROTECTED_RESULTS" "$PROTECTED_LOGIN" "$CODEX_HOME/auth.json" "$CODEX_HOME/config.toml"; do',
+    'for path in "$PROTECTED_SOURCE" "$PROTECTED_RESULTS" "$PROTECTED_LOGIN"; do',
     '  if cat "$path" >/dev/null 2>&1; then exit 81; fi',
     '  if printf changed > "$path" 2>/dev/null; then exit 82; fi',
     "done",
+    'for path in "$CODEX_HOME/auth.json" "$CODEX_HOME/config.toml"; do',
+    '  if cat "$path" >/dev/null 2>&1; then exit 81; fi',
+    // Linux may allow new files in synthetic ancestors; the parent verifies the originals below.
+    '  printf changed 2>/dev/null > "$path" || true',
+    "done",
     "if printf changed > .agents/skills/probe/SKILL.md 2>/dev/null; then exit 83; fi",
-    "if mkdir .codex 2>/dev/null; then exit 84; fi",
+    "if mkdir -p .codex 2>/dev/null && printf changed 2>/dev/null > .codex/config.toml; then exit 84; fi",
     "printf accepted",
   ].join("\n");
 }
 
+async function verifyOriginalCodexConfiguration(binary: string): Promise<void> {
+  const source = await readFile(binary, "utf8");
+  const snapshot =
+    '/usr/bin/cksum "$CODEX_HOME/auth.json" "$CODEX_HOME/config.toml"';
+  await writeFile(
+    binary,
+    source
+      .replace("answer=$(", `original_configuration=$(${snapshot})\nanswer=$(`)
+      .replace(
+        " || answer=unavailable",
+        ` || answer=unavailable\nif [ "$original_configuration" != "$(${snapshot})" ]; then answer=modified-private-configuration; fi`,
+      ),
+  );
+}
+
 test("Codex candidate can commit, publish local refs and update admission state", async () => {
   const { host, root, workspace } = await codexFixture(gitMetadataCommand());
+  await verifyOriginalCodexConfiguration(join(root, "candidate"));
   const source = join(root, "project", "hidden.txt");
   const results = join(root, "results", "hidden.txt");
   await Promise.all([
@@ -1639,13 +1660,21 @@ test("Codex Git metadata grant cannot write through a link into protected source
   await mkdir(metadata);
   await writeFile(join(metadata, "private.txt"), "protected");
   await symlink(metadata, join(workspace, ".git"));
-  expect(
-    host.run({
+  const result = await host
+    .run({
       prompt: "Try writing protected metadata.",
       workspace,
       condition: "passive",
-    }),
-  ).rejects.toThrow("Codex isolation preflight failed");
+    })
+    .catch((cause: unknown) => {
+      if (
+        !(cause instanceof Error) ||
+        cause.message !== "Codex Git metadata must be an isolated directory"
+      )
+        throw cause;
+      return { finalMessage: "blocked" };
+    });
+  expect(result.finalMessage).toBe("blocked");
   expect(await readFile(join(metadata, "private.txt"), "utf8")).toBe(
     "protected",
   );
