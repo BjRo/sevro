@@ -712,6 +712,26 @@ test("Codex recognizes a Skill read before working-directory discovery", async (
   );
 });
 
+test("Codex recognizes a batched Skill read after ordinary files change", async () => {
+  if (!isolatedNativeHost || !Bun.which("codex")) return;
+  const selected = await compoundReadFixture(
+    "ship-proposal",
+    "cat README.md .agents/skills/ship-proposal/SKILL.md",
+  );
+  await writeFile(
+    join(selected.workspace, "README.md"),
+    "Changed after the read\n",
+  );
+  const result = await selected.host.run(selected.request);
+  expectUnknown(result.observations).toContainEqual(
+    objectContaining({
+      id: "sevro.codex.skill-reads",
+      completeness: "complete",
+      data: objectContaining({ observedSkills: ["ship-proposal"] }),
+    }),
+  );
+});
+
 test("Codex recognizes the reviewer-route repository-prefixed skill read", async () => {
   if (!isolatedNativeHost || !Bun.which("codex")) return;
   const skill = "code-review";

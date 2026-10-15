@@ -236,6 +236,7 @@ interface ComposedPlan {
   paths: string[];
   prefixed: boolean;
   suffix: "none" | "search" | "discovery";
+  singleCat: boolean;
 }
 
 function normalizedReadPayload(command: string) {
@@ -283,7 +284,9 @@ function composedCommandPlan(commands: string[]): ComposedPlan | null {
   );
   if (suffix === null) return null;
   const paths = composedOperands(commands.slice(first, last + 1));
-  return paths ? { paths, prefixed: first > 0, suffix } : null;
+  return paths
+    ? { paths, prefixed: first > 0, suffix, singleCat: commands.length === 1 }
+    : null;
 }
 
 function boundReadSuffix(
@@ -442,8 +445,55 @@ function composedReceipts(
       lastSkill < files.length - 1,
     )
   )
-    return [];
+    return plan.singleCat ? singleCatReceipts(output, files) : [];
   return files.flatMap((file) => (file.receipt ? [file.receipt] : []));
+}
+
+function singleCatReceipts(
+  output: unknown,
+  files: Array<{ text: string; receipt: VerifiedRead | null }>,
+): VerifiedRead[] {
+  // A successful literal cat reads every operand. Verify ordered Skill spans
+  // without matching current ordinary-file bytes, which may have changed.
+  if (typeof output !== "string") return [];
+  if (!files.some((file) => file.receipt === null)) return [];
+  const reads = files.filter(
+    (file): file is { text: string; receipt: VerifiedRead } =>
+      file.receipt !== null,
+  );
+  const spans = orderedSkillSpans(output, reads);
+  if (!spans) return [];
+  return attributedFrontmatter(output, spans)
+    ? reads.map((file) => file.receipt)
+    : [];
+}
+
+function orderedSkillSpans(
+  output: string,
+  reads: Array<{ text: string }>,
+): Array<{ start: number; end: number }> | null {
+  const spans = [];
+  let end = 0;
+  for (const read of reads) {
+    const start = output.indexOf(read.text, end);
+    if (!composedOutputAt(output, read.text, start)) return null;
+    end = start + read.text.length;
+    spans.push({ start, end });
+  }
+  return spans;
+}
+
+function attributedFrontmatter(
+  output: string,
+  spans: Array<{ start: number; end: number }>,
+): boolean {
+  for (const match of output.matchAll(/^name: [A-Za-z0-9._-]+\r?$/gm)) {
+    if (
+      !spans.some((span) => match.index >= span.start && match.index < span.end)
+    )
+      return false;
+  }
+  return true;
 }
 
 function matchesComposedOutput(
@@ -489,7 +539,11 @@ function matchesComposedOutside(
   const outside =
     output.slice(0, start) +
     (["discovery", "files"].includes(suffix) ? output.slice(end) : "");
-  return !/(?:^|\n)name: [A-Za-z0-9._-]+\r?$/m.test(outside);
+  return noSkillFrontmatter(outside);
+}
+
+function noSkillFrontmatter(output: string): boolean {
+  return !/(?:^|\n)name: [A-Za-z0-9._-]+\r?$/m.test(output);
 }
 
 async function composedFile(

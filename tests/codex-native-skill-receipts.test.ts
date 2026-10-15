@@ -107,6 +107,26 @@ type Scenario = { label: string; mutate: (value: Fixture) => void };
 test.each([
   { label: "the exact indexed batch", mutate: () => {} },
   {
+    label: "ordinary files before the Skill",
+    mutate: (f) => {
+      const command =
+        "cat config.json check.sh .agents/skills/ship-proposal/SKILL.md";
+      f.call.input = mixedReadProgram.replace(
+        JSON.stringify(mixedReadCommand),
+        JSON.stringify(command),
+      );
+      f.item.command = ["/bin/zsh", "-c", command];
+      f.streamItem.command = command;
+      f.item.aggregated_output =
+        mixedReadOutput
+          .slice(mixedReadSkill.length)
+          .replace(
+            "Initial delivery notes.\nAdditional local delivery notes.\n",
+            "",
+          ) + mixedReadSkill;
+    },
+  },
+  {
     label: "a different result loop",
     mutate: (f) => {
       f.call.input = mixedReadProgram.replace(
