@@ -255,7 +255,11 @@ Source caches are never a writable runtime. Use prepared public caches rather
 than credential-bearing homes or evaluator directories.
 
 `{{sevro.runtime}}` in an environment value resolves to that role's writable
-root. Sevro supplies private `HOME` and temporary storage and sets `UV_OFFLINE=1`
+root. Codex commands receive `TMPPREFIX=<private-temp>/zsh` alongside `TMPDIR`,
+so zsh here-documents use their existing private temporary storage while shared
+host temporary directories remain denied. `TMPPREFIX` is runner-owned and cannot
+be inherited or set through runtime configuration.
+Sevro supplies private `HOME` and temporary storage and sets `UV_OFFLINE=1`
 and `PYTHONDONTWRITEBYTECODE=1`. Candidate, hook, checker, semantic, and advisory
 state are separate. With a runtime policy, native candidate, semantic, and
 advisory roots live in a unique runner-owned host directory outside the Git

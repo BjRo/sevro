@@ -90,6 +90,7 @@ test("Codex profile preserves quoted paths and deduplicates declared access root
     codexPermissionProfile({
       ...ordinaryProfile,
       commandHome: '/tmp/fixture/quoted "home"',
+      commandTemp: '/tmp/fixture/quoted "temp"',
       executableReadRoots: ["/bin", "/bin"],
       protectedRoots: ['/tmp/source "quoted"', '/tmp/source "quoted"'],
       pluginReadRoot: "/tmp/fixture/plugins",
@@ -99,7 +100,11 @@ test("Codex profile preserves quoted paths and deduplicates declared access root
     default_permissions: "sevro_trial",
     shell_environment_policy: {
       inherit: "none",
-      set: { HOME: '/tmp/fixture/quoted "home"' },
+      set: {
+        HOME: '/tmp/fixture/quoted "home"',
+        TMPDIR: '/tmp/fixture/quoted "temp"',
+        TMPPREFIX: '/tmp/fixture/quoted "temp"/zsh',
+      },
     },
     permissions: {
       sevro_trial: {

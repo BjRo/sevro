@@ -1144,7 +1144,14 @@ test("CLI explicit runtime file replaces repository configuration", async () => 
   });
 });
 
-test.each(["ANTHROPIC_API_KEY", "HOME", "CODEX_HOME", "NODE_OPTIONS"])(
+test.each([
+  "ANTHROPIC_API_KEY",
+  "HOME",
+  "CODEX_HOME",
+  "NODE_OPTIONS",
+  "TMPPREFIX",
+  "tmpprefix",
+])(
   "CLI refuses credential or runner environment inheritance: %s",
   async (name) => {
     const { root, project, args } = await fixture();

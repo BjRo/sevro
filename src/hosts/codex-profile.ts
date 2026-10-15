@@ -66,6 +66,7 @@ export function codexPermissionProfile(options: {
     ),
     `HOME = ${toml(options.commandHome)}`,
     `TMPDIR = ${toml(options.commandTemp)}`,
+    `TMPPREFIX = ${toml(join(options.commandTemp, "zsh"))}`,
     "",
     `[permissions.${name}]`,
     'extends = ":workspace"',
