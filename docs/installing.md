@@ -1,8 +1,9 @@
 # Install, update, or remove Sevro
 
 Use Bun 1.3.13 for this TypeScript/Bun CLI. Installation does not make it a
-Node-only executable. Full validation and native isolation target macOS;
-Linux and Windows are unverified.
+Node-only executable. Full validation and native isolation target macOS and
+Ubuntu 24.04 x64. See the [bounded platform evidence](native-hosts.md#validated-platform-scope);
+Windows remains unverified.
 
 ## Install locally
 
@@ -46,16 +47,15 @@ no adjustment is needed. Bun must also be on `PATH`: the executable uses
 
 ## Published package and checkout
 
-The [current release](#current-release) includes runtime
-configuration, native goals, selected plugin hooks, current onboarding, and
-[source-available licensing terms](licensing.md). Earlier `rc.1` and `rc.2`
-packages retain BUSL-1.1. The license transition began with `0.1.0-rc.3`.
-Source checkouts can include changes beyond their
-package version; compare the exact release tag when establishing provenance.
+See [licensing](licensing.md) for Sevro's source-available terms and historical
+licensing transitions.
 
-The candidate npm package contains sources, schemas, examples, documentation,
+The npm package contains sources, schemas, examples, documentation,
 LICENSE, and contribution guidance. It excludes tests, developer scripts, Git
 metadata, and repository guide mounts. Use a source checkout for the guide.
+
+Source checkouts can include changes beyond their package version; compare the
+exact release tag when establishing provenance.
 
 ## Work from source
 

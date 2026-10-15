@@ -3,10 +3,14 @@
 `sevro report` reads one or more retained `sevro.cli-result.v1` files and their
 referenced `sevro.run-evidence.v1` files. It validates both public schemas and
 checks run identity, exit category, case count, and trial references before
-reporting. Paths must be absolute and distinct.
+reporting. Programmatic `createReport` paths must be absolute and distinct.
+CLI `--result-file` paths may be relative to the invoking directory; they are
+canonicalized before duplicate detection and loading.
 
 ```sh
 sevro report --result-file /absolute/path/to/result.json
+sevro report --latest
+sevro report --latest --results-root ./other-results
 sevro report --json --result-file /absolute/path/to/first.json \
   --result-file /absolute/path/to/second.json
 ```
@@ -16,6 +20,14 @@ defined by [`report-v1.schema.json`](../schemas/report-v1.schema.json). Invalid
 inputs return exit 64 with a diagnostic on stderr. Reporting does not change
 the exit category of any input run; each row retains its original code.
 Pre-run failures with no case rows remain visible in the input-run section.
+
+`--latest` selects
+`<cwd>/.sevro/results/latest.json`; `--results-root` changes that root and requires
+`--latest`. It is exclusive with `--result-file`. Each retained CLI evaluation
+saves a `result.json` beside its run evidence and atomically updates latest,
+including dry and failed runs. Pre-run failures do not replace latest. Missing
+latest or referenced evidence is an error. See
+[the evaluation workflow](evaluation-workflow.md).
 
 Each case row keeps task verdict, execution, and grading separate. Task pass
 rate is measured only when every trial completed execution and grading with an

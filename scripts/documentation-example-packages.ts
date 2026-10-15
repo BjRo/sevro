@@ -34,6 +34,7 @@ export async function candidatePackage(root: string, temporary: string) {
   return {
     archive: join(temporary, `bjoernrochel-sevro-${value.version}.tgz`),
     license,
+    published: `@bjoernrochel/sevro@${value.version}`,
   };
 }
 
@@ -58,7 +59,7 @@ export async function verifyConsumer(
   label: string,
   dependency: string,
   expectedLicense: string,
-): Promise<void> {
+): Promise<string> {
   const consumer = join(temporary, label);
   await mkdir(consumer);
   await writeFile(
@@ -80,6 +81,7 @@ export async function verifyConsumer(
   console.log(
     `Passed exact documented commands: ${label}, license ${expectedLicense}`,
   );
+  return installed;
 }
 
 export async function verifyContributor(

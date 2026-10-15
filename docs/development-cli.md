@@ -11,11 +11,99 @@ grading, evidence, and extension lifecycle.
 Examples assume [Sevro and Bun are on `PATH`](installing.md#make-the-command-available).
 For a contributor checkout, use `bun src/cli.ts` in place of `sevro`.
 
+Use `sevro --help`, `sevro run --help`, or `sevro report --help` for examples,
+required options, and defaults without preparing a run. `sevro --version` prints
+the installed package version. Invocation and configuration diagnostics go to
+stderr in both output modes; `--json` keeps one `sevro.cli-result.v1` document
+on stdout. Invalid case diagnostics name the input file and offending field.
+
+<a id="run-defaults-in-this-checkout"></a>
+
+## Run defaults
+
+`sevro demo` owns a deterministic case, fixture and adapter. It needs no model
+credentials and immediately prints an assessed verdict plus an evidence path in
+`.sevro/results` beneath the invoking directory. Its temporary project and
+configuration are independent of the caller's files and runtime policy.
+
+An ordinary run needs a case source and candidate route. For example:
+
+```sh
+sevro run --case-file ./case.json --adapter-module ./host-adapter.ts
+```
+
+| Setting                                                     | Default                                                                                                                 |
+| ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Condition                                                   | `passive`                                                                                                               |
+| Trial count                                                 | `1`                                                                                                                     |
+| Pass threshold                                              | `1`: all assessed trials must pass; any unassessed trial prevents a pass                                                |
+| Parallel trial limit (`--jobs`)                             | `3`                                                                                                                     |
+| Project root                                                | Invoking current directory                                                                                              |
+| Results root                                                | `<project-root>/.sevro/results`                                                                                         |
+| Configuration root                                          | Project root                                                                                                            |
+| Run-state root                                              | Results root                                                                                                            |
+| Runtime policy                                              | Discover `sevro.json` at project root; none when absent                                                                 |
+| Native binary                                               | Resolve only the explicitly selected `codex` or `claude` from `PATH`; `--codex-bin` / `--claude-bin` override it        |
+| Native execution timeout                                    | `600000` ms (10 minutes); Codex accepts `--codex-timeout-ms`                                                            |
+| Codex entrypoint                                            | `exec`; a native-goal runtime policy selects `app-server`                                                               |
+| Codex agent concurrency                                     | `agents.max_concurrent_threads_per_session` from `.codex/config.toml` at configuration root, otherwise the host default |
+| Shell-check expected exit                                   | `0` unless the check declares `expectedExitCode`                                                                        |
+| Shell-check timeout                                         | `30000` ms unless the check declares `timeoutMs` (maximum `120000`)                                                     |
+| Shell isolation, dry preparation, host diagnostic retention | Off                                                                                                                     |
+
+Every run file/directory option accepts a relative path based on the invoking
+current directory, including adapter modules, extension source files, native
+binary overrides and protected roots. Sevro resolves them to canonical absolute
+paths before constructing protection lists; missing output-directory suffixes
+resolve through their nearest existing parent. A different `--project-root`
+does not change that base. The default results directory is relative to the
+selected project root. Paths inside runtime policy files retain their
+[runtime-specific resolution rules](runtime-v1.md).
+Extension command JSON still requires an absolute executable argv; arbitrary
+argv entries are not treated as CLI path options.
+
+Sevro prints a whitelist of effective run settings and routes on stderr before
+candidate execution, including resolved storage paths, native executables,
+timeouts and concurrency. JSON stdout remains one result document. The preview
+does not print credential bytes, runtime environment values or native diagnostics.
+The resolved executable is retained as `sevro.host.executable` in each used native
+role's redacted host configuration; selecting a different path changes that
+configuration's identity.
+
+Use `sevro init` with `--template response`, `coding` or
+`repository-skill` and `--directory <new-path>`. It refuses existing destinations
+and writes runnable assertions, a manifest and template instructions. Follow the
+[demo-to-iteration workflow](evaluation-workflow.md) for preparation, execution
+and negative controls. Repository-skill requires explicit native model, effort
+and authentication; dry preparation does not establish dispatch.
+
+Actual preparation, candidate, grading and evidence-retention stage events use
+stderr. Human completion includes each trial's separate states, failed-check
+reasons, measured candidate time, known/unknown usage and retained paths. JSON
+stdout remains one result. Each retained CLI run writes `result.json` beside run
+evidence and `<results-root>/latest.json`. `sevro report --latest` reads the current
+directory's default results root; add `--results-root <path>` for another root.
+Dry and failed runs can be latest.
+
+Project root identifies the evaluated project and extension discovery. It does
+not populate the participant workspace: declare inline files, generated history
+or a repository source in the case's fixture. See [case authoring](creating-cases.md).
+Keep `.sevro/` out of Git. Results and run-state paths are excluded from project
+snapshots and untracked Git identity; tracked source changes still count.
+
+## Explicit run settings
+
+To repeat these selections, use the versioned [saved run settings](run-settings-v1.md)
+with `--run-manifest-file ./evaluation.json`. Built-in defaults are replaced by
+saved settings, then by explicit CLI options. `sevro.json` keeps its separate
+runtime scope. Saved file paths use the manifest's directory; explicit CLI
+paths use the invoking directory.
+
 An installed package records its name, version, and a digest of its packaged
 runtime and public contract files without reading runner Git metadata. The CLI
 derives the project digest from its revision and dirty patch, or from a bounded
 content snapshot when the project has no Git revision. Result and run-state
-directories are excluded from that snapshot. When running this source checkout
+directories are excluded from that snapshot and untracked Git identity. When running this source checkout
 for coordinated development, pass `--runner-checkout-root` with the absolute
 path to this checkout. Sevro verifies that it is the code actually running and
 records its revision and dirty-patch digest instead of package provenance.
@@ -67,8 +155,7 @@ Add `--retain-host-diagnostics` to a failing invocation to retain private
 diagnostics from bundled Codex and Claude hosts. The switch defaults to off,
 applies to every selected native role, and is independent of runtime
 `nativeTranscripts`. It does not enable transcript access or change the
-candidate's permissions. This switch is available in the development checkout;
-the published `0.1.0-rc.8` does not accept it.
+candidate's permissions.
 
 For example, add the switch to the Codex command above:
 
@@ -239,7 +326,8 @@ For cases with `sevro.semantic` checks, also pass
 explicit second `HostAdapter` for grading. Alternatively, select the bundled
 Codex route with `--semantic-host codex --semantic-model <model>
 --semantic-effort <effort>`. That route also requires `--codex-bin` and
-`--codex-auth-file`, shared with a Codex candidate route when present. The two
+`--codex-auth-file`, shared with a Codex candidate route when present. The binary
+defaults to the explicitly selected `codex` on `PATH`. The two
 semantic route options are exclusive. The candidate and semantic routes are
 recorded separately in evidence and evaluation identity. The semantic adapter
 runs after a complete candidate response in its own empty workspace; missing
@@ -293,7 +381,7 @@ verdict and rejects unsolicited recommendations.
 
 If the extension needs configuration, supply both
 `--extension-configuration-file` and
-`--extension-redacted-configuration-file` as absolute paths to JSON objects.
+`--extension-redacted-configuration-file` as paths to JSON objects.
 The latter replaces secret values for the retained configuration digest. Keep
 secrets out of the command argv and the redacted file.
 
@@ -421,6 +509,3 @@ Claude also advertises `sevro.host.native-goal`. Its observer binds one persiste
 transcript to the original successful native session and retains goal status
 and objective length. Missing, ambiguous, malformed or oversized evidence is
 unavailable; an unavailable observation cannot prove goal absence.
-
-These additions require the `0.1.0-rc.2` candidate. The published `rc.1` lacks
-the app-server selector and native goal observations.

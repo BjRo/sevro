@@ -376,7 +376,7 @@ test.each([
   ["replace-builtin-grader", "unqualified", "invalid --replace-builtin-grader"],
   ["claude-uv-cache-dir", "/cache", "Claude options require --host claude"],
   ["host", "unsupported", "unsupported --host"],
-  ["protected-root", "relative", "--protected-root must be absolute"],
+  ["protected-root", "relative", "--protected-root requires isolation"],
 ] as const)(
   "CLI refuses invalid --%s=%s before input loading or host execution",
   async (option, value, diagnostic) => {
@@ -546,7 +546,19 @@ test("CLI human output retains extension domain outcomes independently of task v
       child.exited,
     ]);
     expect(code).toBe(0);
-    expect(stderr).toBe("");
+    expect(stderr).toStartWith("sevro: effective settings ");
+    expect(stderr.trim().split("\n").slice(1)).toEqual([
+      "sevro: preparation started",
+      "sevro: preparation completed trial=1",
+      "sevro: candidate started trial=1",
+      "sevro: candidate completed trial=1",
+      "sevro: grading started trial=1",
+      "sevro: grading completed trial=1",
+      "sevro: evidence started trial=1",
+      "sevro: evidence completed trial=1",
+      "sevro: evidence started",
+      "sevro: evidence completed",
+    ]);
     expect(stdout).toContain(
       "execution=completed grading=completed task=passed\n",
     );

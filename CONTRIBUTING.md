@@ -38,6 +38,13 @@ bun run test:docs-examples
 ```
 
 The second command checks the tutorial in fresh consumer/contributor directories.
+Its complete recipe checks also require UV, Python 3, mise, and an existing
+`mise install node@24.13.0` installation; see [recipe prerequisites](docs/recipes.md).
+CI explicitly provisions these tools. Missing prerequisites fail with a named
+setup instruction rather than skipping a recipe.
+To run recipe commands from this source checkout, set
+`export SEVRO_RECIPES="$PWD/examples/recipes"` from the repository root, then
+follow the [recipe commands](docs/recipes.md#prepare-a-recipe-project).
 Native model trials need their own [credentials and prerequisites](docs/native-hosts.md).
 
 ## Quality contract and checks

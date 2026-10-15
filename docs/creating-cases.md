@@ -4,18 +4,25 @@ Start with a direct case for a prompt, fixture, and built-in success criteria.
 Copy [the basic graded case](../examples/basic/graded.json), give it a stable
 ID, and replace the prompt/check. Read [built-in graders](builtin-graders-v1.md)
 for regex, JSON, and bounded schema assertions. No criteria means `not_assessed`.
+For complete coding, repository-skill, runtime, semantic and extension projects,
+follow the [runnable recipes](recipes.md), including their deliberate failures.
 
 Run it with the [CLI](running-evaluations.md). Direct cases follow `ResolvedCase`
 in [the engine](../src/engine.ts). Fixtures can provide inline files, generated
 Git history, or a declared clean repository. The [CLI reference](development-cli.md)
 owns required source roots/maps; an arbitrary returned path does not grant access.
 
+Selecting `--project-root` identifies the project; it does not copy its contents
+into a participant fixture. Declare the files or repository source the participant
+should receive. The [run defaults reference](development-cli.md#run-defaults)
+explains how project identity, fixtures and CLI path resolution interact.
+
 ## Evaluate your repository skills
 
 Start with one representative task, your actual skill, and observable success
 criteria. This example evaluates a documentation guide's answer with Codex.
 Use [Sevro from `PATH`](installing.md#make-the-command-available).
-Live runs require the [native host prerequisites](native-hosts.md), macOS
+Live runs require the [native host prerequisites](native-hosts.md), supported
 isolation, an authenticated Codex installation, and your chosen model.
 They consume that account's model quota.
 
@@ -109,7 +116,7 @@ prepares skill mounts and interprets complete native host evidence. The
 [extension protocol](extension-protocol-v1.md) defines repository and plugin
 invocations; the checkout's [guide evals](guide-evaluation.md) demonstrate the
 approach. Check those capabilities against your exact installed release:
-this checkout contains [changes beyond published `rc.2`](installing.md#published-package-and-checkout).
+this checkout can contain [changes beyond its published version](installing.md#published-package-and-checkout).
 
 ## Reusable project policy
 

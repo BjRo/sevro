@@ -1,0 +1,4 @@
+{
+  "format": "sevro.runtime.v1",
+  "hooks": { "nativeGoal": true, "plugins": ["startup"] }
+}

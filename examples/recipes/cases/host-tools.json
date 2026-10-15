@@ -1,0 +1,21 @@
+{
+  "id": "recipe-host-tools",
+  "prompt": "Read app.env with rg, then explain the application's start command and port.",
+  "fixture": {
+    "files": {
+      "README.md": "Start with bun run dev on port 3000.\n",
+      "app.env": "port=3000\n"
+    }
+  },
+  "checks": [
+    {
+      "id": "rg-access",
+      "grader": "sevro.shell",
+      "configuration": {
+        "run": "rg '^port=3000$' app.env",
+        "expectExact": "port=3000"
+      }
+    }
+  ],
+  "requiredEvidence": []
+}

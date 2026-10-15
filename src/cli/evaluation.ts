@@ -6,6 +6,8 @@ import {
 } from "../provenance";
 import { selectedCase } from "./extension";
 import type { PreparedInvocation } from "./preparation";
+import { assessmentSettings, effectiveSettings } from "./settings";
+import { displayProgress } from "./progress";
 
 export async function evaluateInvocation(
   prepared: PreparedInvocation,
@@ -15,6 +17,9 @@ export async function evaluateInvocation(
     prepared;
   const { caseData, extension } = await selectedCase(prepared, signal);
   return runEvaluation({
+    onProgress: displayProgress,
+    resolvedRunSettings: effectiveSettings(prepared),
+    assessmentSettings: assessmentSettings(prepared),
     runtimePolicy: prepared.runtimePolicy,
     projectRoot: invocation.projectRoot,
     resultsRoot: invocation.resultsRoot,
@@ -34,7 +39,10 @@ export async function evaluateInvocation(
       invocation.projectDigest ??
       (await projectIdentityDigest(
         invocation.projectRoot,
-        await projectProvenance(invocation.projectRoot),
+        await projectProvenance(invocation.projectRoot, [
+          invocation.resultsRoot,
+          invocation.runStateRoot,
+        ]),
         [invocation.resultsRoot, invocation.runStateRoot],
       )),
     condition: invocation.condition,

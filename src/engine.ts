@@ -7,6 +7,7 @@ export type {
   HostAdapter,
   ResolvedCase,
   EvaluationOptions,
+  EvaluationProgress,
   CliResult,
 } from "./evaluation/types";
 export { runEvaluation } from "./evaluation/run";

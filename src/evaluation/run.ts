@@ -14,6 +14,7 @@ import {
 import type { EvaluationContext } from "./context";
 import { ResultCollector, type CollectedResults } from "./collection";
 import { executeEvaluationTrials } from "./trial";
+import { evaluationProgress } from "./progress";
 
 function evaluationSignal(
   options: EvaluationOptions,
@@ -112,6 +113,9 @@ function finalRunEvidence(
     configuration: {
       digest: hashJson(prepared.redactedConfig),
       redacted: prepared.redactedConfig,
+      ...(options.resolvedRunSettings
+        ? { resolved: options.resolvedRunSettings }
+        : {}),
     },
     runner: prepared.runner,
     project: prepared.project,
@@ -150,10 +154,12 @@ async function finishEvaluationRun(
   );
   assertCliResult(result);
   assertRunEvidence(evidence);
+  evaluationProgress(options, "evidence", "started");
   await atomicWriteJson(context.resources.evidencePath, evidence);
   context.results.checkpoint(
     options.signal?.aborted ? "interrupted" : "complete",
   );
+  evaluationProgress(options, "evidence", "completed");
   return { result };
 }
 
@@ -165,6 +171,7 @@ export async function runEvaluation(
     ...options,
     runtimePolicy: runtimePolicySnapshot(options.runtimePolicy),
   };
+  evaluationProgress(options, "preparation", "started");
   await cleanupExpiredWorkspaces();
   const prepared = await prepareEvaluation(options);
   const resources = await allocateRunResources(

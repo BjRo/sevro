@@ -76,10 +76,10 @@ const invalidExternalFlags: {
     diagnostic: /missing --extension-source-file/,
   },
   {
-    name: "relative extension source",
+    name: "empty extension source",
     extension: true,
-    flags: ["--extension-source-file", "relative-extension.ts"],
-    diagnostic: /--extension-source-file must be absolute/,
+    flags: ["--extension-source-file", ""],
+    diagnostic: /missing --extension-source-file/,
   },
   {
     name: "private configuration without redacted file",

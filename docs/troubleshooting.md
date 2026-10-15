@@ -3,18 +3,18 @@
 Start with execution, grading, task states, and stderr. A documented possible
 cause is not a diagnosis of your machine.
 
-| Symptom                                   | Check and next step                                                                                                                                       |
-| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Command cannot run                        | Use Bun 1.3.13 and verify the local package/version. Read [installation](installing.md).                                                                  |
-| Project snapshot contains a symbolic link | Use a separate evaluated project directory as in [the tutorial](getting-started.md); do not include installed dependencies in a plain-directory snapshot. |
-| Exit 0 but no passing task                | Prompt-only/dry runs are `not_assessed`. Read [results](reading-results.md).                                                                              |
-| Exit 64 before execution                  | Check absolute paths, exclusive route options, configuration, and capabilities in the [CLI reference](development-cli.md).                                |
-| Grading unavailable                       | Inspect required evidence/completeness in [results v1](results-v1.md).                                                                                    |
-| Native authentication fails               | Check the exact release and private credential route. Read [native hosts](native-hosts.md).                                                               |
-| Native or shell isolation fails           | Verify macOS and `sandbox-exec`. Other platforms are unverified.                                                                                          |
-| Extension protocol fails                  | Return one matching stdout response; diagnostics use stderr. Read [protocol v1](extension-protocol-v1.md).                                                |
-| Schema freshness fails                    | Run `bun run schemas:generate`, then `bun run schemas:check`, from a checkout.                                                                            |
-| External links fail                       | Follow [network failure triage](documentation-quality.md#external-links).                                                                                 |
+| Symptom                                   | Check and next step                                                                                                                                                                     |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Command cannot run                        | Use Bun 1.3.13 and verify the local package/version. Read [installation](installing.md).                                                                                                |
+| Project snapshot contains a symbolic link | Use a separate evaluated project directory as in [the tutorial](getting-started.md); do not include installed dependencies in a plain-directory snapshot.                               |
+| Exit 0 but no passing task                | Prompt-only/dry runs are `not_assessed`. Read [results](reading-results.md).                                                                                                            |
+| Exit 64 before execution                  | Check absolute paths, exclusive route options, configuration, and capabilities in the [CLI reference](development-cli.md).                                                              |
+| Grading unavailable                       | Inspect required evidence/completeness in [results v1](results-v1.md).                                                                                                                  |
+| Native authentication fails               | Check the exact release and private credential route. Read [native hosts](native-hosts.md).                                                                                             |
+| Native or shell isolation fails           | On macOS, verify `sandbox-exec`; on Ubuntu 24.04 x64, verify `bubblewrap` and Claude's `socat`. See [validated scope](native-hosts.md#validated-platform-scope). Windows is unverified. |
+| Extension protocol fails                  | Return one matching stdout response; diagnostics use stderr. Read [protocol v1](extension-protocol-v1.md).                                                                              |
+| Schema freshness fails                    | Run `bun run schemas:generate`, then `bun run schemas:check`, from a checkout.                                                                                                          |
+| External links fail                       | Follow [network failure triage](documentation-quality.md#external-links).                                                                                                               |
 
 ## The repository guide is missing
 

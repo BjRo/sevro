@@ -32,7 +32,10 @@ The CLI derives `runnerBuildDigest` from sorted packaged file paths and their
 SHA-256 bytes under `src/`, `schemas/`, `docs/`, and `examples/`, plus `README.md` and
 `package.json`. For a Git project, `projectDigest` binds the revision and dirty
 patch digest without the checkout path. Without a revision it hashes a bounded
-file snapshot, excluding `.git`, results, and run-state storage. A caller may
+file snapshot, excluding `.git`, results, and run-state storage. Results and
+run-state storage are also excluded from untracked Git identity, so repeated
+project-local output does not change the project digest. Tracked source changes
+remain included, even under a selected storage directory. A caller may
 provide explicit 64-character digests for controlled development runs.
 
 The prefix separates this digest from component digests and future identity
@@ -47,6 +50,17 @@ configuration; its bytes are never retained in evidence or its digest input.
 The effective positive trial job limit is retained as `configuration.redacted.jobs`
 and enters `configurationDigest`. Changing parallelism changes evaluation identity,
 even when the condition, host route, trial count, and assessment threshold match.
+
+CLI [saved run settings](run-settings-v1.md) resolve before evaluation. Equivalent
+manifest and explicit selections produce the same semantic inputs. CLI evidence
+also retains `configuration.redacted.runSettings` for shell isolation, explicit
+protected roots, deprecated runtime selections, selected native timeouts and
+Claude project-settings authority. These values enter the
+configuration digest. Optional `configuration.resolved` stores the whitelisted
+operator preview outside that digest, including operational paths and the
+selected manifest location. Relocating output storage alone does not alter
+identity. A tracked manifest remains project content under the normal project
+identity rules.
 
 Extension runs retain the operator-supplied redacted extension configuration
 under `configuration.redacted.extensionConfiguration`, alongside

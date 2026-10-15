@@ -80,7 +80,8 @@
       "required": ["digest", "redacted"],
       "properties": {
         "digest": { "$ref": "#/$defs/digest" },
-        "redacted": { "type": "object" }
+        "redacted": { "type": "object" },
+        "resolved": { "type": "object" }
       },
       "additionalProperties": false
     },

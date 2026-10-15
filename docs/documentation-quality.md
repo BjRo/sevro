@@ -14,6 +14,12 @@ Local checks need no network. Run `bun run test:docs-examples` for the exact
 marked tutorial commands in fresh consumer/contributor directories, including
 expected verdicts and saved evidence. Candidate and released-package runs are
 reported separately. These commands create and clean temporary directories.
+The [recipe verifier](../scripts/documentation-recipes.ts) runs the new packaged
+projects separately from the current published version. It executes actual
+isolated tool/check positive and negative controls and both native hosts' dry
+preparation; authenticated model, plugin-hook and goal behavior remain
+unexecuted by that check. Its [prerequisites](recipes.md#prepare-a-recipe-project)
+are mandatory, including UV and mise's declared Node installation.
 
 `package.json.version` is the authoritative current version. `bun run docs:sync`
 updates only the marked [Current release](installing.md#current-release) section
@@ -25,6 +31,10 @@ stale output. Run synchronization after a version bump and include the resulting
 documentation change. Link installation and update instructions to this section.
 Keep historical versions, licensing transitions, and minimum supported versions
 fixed and explain their purpose beside each reference.
+Link to the current-release section instead of repeating the current Sevro
+version elsewhere. Describe features for the latest version, using the installed
+`sevro` command in user workflows. Keep source-checkout instructions in contributor
+guidance and omit notes about feature unavailability in older releases.
 
 ## External links
 
@@ -38,8 +48,8 @@ make a network job green. External success does not establish a claim's truth.
 
 - Can a new user reach installation, first success, results, troubleshooting,
   architecture, and contributing without the guide?
-- Are supported environments, credentials, side effects, and current versus
-  released behavior explicit beside the relevant commands?
+- Are supported environments, credentials, side effects, and prerequisites
+  explicit beside the relevant commands?
 - Do descriptive links, meaningful headings, source order, readable tables,
   image alternatives, and words rather than color support accessibility?
 - Are current contracts, accepted choices, research, and past evidence distinct?

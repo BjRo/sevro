@@ -6,6 +6,23 @@ Claude Code), a supported native CLI, and model
 authentication. Complete commands/rules live in the [CLI reference](development-cli.md)
 and [Codex host reference](codex-host.md).
 
+## Validated platform scope
+
+The full source quality gate has passed on macOS arm64 and Ubuntu 24.04 x64.
+Ubuntu evidence includes [the successful source CI run for `cd7542bf`](https://github.com/BjRo/sevro/actions/runs/38692971517).
+That run exercises deterministic native-host protocols and real filesystem,
+process, network and shell isolation with the pinned prerequisites in
+[the quality contract](typescript-quality.md#environment-and-ci). It does not
+establish authenticated model success for every host/model combination.
+This is prior source evidence; changed candidates still need their own green CI.
+Other Linux distributions and Windows are unverified.
+
+On Ubuntu, install `bubblewrap`, `ripgrep`, and `socat`. Unprivileged user
+namespaces must work; Ubuntu's AppArmor policy may need a `bwrap` profile.
+[CI's setup script](../scripts/setup-ci-linux.sh) supplies and probes the
+supported runner setup. Use it as an explicit development setup step where
+appropriate; do not assume all Linux hosts have that configuration.
+
 ## Codex
 
 Select `--host codex`, absolute `--codex-bin` and `--codex-auth-file` paths,

@@ -1,0 +1,21 @@
+{
+  "id": "recipe-coding-change",
+  "prompt": "Fix add in math.cjs so it adds its two numeric arguments. Do not modify README.md. Explain how to start the application.",
+  "fixture": {
+    "files": {
+      "README.md": "Fix add in math.cjs. Start the application with bun run dev on port 3000.\n",
+      "math.cjs": "exports.add = (a, b) => a - b;\n"
+    }
+  },
+  "checks": [
+    {
+      "id": "addition",
+      "grader": "sevro.shell",
+      "configuration": {
+        "run": "{{evaluator-test}}",
+        "expectExact": "coding checks passed"
+      }
+    }
+  ],
+  "requiredEvidence": []
+}

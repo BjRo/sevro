@@ -49,7 +49,7 @@ async function prepareEvaluationEnvironment(options: EvaluationOptions) {
         error instanceof Error ? error.message : "invalid runner provenance",
       );
     }),
-    projectProvenance(projectRoot),
+    projectProvenance(projectRoot, evaluationStorageRoots(options)),
   ]);
   const extensionPreparation = options.extension
     ? await options.extension.session.prepare(
@@ -74,6 +74,10 @@ async function prepareEvaluationEnvironment(options: EvaluationOptions) {
 }
 
 type EnvironmentPlan = Awaited<ReturnType<typeof prepareEvaluationEnvironment>>;
+
+function evaluationStorageRoots(options: EvaluationOptions): string[] {
+  return [options.resultsRoot, options.runStateRoot ?? options.resultsRoot];
+}
 
 function preparedFixtureSetup(
   preparation: EnvironmentPlan["extensionPreparation"],
@@ -451,6 +455,9 @@ function redactedEvaluationConfiguration(
     trialCount: options.trialCount,
     jobs: state.jobs,
     passThreshold: options.passThreshold,
+    ...(options.assessmentSettings
+      ? { runSettings: options.assessmentSettings }
+      : {}),
     ...redactedHostConfiguration(
       options,
       state.checks.preparedSemantic.length > 0,

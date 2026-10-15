@@ -1,0 +1,21 @@
+{
+  "id": "recipe-node",
+  "prompt": "Read app.json with Node and explain the application's start command and port.",
+  "fixture": {
+    "files": {
+      "README.md": "Start with bun run dev on port 3000.\n",
+      "app.json": "{\"port\":3000}\n"
+    }
+  },
+  "checks": [
+    {
+      "id": "node-access",
+      "grader": "sevro.shell",
+      "configuration": {
+        "run": "node -e 'const a = require(\"./app.json\"); if (a.port !== 3000) process.exit(1); console.log(a.port)'",
+        "expectExact": "3000"
+      }
+    }
+  ],
+  "requiredEvidence": []
+}

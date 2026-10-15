@@ -1,0 +1,21 @@
+{
+  "id": "recipe-mise",
+  "prompt": "Use node from PATH to read app.json, then explain the application's start command and port. The operator has resolved mise's existing node@24.13.0 installation; do not download anything.",
+  "fixture": {
+    "files": {
+      "README.md": "Start with bun run dev on port 3000.\n",
+      "app.json": "{\"port\":3000}\n"
+    }
+  },
+  "checks": [
+    {
+      "id": "mise-node-access",
+      "grader": "sevro.shell",
+      "configuration": {
+        "run": "node -e 'if (process.version !== \"v24.13.0\") process.exit(1); const a = require(\"./app.json\"); if (a.port !== 3000) process.exit(1); console.log(a.port)'",
+        "expectExact": "3000"
+      }
+    }
+  ],
+  "requiredEvidence": []
+}

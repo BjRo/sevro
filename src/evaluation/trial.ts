@@ -57,6 +57,7 @@ import {
 import type { RunEvidenceDataTrialEvidence } from "../schema-types";
 import { scheduleTrials } from "./scheduler";
 import { rethrowDiagnosticPersistenceError } from "../host-diagnostics";
+import { evaluationProgress } from "./progress";
 
 const MAX_FINAL_MESSAGE_BYTES = 8 * 1024 * 1024;
 
@@ -246,12 +247,18 @@ class EvaluationTrial {
       await this.retainCandidateArtifacts();
       this.observeCandidate();
       await this.prepareCandidateArtifacts();
+      this.progress(
+        "grading",
+        this.state.execution === "completed" ? "started" : "skipped",
+      );
       this.gradeOutput();
       await this.gradeShell();
       await this.gradeGitHead();
       await this.gradeSemantic();
       await this.gradeExtension();
       this.assess();
+      if (this.state.execution === "completed")
+        this.progress("grading", "completed");
       await this.runAdvisory();
       await this.retainRawCandidate();
       return await this.persistTrial();
@@ -372,7 +379,11 @@ class EvaluationTrial {
   }
 
   private async runCandidate(): Promise<void> {
-    if (this.options.dry) return;
+    if (this.options.dry) {
+      this.progress("candidate", "skipped");
+      return;
+    }
+    this.progress("candidate", "started");
     const started = performance.now();
     try {
       ensureNotCancelled(this.options.signal);
@@ -393,6 +404,7 @@ class EvaluationTrial {
       this.failCandidate(error);
     } finally {
       this.state.candidateDurationMs = Math.max(0, performance.now() - started);
+      this.progress("candidate", "completed");
     }
   }
 
@@ -738,6 +750,7 @@ class EvaluationTrial {
 
   private async persistTrial(): Promise<boolean> {
     const evidence = this.trialEvidenceRecord();
+    this.progress("evidence", "started");
     const trialSummary = await this.evidence.persistTrial(
       this.options.case.id,
       this.state.assessment,
@@ -754,11 +767,18 @@ class EvaluationTrial {
       evidence,
       diagnostic: this.state.diagnostic,
     });
+    this.progress("evidence", "completed");
     return !(
       (this.state.execution !== "completed" &&
         this.state.execution !== "not_run") ||
       this.state.graderError
     );
+  }
+  private progress(
+    stage: "candidate" | "grading" | "evidence",
+    status: "started" | "completed" | "skipped",
+  ): void {
+    evaluationProgress(this.options, stage, status, this.trial);
   }
   private async cleanup(): Promise<void> {
     await releaseCandidateRuntime(this.state.candidateRuntimeRoot);
@@ -806,6 +826,7 @@ export async function executeEvaluationTrials(
         context.resources.workspaces,
         trial,
       );
+      evaluationProgress(options, "preparation", "completed", trial);
       return new EvaluationTrial(
         options,
         context,

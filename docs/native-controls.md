@@ -22,7 +22,7 @@ one receipt per native `exec` submission, with its native `ordinal`, inspection
 The index is local to that submission; native ordinals are not synthesized.
 The original direct-call list and total `submittedExecCalls` stay unchanged.
 
-The current source checkout statically inspects bounded straight-line Code Mode
+Sevro statically inspects bounded straight-line Code Mode
 programs without executing them. It accepts literal tool calls, constant result
 bindings, direct `text`/`store` output, and literal `Promise.all`/`allSettled`
 batches with result-only `forEach(text)` or `for ... of` output. It requires one

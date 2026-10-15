@@ -7,6 +7,7 @@ import {
   verifyContributor,
 } from "./documentation-example-packages";
 import { shellExample } from "./documentation-example-results";
+import { verifyRecipes } from "./documentation-recipes";
 
 const root = resolve(import.meta.dir, "..");
 const temporary = await realpath(
@@ -17,7 +18,7 @@ try {
   const consumerCommand = shellExample(text, "consumer");
   const contributorCommand = shellExample(text, "contributor");
   const candidate = await candidatePackage(root, temporary);
-  await verifyConsumer(
+  const installedCandidate = await verifyConsumer(
     root,
     temporary,
     consumerCommand,
@@ -30,10 +31,11 @@ try {
     temporary,
     consumerCommand,
     "published-consumer",
-    "@bjoernrochel/sevro@0.1.0-rc.2",
-    "BUSL-1.1",
+    candidate.published,
+    candidate.license,
   );
   await verifyContributor(root, temporary, contributorCommand);
+  await verifyRecipes(root, temporary, installedCandidate);
 } finally {
   await rm(temporary, { recursive: true, force: true });
 }

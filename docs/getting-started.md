@@ -5,6 +5,27 @@ Darrow checkout, Codex/Claude login, or model credentials are required. The
 adapter returns `ready`; Sevro grades that response against `^ready$`.
 This teaches the runner lifecycle, not the quality of an actual model.
 
+<a id="built-in-demo-in-this-checkout"></a>
+
+## Built-in demo
+
+With [Sevro installed and on `PATH`](installing.md#make-the-command-available), run:
+
+```sh
+sevro demo
+```
+
+It prints `execution=completed grading=completed task=passed` and an absolute
+`evidence=` path under `.sevro/results` in your current directory. The demo owns
+its packaged case and adapter, uses a separate temporary project, and ignores
+your project's `sevro.json` and native configuration. No credentials are needed.
+Effective run settings appear on stderr before evaluation. Add `--json` for one
+versioned result on stdout.
+
+Continue with [the initialized evaluation workflow](evaluation-workflow.md) to
+create response, coding or repository-skill assertions, prepare them, inspect
+progress and access the latest result without copying an evidence path.
+
 ## From an installed package
 
 Prepare a new directory:
@@ -16,8 +37,8 @@ bun init -y
 ```
 
 Install the [current release](installing.md#current-release) there, then return
-here to run the example. Read [version differences](installing.md#published-package-and-checkout)
-for the current docs, source-available license, and earlier BSL releases.
+here to run the example. See [licensing](licensing.md) for the current terms and
+the licenses retained by historical releases.
 
 Make the local installation available on `PATH` for this shell, then call
 `sevro` directly. Bun must also be on `PATH`.
