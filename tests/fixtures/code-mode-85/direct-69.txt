@@ -1,0 +1,5 @@
+const patch = "*** Begin Patch\n*** Update File: /private/var/folders/_b/yvzxqsys46l91yf5dtlk7q9w0000gn/T/sevro-workspaces-private/case-iGn8ms/test/range.test.js\n@@\n-import { within } from \"../src/range.js\";\n+import { clamp, within } from \"../src/range.js\";\n test(\"within\", () => assert.equal(within(2, 1, 3), true));\n+test(\"clamp returns min below the range\", () => assert.equal(clamp(0, 1, 3), 1));\n+test(\"clamp returns value inside the range\", () => assert.equal(clamp(2, 1, 3), 2));\n+test(\"clamp returns max above the range\", () => assert.equal(clamp(4, 1, 3), 3));\n*** End Patch";
+text(await tools.apply_patch(patch))
+const r = await tools.exec_command({cmd:"node --test test/range.test.js",yield_time_ms:10000,max_output_tokens:1500});
+text(r.output)
+text(`exit_code=${r.exit_code}`)

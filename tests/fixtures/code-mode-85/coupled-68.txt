@@ -1,0 +1,5 @@
+const [a,b]=await Promise.all([
+ tools.exec_command({cmd:"bash test.sh",workdir:"/private/var/folders/_b/yvzxqsys46l91yf5dtlk7q9w0000gn/T/sevro-workspaces-private/case-R3LxP7",yield_time_ms:30000,max_output_tokens:2000}),
+ tools.exec_command({cmd:"rg -n 'formatPrice\\s*\\(' . --glob '!node_modules/**' && git diff --check && git diff -- src/price.js src/cart.js src/invoice.js test/price.test.js && git status --short",workdir:"/private/var/folders/_b/yvzxqsys46l91yf5dtlk7q9w0000gn/T/sevro-workspaces-private/case-R3LxP7",yield_time_ms:10000,max_output_tokens:3000})
+]);
+text(a.output+"\n"+b.output);
