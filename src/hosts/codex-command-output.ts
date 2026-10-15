@@ -24,6 +24,13 @@ export interface RecoveredCommandOutput {
   literalCommandCall?: boolean;
 }
 
+export interface RecoveredSkillRead {
+  command: string;
+  output: string;
+  completeOutput?: boolean;
+  cwd?: unknown;
+}
+
 function processId(value: unknown): string | undefined {
   if (typeof value !== "string" && typeof value !== "number") return undefined;
   return /^(?:[1-9][0-9]*)$/.test(String(value)) ? String(value) : undefined;
@@ -302,7 +309,7 @@ function literalCommandMatches(
   return matchingCwd(item.cwd, command.cwd);
 }
 
-function normalizedCwd(observed: string): string | undefined {
+export function normalizedCommandCwd(observed: string): string | undefined {
   try {
     const cwd = observed.startsWith("file:")
       ? fileURLToPath(observed)
@@ -314,7 +321,7 @@ function normalizedCwd(observed: string): string | undefined {
 }
 function matchingCwd(observed: unknown, requested: string): boolean {
   if (!isAbsolute(requested) || typeof observed !== "string") return false;
-  return normalizedCwd(observed) === normalize(requested);
+  return normalizedCommandCwd(observed) === normalize(requested);
 }
 
 function literalCallOutputs(entries: NativeEntry[]): Map<number, string> {
@@ -430,6 +437,12 @@ export function nativeCommandOutputs(
   }
   mergeLiteralOutputs(outputs, entries);
   return outputs;
+}
+
+export function untruncatedCommandOutput(output: string): boolean {
+  return !/^(?:Warning: truncated output(?:[ \t].*)?|(?:…|\.\.\.)\d+ tokens truncated(?:…|\.\.\.))\r?$/im.test(
+    output,
+  );
 }
 
 function executorCallType(value: unknown): boolean {

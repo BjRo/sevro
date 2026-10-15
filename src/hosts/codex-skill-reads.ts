@@ -1,6 +1,13 @@
 import { isRecord, isUnknownArray } from "../value-guards";
-import type { RecoveredCommandOutput } from "./codex-command-output";
-import { nativeCommandOutputs } from "./codex-command-output";
+import type {
+  RecoveredCommandOutput,
+  RecoveredSkillRead,
+} from "./codex-command-output";
+import {
+  nativeCommandOutputs,
+  normalizedCommandCwd,
+  untruncatedCommandOutput,
+} from "./codex-command-output";
 import { readFile, realpath, stat } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 
@@ -10,6 +17,7 @@ const SKILL_PATH = /^\.agents\/skills\/([A-Za-z0-9._-]+)\/SKILL\.md$/;
 const PLUGIN_SKILL_PATH = /^skills\/([A-Za-z0-9._-]+)\/SKILL\.md$/;
 
 interface CodexItem {
+  cwd?: unknown;
   id?: unknown;
   type?: unknown;
   command?: unknown;
@@ -196,6 +204,16 @@ async function verifiedSkillRead(
   pluginRoots: string[],
   commandCwd = workspace,
 ): Promise<VerifiedRead[]> {
+  if (!untruncatedCommandOutput(nativeOutput(item))) return [];
+  return verifiedUntruncatedSkillRead(item, workspace, pluginRoots, commandCwd);
+}
+
+async function verifiedUntruncatedSkillRead(
+  item: CodexItem,
+  workspace: string,
+  pluginRoots: string[],
+  commandCwd: string,
+): Promise<VerifiedRead[]> {
   const composed = await composedSkillReads(
     item,
     workspace,
@@ -217,7 +235,7 @@ async function verifiedSkillRead(
 interface ComposedPlan {
   paths: string[];
   prefixed: boolean;
-  suffix: "none" | "search" | "environment";
+  suffix: "none" | "search" | "discovery";
 }
 
 function normalizedReadPayload(command: string) {
@@ -292,13 +310,7 @@ function composedOperands(commands: string[]): string[] | null {
 
 function readSuffix(commands: string[]): ComposedPlan["suffix"] | null {
   if (commands.length === 0) return "none";
-  if (
-    commands.every(
-      (command) =>
-        /^(?:\/usr\/bin\/)?printenv\s/.test(command) && readPrefix(command),
-    )
-  )
-    return "environment";
+  if (commands.every(readPrefix)) return "discovery";
   return commands.every((command) =>
     new RegExp(`^(?:/usr/bin/)?rg\\s+${LITERAL_WORDS}$`).test(command),
   )
@@ -311,6 +323,7 @@ function readPrefix(command: string): boolean {
     /^(?:unset|(?:\/usr\/bin\/)?printenv)\s+[A-Za-z_][A-Za-z0-9_]*(?:\s+[A-Za-z_][A-Za-z0-9_]*)*$/,
     /^(?:\/bin\/)?pwd(?:\s+-P)?$/,
     /^(?:\/usr\/bin\/)?git\s+rev-parse\s+--show-toplevel$/,
+    /^(?:\/usr\/bin\/)?git\s+(?:status\s+--short|diff\s+--stat)$/,
     new RegExp(`^(?:/usr/bin/)?rg\\s+--files(?:\\s+${LITERAL_WORDS})?$`),
   ].some((pattern) => pattern.test(command));
 }
@@ -323,10 +336,72 @@ async function composedSkillReads(
 ): Promise<VerifiedRead[] | null> {
   if (typeof item.command !== "string") return null;
   const plan = composedPlan(item.command);
-  if (!plan) return null;
+  if (!plan) return terminalSkillReads(item, cwd, workspace, pluginRoots);
   const files = await composedFiles(plan.paths, cwd, workspace, pluginRoots);
   if (!files) return [];
   return composedReceipts(item.aggregated_output, files, plan);
+}
+
+async function terminalSkillReads(
+  item: CodexItem,
+  cwd: string,
+  workspace: string,
+  pluginRoots: string[],
+): Promise<VerifiedRead[] | null> {
+  const paths = terminalReadPaths(String(item.command));
+  if (!paths) return null;
+  const files = await composedFiles(paths, cwd, workspace, pluginRoots);
+  if (!files) return [];
+  return terminalReadReceipts(item.aggregated_output, files);
+}
+
+function terminalReadPaths(command: string): string[] | null {
+  const commands = literalCommands(shellPayload(command).trim());
+  if (!commands || commands.length < 2) return null;
+  return terminalCommandPaths(commands);
+}
+
+function terminalCommandPaths(commands: string[]): string[] | null {
+  const last = commands.slice(-1);
+  const terminal = composedOperands(last);
+  if (!terminal || terminal.length !== 1) return null;
+  const prefix = terminalPrefixPaths(commands.slice(0, -1));
+  return prefix ? [...prefix, ...terminal] : null;
+}
+
+function terminalPrefixPaths(commands: string[]): string[] | null {
+  const paths: string[] = [];
+  for (const command of commands) {
+    if (readPrefix(command)) continue;
+    const reads = composedOperands([command]);
+    if (!reads) return null;
+    paths.push(...reads);
+  }
+  return paths.length < MAX_NATIVE_READ_ATTEMPTS ? paths : null;
+}
+
+function terminalReadReceipts(
+  output: unknown,
+  files: Array<{ text: string; receipt: VerifiedRead | null }>,
+): VerifiedRead[] {
+  const last = files[files.length - 1];
+  if (!last?.receipt) return [];
+  return verifiedTerminalReceipts(output, files, last.text, last.receipt);
+}
+
+function verifiedTerminalReceipts(
+  output: unknown,
+  files: Array<{ text: string; receipt: VerifiedRead | null }>,
+  text: string,
+  receipt: VerifiedRead,
+): VerifiedRead[] {
+  if (typeof output !== "string") return [];
+  if (files.slice(0, -1).some((file) => file.receipt !== null)) return [];
+  const start = output.length - text.length;
+  if (!composedOutputAt(output, text, start)) return [];
+  return matchesComposedOutside(output, start, output.length, "none")
+    ? [receipt]
+    : [];
 }
 
 async function composedFiles(
@@ -349,11 +424,22 @@ function composedReceipts(
   files: Array<{ text: string; receipt: VerifiedRead | null }>,
   plan: ComposedPlan,
 ) {
+  let lastSkill = -1;
+  files.forEach((file, index) => {
+    if (file.receipt) lastSkill = index;
+  });
+  if (lastSkill < 0) return [];
+  // Later ordinary files may have changed since the command ran. Only bytes
+  // needed to locate a Skill read participate in its content proof.
   if (
     !matchesComposedOutput(
       output,
-      files.map((file) => file.text).join(""),
+      files
+        .slice(0, lastSkill + 1)
+        .map((file) => file.text)
+        .join(""),
       plan,
+      lastSkill < files.length - 1,
     )
   )
     return [];
@@ -364,12 +450,21 @@ function matchesComposedOutput(
   output: unknown,
   expected: string,
   plan: ComposedPlan,
+  trailingFiles: boolean,
 ): boolean {
   if (typeof output !== "string" || expected.length === 0) return false;
   const start = plan.prefixed ? output.indexOf(expected) : 0;
   if (!composedOutputAt(output, expected, start)) return false;
   const end = start + expected.length;
-  return matchesComposedOutside(output, start, end, plan.suffix);
+  const suffix = composedSuffix(plan, trailingFiles);
+  return matchesComposedOutside(output, start, end, suffix);
+}
+
+function composedSuffix(
+  plan: ComposedPlan,
+  trailingFiles: boolean,
+): ComposedPlan["suffix"] | "files" {
+  return trailingFiles ? "files" : plan.suffix;
 }
 
 function composedOutputAt(
@@ -388,12 +483,12 @@ function matchesComposedOutside(
   output: string,
   start: number,
   end: number,
-  suffix: ComposedPlan["suffix"],
+  suffix: ComposedPlan["suffix"] | "files",
 ): boolean {
   if (suffix === "none" && end !== output.length) return false;
   const outside =
     output.slice(0, start) +
-    (suffix === "environment" ? output.slice(end) : "");
+    (["discovery", "files"].includes(suffix) ? output.slice(end) : "");
   return !/(?:^|\n)name: [A-Za-z0-9._-]+\r?$/m.test(outside);
 }
 
@@ -880,8 +975,9 @@ async function nativeReadCwd(
   workspace: string,
 ): Promise<string | null> {
   if (cwd === undefined) return workspace;
-  if (typeof cwd !== "string" || !isAbsolute(cwd)) return null;
-  return realpath(cwd).catch(() => null);
+  if (typeof cwd !== "string") return null;
+  const path = normalizedCommandCwd(cwd);
+  return path ? realpath(path).catch(() => null) : null;
 }
 function nativeOutput(item: CodexItem): string {
   return typeof item.aggregated_output === "string"
@@ -982,7 +1078,7 @@ interface StreamReadState extends CoverageState {
   partial: boolean;
   completedTurn: boolean;
 }
-type RecoveredRead = { command: string; output: string };
+type RecoveredRead = RecoveredSkillRead;
 function streamReadState(): StreamReadState {
   return {
     attempted: new Map(),
@@ -1017,7 +1113,20 @@ function correlatedReadItem(
     shellPayload(item.command) !== shellPayload(recovered.command)
   )
     return item;
+  if (recovered.completeOutput) {
+    return completeRecoveredItem(item, recovered);
+  }
   return { ...item, aggregated_output: recovered.output + nativeOutput(item) };
+}
+
+function completeRecoveredItem(
+  item: CodexItem,
+  recovered: RecoveredRead,
+): CodexItem {
+  const native = nativeOutput(item);
+  return native === "" || native === recovered.output
+    ? { ...item, aggregated_output: recovered.output, cwd: recovered.cwd }
+    : item;
 }
 function observeStreamTurn(event: CodexEvent, state: StreamReadState): void {
   if (event.type === "turn.completed") state.completedTurn = true;
@@ -1080,10 +1189,16 @@ async function completedMountedRead(
   state: StreamReadState,
 ): Promise<boolean> {
   if (typeof item.command !== "string") return false;
+  const cwd = await nativeReadCwd(item.cwd, context.workspace);
+  if (!cwd) {
+    state.partial = true;
+    return false;
+  }
   const attempted = await mountedSkillReadAttempt(
     item.command,
     context.workspace,
     context.pluginRoots,
+    cwd,
   );
   if (!attempted) return false;
   if (!successfulReadCommand(item)) state.partial = true;
@@ -1095,11 +1210,7 @@ async function completeStreamRead(
   state: StreamReadState,
 ): Promise<void> {
   if (!(await eligibleCompletedRead(item, context, state))) return;
-  const read = await verifiedSkillRead(
-    item,
-    context.workspace,
-    context.pluginRoots,
-  );
+  const read = await resolvedStreamSkillRead(item, context);
   if (read.length === 0) {
     state.partial = true;
     return;
@@ -1111,6 +1222,16 @@ async function completeStreamRead(
     };
     retainStreamRead(state, receipt, coverage);
   }
+}
+
+async function resolvedStreamSkillRead(
+  item: CodexItem,
+  context: Pick<ReadContext, "workspace" | "pluginRoots">,
+): Promise<VerifiedRead[]> {
+  const cwd = await nativeReadCwd(item.cwd, context.workspace);
+  return cwd
+    ? verifiedSkillRead(item, context.workspace, context.pluginRoots, cwd)
+    : [];
 }
 
 function retainStreamRead(

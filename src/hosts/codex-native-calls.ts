@@ -1,5 +1,12 @@
 import { isRecord, isUnknownArray } from "../value-guards";
-import { nativeCommandOutputs } from "./codex-command-output";
+import {
+  nativeCommandOutputs,
+  untruncatedCommandOutput,
+} from "./codex-command-output";
+import type {
+  RecoveredCommandOutput,
+  RecoveredSkillRead,
+} from "./codex-command-output";
 import {
   codexExecCallReceipts,
   type ExecCallReceipt,
@@ -845,7 +852,7 @@ async function nativeSessionObservation(
 export async function codexNativeSkillReadRecovery(
   home: string,
   threadId: string,
-): Promise<Map<string, { command: string; output: string }>> {
+): Promise<Map<string, RecoveredSkillRead>> {
   const found = await sessionPath(home, threadId);
   if (found.status !== "found") return new Map();
   try {
@@ -883,7 +890,7 @@ function uniqueRecoveryItem(
   const item = completedCommandItem(payload);
   if (!item || typeof item.id !== "string" || counts.get(item.id) !== 1)
     return null;
-  return { id: item.id, command: item.command };
+  return { ...item, id: item.id };
 }
 function recoveredLiteralCommand(command: unknown): string | null {
   if (!isUnknownArray(command) || command.length !== 3) return null;
@@ -896,23 +903,45 @@ function recoveredLiteralCommand(command: unknown): string | null {
 }
 function recoveredSessionReads(
   entries: NativeEntry[],
-): Map<string, { command: string; output: string }> {
+): Map<string, RecoveredSkillRead> {
   const output = nativeCommandOutputs(entries);
   const counts = commandIdentityCounts(entries);
-  const recovered = new Map<string, { command: string; output: string }>();
+  const recovered = new Map<string, RecoveredSkillRead>();
   for (const { ordinal, payload } of entries) {
     const item = uniqueRecoveryItem(payload, counts);
     if (!item) continue;
-    const read = recoveredCommandRead(
-      item.command,
-      output.get(ordinal)?.output,
-    );
+    const read = recoveredCommandRead(item, output.get(ordinal));
     if (read) recovered.set(item.id, read);
   }
   return recovered;
 }
-function recoveredCommandRead(value: unknown, output: string | undefined) {
-  if (output === undefined) return null;
-  const command = recoveredLiteralCommand(value);
-  return command === null ? null : { command, output };
+function recoveredCommandRead(
+  item: Record<string, unknown>,
+  output: RecoveredCommandOutput | undefined,
+) {
+  const command = recoveredLiteralCommand(item.command);
+  if (command === null) return null;
+  if (output !== undefined) return { command, output: output.output };
+  const native = completedNativeReadOutput(item);
+  return native === null
+    ? null
+    : {
+        command,
+        output: native,
+        completeOutput: true,
+        ...(item.cwd === undefined ? {} : { cwd: item.cwd }),
+      };
+}
+
+function completedNativeReadOutput(
+  item: Record<string, unknown>,
+): string | null {
+  if (!successfulNativeRead(item)) return null;
+  const output = item.aggregated_output;
+  if (typeof output !== "string" || output.length === 0) return null;
+  return untruncatedCommandOutput(output) ? output : null;
+}
+
+function successfulNativeRead(item: Record<string, unknown>): boolean {
+  return item.status === "completed" && item.exit_code === 0;
 }
