@@ -76,16 +76,32 @@ def api(path):
         return json.load(response)
 
 
+def completed_job(jobs, name, step_name):
+    matches = [job for job in jobs if job["name"] == name]
+    return (
+        len(matches) == 1
+        and matches[0]["conclusion"] == "success"
+        and any(
+            step["name"] == step_name
+            and step["conclusion"] == "success"
+            for step in matches[0].get("steps", [])
+        )
+    )
+
+
 def completed_full_gate(run_id):
     jobs = api(f"actions/runs/{run_id}/jobs?per_page=100")["jobs"]
-    return any(
-        job["conclusion"] == "success"
-        and any(
-            step["name"] == "Canonical TypeScript quality gate"
-            and step["conclusion"] == "success"
-            for step in job.get("steps", [])
+    phases = [
+        f"TypeScript gate / {phase} (Ubuntu x64)"
+        for phase in ["static", "docs", "tests", "package"]
+    ]
+    if any(job["name"] in phases for job in jobs):
+        return all(
+            completed_job(jobs, name, "Canonical TypeScript quality phase")
+            for name in phases
         )
-        for job in jobs
+    return completed_job(
+        jobs, "TypeScript gate (Ubuntu x64)", "Canonical TypeScript quality gate"
     )
 
 

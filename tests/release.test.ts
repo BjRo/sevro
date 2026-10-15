@@ -14,6 +14,20 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 const roots: string[] = [];
+
+test("release CI requires complete fresh quality evidence", () => {
+  const child = Bun.spawnSync(
+    [
+      "python3",
+      "-B",
+      resolve(import.meta.dir, "../.github/scripts/test-release-ci.py"),
+    ],
+    { stdout: "pipe", stderr: "pipe" },
+  );
+  expect(child.exitCode, child.stderr.toString()).toBe(0);
+  expect(child.stderr.toString()).toContain("OK");
+});
+
 afterEach(async () => {
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),

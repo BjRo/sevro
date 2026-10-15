@@ -35,10 +35,14 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
   verify:
-    name: TypeScript gate (Ubuntu x64)
+    name: TypeScript gate / ${{ matrix.phase }} (Ubuntu x64)
     needs: quality-plan
     if: needs.quality-plan.outputs.reuse != 'true'
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        phase: [static, docs, tests, package]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
@@ -48,25 +52,30 @@ jobs:
         with:
           bun-version: 1.3.13
       - name: Prepare Linux isolation
+        if: matrix.phase != 'static'
         run: bash scripts/setup-ci-linux.sh
       - name: Install deterministic native host prerequisites
+        if: matrix.phase == 'docs' || matrix.phase == 'tests'
         run: bun scripts/setup-ci-codex.ts
       - uses: astral-sh/setup-uv@v7
+        if: matrix.phase == 'docs'
         with:
           version: "0.11.21"
       - uses: jdx/mise-action@v3
+        if: matrix.phase == 'docs'
         with:
           version: "2026.3.13"
           install: false
           # Isolated checks use setup-node's direct binary, not mutable mise shims.
           add_shims_to_path: false
       - name: Install tutorial's declared mise tool
+        if: matrix.phase == 'docs'
         run: mise install node@24.13.0
       - run: bun install --frozen-lockfile
-      - name: Canonical TypeScript quality gate
-        run: bun run check:typescript
+      - name: Canonical TypeScript quality phase
+        run: bun run check:typescript --phase ${{ matrix.phase }}
       - name: Retain quality evidence
-        if: always()
+        if: always() && matrix.phase == 'tests'
         uses: actions/upload-artifact@v4
         with:
           name: typescript-quality-${{ github.sha }}

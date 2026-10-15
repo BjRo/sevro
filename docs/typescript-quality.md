@@ -1,6 +1,7 @@
 # TypeScript quality
 
-`bun run check:typescript` is the local and CI acceptance command. It performs a
+`bun run check:typescript` is the complete local acceptance command. CI runs the
+same checks in parallel phases. The complete command performs a
 frozen dependency installation, checks the complete source inventory, verifies
 generated schemas, documentation contracts, formatting, type-aware lint and typing,
 checks the Codex guide evaluation in dry mode and runs documentation examples, exercises coverage
@@ -13,6 +14,22 @@ Use `bun run check:typescript --fast` before committing. It checks inventory,
 schemas, documentation contracts, formatting, lint and types without the full integration suite, coverage
 or package installation. Install dependencies with `bun install --frozen-lockfile`
 first. Quality dependencies are development dependencies pinned in `bun.lock`.
+
+After frozen installation, `bun run check:typescript --phase <name>` runs one
+phase and checks the complete source inventory. Each phase reports its elapsed
+time, including when it fails. The complete command runs these same phases in
+order; `--fast` runs only `static` without installing dependencies.
+
+| Phase     | Checks                                                                                        |
+| --------- | --------------------------------------------------------------------------------------------- |
+| `static`  | Schema freshness, documentation contracts, formatting, type-aware lint and typing             |
+| `docs`    | All guide dry runs, tutorial examples and recipe checks                                       |
+| `tests`   | Coverage integrity controls, the complete instrumented Bun suite and both coverage thresholds |
+| `package` | Packed-package installation and installed CLI workflows                                       |
+
+Use the same prerequisites as the corresponding complete-gate checks. A single
+phase is partial evidence; full acceptance requires all four on the same candidate.
+The test suite and its coverage denominator remain whole, with no test sharding.
 
 ## Source dispositions
 
@@ -170,18 +187,23 @@ GitHub documents the [Ubuntu runner labels](https://docs.github.com/en/actions/r
 Ubuntu installs `bubblewrap`, `ripgrep`, and `socat` and runs the same native isolation cases;
 local macOS runs retain `sandbox-exec`. Windows remains unverified.
 
-Ordinary changes and explicit workflow dispatches invoke the canonical gate,
-upload `.quality` even when coverage fails, and publish the stable aggregate
-`TypeScript quality` status. A cancelled or failed gate cannot turn that status
-green.
+Ordinary changes and explicit workflow dispatches run the four canonical phases
+as concurrent matrix jobs. Each job installs locked dependencies; native host
+tools are installed for `docs` and `tests`, and UV and mise for `docs`. The
+`tests` job uploads `.quality` even when coverage fails. Matrix jobs do not
+cancel their siblings on failure, and the stable aggregate `TypeScript quality`
+status requires every phase to succeed. A missing, cancelled, skipped or failed
+phase cannot turn that status green.
 
 Release metadata changes follow [the release workflow](releases.md) and reuse a
 successful full gate from an ancestor on `main`, with identical code,
 dependencies, schemas, tests, and other quality inputs. The selector permits
 only version/distribution-tag changes and its exact release-file inventory.
-It verifies the original full-gate step, so a reused release run cannot serve
-as fresh test evidence. Release CI runs `check:typescript --fast`, records the
-tested source and CI run URL, and skips the test/coverage job. The aggregate
+It verifies each original phase job and its gate step, or a historical complete
+gate job and step, so a partial matrix or reused release run cannot serve as
+fresh test evidence. Duplicate phase jobs are ambiguous and refused. Release CI
+runs `check:typescript --fast`, records the tested source and CI run URL, and
+skips all four full-gate phase jobs. The aggregate
 status requires both verified prior evidence and successful static checks;
 missing, cancelled, failed, or ambiguous evidence cannot establish a pass.
 Reused results remain attributed to their original run rather than being
