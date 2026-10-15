@@ -980,6 +980,83 @@ async function sequentialObservations(
   return { observed, diagnostic };
 }
 
+test.each([
+  {
+    label: "missing ordinary file",
+    prefix: "cat missing.md; git status --short; ",
+    output: body,
+  },
+  {
+    label: "unsupported discovery",
+    prefix: "cat README.md; printf discovery; ",
+    output: "Documentation\n" + body,
+  },
+  {
+    label: "too many file operands",
+    prefix:
+      "cat " + Array(64).fill("README.md").join(" ") + "; git status --short; ",
+    output: body,
+  },
+  {
+    label: "an incomplete earlier supporting Skill",
+    prefix: "cat .agents/skills/example/SKILL.md; git status --short; ",
+    output: body.slice(0, -5) + body,
+  },
+  {
+    label: "incomplete terminal body",
+    prefix: "cat README.md; git status --short; ",
+    output: "Documentation\n" + body.slice(0, -5),
+  },
+  {
+    label: "a copied terminal body",
+    prefix: "cat README.md; git status --short; ",
+    output: body + body,
+  },
+  {
+    label: "unattributed supporting frontmatter",
+    prefix: "cat README.md; git status --short; ",
+    output: "name: example\n" + body,
+  },
+])(
+  "terminal Skill reads retain partial evidence for $label",
+  async ({ prefix, output }) => {
+    const workspace = await fixture();
+    await writeFile(join(workspace, "README.md"), "Documentation\n");
+    const { observed, diagnostic } = await sequentialObservations(
+      workspace,
+      prefix + "cat .agents/skills/example/SKILL.md",
+      output,
+    );
+    expect(observed).toMatchObject({
+      completeness: "partial",
+      data: { observedSkills: [] },
+    });
+    expect(diagnostic).toMatchObject({
+      completeness: "partial",
+      completedReads: [],
+    });
+  },
+);
+
+test("terminal ordinary files cannot replace a mounted Skill read", async () => {
+  const workspace = await fixture();
+  await writeFile(join(workspace, "README.md"), body);
+  await writeFile(join(workspace, "NOTES.md"), "Delivery notes\n");
+  const { observed, diagnostic } = await sequentialObservations(
+    workspace,
+    "cat README.md; git status --short; cat NOTES.md",
+    body + "Delivery notes\n",
+  );
+  expect(observed).toMatchObject({
+    completeness: "partial",
+    data: { observedSkills: [] },
+  });
+  expect(diagnostic).toMatchObject({
+    completeness: "partial",
+    completedReads: [],
+  });
+});
+
 test("sequential reads reject expanded documentation operands", async () => {
   const workspace = await fixture();
   const command =

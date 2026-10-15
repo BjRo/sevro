@@ -134,6 +134,12 @@ test.each([
       f.item.cwd = f.workspace;
     },
   },
+  {
+    label: "an omitted working directory",
+    mutate: (f) => {
+      Object.assign(f.item, { cwd: undefined });
+    },
+  },
 ] satisfies Scenario[])(
   "native Skill receipts survive $label",
   async ({ mutate }) => {
