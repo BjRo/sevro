@@ -320,6 +320,34 @@ test("app-server cancellation and deadline stop a silent real peer", async () =>
   }
 });
 
+// Issue #93: a fixed per-request deadline ended startup long before the
+// configured evaluation bound. Startup now waits for that bound alone.
+test("app-server startup waits for the configured bound and names the stalled request", async () => {
+  const options = await serverOptions("stalled-thread-start");
+  options.request.control = { appServerTimeoutMs: 1500 };
+  const started = performance.now();
+  const result = await runCodexAppServer(options);
+  expect(performance.now() - started).toBeGreaterThanOrEqual(1500);
+  expect(result.code).toBe(1);
+  expect(result.evidence.failure).toBe(
+    "App-server evaluation time bound reached awaiting thread/start",
+  );
+  expect(result.evidence).toMatchObject({ clientTurns: 0, turns: [] });
+  expect(result.evidence.threadId).toBeUndefined();
+  expect(result.out).toContain('"type":"turn.failed"');
+});
+
+test("app-server time bound during an unfinished turn names no pending request", async () => {
+  const options = await serverOptions("stalled-turn");
+  options.request.control = { appServerTimeoutMs: 500 };
+  const result = await runCodexAppServer(options);
+  expect(result.code).toBe(1);
+  expect(result.evidence.failure).toBe(
+    "App-server evaluation time bound reached",
+  );
+  expect(result.evidence).toMatchObject({ threadId: "root", clientTurns: 1 });
+});
+
 test("app-server transport failure from an absent executable cannot complete", async () => {
   const options = await serverOptions("success");
   options.argv = [join(options.request.repoDir, "missing-executable")];

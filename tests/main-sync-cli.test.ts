@@ -115,7 +115,7 @@ test("public CLI selects the native Codex execution timeout", async () => {
       id: "sevro.host.native-goal",
       completeness: "partial",
       data: objectContaining({
-        failure: "App-server evaluation time bound reached",
+        failure: "App-server evaluation time bound reached awaiting initialize",
       }),
     }),
   );
