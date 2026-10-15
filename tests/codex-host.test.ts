@@ -22,6 +22,14 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { runEvaluation } from "../src/engine";
 import { createCodexHost } from "../src/hosts/codex";
+import { createHash } from "node:crypto";
+import { pathToFileURL } from "node:url";
+import {
+  mixedReadProgram,
+  mixedReadCommand,
+  mixedReadOutput,
+  mixedReadSkill,
+} from "./fixtures/codex-mixed-skill-read";
 import {
   allocateWorkspace,
   removeWorkspace,
@@ -204,6 +212,160 @@ async function ordinaryCodexRequest() {
   };
   return { paths, host, request, workspace };
 }
+
+test.each([
+  { state: "unchanged files", config: '{"timeoutMs":1000}', truncated: false },
+  {
+    state: "later config change",
+    config: '{"timeoutMs":2500}',
+    truncated: false,
+  },
+  { state: "truncated output", config: '{"timeoutMs":1000}', truncated: true },
+])(
+  "Codex recovers issue 86 mixed Skill output with $state",
+  // eslint-disable-next-line max-lines-per-function -- Replay one published native program through the host observation boundary; bounded by sevro/test-callback-lines.
+  async ({ config, truncated }) => {
+    if (!isolatedNativeHost || !Bun.which("codex")) return;
+    const selected = await ordinaryCodexRequest();
+    const skillRoot = join(selected.workspace, ".agents/skills/ship-proposal");
+    await mkdir(skillRoot, { recursive: true });
+    await writeFile(join(skillRoot, "SKILL.md"), mixedReadSkill);
+    await writeFile(join(selected.workspace, "config.json"), config);
+    await writeFile(
+      join(selected.workspace, "check.sh"),
+      '#!/usr/bin/env bash\nset -eu\ntest "$(cat config.json)" = \'{"timeoutMs":2500}\'\n',
+    );
+    await writeFile(
+      join(selected.workspace, "NOTES.md"),
+      "Initial delivery notes.\nAdditional local delivery notes.\n",
+    );
+    expect(Buffer.byteLength(mixedReadSkill)).toBe(992);
+    expect(createHash("sha256").update(mixedReadSkill).digest("hex")).toBe(
+      "763444720e5885fafce7e03d21090871ca1de72766255c7b8cadc3484f5ca89c",
+    );
+    expect(createHash("sha256").update(mixedReadOutput).digest("hex")).toBe(
+      "caeda787f1cb4352ae253171bca6ffcd348eb29bb7082ac26a39d4a5a07a4414",
+    );
+    const output =
+      mixedReadOutput + (truncated ? "Warning: truncated output" : "");
+    const expected = truncated ? [] : ["ship-proposal"];
+    const item = {
+      id: "issue-86-read",
+      type: "CommandExecution",
+      source: "unified_exec_startup",
+      process_id: "36617",
+      command: ["/bin/zsh", "-c", mixedReadCommand],
+      cwd: pathToFileURL(selected.workspace).href,
+      status: "completed",
+      exit_code: 0,
+      aggregated_output: output,
+    };
+    const native = [
+      {
+        ordinal: 44,
+        payload: {
+          type: "custom_tool_call",
+          name: "exec",
+          call_id: "issue-86",
+          input: mixedReadProgram,
+        },
+      },
+      { ordinal: 48, payload: { type: "item_completed", item } },
+      {
+        ordinal: 49,
+        payload: {
+          type: "custom_tool_call_output",
+          call_id: "issue-86",
+          output: [
+            {
+              type: "input_text",
+              text: "Script completed\nWall time 1.17 seconds\nOutput:\n",
+            },
+            {
+              type: "input_text",
+              text: JSON.stringify({
+                i: 0,
+                status: "fulfilled",
+                value: {
+                  exit_code: 0,
+                  output: "other supporting read unavailable",
+                },
+              }),
+            },
+            {
+              type: "input_text",
+              text: JSON.stringify({
+                i: 1,
+                status: "fulfilled",
+                value: {
+                  exit_code: 0,
+                  output: "other supporting read unavailable",
+                },
+              }),
+            },
+            {
+              type: "input_text",
+              text: JSON.stringify({
+                i: 2,
+                status: "fulfilled",
+                value: {
+                  chunk_id: "26b261",
+                  wall_time_seconds: 0.349407833,
+                  exit_code: 0,
+                  original_token_count: 286,
+                  output,
+                },
+              }),
+            },
+          ],
+        },
+      },
+    ];
+    const events = [
+      { type: "thread.started", thread_id: "thread-1" },
+      {
+        type: "item.completed",
+        item: {
+          ...item,
+          type: "command_execution",
+          command: mixedReadCommand,
+          aggregated_output: "",
+        },
+      },
+      {
+        type: "item.completed",
+        item: { type: "agent_message", text: "ready" },
+      },
+      { type: "turn.completed" },
+    ];
+    await writeFile(
+      join(selected.workspace, "compound-native.jsonl"),
+      native.map((entry) => JSON.stringify(entry)).join("\n") + "\n",
+    );
+    await writeFile(
+      join(selected.workspace, "compound-events.jsonl"),
+      events.map((entry) => JSON.stringify(entry)).join("\n") + "\n",
+    );
+    const result = await selected.host.run(selected.request);
+    expectUnknown(result.observations).toContainEqual(
+      objectContaining({
+        id: "sevro.codex.skill-reads",
+        data: objectContaining({ observedSkills: expected }),
+      }),
+    );
+    expectUnknown(result.observations).toContainEqual(
+      objectContaining({
+        id: "sevro.codex.native-calls",
+        data: objectContaining({
+          parentReadDiagnostics: objectContaining({
+            observedSkills: expected,
+            completedReads: expected.map((skill) => ({ skill, ordinal: 48 })),
+          }),
+        }),
+      }),
+    );
+  },
+);
 
 async function compoundReadFixture(skill: string, command: string) {
   const selected = await ordinaryCodexRequest();
@@ -518,6 +680,60 @@ test("Codex compound fallback read followed by discovery retains complete activa
     }),
   );
 });
+
+test("Codex recognizes a terminal Skill read after ordinary files and Git discovery", async () => {
+  if (!isolatedNativeHost || !Bun.which("codex")) return;
+  const selected = await compoundReadFixture(
+    "ship-proposal",
+    "cat README.md; git status --short; git diff --stat; cat .agents/skills/ship-proposal/SKILL.md",
+  );
+  const result = await selected.host.run(selected.request);
+  expectUnknown(result.observations).toContainEqual(
+    objectContaining({
+      id: "sevro.codex.skill-reads",
+      data: objectContaining({ observedSkills: ["ship-proposal"] }),
+    }),
+  );
+});
+
+test("Codex recognizes a Skill read before working-directory discovery", async () => {
+  if (!isolatedNativeHost || !Bun.which("codex")) return;
+  const selected = await compoundReadFixture(
+    "fetch-work-item",
+    "cat .agents/skills/fetch-work-item/SKILL.md; pwd",
+  );
+  const result = await selected.host.run(selected.request);
+  expectUnknown(result.observations).toContainEqual(
+    objectContaining({
+      id: "sevro.codex.skill-reads",
+      completeness: "complete",
+      data: objectContaining({ observedSkills: ["fetch-work-item"] }),
+    }),
+  );
+});
+
+test.each([
+  "cat README.md .agents/skills/ship-proposal/SKILL.md",
+  "cat README.md; cat .agents/skills/ship-proposal/SKILL.md",
+])(
+  "Codex recognizes a batched Skill read after ordinary files change: %s",
+  async (command) => {
+    if (!isolatedNativeHost || !Bun.which("codex")) return;
+    const selected = await compoundReadFixture("ship-proposal", command);
+    await writeFile(
+      join(selected.workspace, "README.md"),
+      "Changed after the read\n",
+    );
+    const result = await selected.host.run(selected.request);
+    expectUnknown(result.observations).toContainEqual(
+      objectContaining({
+        id: "sevro.codex.skill-reads",
+        completeness: "complete",
+        data: objectContaining({ observedSkills: ["ship-proposal"] }),
+      }),
+    );
+  },
+);
 
 test("Codex recognizes the reviewer-route repository-prefixed skill read", async () => {
   if (!isolatedNativeHost || !Bun.which("codex")) return;

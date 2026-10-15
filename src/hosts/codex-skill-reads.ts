@@ -1,6 +1,13 @@
 import { isRecord, isUnknownArray } from "../value-guards";
-import type { RecoveredCommandOutput } from "./codex-command-output";
-import { nativeCommandOutputs } from "./codex-command-output";
+import type {
+  RecoveredCommandOutput,
+  RecoveredSkillRead,
+} from "./codex-command-output";
+import {
+  nativeCommandOutputs,
+  normalizedCommandCwd,
+  untruncatedCommandOutput,
+} from "./codex-command-output";
 import { readFile, realpath, stat } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 
@@ -10,6 +17,7 @@ const SKILL_PATH = /^\.agents\/skills\/([A-Za-z0-9._-]+)\/SKILL\.md$/;
 const PLUGIN_SKILL_PATH = /^skills\/([A-Za-z0-9._-]+)\/SKILL\.md$/;
 
 interface CodexItem {
+  cwd?: unknown;
   id?: unknown;
   type?: unknown;
   command?: unknown;
@@ -196,6 +204,16 @@ async function verifiedSkillRead(
   pluginRoots: string[],
   commandCwd = workspace,
 ): Promise<VerifiedRead[]> {
+  if (!untruncatedCommandOutput(nativeOutput(item))) return [];
+  return verifiedUntruncatedSkillRead(item, workspace, pluginRoots, commandCwd);
+}
+
+async function verifiedUntruncatedSkillRead(
+  item: CodexItem,
+  workspace: string,
+  pluginRoots: string[],
+  commandCwd: string,
+): Promise<VerifiedRead[]> {
   const composed = await composedSkillReads(
     item,
     workspace,
@@ -217,7 +235,8 @@ async function verifiedSkillRead(
 interface ComposedPlan {
   paths: string[];
   prefixed: boolean;
-  suffix: "none" | "search" | "environment";
+  suffix: "none" | "search" | "discovery";
+  singleCat: boolean;
 }
 
 function normalizedReadPayload(command: string) {
@@ -265,7 +284,9 @@ function composedCommandPlan(commands: string[]): ComposedPlan | null {
   );
   if (suffix === null) return null;
   const paths = composedOperands(commands.slice(first, last + 1));
-  return paths ? { paths, prefixed: first > 0, suffix } : null;
+  return paths
+    ? { paths, prefixed: first > 0, suffix, singleCat: commands.length === 1 }
+    : null;
 }
 
 function boundReadSuffix(
@@ -292,13 +313,7 @@ function composedOperands(commands: string[]): string[] | null {
 
 function readSuffix(commands: string[]): ComposedPlan["suffix"] | null {
   if (commands.length === 0) return "none";
-  if (
-    commands.every(
-      (command) =>
-        /^(?:\/usr\/bin\/)?printenv\s/.test(command) && readPrefix(command),
-    )
-  )
-    return "environment";
+  if (commands.every(readPrefix)) return "discovery";
   return commands.every((command) =>
     new RegExp(`^(?:/usr/bin/)?rg\\s+${LITERAL_WORDS}$`).test(command),
   )
@@ -311,6 +326,7 @@ function readPrefix(command: string): boolean {
     /^(?:unset|(?:\/usr\/bin\/)?printenv)\s+[A-Za-z_][A-Za-z0-9_]*(?:\s+[A-Za-z_][A-Za-z0-9_]*)*$/,
     /^(?:\/bin\/)?pwd(?:\s+-P)?$/,
     /^(?:\/usr\/bin\/)?git\s+rev-parse\s+--show-toplevel$/,
+    /^(?:\/usr\/bin\/)?git\s+(?:status\s+--short|diff\s+--stat)$/,
     new RegExp(`^(?:/usr/bin/)?rg\\s+--files(?:\\s+${LITERAL_WORDS})?$`),
   ].some((pattern) => pattern.test(command));
 }
@@ -323,10 +339,81 @@ async function composedSkillReads(
 ): Promise<VerifiedRead[] | null> {
   if (typeof item.command !== "string") return null;
   const plan = composedPlan(item.command);
-  if (!plan) return null;
+  if (!plan) return terminalSkillReads(item, cwd, workspace, pluginRoots);
   const files = await composedFiles(plan.paths, cwd, workspace, pluginRoots);
   if (!files) return [];
   return composedReceipts(item.aggregated_output, files, plan);
+}
+
+async function terminalSkillReads(
+  item: CodexItem,
+  cwd: string,
+  workspace: string,
+  pluginRoots: string[],
+): Promise<VerifiedRead[] | null> {
+  const paths = terminalReadPaths(String(item.command));
+  if (!paths) return null;
+  const files = await composedFiles(paths, cwd, workspace, pluginRoots);
+  if (!files) return [];
+  return terminalReadReceipts(item.aggregated_output, files);
+}
+
+function terminalReadPaths(command: string): string[] | null {
+  const commands = literalCommands(shellPayload(command).trim());
+  if (!commands || commands.length < 2) return null;
+  return terminalCommandPaths(commands);
+}
+
+function terminalCommandPaths(commands: string[]): string[] | null {
+  const last = commands.slice(-1);
+  const terminal = composedOperands(last);
+  if (!terminal || terminal.length !== 1) return null;
+  const prefix = terminalPrefixPaths(commands.slice(0, -1));
+  return prefix ? [...prefix, ...terminal] : null;
+}
+
+function terminalPrefixPaths(commands: string[]): string[] | null {
+  const paths: string[] = [];
+  for (const command of commands) {
+    if (readPrefix(command)) continue;
+    const reads = composedOperands([command]);
+    if (!reads) return null;
+    paths.push(...reads);
+  }
+  return paths.length < MAX_NATIVE_READ_ATTEMPTS ? paths : null;
+}
+
+function terminalReadReceipts(
+  output: unknown,
+  files: Array<{ text: string; receipt: VerifiedRead | null }>,
+): VerifiedRead[] {
+  const last = files[files.length - 1];
+  if (!last?.receipt) return [];
+  return verifiedTerminalReceipts(output, files, last.text, last.receipt);
+}
+
+function verifiedTerminalReceipts(
+  output: unknown,
+  files: Array<{ text: string; receipt: VerifiedRead | null }>,
+  text: string,
+  receipt: VerifiedRead,
+): VerifiedRead[] {
+  if (typeof output !== "string") return [];
+  if (ambiguousTerminalPrefix(files, text)) return [];
+  const start = output.length - text.length;
+  if (!composedOutputAt(output, text, start)) return [];
+  return matchesComposedOutside(output, start, output.length, "none")
+    ? [receipt]
+    : [];
+}
+
+function ambiguousTerminalPrefix(
+  files: Array<{ text: string; receipt: VerifiedRead | null }>,
+  text: string,
+): boolean {
+  return files
+    .slice(0, -1)
+    .some((file) => file.receipt !== null || file.text.includes(text));
 }
 
 async function composedFiles(
@@ -349,27 +436,133 @@ function composedReceipts(
   files: Array<{ text: string; receipt: VerifiedRead | null }>,
   plan: ComposedPlan,
 ) {
+  let lastSkill = -1;
+  files.forEach((file, index) => {
+    if (file.receipt) lastSkill = index;
+  });
+  if (lastSkill < 0) return [];
+  if (hasOrdinarySkillCopies(files))
+    return copiedComposedReceipts(output, files, plan);
+  // Later ordinary files may have changed since the command ran. Only bytes
+  // needed to locate a Skill read participate in its content proof.
   if (
     !matchesComposedOutput(
       output,
-      files.map((file) => file.text).join(""),
+      files
+        .slice(0, lastSkill + 1)
+        .map((file) => file.text)
+        .join(""),
       plan,
+      lastSkill < files.length - 1,
     )
   )
-    return [];
+    return unmatchedComposedReceipts(output, files, plan);
+  return composedFileReceipts(files);
+}
+
+function hasOrdinarySkillCopies(
+  files: Array<{ text: string; receipt: VerifiedRead | null }>,
+): boolean {
+  const skills = files.filter((file) => file.receipt !== null);
+  return files.some(
+    (file) =>
+      file.receipt === null &&
+      skills.some((skill) => file.text.includes(skill.text)),
+  );
+}
+
+function copiedComposedReceipts(
+  output: unknown,
+  files: Array<{ text: string; receipt: VerifiedRead | null }>,
+  plan: ComposedPlan,
+): VerifiedRead[] {
+  const expected = files.map((file) => file.text).join("");
+  return matchesComposedOutput(output, expected, plan, false)
+    ? composedFileReceipts(files)
+    : [];
+}
+
+function composedFileReceipts(
+  files: Array<{ text: string; receipt: VerifiedRead | null }>,
+): VerifiedRead[] {
   return files.flatMap((file) => (file.receipt ? [file.receipt] : []));
+}
+
+function unmatchedComposedReceipts(
+  output: unknown,
+  files: Array<{ text: string; receipt: VerifiedRead | null }>,
+  plan: ComposedPlan,
+): VerifiedRead[] {
+  if (plan.singleCat) return singleCatReceipts(output, files);
+  return plan.suffix === "none" ? terminalReadReceipts(output, files) : [];
+}
+
+function singleCatReceipts(
+  output: unknown,
+  files: Array<{ text: string; receipt: VerifiedRead | null }>,
+): VerifiedRead[] {
+  // A successful literal cat reads every operand. Verify ordered Skill spans
+  // without matching current ordinary-file bytes, which may have changed.
+  if (typeof output !== "string") return [];
+  if (!files.some((file) => file.receipt === null)) return [];
+  const reads = files.filter(
+    (file): file is { text: string; receipt: VerifiedRead } =>
+      file.receipt !== null,
+  );
+  const spans = orderedSkillSpans(output, reads);
+  if (!spans) return [];
+  return attributedFrontmatter(output, spans)
+    ? reads.map((file) => file.receipt)
+    : [];
+}
+
+function orderedSkillSpans(
+  output: string,
+  reads: Array<{ text: string }>,
+): Array<{ start: number; end: number }> | null {
+  const spans = [];
+  let end = 0;
+  for (const read of reads) {
+    const start = output.indexOf(read.text, end);
+    if (!composedOutputAt(output, read.text, start)) return null;
+    end = start + read.text.length;
+    spans.push({ start, end });
+  }
+  return spans;
+}
+
+function attributedFrontmatter(
+  output: string,
+  spans: Array<{ start: number; end: number }>,
+): boolean {
+  for (const match of output.matchAll(/^name: [A-Za-z0-9._-]+\r?$/gm)) {
+    if (
+      !spans.some((span) => match.index >= span.start && match.index < span.end)
+    )
+      return false;
+  }
+  return true;
 }
 
 function matchesComposedOutput(
   output: unknown,
   expected: string,
   plan: ComposedPlan,
+  trailingFiles: boolean,
 ): boolean {
   if (typeof output !== "string" || expected.length === 0) return false;
   const start = plan.prefixed ? output.indexOf(expected) : 0;
   if (!composedOutputAt(output, expected, start)) return false;
   const end = start + expected.length;
-  return matchesComposedOutside(output, start, end, plan.suffix);
+  const suffix = composedSuffix(plan, trailingFiles);
+  return matchesComposedOutside(output, start, end, suffix);
+}
+
+function composedSuffix(
+  plan: ComposedPlan,
+  trailingFiles: boolean,
+): ComposedPlan["suffix"] | "files" {
+  return trailingFiles ? "files" : plan.suffix;
 }
 
 function composedOutputAt(
@@ -388,13 +581,17 @@ function matchesComposedOutside(
   output: string,
   start: number,
   end: number,
-  suffix: ComposedPlan["suffix"],
+  suffix: ComposedPlan["suffix"] | "files",
 ): boolean {
   if (suffix === "none" && end !== output.length) return false;
   const outside =
     output.slice(0, start) +
-    (suffix === "environment" ? output.slice(end) : "");
-  return !/(?:^|\n)name: [A-Za-z0-9._-]+\r?$/m.test(outside);
+    (["discovery", "files"].includes(suffix) ? output.slice(end) : "");
+  return noSkillFrontmatter(outside);
+}
+
+function noSkillFrontmatter(output: string): boolean {
+  return !/(?:^|\n)name: [A-Za-z0-9._-]+\r?$/m.test(output);
 }
 
 async function composedFile(
@@ -880,8 +1077,9 @@ async function nativeReadCwd(
   workspace: string,
 ): Promise<string | null> {
   if (cwd === undefined) return workspace;
-  if (typeof cwd !== "string" || !isAbsolute(cwd)) return null;
-  return realpath(cwd).catch(() => null);
+  if (typeof cwd !== "string") return null;
+  const path = normalizedCommandCwd(cwd);
+  return path ? realpath(path).catch(() => null) : null;
 }
 function nativeOutput(item: CodexItem): string {
   return typeof item.aggregated_output === "string"
@@ -982,7 +1180,7 @@ interface StreamReadState extends CoverageState {
   partial: boolean;
   completedTurn: boolean;
 }
-type RecoveredRead = { command: string; output: string };
+type RecoveredRead = RecoveredSkillRead;
 function streamReadState(): StreamReadState {
   return {
     attempted: new Map(),
@@ -1017,7 +1215,20 @@ function correlatedReadItem(
     shellPayload(item.command) !== shellPayload(recovered.command)
   )
     return item;
+  if (recovered.completeOutput) {
+    return completeRecoveredItem(item, recovered);
+  }
   return { ...item, aggregated_output: recovered.output + nativeOutput(item) };
+}
+
+function completeRecoveredItem(
+  item: CodexItem,
+  recovered: RecoveredRead,
+): CodexItem {
+  const native = nativeOutput(item);
+  return native === "" || native === recovered.output
+    ? { ...item, aggregated_output: recovered.output, cwd: recovered.cwd }
+    : item;
 }
 function observeStreamTurn(event: CodexEvent, state: StreamReadState): void {
   if (event.type === "turn.completed") state.completedTurn = true;
@@ -1080,10 +1291,16 @@ async function completedMountedRead(
   state: StreamReadState,
 ): Promise<boolean> {
   if (typeof item.command !== "string") return false;
+  const cwd = await nativeReadCwd(item.cwd, context.workspace);
+  if (!cwd) {
+    state.partial = true;
+    return false;
+  }
   const attempted = await mountedSkillReadAttempt(
     item.command,
     context.workspace,
     context.pluginRoots,
+    cwd,
   );
   if (!attempted) return false;
   if (!successfulReadCommand(item)) state.partial = true;
@@ -1095,11 +1312,7 @@ async function completeStreamRead(
   state: StreamReadState,
 ): Promise<void> {
   if (!(await eligibleCompletedRead(item, context, state))) return;
-  const read = await verifiedSkillRead(
-    item,
-    context.workspace,
-    context.pluginRoots,
-  );
+  const read = await resolvedStreamSkillRead(item, context);
   if (read.length === 0) {
     state.partial = true;
     return;
@@ -1111,6 +1324,16 @@ async function completeStreamRead(
     };
     retainStreamRead(state, receipt, coverage);
   }
+}
+
+async function resolvedStreamSkillRead(
+  item: CodexItem,
+  context: Pick<ReadContext, "workspace" | "pluginRoots">,
+): Promise<VerifiedRead[]> {
+  const cwd = await nativeReadCwd(item.cwd, context.workspace);
+  return cwd
+    ? verifiedSkillRead(item, context.workspace, context.pluginRoots, cwd)
+    : [];
 }
 
 function retainStreamRead(

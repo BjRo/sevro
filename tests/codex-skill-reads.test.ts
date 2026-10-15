@@ -980,6 +980,248 @@ async function sequentialObservations(
   return { observed, diagnostic };
 }
 
+test.each([
+  {
+    label: "missing ordinary file",
+    prefix: "cat missing.md; git status --short; ",
+    output: body,
+  },
+  {
+    label: "unsupported discovery",
+    prefix: "cat README.md; printf discovery; ",
+    output: "Documentation\n" + body,
+  },
+  {
+    label: "too many file operands",
+    prefix:
+      "cat " + Array(64).fill("README.md").join(" ") + "; git status --short; ",
+    output: body,
+  },
+  {
+    label: "an incomplete earlier supporting Skill",
+    prefix: "cat .agents/skills/example/SKILL.md; git status --short; ",
+    output: body.slice(0, -5) + body,
+  },
+  {
+    label: "incomplete terminal body",
+    prefix: "cat README.md; git status --short; ",
+    output: "Documentation\n" + body.slice(0, -5),
+  },
+  {
+    label: "a copied terminal body",
+    prefix: "cat README.md; git status --short; ",
+    output: body + body,
+  },
+  {
+    label: "unattributed supporting frontmatter",
+    prefix: "cat README.md; git status --short; ",
+    output: "name: example\n" + body,
+  },
+])(
+  "terminal Skill reads retain partial evidence for $label",
+  async ({ prefix, output }) => {
+    const workspace = await fixture();
+    await writeFile(join(workspace, "README.md"), "Documentation\n");
+    const { observed, diagnostic } = await sequentialObservations(
+      workspace,
+      prefix + "cat .agents/skills/example/SKILL.md",
+      output,
+    );
+    expect(observed).toMatchObject({
+      completeness: "partial",
+      data: { observedSkills: [] },
+    });
+    expect(diagnostic).toMatchObject({
+      completeness: "partial",
+      completedReads: [],
+    });
+  },
+);
+
+test("terminal ordinary files cannot replace a mounted Skill read", async () => {
+  const workspace = await fixture();
+  await writeFile(join(workspace, "README.md"), body);
+  await writeFile(join(workspace, "NOTES.md"), "Delivery notes\n");
+  const { observed, diagnostic } = await sequentialObservations(
+    workspace,
+    "cat README.md; git status --short; cat NOTES.md",
+    body + "Delivery notes\n",
+  );
+  expect(observed).toMatchObject({
+    completeness: "partial",
+    data: { observedSkills: [] },
+  });
+  expect(diagnostic).toMatchObject({
+    completeness: "partial",
+    completedReads: [],
+  });
+});
+
+test("a single Skill file cannot claim unrelated output", async () => {
+  const workspace = await fixture();
+  const { observed, diagnostic } = await sequentialObservations(
+    workspace,
+    "cat .agents/skills/example/SKILL.md",
+    body + "Unattributed bytes\n",
+  );
+  expect(observed).toMatchObject({
+    completeness: "partial",
+    data: { observedSkills: [] },
+  });
+  expect(diagnostic).toMatchObject({
+    completeness: "partial",
+    completedReads: [],
+  });
+});
+
+const copiedReadCommands = [
+  "cat README.md .agents/skills/example/SKILL.md",
+  "cat README.md; cat .agents/skills/example/SKILL.md",
+  "cat .agents/skills/example/SKILL.md README.md",
+  "cat .agents/skills/example/SKILL.md; cat README.md",
+];
+
+test.each(copiedReadCommands)(
+  "a documentation copy cannot supply a missing Skill body: %s",
+  async (command) => {
+    const workspace = await fixture();
+    await writeFile(join(workspace, "README.md"), body);
+    const { observed, diagnostic } = await sequentialObservations(
+      workspace,
+      command,
+      body,
+    );
+    expect(observed).toMatchObject({
+      completeness: "partial",
+      data: { observedSkills: [] },
+    });
+    expect(diagnostic).toMatchObject({
+      completeness: "partial",
+      completedReads: [],
+    });
+  },
+);
+
+test.each(copiedReadCommands)(
+  "complete file output attributes known Skill copies: %s",
+  async (command) => {
+    const workspace = await fixture();
+    await writeFile(join(workspace, "README.md"), body);
+    const { observed, diagnostic } = await sequentialObservations(
+      workspace,
+      command,
+      body + body,
+    );
+    expect(observed).toMatchObject({
+      completeness: "complete",
+      data: { observedSkills: ["example"] },
+    });
+    expect(diagnostic).toMatchObject({
+      completeness: "complete",
+      completedReads: [{ skill: "example", ordinal: 0 }],
+    });
+  },
+);
+
+async function mixedBatchFixture() {
+  const workspace = await fixture();
+  const second = body.replace("name: example", "name: second");
+  await mkdir(join(workspace, ".agents/skills/second"));
+  await writeFile(join(workspace, ".agents/skills/second/SKILL.md"), second);
+  await Promise.all(
+    ["README.md", "NOTES.md", "TAIL.md"].map((name) =>
+      writeFile(join(workspace, name), "Changed after the read\n"),
+    ),
+  );
+  const command =
+    "cat README.md .agents/skills/example/SKILL.md NOTES.md .agents/skills/second/SKILL.md TAIL.md";
+  return { workspace, second, command };
+}
+
+test("batched Skill reads verify ordered bodies among changed ordinary files", async () => {
+  const { workspace, second, command } = await mixedBatchFixture();
+  const output =
+    "Original header\n" +
+    body +
+    "Original middle\n" +
+    second +
+    "Original tail\n";
+  const { observed, diagnostic } = await sequentialObservations(
+    workspace,
+    command,
+    output,
+  );
+  expect(observed).toMatchObject({
+    completeness: "complete",
+    data: { observedSkills: ["example", "second"] },
+  });
+  expect(diagnostic).toMatchObject({
+    completeness: "complete",
+    completedReads: [
+      { skill: "example", ordinal: 0 },
+      { skill: "second", ordinal: 0 },
+    ],
+  });
+});
+
+test.each([
+  {
+    label: "incomplete first Skill",
+    output: (second: string) => "Original\n" + body.slice(0, -5) + second,
+  },
+  {
+    label: "incomplete second Skill",
+    output: (second: string) => "Original\n" + body + second.slice(0, -5),
+  },
+  {
+    label: "reversed Skill bodies",
+    output: (second: string) => "Original\n" + second + body,
+  },
+  {
+    label: "copied Skill body",
+    output: (second: string) => "Original\n" + body + body + second,
+  },
+  {
+    label: "unattributed prefix",
+    output: (second: string) => "name: example\n" + body + second,
+  },
+  {
+    label: "unattributed suffix",
+    output: (second: string) => "Original\n" + body + second + "name: second\n",
+  },
+])("batched Skill reads remain partial for $label", async ({ output }) => {
+  const { workspace, second, command } = await mixedBatchFixture();
+  const { observed, diagnostic } = await sequentialObservations(
+    workspace,
+    command,
+    output(second),
+  );
+  expect(observed).toMatchObject({
+    completeness: "partial",
+    data: { observedSkills: [] },
+  });
+  expect(diagnostic).toMatchObject({
+    completeness: "partial",
+    completedReads: [],
+  });
+});
+
+test("malformed batched output cannot establish a Skill read", async () => {
+  const workspace = await fixture();
+  await writeFile(join(workspace, "README.md"), "Documentation\n");
+  const item = read("cat README.md .agents/skills/example/SKILL.md").item;
+  const observed = await codexSkillReadObservation(
+    stream([
+      { type: "item.completed", item: { ...item, aggregated_output: null } },
+    ]),
+    workspace,
+  );
+  expect(observed).toMatchObject({
+    completeness: "partial",
+    data: { observedSkills: [] },
+  });
+});
+
 test("sequential reads reject expanded documentation operands", async () => {
   const workspace = await fixture();
   const command =
