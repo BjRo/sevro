@@ -149,7 +149,7 @@ fi
     )
       .trimEnd()
       .split("\n");
-    expect(prefix).toBe(join(defined(temp), "zsh"));
+    expect(defined(prefix).startsWith(`${defined(temp)}/`)).toBe(true);
     expect(await readFile(sharedTemp, "utf8")).toBe("host-private");
   },
 );

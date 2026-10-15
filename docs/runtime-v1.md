@@ -255,7 +255,7 @@ Source caches are never a writable runtime. Use prepared public caches rather
 than credential-bearing homes or evaluator directories.
 
 `{{sevro.runtime}}` in an environment value resolves to that role's writable
-root. Codex commands receive `TMPPREFIX=<private-temp>/zsh` alongside `TMPDIR`,
+root. Codex commands receive a `TMPPREFIX` inside their private `TMPDIR`,
 so zsh here-documents use their existing private temporary storage while shared
 host temporary directories remain denied. `TMPPREFIX` is runner-owned and cannot
 be inherited or set through runtime configuration.

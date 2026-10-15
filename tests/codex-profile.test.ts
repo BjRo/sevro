@@ -103,7 +103,7 @@ test("Codex profile preserves quoted paths and deduplicates declared access root
       set: {
         HOME: '/tmp/fixture/quoted "home"',
         TMPDIR: '/tmp/fixture/quoted "temp"',
-        TMPPREFIX: '/tmp/fixture/quoted "temp"/zsh',
+        TMPPREFIX: '/tmp/fixture/quoted "temp"/',
       },
     },
     permissions: {
