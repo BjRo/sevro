@@ -75,6 +75,10 @@ Before committing, use `bun run check:typescript --fast` after installing the
 locked dependencies. This runs inventory, schema, formatting, lint, typing and
 documentation checks; it does not replace full acceptance. CI retains machine-readable coverage
 reports under `.quality/` and exposes the stable `TypeScript quality` status.
+The complete command's `static`, `docs`, `tests` and `package` phases run as
+concurrent CI jobs. After frozen installation, use
+`bun run check:typescript --phase <name>` to run one phase locally; it does not
+replace acceptance across all four. See the [phase inventory](docs/typescript-quality.md).
 
 Run `bun run check:docs:external` separately and [triage network failures](docs/documentation-quality.md#external-links).
 Guide changes also need [native evals](docs/guide-evaluation.md).
@@ -91,8 +95,8 @@ repairing in-scope failures; it does not authorize merging or unrelated changes.
   non-root user, and isolation prerequisites. Reproducing that environment locally
   with Docker is optional for diagnosis and is not a publication prerequisite.
 - After the local pre-commit checks, publish the authorized candidate to its PR
-  and require `bun run check:typescript` to succeed in GitHub CI before reporting
-  delivery as complete. A local run, fast check, targeted suite, or historical
+  and require all four canonical `check:typescript` phases to succeed in GitHub CI
+  before reporting delivery as complete. A local run, fast check, targeted suite, or historical
   result does not establish that the current Ubuntu gate passes.
 - Keep the quality bar intact. Repair behavior or add meaningful coverage for
   accepted behavior; do not lower thresholds, exempt authored sources, skip tests,

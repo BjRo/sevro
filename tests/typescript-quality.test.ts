@@ -9,6 +9,25 @@ import { platformBranchCoverage } from "../scripts/coverage/platform-branches";
 import { createInstrumenter } from "istanbul-lib-instrument";
 import { createCoverageMap, type CoverageMapData } from "istanbul-lib-coverage";
 
+test.each([
+  { args: ["--phase"] },
+  { args: ["--phase", "unknown"] },
+  { args: ["--phase", "static", "extra"] },
+])(
+  "the public TypeScript gate refuses invalid phase selection %j",
+  ({ args }) => {
+    const child = Bun.spawnSync(
+      [process.execPath, "run", "check:typescript", ...args],
+      { cwd: resolve(import.meta.dir, ".."), stdout: "pipe", stderr: "pipe" },
+    );
+    expect(child.exitCode).toBe(1);
+    expect(child.stderr.toString()).toContain(
+      "--phase static|docs|tests|package",
+    );
+    expect(child.stdout.toString()).not.toContain("TypeScript quality:");
+  },
+);
+
 function qualityInventory(root: string) {
   const value: unknown = JSON.parse(
     readFileSync(resolve(root, "typescript-sources.json"), "utf8"),

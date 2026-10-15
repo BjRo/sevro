@@ -22,10 +22,25 @@ function run(command: string[], root: string) {
     throw new Error(`${command.join(" ")} exited ${child.exitCode}`);
 }
 
-async function qualityGate(fast: boolean) {
+const qualityPhases = ["static", "docs", "tests", "package"] as const;
+type QualityPhase = (typeof qualityPhases)[number];
+
+async function qualityGate(phases: readonly QualityPhase[], install = false) {
   const root = resolve(import.meta.dir, "..");
   await checkInventory(root);
-  if (!fast) run([process.execPath, "install", "--frozen-lockfile"], root);
+  if (install) run([process.execPath, "install", "--frozen-lockfile"], root);
+  for (const phase of phases) {
+    const label = `TypeScript quality: ${phase}`;
+    console.time(label);
+    try {
+      qualityPhase(root, phase);
+    } finally {
+      console.timeEnd(label);
+    }
+  }
+}
+
+function staticChecks(root: string) {
   for (const name of [
     "schemas:check",
     "check:docs",
@@ -35,15 +50,34 @@ async function qualityGate(fast: boolean) {
   ]) {
     run([process.execPath, "run", name], root);
   }
-  if (fast) return;
-  guideDryRuns(root);
-  run([process.execPath, "run", "test:docs-examples"], root);
-  integrityProbes();
-  sourceMapProbe();
-  snapshotProbe(root);
-  coverageScopeProbe(root);
-  runCoverage(root);
-  run([process.execPath, "run", "test:package-install"], root);
+}
+
+function qualityPhase(root: string, phase: QualityPhase) {
+  switch (phase) {
+    case "static":
+      staticChecks(root);
+      return;
+    case "docs":
+      guideDryRuns(root);
+      run([process.execPath, "run", "test:docs-examples"], root);
+      return;
+    case "tests":
+      integrityProbes();
+      sourceMapProbe();
+      snapshotProbe(root);
+      coverageScopeProbe(root);
+      runCoverage(root);
+      return;
+    case "package":
+      run([process.execPath, "run", "test:package-install"], root);
+      return;
+  }
+}
+
+function selectedPhase(value: string | undefined): QualityPhase {
+  const selected = qualityPhases.find((phase) => phase === value);
+  if (!selected) throw new Error(`Expected --phase ${qualityPhases.join("|")}`);
+  return selected;
 }
 
 function guideDryRuns(root: string) {
@@ -131,12 +165,14 @@ try {
     );
   } else if (process.argv[2] === "--coverage") {
     runCoverage(resolve(import.meta.dir, ".."), process.argv.slice(3));
-  } else if (process.argv.length === 2) await qualityGate(false);
+  } else if (process.argv.length === 2) await qualityGate(qualityPhases, true);
   else if (process.argv.slice(2).join(" ") === "--fast")
-    await qualityGate(true);
+    await qualityGate(["static"]);
+  else if (process.argv[2] === "--phase" && process.argv.length === 4)
+    await qualityGate([selectedPhase(process.argv[3])]);
   else
     throw new Error(
-      "Expected --fast, --inventory [root], --coverage [Bun test arguments], or --probe <name>",
+      "Expected --fast, --phase static|docs|tests|package, --inventory [root], --coverage [Bun test arguments], or --probe <name>",
     );
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));

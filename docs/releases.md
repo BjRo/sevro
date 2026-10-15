@@ -53,7 +53,8 @@ with their own CI before starting the release.
    `main`, permitting only version/distribution-tag changes and the exact
    release documentation and workflow files inventoried in
    [the CI selector](../.github/scripts/release-ci.py). All other tracked inputs
-   must match. The original run must have completed the full quality gate;
+   must match. The original run must have completed all four quality phases
+   and their gate steps, or the historical complete quality gate;
    another release's reused status is insufficient. CI retains the source SHA
    and run URL in `release-ci.json`. Missing evidence fails the release check;
    it does not trigger another test run. Ordinary code changes and explicit
