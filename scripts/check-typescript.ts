@@ -11,6 +11,8 @@ import { integrityProbes } from "./coverage/probes";
 import { sourceMapProbe } from "./coverage/source-map-probe";
 import { snapshotProbe } from "./coverage/snapshot-probe";
 import { coverageScopeProbe } from "./coverage/scope-probe";
+import { aggregateCoverage } from "./coverage/aggregate";
+import { shardIndex, testShards } from "./coverage/shard-plan";
 
 function run(command: string[], root: string) {
   const child = Bun.spawnSync(command, {
@@ -25,7 +27,11 @@ function run(command: string[], root: string) {
 const qualityPhases = ["static", "docs", "tests", "package"] as const;
 type QualityPhase = (typeof qualityPhases)[number];
 
-async function qualityGate(phases: readonly QualityPhase[], install = false) {
+async function qualityGate(
+  phases: readonly QualityPhase[],
+  install = false,
+  mergeDirectory?: string,
+) {
   const root = resolve(import.meta.dir, "..");
   await checkInventory(root);
   if (install) run([process.execPath, "install", "--frozen-lockfile"], root);
@@ -33,7 +39,7 @@ async function qualityGate(phases: readonly QualityPhase[], install = false) {
     const label = `TypeScript quality: ${phase}`;
     console.time(label);
     try {
-      qualityPhase(root, phase);
+      qualityPhase(root, phase, mergeDirectory);
     } finally {
       console.timeEnd(label);
     }
@@ -52,7 +58,11 @@ function staticChecks(root: string) {
   }
 }
 
-function qualityPhase(root: string, phase: QualityPhase) {
+function qualityPhase(
+  root: string,
+  phase: QualityPhase,
+  mergeDirectory?: string,
+) {
   switch (phase) {
     case "static":
       staticChecks(root);
@@ -66,7 +76,8 @@ function qualityPhase(root: string, phase: QualityPhase) {
       sourceMapProbe();
       snapshotProbe(root);
       coverageScopeProbe(root);
-      runCoverage(root);
+      if (mergeDirectory) aggregateCoverage(root, mergeDirectory);
+      else runCoverage(root);
       return;
     case "package":
       run([process.execPath, "run", "test:package-install"], root);
@@ -78,6 +89,20 @@ function selectedPhase(value: string | undefined): QualityPhase {
   const selected = qualityPhases.find((phase) => phase === value);
   if (!selected) throw new Error(`Expected --phase ${qualityPhases.join("|")}`);
   return selected;
+}
+
+async function runShard(value: string | undefined) {
+  const index = shardIndex(value);
+  const root = resolve(import.meta.dir, "..");
+  await checkInventory(root);
+  const shard = testShards(root).find((shard) => shard.index === index);
+  if (!shard?.files.length) throw new Error("Expected a nonempty test shard");
+  console.log(JSON.stringify({ shard }));
+  runCoverage(
+    root,
+    shard.files.map((file) => `./${file}`),
+    shard,
+  );
 }
 
 function guideDryRuns(root: string) {
@@ -165,14 +190,26 @@ try {
     );
   } else if (process.argv[2] === "--coverage") {
     runCoverage(resolve(import.meta.dir, ".."), process.argv.slice(3));
-  } else if (process.argv.length === 2) await qualityGate(qualityPhases, true);
+  } else if (process.argv[2] === "--shard" && process.argv.length === 4)
+    await runShard(process.argv[3]);
+  else if (process.argv.slice(2).join(" ") === "--shard-plan")
+    console.log(
+      JSON.stringify(testShards(resolve(import.meta.dir, "..")), null, 2),
+    );
+  else if (process.argv[2] === "--merge-shards" && process.argv.length <= 4)
+    await qualityGate(
+      ["tests"],
+      false,
+      resolve(process.argv[3] ?? ".quality/shards"),
+    );
+  else if (process.argv.length === 2) await qualityGate(qualityPhases, true);
   else if (process.argv.slice(2).join(" ") === "--fast")
     await qualityGate(["static"]);
   else if (process.argv[2] === "--phase" && process.argv.length === 4)
     await qualityGate([selectedPhase(process.argv[3])]);
   else
     throw new Error(
-      "Expected --fast, --phase static|docs|tests|package, --inventory [root], --coverage [Bun test arguments], or --probe <name>",
+      "Expected --fast, --phase static|docs|tests|package, --inventory [root], --coverage [Bun test arguments], --shard 1/4|2/4|3/4|4/4, --shard-plan, --merge-shards [directory], or --probe <name>",
     );
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));

@@ -76,7 +76,9 @@ locked dependencies. This runs inventory, schema, formatting, lint, typing and
 documentation checks; it does not replace full acceptance. CI retains machine-readable coverage
 reports under `.quality/` and exposes the stable `TypeScript quality` status.
 The complete command's `static`, `docs`, `tests` and `package` phases run as
-concurrent CI jobs. After frozen installation, use
+concurrent CI jobs. CI divides the tests among four duration-balanced jobs and
+requires one combined coverage gate; every test and both 95% thresholds remain
+required. Superseded runs for the same pull request are cancelled. After frozen installation, use
 `bun run check:typescript --phase <name>` to run one phase locally; it does not
 replace acceptance across all four. See the [phase inventory](docs/typescript-quality.md).
 

@@ -7,6 +7,10 @@ on:
       - main
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   actions: read
@@ -42,7 +46,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        phase: [static, docs, tests, package]
+        phase: [static, docs, package]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
@@ -55,7 +59,7 @@ jobs:
         if: matrix.phase != 'static'
         run: bash scripts/setup-ci-linux.sh
       - name: Install deterministic native host prerequisites
-        if: matrix.phase == 'docs' || matrix.phase == 'tests'
+        if: matrix.phase == 'docs'
         run: bun scripts/setup-ci-codex.ts
       - uses: astral-sh/setup-uv@v7
         if: matrix.phase == 'docs'
@@ -74,11 +78,72 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Canonical TypeScript quality phase
         run: bun run check:typescript --phase ${{ matrix.phase }}
+  test-shards:
+    name: TypeScript tests / shard ${{ matrix.shard }} of 4 (Ubuntu x64)
+    needs: quality-plan
+    if: needs.quality-plan.outputs.reuse != 'true'
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.13.0"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+      - name: Prepare Linux isolation
+        run: bash scripts/setup-ci-linux.sh
+      - name: Install deterministic native host prerequisites
+        run: bun scripts/setup-ci-codex.ts
+      - run: bun install --frozen-lockfile
+      - name: Canonical TypeScript quality shard
+        run: bun run check:typescript --shard ${{ matrix.shard }}/4
+      - name: Retain shard evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-shard-${{ github.sha }}-${{ matrix.shard }}
+          overwrite: true
+          path: .quality/shards/
+          include-hidden-files: true
+          if-no-files-found: error
+  verify-tests:
+    name: TypeScript gate / tests (Ubuntu x64)
+    needs: [quality-plan, test-shards]
+    if: always() && !cancelled() && needs.quality-plan.result == 'success' && needs.quality-plan.outputs.reuse != 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require all four test shards
+        env:
+          SHARD_RESULT: ${{ needs.test-shards.result }}
+        run: test "$SHARD_RESULT" = success
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.13.0"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+      - run: bun install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-shard-${{ github.sha }}-*
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+          path: .quality/shards/
+          merge-multiple: true
+      - name: Canonical TypeScript quality phase
+        run: bun run check:typescript --merge-shards
       - name: Retain quality evidence
-        if: always() && matrix.phase == 'tests'
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: typescript-quality-${{ github.sha }}
+          overwrite: true
           path: .quality/
           include-hidden-files: true
           if-no-files-found: warn
@@ -102,7 +167,7 @@ jobs:
         run: bun run check:typescript --fast
   typescript-quality:
     name: TypeScript quality
-    needs: [quality-plan, verify, release-metadata]
+    needs: [quality-plan, verify, test-shards, verify-tests, release-metadata]
     if: always()
     runs-on: ubuntu-24.04
     steps:
@@ -111,13 +176,19 @@ jobs:
           PLAN_RESULT: ${{ needs.quality-plan.result }}
           REUSE: ${{ needs.quality-plan.outputs.reuse }}
           QUALITY_RESULT: ${{ needs.verify.result }}
+          SHARD_RESULT: ${{ needs.test-shards.result }}
+          TEST_RESULT: ${{ needs.verify-tests.result }}
           METADATA_RESULT: ${{ needs.release-metadata.result }}
         run: |
           test "$PLAN_RESULT" = success
           if [ "$REUSE" = true ]; then
             test "$QUALITY_RESULT" = skipped
+            test "$SHARD_RESULT" = skipped
+            test "$TEST_RESULT" = skipped
             test "$METADATA_RESULT" = success
           else
             test "$QUALITY_RESULT" = success
+            test "$SHARD_RESULT" = success
+            test "$TEST_RESULT" = success
             test "$METADATA_RESULT" = skipped
           fi

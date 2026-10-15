@@ -22,8 +22,14 @@ import { prepare } from "./prepare";
 import { platformBranchCoverage } from "./platform-branches";
 import { mergeChecked, coverageRecord } from "./gate";
 import { participant, object } from "./records";
+import type { TestShard } from "./shard-plan";
+import { writeShard } from "./shard-output";
 
-export function runCoverage(repo: string, testArguments: string[] = []) {
+export function runCoverage(
+  repo: string,
+  testArguments: string[] = [],
+  shard?: TestShard,
+) {
   const root = mkdtempSync(join(tmpdir(), "sevro-typescript-quality-"));
   const prepared = prepare(repo, root);
   console.log(
@@ -64,37 +70,31 @@ export function runCoverage(repo: string, testArguments: string[] = []) {
   );
   const projected = platformBranchCoverage(raw, prepared.source);
   const map = projected.map;
-  const output = join(
-    repo,
-    testArguments.length ? ".quality/coverage-targeted" : ".quality/coverage",
-  );
+  const output = join(repo, coverageDirectory(testArguments, shard));
   publishReports(output, map);
-  writeFileSync(
-    join(output, "coverage-raw.json"),
-    JSON.stringify(raw.toJSON()),
-  );
-  writeFileSync(
-    join(output, "run.json"),
-    JSON.stringify(
-      {
-        ...identity,
-        scope: { ...prepared.scope, branchExclusions: projected.exclusions },
-        root,
-        exitCode: child.exitCode,
-        processes: started,
-        forcedChildren: killed,
-        summary: map.getCoverageSummary().toJSON(),
-        rawSummary: raw.getCoverageSummary().toJSON(),
-      },
-      null,
-      2,
-    ),
+  writeRun(
+    output,
+    {
+      ...identity,
+      scope: { ...prepared.scope, branchExclusions: projected.exclusions },
+      root,
+      exitCode: child.exitCode,
+      processes: started,
+      forcedChildren: killed,
+      summary: map.getCoverageSummary().toJSON(),
+      rawSummary: raw.getCoverageSummary().toJSON(),
+    },
+    raw.toJSON(),
   );
   retainInputs(root, output, prepared.source);
   if (child.exitCode !== 0)
     throw new Error(
       `Deterministic Bun tests failed with exit ${child.exitCode}`,
     );
+  if (shard) {
+    writeShard(output, prepared, identity, shard, raw.toJSON());
+    return map;
+  }
   enforceCoverage(
     output,
     prepared.scope,
@@ -104,7 +104,19 @@ export function runCoverage(repo: string, testArguments: string[] = []) {
   return map;
 }
 
-function enforceCoverage(
+export function writeRun(output: string, run: unknown, raw: CoverageMapData) {
+  writeFileSync(join(output, "coverage-raw.json"), JSON.stringify(raw));
+  writeFileSync(join(output, "run.json"), JSON.stringify(run, null, 2));
+}
+
+function coverageDirectory(testArguments: string[], shard?: TestShard) {
+  if (shard) return `.quality/shards/${shard.index}`;
+  return testArguments.length
+    ? ".quality/coverage-targeted"
+    : ".quality/coverage";
+}
+
+export function enforceCoverage(
   output: string,
   scope: ReturnType<typeof prepare>["scope"],
   branchExclusions: ReturnType<typeof platformBranchCoverage>["exclusions"],
@@ -129,7 +141,7 @@ export function enforceThresholds(summary: CoverageSummaryData) {
   if (failed.length) throw new Error(`Below 95%: ${failed.join(", ")}`);
 }
 
-function retainInputs(root: string, output: string, source: string) {
+export function retainInputs(root: string, output: string, source: string) {
   for (const file of ["baseline.json", "snapshot.json", "tests.log"])
     cpSync(join(root, file), join(output, file));
   cpSync(source, join(output, "source"), { recursive: true });
@@ -232,7 +244,7 @@ function requireRegisteredSnapshots(
   }
 }
 
-function publishReports(output: string, map: CoverageMap) {
+export function publishReports(output: string, map: CoverageMap) {
   rmSync(output, { recursive: true, force: true });
   mkdirSync(output, { recursive: true });
   const context = createContext({ dir: output, coverageMap: map });

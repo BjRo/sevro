@@ -29,7 +29,11 @@ order; `--fast` runs only `static` without installing dependencies.
 
 Use the same prerequisites as the corresponding complete-gate checks. A single
 phase is partial evidence; full acceptance requires all four on the same candidate.
-The test suite and its coverage denominator remain whole, with no test sharding.
+CI assigns every test file to exactly one of four duration-balanced shards, then
+enforces both coverage thresholds on their combined counters over the complete
+production inventory. Local `--phase tests` and the complete command still run
+the suite in one process. See the [shard commands](../scripts/coverage/README.md#test-shards)
+for reproducing the CI split.
 
 ## Source dispositions
 
@@ -163,6 +167,15 @@ summary, process ledger, Bun test log, unmodified source snapshot, LCOV and HTML
 production files, branch exclusions, and exact projected counts.
 `coverage-raw.json` and the raw summary preserve all validated counters before
 platform projection.
+CI also retains `.quality/shards/<index>/` with each shard's source snapshot,
+process ledger, test log, raw and portable counters, and manifest. Process IDs
+remain scoped to their original shard. Aggregation verifies candidate contents,
+workflow run, platform, architecture, Bun version, instrumentation
+layout, and exact test assignments before combining counters with normalized
+source paths. Missing, repeated, incomplete, or mismatched shards fail the gate.
+Failed-job reruns can reuse successful shards from earlier attempts of the same
+workflow run; manifests retain each attempt, and rerun shards replace only their
+own artifacts. Another candidate or workflow run cannot supply missing evidence.
 `--coverage [Bun test arguments]` is a diagnostic measurement; it still enforces
 both thresholds and writes `.quality/coverage-targeted`, keeping it distinct from
 the full-suite evidence. Sparse runs are expected to fail the full denominator.
@@ -188,20 +201,24 @@ Ubuntu installs `bubblewrap`, `ripgrep`, and `socat` and runs the same native is
 local macOS runs retain `sandbox-exec`. Windows remains unverified.
 
 Ordinary changes and explicit workflow dispatches run the four canonical phases
-as concurrent matrix jobs. Each job installs locked dependencies; native host
-tools are installed for `docs` and `tests`, and UV and mise for `docs`. The
-`tests` job uploads `.quality` even when coverage fails. Matrix jobs do not
-cancel their siblings on failure, and the stable aggregate `TypeScript quality`
-status requires every phase to succeed. A missing, cancelled, skipped or failed
-phase cannot turn that status green.
+concurrently. The tests phase consists of four shard jobs followed by a combined
+coverage job. Each job installs locked dependencies; native host tools are
+installed for `docs` and the test shards, and UV and mise for `docs`. Each shard
+retains its evidence, and the combined `tests` job uploads `.quality` even when
+coverage fails. Shards do not cancel their siblings on failure. A new commit to
+the same pull request cancels its superseded workflow run; main pushes and manual
+runs have independent concurrency groups. The stable aggregate `TypeScript quality`
+status requires every phase and all four shards to succeed. A missing, cancelled,
+skipped or failed phase or shard cannot turn that status green.
 
 Release metadata changes follow [the release workflow](releases.md) and reuse a
 successful full gate from an ancestor on `main`, with identical code,
 dependencies, schemas, tests, and other quality inputs. The selector permits
 only version/distribution-tag changes and its exact release-file inventory.
-It verifies each original phase job and its gate step, or a historical complete
-gate job and step, so a partial matrix or reused release run cannot serve as
-fresh test evidence. Duplicate phase jobs are ambiguous and refused. Release CI
+It verifies each original phase job and its gate step, including every shard and
+the combined tests job for sharded runs, or a historical complete gate job and
+step. A partial matrix or reused release run cannot serve as fresh test evidence.
+Duplicate phase or shard jobs are ambiguous and refused. Release CI
 runs `check:typescript --fast`, records the tested source and CI run URL, and
 skips all four full-gate phase jobs. The aggregate
 status requires both verified prior evidence and successful static checks;

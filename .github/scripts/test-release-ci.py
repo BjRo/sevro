@@ -41,6 +41,43 @@ class FullGateEvidence(unittest.TestCase):
     def test_accepts_complete_parallel_gate(self):
         self.assertTrue(self.accepts(self.phases))
 
+    def sharded_jobs(self):
+        jobs = copy.deepcopy(self.phases)
+        jobs[2]["steps"].append({"name": "Require all four test shards", "conclusion": "success"})
+        jobs.extend(
+            job(f"TypeScript tests / shard {index} of 4 (Ubuntu x64)", "Canonical TypeScript quality shard")
+            for index in range(1, 5)
+        )
+        return jobs
+
+    def test_accepts_complete_sharded_gate(self):
+        self.assertTrue(self.accepts(self.sharded_jobs()))
+
+    def test_sharded_gate_requires_all_four_shards(self):
+        for missing in range(4, 8):
+            jobs = self.sharded_jobs()
+            del jobs[missing]
+            self.assertFalse(self.accepts(jobs))
+        self.assertFalse(self.accepts(self.sharded_jobs()[:4]))
+
+    def test_sharded_gate_refuses_failed_skipped_cancelled_and_duplicate_shards(self):
+        for index in range(4, 8):
+            for conclusion in ["failure", "cancelled", "skipped", None]:
+                jobs = self.sharded_jobs()
+                jobs[index]["conclusion"] = conclusion
+                self.assertFalse(self.accepts(jobs))
+        jobs = self.sharded_jobs()
+        self.assertFalse(self.accepts(jobs + [jobs[4]]))
+
+    def test_sharded_gate_requires_successful_shard_steps_and_aggregate_marker(self):
+        for index in range(4, 8):
+            jobs = self.sharded_jobs()
+            jobs[index]["steps"] = []
+            self.assertFalse(self.accepts(jobs))
+        jobs = self.sharded_jobs()
+        jobs[2]["steps"][1]["conclusion"] = "failure"
+        self.assertFalse(self.accepts(jobs))
+
     def test_requires_every_phase(self):
         for missing in range(4):
             with self.subTest(missing=missing):
