@@ -399,12 +399,21 @@ function verifiedTerminalReceipts(
   receipt: VerifiedRead,
 ): VerifiedRead[] {
   if (typeof output !== "string") return [];
-  if (files.slice(0, -1).some((file) => file.receipt !== null)) return [];
+  if (ambiguousTerminalPrefix(files, text)) return [];
   const start = output.length - text.length;
   if (!composedOutputAt(output, text, start)) return [];
   return matchesComposedOutside(output, start, output.length, "none")
     ? [receipt]
     : [];
+}
+
+function ambiguousTerminalPrefix(
+  files: Array<{ text: string; receipt: VerifiedRead | null }>,
+  text: string,
+): boolean {
+  return files
+    .slice(0, -1)
+    .some((file) => file.receipt !== null || file.text.includes(text));
 }
 
 async function composedFiles(
@@ -432,6 +441,8 @@ function composedReceipts(
     if (file.receipt) lastSkill = index;
   });
   if (lastSkill < 0) return [];
+  if (hasOrdinarySkillCopies(files))
+    return copiedComposedReceipts(output, files, plan);
   // Later ordinary files may have changed since the command ran. Only bytes
   // needed to locate a Skill read participate in its content proof.
   if (
@@ -445,8 +456,45 @@ function composedReceipts(
       lastSkill < files.length - 1,
     )
   )
-    return plan.singleCat ? singleCatReceipts(output, files) : [];
+    return unmatchedComposedReceipts(output, files, plan);
+  return composedFileReceipts(files);
+}
+
+function hasOrdinarySkillCopies(
+  files: Array<{ text: string; receipt: VerifiedRead | null }>,
+): boolean {
+  const skills = files.filter((file) => file.receipt !== null);
+  return files.some(
+    (file) =>
+      file.receipt === null &&
+      skills.some((skill) => file.text.includes(skill.text)),
+  );
+}
+
+function copiedComposedReceipts(
+  output: unknown,
+  files: Array<{ text: string; receipt: VerifiedRead | null }>,
+  plan: ComposedPlan,
+): VerifiedRead[] {
+  const expected = files.map((file) => file.text).join("");
+  return matchesComposedOutput(output, expected, plan, false)
+    ? composedFileReceipts(files)
+    : [];
+}
+
+function composedFileReceipts(
+  files: Array<{ text: string; receipt: VerifiedRead | null }>,
+): VerifiedRead[] {
   return files.flatMap((file) => (file.receipt ? [file.receipt] : []));
+}
+
+function unmatchedComposedReceipts(
+  output: unknown,
+  files: Array<{ text: string; receipt: VerifiedRead | null }>,
+  plan: ComposedPlan,
+): VerifiedRead[] {
+  if (plan.singleCat) return singleCatReceipts(output, files);
+  return plan.suffix === "none" ? terminalReadReceipts(output, files) : [];
 }
 
 function singleCatReceipts(

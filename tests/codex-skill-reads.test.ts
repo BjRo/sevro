@@ -1074,6 +1074,55 @@ test("a single Skill file cannot claim unrelated output", async () => {
   });
 });
 
+const copiedReadCommands = [
+  "cat README.md .agents/skills/example/SKILL.md",
+  "cat README.md; cat .agents/skills/example/SKILL.md",
+  "cat .agents/skills/example/SKILL.md README.md",
+  "cat .agents/skills/example/SKILL.md; cat README.md",
+];
+
+test.each(copiedReadCommands)(
+  "a documentation copy cannot supply a missing Skill body: %s",
+  async (command) => {
+    const workspace = await fixture();
+    await writeFile(join(workspace, "README.md"), body);
+    const { observed, diagnostic } = await sequentialObservations(
+      workspace,
+      command,
+      body,
+    );
+    expect(observed).toMatchObject({
+      completeness: "partial",
+      data: { observedSkills: [] },
+    });
+    expect(diagnostic).toMatchObject({
+      completeness: "partial",
+      completedReads: [],
+    });
+  },
+);
+
+test.each(copiedReadCommands)(
+  "complete file output attributes known Skill copies: %s",
+  async (command) => {
+    const workspace = await fixture();
+    await writeFile(join(workspace, "README.md"), body);
+    const { observed, diagnostic } = await sequentialObservations(
+      workspace,
+      command,
+      body + body,
+    );
+    expect(observed).toMatchObject({
+      completeness: "complete",
+      data: { observedSkills: ["example"] },
+    });
+    expect(diagnostic).toMatchObject({
+      completeness: "complete",
+      completedReads: [{ skill: "example", ordinal: 0 }],
+    });
+  },
+);
+
 async function mixedBatchFixture() {
   const workspace = await fixture();
   const second = body.replace("name: example", "name: second");
