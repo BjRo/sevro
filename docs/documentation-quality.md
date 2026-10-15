@@ -31,6 +31,10 @@ stale output. Run synchronization after a version bump and include the resulting
 documentation change. Link installation and update instructions to this section.
 Keep historical versions, licensing transitions, and minimum supported versions
 fixed and explain their purpose beside each reference.
+Link to the current-release section instead of repeating the current Sevro
+version elsewhere. Describe features for the latest version, using the installed
+`sevro` command in user workflows. Keep source-checkout instructions in contributor
+guidance and omit notes about feature unavailability in older releases.
 
 ## External links
 
@@ -44,8 +48,8 @@ make a network job green. External success does not establish a claim's truth.
 
 - Can a new user reach installation, first success, results, troubleshooting,
   architecture, and contributing without the guide?
-- Are supported environments, credentials, side effects, and current versus
-  released behavior explicit beside the relevant commands?
+- Are supported environments, credentials, side effects, and prerequisites
+  explicit beside the relevant commands?
 - Do descriptive links, meaningful headings, source order, readable tables,
   image alternatives, and words rather than color support accessibility?
 - Are current contracts, accepted choices, research, and past evidence distinct?

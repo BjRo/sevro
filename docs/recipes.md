@@ -3,26 +3,22 @@
 Copy a recipe, run its positive and negative controls, then select a native
 model. The complete projects live in [examples/recipes](../examples/recipes).
 They include cases, fixtures, evaluator checks, runtime files, adapters, and a
-small extension. These recipes are new in this checkout and in packages built
-from it; the published `0.1.0-rc.11` package does not contain them. Use the
-[released-package tutorial](getting-started.md#from-an-installed-package) to
-verify that release. No release upgrade is implied by a checkout's version.
+small extension.
 
 ## Prepare a recipe project
 
 Use Bun 1.3.13, Git, Node 24.13.0, and `rg`. Shell checks need macOS
 `sandbox-exec` or Ubuntu `bubblewrap`; native Claude also needs `socat` on
-Ubuntu. Python/UV and mise add the prerequisites stated below. Install the
-checkout's dependencies with `bun install --frozen-lockfile`, then:
+Ubuntu. Python/UV and mise add the prerequisites stated below.
+[Install Sevro](installing.md), then set the recipe path from the directory
+containing its local installation:
 
 ```sh
-export SEVRO_RECIPES="$PWD/examples/recipes"
+export SEVRO_RECIPES="$PWD/node_modules/@bjoernrochel/sevro/examples/recipes"
 ```
 
-For a package built from this checkout, use
-`export SEVRO_RECIPES="$PWD/node_modules/@bjoernrochel/sevro/examples/recipes"`
-from its installation directory instead. Run commands below from an otherwise
-empty working directory to keep generated outputs together. The launcher uses
+Run commands below from an otherwise empty working directory to keep generated
+outputs together. The launcher uses
 the CLI beside its original package; it does not require a global installation.
 
 To adapt a separate copy, preserve the small project's whole directory:
@@ -485,6 +481,5 @@ The verifier also dry-prepares every recipe with both native hosts, including
 both skill/plugin variants, negative-control inputs and the goals-only step,
 and verifies retained artifact digests. These are not authenticated model,
 goal, plugin-installation or hook-execution trials. Run the live commands to
-measure those routes. The separate published-consumer check still executes the
-released tutorial using the exact current version and license metadata; it
-does not claim this checkout's new recipes exist in that release.
+measure those routes. The separate published-consumer check executes the
+installed-package tutorial using the exact current version and license metadata.

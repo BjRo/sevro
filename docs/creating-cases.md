@@ -14,7 +14,7 @@ owns required source roots/maps; an arbitrary returned path does not grant acces
 
 Selecting `--project-root` identifies the project; it does not copy its contents
 into a participant fixture. Declare the files or repository source the participant
-should receive. The [run defaults reference](development-cli.md#run-defaults-in-this-checkout)
+should receive. The [run defaults reference](development-cli.md#run-defaults)
 explains how project identity, fixtures and CLI path resolution interact.
 
 ## Evaluate your repository skills

@@ -18,7 +18,7 @@ aggregation, and exit-code precedence.
 Completed trial evidence is saved under `--results-root` before cleanup.
 Do not assume a run-directory name or publish private host artifacts.
 
-Checkout/candidate human output now lists each trial, failed/unavailable check
+Human output lists each trial, failed/unavailable check
 reasons, measured candidate duration, unknown/known usage and retained paths.
 Preparation/candidate/grading/evidence progress appears on stderr. Stage completion
 means the attempt ended; read the three result states to determine its outcome.
@@ -30,12 +30,12 @@ See the [evaluation workflow](evaluation-workflow.md) for the complete progressi
 sevro report --json --result-file /absolute/path/sevro-result.json
 ```
 
-In the development checkout or a package built from it, `sevro report --latest`
-uses the most recently retained CLI result in `<cwd>/.sevro/results`. Add
+`sevro report --latest` uses the most recently retained CLI result in
+`<cwd>/.sevro/results`. Add
 `--results-root ./other-results` to select another root. Dry/failed runs may be
 latest; a pre-run error does not replace it. CLI `--result-file` also accepts
-cwd-relative paths. Published `0.1.0-rc.11` still uses the explicit file command
-above. Missing result or referenced evidence is an error, never a fabricated row.
+cwd-relative paths. Missing result or referenced evidence is an error, never
+a fabricated row.
 
 The command assumes [Sevro is on `PATH`](installing.md#make-the-command-available).
 For a contributor checkout, use `bun src/cli.ts` in place of `sevro`.

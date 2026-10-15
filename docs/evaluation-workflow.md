@@ -1,21 +1,17 @@
 # From a demo to your next evaluation
 
 Create an evaluation, prepare it, run its assertions, and inspect the latest
-result. This workflow is available in the development checkout and packages built
-from it. Published `0.1.0-rc.11` predates `demo`, `init`, saved settings, progress
-summaries and `report --latest`; use its [installed tutorial](getting-started.md#from-an-installed-package).
+result with the installed `sevro` command.
 
 ## Try the demo and create a project
 
-You need Bun 1.3.13. In a contributor checkout, set an absolute entrypoint so it
-still works after changing directories. A package built from this checkout uses
-`sevro` in place of `bun "$SEVRO_CLI"` below, once its command is on `PATH`.
+You need Bun 1.3.13. [Install Sevro](installing.md) and
+[make its command available on `PATH`](installing.md#make-the-command-available),
+then run:
 
 ```sh
-bun install --frozen-lockfile
-export SEVRO_CLI="$PWD/src/cli.ts"
-bun "$SEVRO_CLI" demo
-bun "$SEVRO_CLI" init --template response --directory ./response-evaluation
+sevro demo
+sevro init --template response --directory ./response-evaluation
 cd response-evaluation
 ```
 
@@ -29,7 +25,7 @@ real assertions, a deterministic adapter, `run.json` and template instructions.
 ## Prepare before execution
 
 ```sh
-bun "$SEVRO_CLI" run --run-manifest-file run.json --dry
+sevro run --run-manifest-file run.json --dry
 ```
 
 Stderr shows the whitelisted resolved settings before candidate execution:
@@ -47,10 +43,10 @@ See [native prerequisites](native-hosts.md) and [troubleshooting](troubleshootin
 ## Run, read and change one thing
 
 ```sh
-bun "$SEVRO_CLI" run --run-manifest-file run.json
-bun "$SEVRO_CLI" report --latest
-SEVRO_TEMPLATE_FAIL=1 bun "$SEVRO_CLI" run --run-manifest-file run.json
-bun "$SEVRO_CLI" report --latest
+sevro run --run-manifest-file run.json
+sevro report --latest
+SEVRO_TEMPLATE_FAIL=1 sevro run --run-manifest-file run.json
+sevro report --latest
 ```
 
 The first run's adapter returns exactly `ready`; its regex assertion must pass.
@@ -95,8 +91,8 @@ produces a diagnostic. [Report v1](report-v1.md) defines fields and limits.
 | `coding`           | Edit `add.sh`; isolated checks test positive, negative and zero addition                                           | Bun plus `sandbox-exec` on macOS or `bubblewrap`/`socat` on Linux; negative control leaves subtraction bug |
 | `repository-skill` | Actual `.agents/skills/startup-guide/SKILL.md` mount; explicit invocation evidence; correct start command and port | Bun, Git, Codex, native isolation, explicit model/effort and readable auth file; dry is unassessed         |
 
-From a new parent directory, use `init --template coding --directory ./coding-eval`
-or `init --template repository-skill --directory ./skill-eval`. Read its generated
+From a new parent directory, use `sevro init --template coding --directory ./coding-eval`
+or `sevro init --template repository-skill --directory ./skill-eval`. Read its generated
 README for controls and dry/live commands. Repository-skill `command.json` records
 absolute Bun/extension argv; regenerate it after moving the project.
 

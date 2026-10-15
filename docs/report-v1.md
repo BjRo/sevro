@@ -21,13 +21,13 @@ inputs return exit 64 with a diagnostic on stderr. Reporting does not change
 the exit category of any input run; each row retains its original code.
 Pre-run failures with no case rows remain visible in the input-run section.
 
-In the checkout/candidate workflow, `--latest` selects
+`--latest` selects
 `<cwd>/.sevro/results/latest.json`; `--results-root` changes that root and requires
 `--latest`. It is exclusive with `--result-file`. Each retained CLI evaluation
 saves a `result.json` beside its run evidence and atomically updates latest,
 including dry and failed runs. Pre-run failures do not replace latest. Missing
-latest or referenced evidence is an error. The published `0.1.0-rc.11` release
-does not have this convenience; see [the evaluation workflow](evaluation-workflow.md).
+latest or referenced evidence is an error. See
+[the evaluation workflow](evaluation-workflow.md).
 
 Each case row keeps task verdict, execution, and grading separate. Task pass
 rate is measured only when every trial completed execution and grading with an

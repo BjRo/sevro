@@ -9,7 +9,7 @@ Each domain outcome also gets one human-readable line with its case, trial,
 outcome ID, and status. Domain outcomes remain independent of the task verdict
 and exit code.
 
-The checkout/candidate CLI also shows trial states, bounded failed/unavailable
+The CLI also shows trial states, bounded failed/unavailable
 check details, measured candidate duration and known/unknown usage in human
 completion. Actual preparation/candidate/grading/evidence stage messages use
 stderr in both modes; they do not assert task success. Dry execution/grading are

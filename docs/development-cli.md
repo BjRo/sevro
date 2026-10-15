@@ -17,11 +17,9 @@ the installed package version. Invocation and configuration diagnostics go to
 stderr in both output modes; `--json` keeps one `sevro.cli-result.v1` document
 on stdout. Invalid case diagnostics name the input file and offending field.
 
-## Run defaults in this checkout
+<a id="run-defaults-in-this-checkout"></a>
 
-The defaults and `demo` command below are available in this development checkout
-and packages built from it. The published `0.1.0-rc.11` release still requires the
-explicit run settings shown in [the installed tutorial](getting-started.md#from-an-installed-package).
+## Run defaults
 
 `sevro demo` owns a deterministic case, fixture and adapter. It needs no model
 credentials and immediately prints an assessed verdict plus an evidence path in
@@ -72,7 +70,7 @@ The resolved executable is retained as `sevro.host.executable` in each used nati
 role's redacted host configuration; selecting a different path changes that
 configuration's identity.
 
-The checkout also provides `sevro init` with `--template response`, `coding` or
+Use `sevro init` with `--template response`, `coding` or
 `repository-skill` and `--directory <new-path>`. It refuses existing destinations
 and writes runnable assertions, a manifest and template instructions. Follow the
 [demo-to-iteration workflow](evaluation-workflow.md) for preparation, execution
@@ -157,8 +155,7 @@ Add `--retain-host-diagnostics` to a failing invocation to retain private
 diagnostics from bundled Codex and Claude hosts. The switch defaults to off,
 applies to every selected native role, and is independent of runtime
 `nativeTranscripts`. It does not enable transcript access or change the
-candidate's permissions. This switch is available in the development checkout;
-the published `0.1.0-rc.8` does not accept it.
+candidate's permissions.
 
 For example, add the switch to the Codex command above:
 
@@ -330,7 +327,7 @@ explicit second `HostAdapter` for grading. Alternatively, select the bundled
 Codex route with `--semantic-host codex --semantic-model <model>
 --semantic-effort <effort>`. That route also requires `--codex-bin` and
 `--codex-auth-file`, shared with a Codex candidate route when present. The binary
-defaults to the explicitly selected `codex` on `PATH` in this checkout. The two
+defaults to the explicitly selected `codex` on `PATH`. The two
 semantic route options are exclusive. The candidate and semantic routes are
 recorded separately in evidence and evaluation identity. The semantic adapter
 runs after a complete candidate response in its own empty workspace; missing
@@ -512,6 +509,3 @@ Claude also advertises `sevro.host.native-goal`. Its observer binds one persiste
 transcript to the original successful native session and retains goal status
 and objective length. Missing, ambiguous, malformed or oversized evidence is
 unavailable; an unavailable observation cannot prove goal absence.
-
-These additions require the `0.1.0-rc.2` candidate. The published `rc.1` lacks
-the app-server selector and native goal observations.

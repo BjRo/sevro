@@ -1,8 +1,7 @@
 # Runtime configuration v1
 
 Configure access to existing host tools, private writable caches, native goals,
-and selected plugin hooks in `<project-root>/sevro.json`. This interface is
-available in `0.1.0-rc.3` and later.
+and selected plugin hooks in `<project-root>/sevro.json`.
 
 `--runtime-config-file /absolute/path/runtime.json` selects a replacement file.
 Sevro reads exactly one file before execution, including dry runs. It does not
@@ -157,7 +156,7 @@ contents.
 
 ## Local HTTP test servers
 
-This source checkout supports local HTTP servers in isolated Codex candidate
+Sevro supports local HTTP servers in isolated Codex candidate
 commands and `sevro.shell` graders through an explicit operator selection:
 
 ```json
@@ -283,8 +282,7 @@ data and remain trusted code responsible for their own execution boundary.
 ## Candidate artifact access
 
 Use `runtime.artifactDirectories` to let graders read selected artifacts in the
-candidate's private home after execution. This option is available in the current
-source checkout; published `0.1.0-rc.7` does not include it.
+candidate's private home after execution.
 
 ```json
 {
@@ -334,8 +332,8 @@ per-trial absolute paths do not.
 ## Candidate Codex configuration and user skills
 
 Set top-level `"codexState": true` to expose the bundled Codex candidate's actual
-isolated configuration and user-skill state. This opt-in is available in the
-current source checkout and is independent of `nativeTranscripts` and ordinary
+isolated configuration and user-skill state. This opt-in is independent of
+`nativeTranscripts` and ordinary
 candidate-home artifact declarations:
 
 ```json

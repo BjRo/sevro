@@ -1,9 +1,8 @@
 # Saved run settings v1
 
 Save recurring evaluation selections in a JSON run manifest, then use
-`sevro run --run-manifest-file ./evaluation.json`. This option is available in
-the development checkout and packages built from it; published `0.1.0-rc.11`
-predates it. In a checkout, replace `sevro` with `bun src/cli.ts`.
+`sevro run --run-manifest-file ./evaluation.json`. The examples use the
+[installed command](installing.md#make-the-command-available).
 
 ## Repeat an evaluation
 
@@ -89,7 +88,7 @@ manifests and are read only when explicitly selected; there is no discovery.
 | Other run options                                                                       | Nonempty string                                       |
 
 Precedence is **built-in defaults → saved settings → explicit CLI options**.
-Omitted settings retain the [documented defaults](development-cli.md#run-defaults-in-this-checkout).
+Omitted settings retain the [documented defaults](development-cli.md#run-defaults).
 An explicit repeatable flag replaces its saved array in full; repeated CLI
 occurrences build the replacement array. `--no-dry`, `--no-shell-isolation`,
 `--no-retain-host-diagnostics` and `--no-claude-project-settings` override saved
