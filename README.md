@@ -40,6 +40,11 @@ Continue with [your first evaluation](docs/getting-started.md): the exact comman
 expected `passed` result, and retained evidence. Read [installation](docs/installing.md)
 for updates, removal, and source checkouts.
 
+The development checkout and freshly built packages provide a
+[demo-to-iteration workflow](docs/evaluation-workflow.md): initialize real
+assertions, prepare, execute, read progress and inspect the latest result.
+The published `rc.11` package uses the installed tutorial above.
+
 ## Find your next task
 
 The [documentation hub](docs/README.md) routes to running evaluations, authoring

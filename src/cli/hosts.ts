@@ -23,8 +23,15 @@ export async function candidateHost(
   agentConcurrencyLimit: number | null,
 ): Promise<HostAdapter> {
   if (invocation.codex)
-    return createCodexHost({ ...invocation.codex, agentConcurrencyLimit });
-  if (invocation.claude) return createClaudeHost(invocation.claude);
+    return retainExecutable(
+      createCodexHost({ ...invocation.codex, agentConcurrencyLimit }),
+      invocation.codex.binary,
+    );
+  if (invocation.claude)
+    return retainExecutable(
+      createClaudeHost(invocation.claude),
+      invocation.claude.binary,
+    );
   if (!invocation.adapterModule)
     throw new InvocationError("missing --adapter-module or --host");
   return loadHost(invocation.adapterModule);
@@ -36,6 +43,17 @@ export async function secondaryHost(
   agentConcurrencyLimit: number | null,
 ): Promise<HostAdapter | undefined> {
   if (module) return loadHost(module);
-  if (codex) return createCodexHost({ ...codex, agentConcurrencyLimit });
+  if (codex)
+    return retainExecutable(
+      createCodexHost({ ...codex, agentConcurrencyLimit }),
+      codex.binary,
+    );
   return undefined;
+}
+
+function retainExecutable(host: HostAdapter, binary: string): HostAdapter {
+  return {
+    ...host,
+    configuration: { ...host.configuration, "sevro.host.executable": binary },
+  };
 }

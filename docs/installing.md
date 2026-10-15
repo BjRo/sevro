@@ -1,8 +1,9 @@
 # Install, update, or remove Sevro
 
 Use Bun 1.3.13 for this TypeScript/Bun CLI. Installation does not make it a
-Node-only executable. Full validation and native isolation target macOS;
-Linux and Windows are unverified.
+Node-only executable. Full validation and native isolation target macOS and
+Ubuntu 24.04 x64. See the [bounded platform evidence](native-hosts.md#validated-platform-scope);
+Windows remains unverified.
 
 ## Install locally
 

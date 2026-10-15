@@ -1,0 +1,21 @@
+{
+  "id": "recipe-python-uv",
+  "prompt": "Use uv run --offline --no-project --python \"$RECIPE_PYTHON\" python to read app.json, then explain the application's start command and port.",
+  "fixture": {
+    "files": {
+      "README.md": "Start with bun run dev on port 3000.\n",
+      "app.json": "{\"port\":3000}\n"
+    }
+  },
+  "checks": [
+    {
+      "id": "uv-python-access",
+      "grader": "sevro.shell",
+      "configuration": {
+        "run": "uv run --offline --no-project --python \"$RECIPE_PYTHON\" python -c 'import json; p=json.load(open(\"app.json\"))[\"port\"]; assert p == 3000; print(p)'",
+        "expectExact": "3000"
+      }
+    }
+  ],
+  "requiredEvidence": []
+}

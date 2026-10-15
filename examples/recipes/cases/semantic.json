@@ -1,0 +1,17 @@
+{
+  "id": "recipe-semantic",
+  "prompt": "Read README.md and explain how to start the application, including its port.",
+  "fixture": {
+    "files": { "README.md": "Start with bun run dev on port 3000.\n" }
+  },
+  "checks": [
+    {
+      "id": "startup-meaning",
+      "grader": "sevro.semantic",
+      "configuration": {
+        "proposition": "The response tells the reader to run bun run dev and says that the application listens on port 3000."
+      }
+    }
+  ],
+  "requiredEvidence": []
+}

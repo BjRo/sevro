@@ -14,6 +14,12 @@ Local checks need no network. Run `bun run test:docs-examples` for the exact
 marked tutorial commands in fresh consumer/contributor directories, including
 expected verdicts and saved evidence. Candidate and released-package runs are
 reported separately. These commands create and clean temporary directories.
+The [recipe verifier](../scripts/documentation-recipes.ts) runs the new packaged
+projects separately from the current published version. It executes actual
+isolated tool/check positive and negative controls and both native hosts' dry
+preparation; authenticated model, plugin-hook and goal behavior remain
+unexecuted by that check. Its [prerequisites](recipes.md#prepare-a-recipe-project)
+are mandatory, including UV and mise's declared Node installation.
 
 `package.json.version` is the authoritative current version. `bun run docs:sync`
 updates only the marked [Current release](installing.md#current-release) section

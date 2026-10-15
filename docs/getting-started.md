@@ -5,6 +5,30 @@ Darrow checkout, Codex/Claude login, or model credentials are required. The
 adapter returns `ready`; Sevro grades that response against `^ready$`.
 This teaches the runner lifecycle, not the quality of an actual model.
 
+## Built-in demo in this checkout
+
+The development checkout and packages built from it provide a single-command
+first result. From a checkout with dependencies installed, run:
+
+```sh
+bun src/cli.ts demo
+```
+
+It prints `execution=completed grading=completed task=passed` and an absolute
+`evidence=` path under `.sevro/results` in your current directory. The demo owns
+its packaged case and adapter, uses a separate temporary project, and ignores
+your project's `sevro.json` and native configuration. No credentials are needed.
+Effective run settings appear on stderr before evaluation. Add `--json` for one
+versioned result on stdout.
+
+This command is not part of the published `0.1.0-rc.11` release. For that release,
+use the installed-package tutorial below. A package built from this checkout can
+run the same demo as `sevro demo` once its command is on `PATH`.
+
+Continue with [the initialized evaluation workflow](evaluation-workflow.md) to
+create response, coding or repository-skill assertions, prepare them, inspect
+progress and access the latest result without copying an evidence path.
+
 ## From an installed package
 
 Prepare a new directory:

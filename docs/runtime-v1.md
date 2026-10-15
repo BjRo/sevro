@@ -14,6 +14,17 @@ non-symlink files of at most 64 KiB.
 
 The [JSON schema](../schemas/runtime-v1.schema.json) has format
 `sevro.runtime.v1`. All properties except `format` are optional.
+Start with the smallest file:
+
+```json
+{ "format": "sevro.runtime.v1" }
+```
+
+Then add `environment.inherit: ["PATH"]` for installed tools. Follow the
+[runnable runtime recipes](recipes.md#add-host-tool-access-one-capability-at-a-time)
+to add Node, Python/UV, mise, goals and selected plugin hooks separately.
+The following composed example is for a workflow that already needs all these
+capabilities:
 
 ```json
 {

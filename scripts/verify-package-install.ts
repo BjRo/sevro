@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { checkReleaseDocumentation } from "./release-documentation";
+import { verifyPackageWorkflow } from "./documentation-workflow";
 
 const sourceRoot = resolve(import.meta.dir, "..");
 const { values } = parseArgs({
@@ -74,6 +75,7 @@ try {
     ".bin",
     process.platform === "win32" ? "sevro.cmd" : "sevro",
   );
+  await verifyPackageWorkflow(installedCommand, consumer);
   if (
     !existsSync(installedCommand) ||
     existsSync(join(installed, ".git")) ||

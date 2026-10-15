@@ -26,7 +26,19 @@ test("CLI emits one JSON result and uses the task exit category", async () => {
   expect(passed.code).toBe(0);
   expect(passed.result.task.verdict).toBe("passed");
   expect(passed.result.exitCode).toBe(0);
-  expect(passed.stderr).toBe("");
+  expect(passed.stderr).toStartWith("sevro: effective settings ");
+  expect(passed.stderr.trim().split("\n").slice(1)).toEqual([
+    "sevro: preparation started",
+    "sevro: preparation completed trial=1",
+    "sevro: candidate started trial=1",
+    "sevro: candidate completed trial=1",
+    "sevro: grading started trial=1",
+    "sevro: grading completed trial=1",
+    "sevro: evidence started trial=1",
+    "sevro: evidence completed trial=1",
+    "sevro: evidence started",
+    "sevro: evidence completed",
+  ]);
   expectUnknown(
     parseRunEvidence(
       await readFile(defined(passed.result.evidencePath), "utf8"),

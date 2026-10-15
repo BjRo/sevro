@@ -137,7 +137,9 @@ test("CLI reports when declared extension source changes during candidate execut
     proc.exited,
   ]);
   expect(code, stdout + stderr).toBe(3);
-  expect(stdout).toContain(diagnosticMessage);
+  expect(stderr).toContain(diagnosticMessage);
+  expect(stderr).not.toContain(sourceFile);
+  expect(stdout).not.toContain(diagnosticMessage);
   expect(stdout).not.toContain(sourceFile);
 });
 

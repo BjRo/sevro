@@ -132,7 +132,19 @@ export interface ResolvedCase {
   requiredEvidence: string[];
 }
 
+export interface EvaluationProgress {
+  stage: "preparation" | "candidate" | "grading" | "evidence";
+  status: "started" | "completed" | "skipped";
+  trial?: number;
+}
+
 export interface EvaluationOptions {
+  /** Optional best-effort observation; exceptions never change the evaluation. */
+  onProgress?: (event: EvaluationProgress) => void;
+  /** Redacted operator preview, retained for reproduction outside semantic identity. */
+  resolvedRunSettings?: Record<string, unknown>;
+  /** Additional non-secret assessment settings included in configuration identity. */
+  assessmentSettings?: Record<string, unknown>;
   runtimePolicy?: RuntimePolicy;
   projectRoot: string;
   resultsRoot: string;

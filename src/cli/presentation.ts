@@ -1,6 +1,8 @@
 import { EvaluationConfigurationError } from "../engine";
 import { InvocationError } from "./invocation";
 import { assertCliResult } from "../schema";
+import type { ReportData } from "../schema-types";
+import { displayMeasurements, displayTrialSummary } from "./summary";
 
 function failure(code: 64 | 70, message: string) {
   const result = {
@@ -21,31 +23,27 @@ function failure(code: 64 | 70, message: string) {
   return result;
 }
 
-export function display(value: unknown, json: boolean): void {
+export function display(
+  result: unknown,
+  json: boolean,
+  completion?: { resultFile: string; report: ReportData },
+): void {
+  assertCliResult(result);
+  if (result.diagnostic)
+    process.stderr.write(`sevro: ${result.diagnostic.message}\n`);
   if (json) {
-    process.stdout.write(`${JSON.stringify(value)}\n`);
+    process.stdout.write(`${JSON.stringify(result)}\n`);
     return;
   }
-  const result = value as {
-    execution: { status: string };
-    grading: { status: string };
-    task: { verdict: string };
-    evidencePath: string | null;
-    diagnostic?: { code: string; message: string };
-    cases: Array<{
-      caseId: string;
-      trials: Array<{
-        trial: number;
-        domainOutcomes: Array<{ id: string; status: string }>;
-      }>;
-    }>;
-  };
   process.stdout.write(
     `execution=${result.execution.status} grading=${result.grading.status} task=${result.task.verdict}\n`,
   );
+  displayTrialSummary(result);
   displayDomainOutcomes(result.cases);
-  if (result.diagnostic?.code === "sevro.grader.error")
-    process.stdout.write(`diagnostic=${result.diagnostic.message}\n`);
+  if (completion) {
+    displayMeasurements(completion.report);
+    process.stdout.write(`result=${completion.resultFile}\n`);
+  }
   if (result.evidencePath)
     process.stdout.write(`evidence=${result.evidencePath}\n`);
 }
@@ -55,13 +53,13 @@ function displayDomainOutcomes(
     caseId: string;
     trials: Array<{
       trial: number;
-      domainOutcomes: Array<{ id: string; status: string }>;
+      domainOutcomes?: Array<{ id: string; status: string }>;
     }>;
   }>,
 ): void {
   for (const selected of cases)
     for (const trial of selected.trials)
-      for (const outcome of trial.domainOutcomes)
+      for (const outcome of trial.domainOutcomes ?? [])
         process.stdout.write(
           `domain case=${selected.caseId} trial=${trial.trial} outcome=${outcome.id} status=${outcome.status}\n`,
         );
@@ -83,6 +81,11 @@ export function displayFailure(
   display(
     failure(code, error instanceof Error ? error.message : fallback),
     json,
+  );
+  process.stderr.write(
+    code === 64
+      ? "Correct the named option or input and retry. Run sevro run --help for examples and required options.\n"
+      : "Check the reported path and ensure --results-root and --run-state-root are writable directories, then retry.\n",
   );
   process.exitCode = code;
 }

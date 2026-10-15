@@ -51,6 +51,17 @@ jobs:
         run: bash scripts/setup-ci-linux.sh
       - name: Install deterministic native host prerequisites
         run: bun scripts/setup-ci-codex.ts
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.11.21"
+      - uses: jdx/mise-action@v3
+        with:
+          version: "2026.3.13"
+          install: false
+          # Isolated checks use setup-node's direct binary, not mutable mise shims.
+          add_shims_to_path: false
+      - name: Install tutorial's declared mise tool
+        run: mise install node@24.13.0
       - run: bun install --frozen-lockfile
       - name: Canonical TypeScript quality gate
         run: bun run check:typescript

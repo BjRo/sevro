@@ -153,7 +153,7 @@ test("CLI accepts an independent run-state root", async () => {
   );
   expect(active.status).toBe("complete");
   expect(active.artifactPath).toBe(defined(run.result.evidencePath));
-  const invalid = await invoke([...args, "--run-state-root", "relative"]);
+  const invalid = await invoke([...args, "--run-state-root", ""]);
   expect(invalid.code).toBe(64);
 });
 

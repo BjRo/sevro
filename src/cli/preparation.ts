@@ -40,7 +40,7 @@ function protectMappedSources(
 }
 
 export async function prepareRunInvocation(argv: string[]) {
-  const invocation = parseInvocation(argv);
+  const invocation = await parseInvocation(argv);
   warnDeprecatedRuntimeOptions(invocation);
   const preparationSources = await loadPreparationSources(invocation);
   protectMappedSources(invocation, preparationSources);
@@ -79,6 +79,7 @@ export async function prepareRunInvocation(argv: string[]) {
     host,
     semanticHost,
     advisoryHost,
+    agentConcurrencyLimit,
   };
 }
 

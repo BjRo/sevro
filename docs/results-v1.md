@@ -9,6 +9,17 @@ Each domain outcome also gets one human-readable line with its case, trial,
 outcome ID, and status. Domain outcomes remain independent of the task verdict
 and exit code.
 
+The checkout/candidate CLI also shows trial states, bounded failed/unavailable
+check details, measured candidate duration and known/unknown usage in human
+completion. Actual preparation/candidate/grading/evidence stage messages use
+stderr in both modes; they do not assert task success. Dry execution/grading are
+explicitly skipped. JSON stdout stays unchanged. The CLI saves `result.json`
+beside retained run evidence and atomically publishes `<results-root>/latest.json`
+for [report access](report-v1.md). These output files stay inside excluded storage
+and do not change evaluation identity. A failure to retain CLI/latest output is
+reported as an internal error after an otherwise successful run; an earlier
+nonzero run outcome keeps its precedence and its evidence reference.
+
 ## Separate states
 
 Each trial and aggregate result carries:
@@ -97,6 +108,17 @@ persistence error.
 
 [`identity-v1.md`](identity-v1.md) defines the canonical digest and each
 comparison dimension.
+
+Current CLI runs additionally retain the redacted effective-settings preview as
+optional `configuration.resolved` (`sevro.resolved-run-settings.v1`), including
+saved-setting selections and resolved operational paths. This snapshot excludes
+credentials, credential-option paths, private source-closure/mapping paths,
+private extension configuration and runtime
+environment values; it is outside `configuration.digest`. Assessment settings
+remain bound by the existing identity inputs and `configuration.redacted`.
+Historical evidence without this optional field remains valid; missing settings
+stay unknown. See [saved run settings](run-settings-v1.md) for precedence and
+privacy limits.
 
 The versioned machine-readable contracts are
 [`cli-result-v1.schema.json`](../schemas/cli-result-v1.schema.json) and

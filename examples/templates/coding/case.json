@@ -1,0 +1,15 @@
+{
+  "id": "coding-addition",
+  "prompt": "Fix add.sh so add computes integer addition. Preserve the add shell function interface.",
+  "fixture": { "files": { "add.sh": "add() { echo \"$(( $1 - $2 ))\"; }\n" } },
+  "checks": [
+    {
+      "id": "addition",
+      "grader": "sevro.shell",
+      "configuration": {
+        "run": ". ./add.sh; test \"$(add 2 3)\" = 5 && test \"$(add -2 -3)\" = -5 && test \"$(add 0 0)\" = 0"
+      }
+    }
+  ],
+  "requiredEvidence": []
+}

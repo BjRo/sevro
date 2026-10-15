@@ -59,6 +59,7 @@ export type RunEvidenceData = {
   configuration: {
     digest: RunEvidenceDataDigest;
     redacted: Record<string, unknown>;
+    resolved?: Record<string, unknown>;
   };
   runner: RunEvidenceDataRunner;
   project: {

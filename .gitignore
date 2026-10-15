@@ -3,6 +3,9 @@ node_modules/
 dist/
 *.tgz
 sevro-results/
+.sevro/
 sevro-result.json
 project/
 .guide-results/
+
+.sevro-recipes/

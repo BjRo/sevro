@@ -1,17 +1,18 @@
-import { parseArgs } from "node:util";
-import { isAbsolute } from "node:path";
+import { join, resolve } from "node:path";
+import { canonicalRuntimeRoot } from "../runtime/paths";
+import { PATH_OPTIONS, runArguments } from "./run-options";
+import { savedRunValues } from "./run-manifest";
 
 export class InvocationError extends Error {}
 
 function requiredOption(value: string | undefined, name: string): string {
-  if (!value) throw new InvocationError(`missing ${name}`);
+  if (!value)
+    throw new InvocationError(`missing ${name}; supply ${name} with a value`);
   return value;
 }
 
 function absoluteOption(value: string | undefined, name: string): string {
-  const path = requiredOption(value, name);
-  if (!isAbsolute(path)) throw new InvocationError(`${name} must be absolute`);
-  return path;
+  return requiredOption(value, name);
 }
 
 function optionalAbsolute(
@@ -30,72 +31,16 @@ function optionalDigest(value: string | undefined, name: string) {
 function conditionOption(value: string | undefined): "passive" | "enforced" {
   const condition = requiredOption(value, "--condition");
   if (condition !== "passive" && condition !== "enforced")
-    throw new InvocationError("invalid --condition");
+    throw new InvocationError("invalid --condition; use passive or enforced");
   return condition;
 }
 
-const RUN_OPTIONS = {
-  json: { type: "boolean" },
-  "retain-host-diagnostics": { type: "boolean" },
-  dry: { type: "boolean" },
-  "case-file": { type: "string" },
-  "case-id": { type: "string" },
-  "extension-command-file": { type: "string" },
-  "extension-source-file": { type: "string", multiple: true },
-  "extension-configuration-file": { type: "string" },
-  "extension-redacted-configuration-file": { type: "string" },
-  "task-verdict-policy": { type: "string" },
-  "replace-builtin-grader": { type: "string", multiple: true },
-  "case-source-root": { type: "string" },
-  "case-source-map-file": { type: "string" },
-  "adapter-module": { type: "string" },
-  "semantic-adapter-module": { type: "string" },
-  "semantic-host": { type: "string" },
-  "semantic-model": { type: "string" },
-  "semantic-effort": { type: "string" },
-  "advisory-adapter-module": { type: "string" },
-  "advisory-host": { type: "string" },
-  "advisory-model": { type: "string" },
-  "advisory-effort": { type: "string" },
-  "advisory-exclude": { type: "string", multiple: true },
-  host: { type: "string" },
-  "codex-bin": { type: "string" },
-  "codex-entrypoint": { type: "string" },
-  "codex-timeout-ms": { type: "string" },
-  "codex-auth-file": { type: "string" },
-  "claude-bin": { type: "string" },
-  "claude-credential-file": { type: "string" },
-  "claude-uv-cache-dir": { type: "string" },
-  "claude-project-settings": { type: "boolean" },
-  "toolchain-bin-dir": { type: "string" },
-  model: { type: "string" },
-  effort: { type: "string" },
-  "shell-isolation": { type: "boolean" },
-  "protected-root": { type: "string", multiple: true },
-  "project-root": { type: "string" },
-  "config-root": { type: "string" },
-  "runtime-config-file": { type: "string" },
-  "results-root": { type: "string" },
-  "run-state-root": { type: "string" },
-  "runner-build-digest": { type: "string" },
-  "runner-checkout-root": { type: "string" },
-  "project-digest": { type: "string" },
-  condition: { type: "string" },
-  trials: { type: "string" },
-  jobs: { type: "string", default: "3" },
-  threshold: { type: "string" },
-} as const;
-
 function cliArguments(argv: string[]) {
   try {
-    return parseArgs({
-      args: argv,
-      allowPositionals: true,
-      strict: true,
-      options: RUN_OPTIONS,
-    });
+    return runArguments(argv);
   } catch (cause) {
-    throw new InvocationError("invalid CLI arguments", { cause });
+    const detail = cause instanceof Error ? `: ${cause.message}` : "";
+    throw new InvocationError(`invalid CLI arguments${detail}`, { cause });
   }
 }
 
@@ -113,13 +58,15 @@ function trialParameters(values: Values) {
     passThreshold <= 0 ||
     passThreshold > 1
   )
-    throw new InvocationError("invalid --threshold");
+    throw new InvocationError(
+      "invalid --threshold; supply a number greater than 0 and at most 1",
+    );
   return { condition, trialCount, jobs, passThreshold };
 }
 
 function positiveInteger(value: number, option: string): void {
   if (!Number.isSafeInteger(value) || value < 1)
-    throw new InvocationError(`invalid ${option}`);
+    throw new InvocationError(`invalid ${option}; supply a positive integer`);
 }
 
 function hostRoutes(values: Values) {
@@ -148,15 +95,15 @@ const HOST_COMPATIBILITY: CompatibilityRule[] = [
   },
   {
     invalid: (v, r) => v.host && !r.builtinHost,
-    message: "unsupported --host",
+    message: "unsupported --host; use codex or claude",
   },
   {
     invalid: (v, r) => v["semantic-host"] && !r.semanticCodex,
-    message: "unsupported --semantic-host",
+    message: "unsupported --semantic-host; use codex",
   },
   {
     invalid: (v, r) => v["advisory-host"] && !r.advisoryCodex,
-    message: "unsupported --advisory-host",
+    message: "unsupported --advisory-host; use codex",
   },
   {
     invalid: (v, r) => r.semanticCodex && v["semantic-adapter-module"],
@@ -284,7 +231,7 @@ function hasExtensionArguments(values: Values): boolean {
   return (
     [
       values["case-id"],
-      values["extension-source-file"],
+      values["extension-source-file"]?.length,
       values["extension-configuration-file"],
       values["extension-redacted-configuration-file"],
     ].some(Boolean) ||
@@ -297,8 +244,6 @@ function extensionSources(values: Values): string[] {
   const sources = values["extension-source-file"];
   if (!sources?.length)
     throw new InvocationError("missing --extension-source-file");
-  if (sources.some((path) => !isAbsolute(path)))
-    throw new InvocationError("--extension-source-file must be absolute");
   return sources;
 }
 
@@ -338,6 +283,7 @@ function privateRootDeclarations(
     values["claude-credential-file"],
     values["codex-auth-file"],
     values["runtime-config-file"],
+    values["run-manifest-file"],
     values["case-file"],
     values["extension-command-file"],
     ...(values["extension-source-file"] ?? []),
@@ -481,6 +427,8 @@ function invocationInputs(
   } = context;
   return {
     json: values.json ?? false,
+    runManifestFile: values["run-manifest-file"],
+    protectedRoots: context.protectedRoots,
     deprecatedRuntimeOptions: (
       ["toolchain-bin-dir", "claude-uv-cache-dir"] as const
     ).filter((name) => values[name] !== undefined),
@@ -561,8 +509,6 @@ function shellIsolationOptions(
 function invocationContext(values: Values) {
   const trials = trialParameters(values);
   const protectedRoots = values["protected-root"] ?? [];
-  if (protectedRoots.some((path) => !isAbsolute(path)))
-    throw new InvocationError("--protected-root must be absolute");
   const toolchainBinDir = optionalAbsolute(
     values["toolchain-bin-dir"],
     "--toolchain-bin-dir",
@@ -587,6 +533,7 @@ function invocationContext(values: Values) {
   return {
     routes,
     roots,
+    protectedRoots,
     privateRoots,
     toolchainBinDir,
     codexCommon,
@@ -596,11 +543,84 @@ function invocationContext(values: Values) {
 }
 
 /** Decode CLI flags in their documented validation order. */
-export function parseInvocation(argv: string[]) {
+export async function parseInvocation(argv: string[]) {
   const parsed = cliArguments(argv);
   if (parsed.positionals.length !== 1 || parsed.positionals[0] !== "run")
     throw new InvocationError("expected the run command");
+  parsed.values = await savedRunValues(parsed.values);
+  applyRunDefaults(parsed.values);
+  validateHostCompatibility(
+    parsed.values,
+    hostRoutes(parsed.values),
+    parsed.values["protected-root"] ?? [],
+  );
+  applyRootDefaults(parsed.values);
+  resolveNativeBinaries(parsed.values);
+  await canonicalizePaths(parsed.values);
   return invocationInputs(parsed.values, invocationContext(parsed.values));
 }
 
-export type Invocation = ReturnType<typeof parseInvocation>;
+function resolveNativeBinaries(values: Values): void {
+  const routes = hostRoutes(values);
+  if ([routes.codex, routes.semanticCodex, routes.advisoryCodex].some(Boolean))
+    values["codex-bin"] ??= nativeBinary("codex");
+  if (routes.claude) values["claude-bin"] ??= nativeBinary("claude");
+}
+
+function nativeBinary(host: "codex" | "claude"): string {
+  const binary = Bun.which(host);
+  if (!binary)
+    throw new InvocationError(
+      `selected ${host} executable was not found on PATH; install ${host} or supply --${host}-bin <path>`,
+    );
+  return binary;
+}
+
+export type Invocation = Awaited<ReturnType<typeof parseInvocation>>;
+
+function applyRunDefaults(values: Values): void {
+  values.condition ??= "passive";
+  values.trials ??= "1";
+  values.jobs ??= "3";
+  values.threshold ??= "1";
+}
+
+function applyRootDefaults(values: Values): void {
+  values["project-root"] ??= process.cwd();
+  values["results-root"] ??= join(
+    resolve(values["project-root"]),
+    ".sevro",
+    "results",
+  );
+}
+
+async function canonicalOption(path: string, option: string): Promise<string> {
+  try {
+    return await canonicalRuntimeRoot(resolve(path));
+  } catch (cause) {
+    throw new InvocationError(
+      `--${option} cannot be resolved at ${path}; supply a usable file or directory path`,
+      { cause },
+    );
+  }
+}
+
+async function canonicalizePaths(values: Values): Promise<void> {
+  for (const name of PATH_OPTIONS) {
+    const value = values[name];
+    if (value !== undefined)
+      values[name] = await canonicalOption(
+        requiredOption(value, `--${name}`),
+        name,
+      );
+  }
+  for (const name of ["extension-source-file", "protected-root"] as const) {
+    const paths = values[name];
+    if (paths)
+      values[name] = await Promise.all(
+        paths.map((path) =>
+          canonicalOption(requiredOption(path, `--${name}`), name),
+        ),
+      );
+  }
+}

@@ -4,10 +4,11 @@ import type {
   RunEvidenceData,
 } from "./schema-types";
 import { readFile } from "node:fs/promises";
-import { isAbsolute } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { canonicalJson } from "./identity";
 import { assertCliResult, assertReport, assertRunEvidence } from "./schema";
+import { canonicalRuntimeRoot } from "./runtime/paths";
 
 type CliResult = CliResultData;
 type Evidence = RunEvidenceData;
@@ -301,7 +302,7 @@ function caseOutcomeLine(row: ReportRow): string {
 export async function reportCommand(argv: string[]): Promise<number> {
   try {
     const values = reportInvocation(argv);
-    const report = await createReport(values["result-file"] ?? []);
+    const report = await createReport(await reportPaths(values));
     process.stdout.write(
       values.json ? `${JSON.stringify(report)}\n` : renderReport(report),
     );
@@ -320,11 +321,45 @@ function reportInvocation(argv: string[]) {
     options: {
       json: { type: "boolean" },
       "result-file": { type: "string", multiple: true },
+      latest: { type: "boolean" },
+      "results-root": { type: "string" },
     },
   });
   if (positionals.length !== 1 || positionals[0] !== "report")
     throw new Error("expected the report command");
   return values;
+}
+
+async function reportPaths(
+  values: ReturnType<typeof reportInvocation>,
+): Promise<string[]> {
+  validateReportSource(values);
+  const paths = selectedReportPaths(values);
+  if (paths.some((path) => !path.trim()))
+    throw new Error("--result-file must name a readable retained result file");
+  return Promise.all(paths.map((path) => canonicalRuntimeRoot(resolve(path))));
+}
+
+function validateReportSource(
+  values: ReturnType<typeof reportInvocation>,
+): void {
+  if (values.latest && values["result-file"] !== undefined)
+    throw new Error("--latest and --result-file are exclusive");
+  if (values["results-root"] !== undefined && !values.latest)
+    throw new Error("--results-root requires --latest");
+}
+
+function selectedReportPaths(
+  values: ReturnType<typeof reportInvocation>,
+): string[] {
+  return values.latest
+    ? [
+        join(
+          values["results-root"] ?? join(process.cwd(), ".sevro", "results"),
+          "latest.json",
+        ),
+      ]
+    : (values["result-file"] ?? []);
 }
 function reportErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "invalid report input";

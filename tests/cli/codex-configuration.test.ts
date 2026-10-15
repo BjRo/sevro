@@ -10,6 +10,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  realpath,
   rm,
   symlink,
   writeFile,
@@ -98,7 +99,10 @@ printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_token
     await readFile(defined(run.result.evidencePath), "utf8"),
   );
   expectUnknown(evidence.configuration.redacted.hostConfiguration).toEqual({
-    candidate: { "sevro.codex.agent-concurrency-limit": 7 },
+    candidate: {
+      "sevro.codex.agent-concurrency-limit": 7,
+      "sevro.host.executable": await realpath(binary),
+    },
   });
   expect(JSON.stringify(evidence)).not.toContain("unrelated-config-marker");
   await writeFile(
@@ -113,7 +117,10 @@ printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_token
   expectUnknown(
     changedEvidence.configuration.redacted.hostConfiguration,
   ).toEqual({
-    candidate: { "sevro.codex.agent-concurrency-limit": 9 },
+    candidate: {
+      "sevro.codex.agent-concurrency-limit": 9,
+      "sevro.host.executable": await realpath(binary),
+    },
   });
   await writeFile(
     configFile,
@@ -247,7 +254,10 @@ test("CLI distinguishes absent Codex configuration from a dangling directory lin
     );
     expectUnknown(
       record(evidence.configuration.redacted.hostConfiguration).candidate,
-    ).toEqual({ "sevro.codex.agent-concurrency-limit": null });
+    ).toEqual({
+      "sevro.codex.agent-concurrency-limit": null,
+      "sevro.host.executable": await realpath(process.execPath),
+    });
   }
   await rm(directory, { recursive: true });
   await symlink(join(projectRoot, "missing-directory"), directory);
@@ -333,9 +343,18 @@ test("CLI retains Codex defaults and the configured limit for every role", async
     );
     const limit = source?.includes("= 8") ? 8 : null;
     expectUnknown(evidence.configuration.redacted.hostConfiguration).toEqual({
-      candidate: { "sevro.codex.agent-concurrency-limit": limit },
-      semantic: { "sevro.codex.agent-concurrency-limit": limit },
-      advisory: { "sevro.codex.agent-concurrency-limit": limit },
+      candidate: {
+        "sevro.codex.agent-concurrency-limit": limit,
+        "sevro.host.executable": await realpath(process.execPath),
+      },
+      semantic: {
+        "sevro.codex.agent-concurrency-limit": limit,
+        "sevro.host.executable": await realpath(process.execPath),
+      },
+      advisory: {
+        "sevro.codex.agent-concurrency-limit": limit,
+        "sevro.host.executable": await realpath(process.execPath),
+      },
     });
   }
 });

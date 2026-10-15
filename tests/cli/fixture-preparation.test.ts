@@ -3,7 +3,7 @@ import { defined, fixtureCase, parseRunEvidence } from "../fixtures/assertions";
 import { afterEach, test, expect } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   isolatedNativeHost,
@@ -539,7 +539,8 @@ test("CLI runs shell checks only with explicit isolation roots", async () => {
     ...args,
     "--shell-isolation",
     "--protected-root",
-    "relative",
+    relative(process.cwd(), join(caseFile, "..")),
   ]);
-  expect(relativeRoot.code).toBe(64);
+  expect(relativeRoot.code, relativeRoot.stderr).toBe(0);
+  expect(relativeRoot.result.task.verdict).toBe("passed");
 });
