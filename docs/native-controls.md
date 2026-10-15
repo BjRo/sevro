@@ -24,8 +24,12 @@ The original direct-call list and total `submittedExecCalls` stay unchanged.
 
 Sevro statically inspects bounded straight-line Code Mode
 programs without executing them. It accepts literal tool calls, constant result
-bindings, direct `text`/`store` output, and literal `Promise.all`/`allSettled`
-batches with result-only `forEach(text)` or `for ... of` output. It requires one
+bindings, template interpolation and `+` composition of inspected expressions,
+direct `text`/`store` output, and literal `Promise.all`/`allSettled` batches.
+Batch results may use flat constant array bindings or result-only
+`forEach(text)` or `for ... of` output. Destructuring defaults, rest elements,
+holes, nested bindings, duplicate names, and shadowed globals remain unsupported.
+It requires one
 unique, later native completion for the same call ID with an intact successful
 script envelope. Tool argument strings, comments and printed tool-looking text
 do not become call labels. A rejected tool request returned by a completed

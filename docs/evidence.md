@@ -8,6 +8,7 @@ Keep their observations intact:
 - [Claude continuation](claude-continuation-validation.md)
 - [Concurrency](concurrency-validation.md)
 - [Code Mode control observations](evidence/code-mode-controls-71.md)
+- [Code Mode template and batch programs](evidence/code-mode-programs-85.md)
 - [Candidate Codex configuration and user-skill state](evidence/codex-state-73/README.md)
 - [Configuration roots](configuration-root-validation.md)
 - [Fixture cleanup](fixture-cleanup-validation.md)

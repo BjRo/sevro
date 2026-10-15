@@ -19,6 +19,183 @@ import {
 } from "../src/hosts/codex-native-calls";
 import { codexNativeControls } from "../src/hosts/native-controls";
 const roots: string[] = [];
+test("Code Mode recovers retained direct ordinal 45 template commands", async () => {
+  const input = await readFile(
+    join(import.meta.dir, "fixtures/code-mode-85/direct-45.txt"),
+    "utf8",
+  );
+  const portable = await submittedProgram(input, 45);
+  expect(portable.completeness).toBe("complete");
+  expectUnknown(portable.data).toMatchObject({
+    acceptedAgentCount: 0,
+    submittedExecCalls: 1,
+    execCalls: [
+      {
+        ordinal: 45,
+        completeness: "complete",
+        calls: [
+          { index: 0, namespace: "functions", name: "exec_command" },
+          { index: 1, namespace: "functions", name: "exec_command" },
+          { index: 2, namespace: "functions", name: "exec_command" },
+        ],
+      },
+    ],
+  });
+  expect(JSON.stringify(portable)).not.toContain("/private/");
+});
+
+test.each([
+  { ordinal: 30, count: 3 },
+  { ordinal: 68, count: 2 },
+])(
+  "Code Mode recovers retained coupled ordinal $ordinal batch results",
+  async ({ ordinal, count }) => {
+    const input = await readFile(
+      join(import.meta.dir, `fixtures/code-mode-85/coupled-${ordinal}.txt`),
+      "utf8",
+    );
+    const portable = await submittedProgram(input, ordinal);
+    expect(portable.completeness).toBe("complete");
+    expectUnknown(portable.data).toMatchObject({
+      acceptedAgentCount: 0,
+      execCalls: [
+        {
+          ordinal,
+          completeness: "complete",
+          calls: Array.from({ length: count }, (_, index) => ({
+            index,
+            namespace: "functions",
+            name: "exec_command",
+          })),
+        },
+      ],
+    });
+  },
+);
+
+test.each([69, 77])(
+  "Code Mode recovers retained direct ordinal %s patch and template output",
+  async (ordinal) => {
+    const input = await readFile(
+      join(import.meta.dir, `fixtures/code-mode-85/direct-${ordinal}.txt`),
+      "utf8",
+    );
+    const portable = await submittedProgram(input, ordinal);
+    expect(portable.completeness).toBe("complete");
+    expectUnknown(portable.data).toMatchObject({
+      acceptedAgentCount: 0,
+      execCalls: [
+        {
+          ordinal,
+          completeness: "complete",
+          calls: [
+            { index: 0, namespace: "other", name: "apply_patch" },
+            { index: 1, namespace: "functions", name: "exec_command" },
+          ],
+        },
+      ],
+    });
+  },
+);
+
+test("Code Mode retains submitted spawns with template arguments and batch composition", async () => {
+  const portable = await submittedProgram(
+    'const [a,b]=await Promise.allSettled([tools.spawn_agent({message:`private task`}),tools.exec_command({cmd:"private command"})]); text(`${a.status}`+b.status);',
+    7,
+  );
+  expect(portable.completeness).toBe("complete");
+  expectUnknown(portable.data).toMatchObject({
+    acceptedAgentCount: 0,
+    execCalls: [
+      {
+        ordinal: 7,
+        completeness: "complete",
+        calls: [
+          { index: 0, namespace: "collaboration", name: "spawn_agent" },
+          { index: 1, namespace: "functions", name: "exec_command" },
+        ],
+      },
+    ],
+  });
+});
+
+test.each([
+  'text(`result=${await tools.spawn_agent({message:"private task"})}`); text(await tools.exec_command({cmd:"private command"}));',
+  'text("result="+await tools.spawn_agent({message:"private task"})); text(await tools.exec_command({cmd:"private command"}));',
+])("Code Mode traverses tool calls in composed output: %s", async (input) => {
+  const portable = await submittedProgram(input, 3);
+  expect(portable.completeness).toBe("complete");
+  expectUnknown(portable.data).toMatchObject({
+    acceptedAgentCount: 0,
+    execCalls: [
+      {
+        ordinal: 3,
+        completeness: "complete",
+        calls: [
+          { index: 0, namespace: "collaboration", name: "spawn_agent" },
+          { index: 1, namespace: "functions", name: "exec_command" },
+        ],
+      },
+    ],
+  });
+});
+
+test.each([
+  "const [tools]=await Promise.all([]);",
+  "const [text]=await Promise.all([]);",
+  "const [Promise]=await Promise.all([]);",
+  "const [a,a]=await Promise.all([]);",
+  "const a=1; const [a]=await Promise.all([]);",
+  "const [a=tools.spawn_agent({})]=await Promise.all([]);",
+  "const [...a]=await Promise.all([]);",
+  "const [,a]=await Promise.all([]);",
+  "const [[a]]=await Promise.all([]);",
+  "const {a}=await Promise.all([]);",
+  "const [a]=[tools.exec_command({})];",
+  "const [a]=Promise.all([tools.exec_command({})]);",
+  "text(`${tools.spawn_agent}`);",
+  'text(`${load("tool")}`);',
+  "text(String.raw`tools.spawn_agent({})`);",
+  "const a=1; text(a || tools.spawn_agent({}));",
+  "const a=1; text(a-tools.spawn_agent({}));",
+  "const a=1; text(a+=tools.spawn_agent({}));",
+  "const a=1; text(a+missing);",
+])(
+  "Code Mode keeps ambiguous binding or composition partial: %s",
+  async (input) => {
+    const portable = await submittedProgram(input, 0);
+    expect(portable.completeness).toBe("partial");
+    expect(portable.data.acceptedAgentCount).toBeNull();
+  },
+);
+
+async function submittedProgram(input: string, ordinal: number) {
+  const root = await home();
+  const padding = Array.from({ length: ordinal }, () => ({
+    type: "event_msg",
+  }));
+  await session(
+    root,
+    lines([
+      ...padding,
+      { type: "custom_tool_call", name: "exec", call_id: "retained", input },
+      {
+        type: "custom_tool_call_output",
+        call_id: "retained",
+        output: [
+          {
+            type: "text",
+            text: "Script completed\nWall time 0.1 seconds\nOutput:\n",
+          },
+        ],
+      },
+    ]),
+  );
+  return codexNativeControls(
+    await codexNativeCallObservation(root, "thread-1"),
+  );
+}
+
 test.each([
   {
     label: "foreign namespace",

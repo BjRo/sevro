@@ -1,0 +1,8 @@
+const base="/private/var/folders/_b/yvzxqsys46l91yf5dtlk7q9w0000gn/T/sevro-native-private/codex-i9XPzK/codex-home/plugins/cache/darrow-eval/darrow-adaptive-goal/0.26.6/backend/scripts/run_locked.py";
+const repo="/private/var/folders/_b/yvzxqsys46l91yf5dtlk7q9w0000gn/T/sevro-workspaces-private/case-iGn8ms";
+const route=await tools.exec_command({cmd:`uv run --quiet --no-project "${base}" adaptive-goal-preflight route --repo "${repo}" --host codex --profile routine`,yield_time_ms:30000,max_output_tokens:1000});
+text(route.output)
+const placement=await tools.exec_command({cmd:`uv run --quiet --no-project "${base}" adaptive-goal-preflight placement --repo "${repo}" --host codex --selected-route 'harness|openai|gpt-6-luna|medium'`,yield_time_ms:30000,max_output_tokens:1000});
+text(placement.output)
+const files=await tools.exec_command({cmd:"cat src/range.js && cat test/range.test.js && cat package.json",yield_time_ms:10000,max_output_tokens:3000});
+text(files.output)

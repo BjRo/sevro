@@ -1,0 +1,9 @@
+const base="/private/var/folders/_b/yvzxqsys46l91yf5dtlk7q9w0000gn/T/sevro-native-private/codex-HxSyy9/codex-home/plugins/cache/darrow-eval/darrow-adaptive-goal/0.26.6/backend/scripts/run_locked.py";
+const cmd1=`uv run --quiet --no-project '${base}' adaptive-goal-preflight route --repo '/private/var/folders/_b/yvzxqsys46l91yf5dtlk7q9w0000gn/T/sevro-workspaces-private/case-R3LxP7' --host codex --profile routine`;
+const cmd2=`uv run --quiet --no-project '${base}' adaptive-goal-preflight placement --repo '/private/var/folders/_b/yvzxqsys46l91yf5dtlk7q9w0000gn/T/sevro-workspaces-private/case-R3LxP7' --host codex --selected-route 'codex|openai|gpt-6-luna|medium'`;
+const [a,b,c]=await Promise.all([
+ tools.exec_command({cmd:cmd1,workdir:"/private/var/folders/_b/yvzxqsys46l91yf5dtlk7q9w0000gn/T/sevro-workspaces-private/case-R3LxP7",yield_time_ms:30000,max_output_tokens:1500}),
+ tools.exec_command({cmd:cmd2,workdir:"/private/var/folders/_b/yvzxqsys46l91yf5dtlk7q9w0000gn/T/sevro-workspaces-private/case-R3LxP7",yield_time_ms:30000,max_output_tokens:1500}),
+ tools.exec_command({cmd:"cat '/private/var/folders/_b/yvzxqsys46l91yf5dtlk7q9w0000gn/T/sevro-native-private/codex-HxSyy9/codex-home/plugins/cache/darrow-eval/darrow-adaptive-goal/0.26.6/skills/adaptive-goal/references/workflows/change-feature.md' && rg -n 'formatPrice|price' src test && cat package.json && cat test.sh",workdir:"/private/var/folders/_b/yvzxqsys46l91yf5dtlk7q9w0000gn/T/sevro-workspaces-private/case-R3LxP7",yield_time_ms:10000,max_output_tokens:5000})
+]);
+text(a.output+"\n"+b.output+"\n"+c.output);

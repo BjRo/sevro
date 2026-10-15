@@ -92,6 +92,12 @@ class Submission {
     switch (true) {
       case literal(node):
         return true;
+      case ts.isTemplateExpression(node):
+        return node.templateSpans.every((span) =>
+          this.expression(span.expression),
+        );
+      case ts.isBinaryExpression(node):
+        return this.composition(node);
       case ts.isAwaitExpression(node):
         return this.expression(node.expression);
       case ts.isObjectLiteralExpression(node):
@@ -113,6 +119,13 @@ class Submission {
     if (!ts.isPropertyAssignment(node) || ts.isComputedPropertyName(node.name))
       return false;
     return this.expression(node.initializer);
+  }
+  private composition(node: ts.BinaryExpression): boolean {
+    return (
+      node.operatorToken.kind === typescript().SyntaxKind.PlusToken &&
+      this.expression(node.left) &&
+      this.expression(node.right)
+    );
   }
   private call(node: ts.CallExpression): boolean {
     if (this.outputEach(node)) return true;
@@ -153,12 +166,47 @@ class Submission {
     );
   }
   private declaration(node: ts.VariableDeclaration): boolean {
-    const name = this.declaredName(node.name);
-    if (!name || !node.initializer) return false;
+    if (!node.initializer) return false;
+    const names = this.bindingNames(node.name, node.initializer);
+    if (!names) return false;
     if (!this.expression(node.initializer)) return false;
-    this.locals.add(name);
-    if (collectionExpression(node.initializer)) this.collections.add(name);
+    names.forEach((name) => this.locals.add(name));
+    this.retainCollection(node.name, node.initializer, names);
     return true;
+  }
+  private retainCollection(
+    name: ts.BindingName,
+    initializer: ts.Expression,
+    names: string[],
+  ): void {
+    if (localName(name) && collectionExpression(initializer))
+      names.forEach((name) => this.collections.add(name));
+  }
+  private bindingNames(
+    node: ts.BindingName,
+    initializer: ts.Expression,
+  ): string[] | undefined {
+    const ts = typescript();
+    if (ts.isIdentifier(node)) {
+      const name = this.declaredName(node);
+      return name ? [name] : undefined;
+    }
+    if (!ts.isArrayBindingPattern(node) || !collectionExpression(initializer))
+      return undefined;
+    return this.batchNames(node);
+  }
+  private batchNames(node: ts.ArrayBindingPattern): string[] | undefined {
+    const names = node.elements.map((element) => this.batchBinding(element));
+    if (!names.every((name): name is string => name !== undefined))
+      return undefined;
+    return new Set(names).size === names.length ? names : undefined;
+  }
+  private batchBinding(node: ts.ArrayBindingElement): string | undefined {
+    const ts = typescript();
+    if (!ts.isBindingElement(node)) return undefined;
+    if (node.dotDotDotToken || node.initializer || node.propertyName)
+      return undefined;
+    return this.declaredName(node.name);
   }
   private declaredName(node: ts.BindingName): string | undefined {
     const name = localName(node);
