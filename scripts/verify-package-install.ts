@@ -75,7 +75,6 @@ try {
     ".bin",
     process.platform === "win32" ? "sevro.cmd" : "sevro",
   );
-  await verifyPackageWorkflow(installedCommand, consumer);
   if (
     !existsSync(installedCommand) ||
     existsSync(join(installed, ".git")) ||
@@ -98,6 +97,7 @@ try {
     await checkReleaseDocumentation(installed);
   if (installedDocumentationErrors.length)
     throw new Error(installedDocumentationErrors.join("\n"));
+  await verifyPackageWorkflow(installedCommand, consumer);
   async function installedRun(caseName: string) {
     const output = await run(
       [

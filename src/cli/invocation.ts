@@ -598,8 +598,9 @@ async function canonicalOption(path: string, option: string): Promise<string> {
   try {
     return await canonicalRuntimeRoot(resolve(path));
   } catch (cause) {
+    const error = cause as NodeJS.ErrnoException;
     throw new InvocationError(
-      `--${option} cannot be resolved at ${path}; supply a usable file or directory path`,
+      `--${option} cannot be resolved at ${path}: filesystem ${error.syscall ?? "realpath"} failed (${error.code ?? "unknown"}); supply a usable file or directory path`,
       { cause },
     );
   }
