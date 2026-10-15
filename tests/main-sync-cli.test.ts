@@ -5,6 +5,7 @@ import {
   parseCliResult,
   parseRunEvidence,
   record,
+  stringMatching,
 } from "./fixtures/assertions";
 import { afterEach, test, expect } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -115,7 +116,8 @@ test("public CLI selects the native Codex execution timeout", async () => {
       id: "sevro.host.native-goal",
       completeness: "partial",
       data: objectContaining({
-        failure: "App-server evaluation time bound reached awaiting initialize",
+        // The 1 ms bound can expire during any startup request.
+        failure: stringMatching(/^App-server evaluation time bound reached/),
       }),
     }),
   );

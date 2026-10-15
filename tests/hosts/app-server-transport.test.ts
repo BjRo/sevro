@@ -339,7 +339,6 @@ test("app-server startup waits for the configured bound and names the stalled re
 
 test("app-server time bound during an unfinished turn names no pending request", async () => {
   const options = await serverOptions("stalled-turn");
-  options.request.control = { appServerTimeoutMs: 500 };
   const result = await runCodexAppServer(options);
   expect(result.code).toBe(1);
   expect(result.evidence.failure).toBe(
