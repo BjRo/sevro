@@ -11,13 +11,13 @@ import { join } from "node:path";
 import {
   materializeGeneratedFixture,
   prepareGeneratedFixture,
-} from "../src/generated-fixture";
+} from "../src/fixtures/generated";
 import {
   runEvaluation,
   type EvaluationOptions,
   type HostAdapter,
 } from "../src/engine";
-import { fixtureGit } from "./quality-fixtures/fixture-preparation-tools";
+import { fixtureGit } from "./fixtures/filesystem";
 import { gitHeadRevision, gitHeadState } from "../src/graders/git-head";
 const roots: string[] = [];
 const isolatedNativeHost =

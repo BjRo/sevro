@@ -17,7 +17,7 @@ import {
   prepareArtifacts,
   prepareInlineArtifacts,
   safePreparationTarget,
-} from "../src/preparation";
+} from "../src/fixtures/preparation";
 const content = Buffer.from("prepared data\n");
 const artifact = {
   id: "generated-file",

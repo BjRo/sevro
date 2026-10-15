@@ -1,5 +1,5 @@
-import type { HostResult } from "./evaluation-types";
-import type { RuntimeRole } from "./runtime-state";
+import type { HostResult } from "./evaluation/types";
+import type { RuntimeRole } from "./runtime/state";
 import {
   diagnosticSecrets,
   redactDiagnosticText,

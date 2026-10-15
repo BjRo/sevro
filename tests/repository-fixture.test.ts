@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { runEvaluation, type HostAdapter } from "../src/engine";
-import { prepareRepositoryFixture } from "../src/repository-fixture";
+import { prepareRepositoryFixture } from "../src/fixtures/repository";
 const roots: string[] = [];
 const digest = "a".repeat(64);
 afterEach(async () => {

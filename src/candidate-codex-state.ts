@@ -2,8 +2,8 @@ import { lstat, realpath, rm } from "node:fs/promises";
 import { basename, dirname, join, relative } from "node:path";
 import { userInfo } from "node:os";
 import { nativeStatePath } from "./native-transcript-state";
-import { clearFixtureContents } from "./fixture-cleanup";
-import type { RuntimePolicy } from "./runtime-config";
+import { clearFixtureContents } from "./fixtures/cleanup";
+import type { RuntimePolicy } from "./runtime/config";
 
 interface CodexPaths {
   codexHome: string;

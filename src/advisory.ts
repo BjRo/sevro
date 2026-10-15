@@ -7,14 +7,14 @@ const DIMENSIONS = [
   "scopeDiscipline",
 ] as const;
 
-export interface AdvisoryAssessment {
+export type AdvisoryAssessment = {
   verdict: "pass" | "fail";
   overallScore: number;
   dimensions: Record<(typeof DIMENSIONS)[number], number>;
   strengths: string[];
   weaknesses: string[];
   summary: string;
-}
+};
 
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value))

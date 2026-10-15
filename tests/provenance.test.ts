@@ -19,7 +19,7 @@ import {
   projectProvenance,
   runnerProvenance,
 } from "../src/provenance";
-import { fixtureGit } from "./quality-fixtures/fixture-preparation-tools";
+import { fixtureGit } from "./fixtures/filesystem";
 const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(

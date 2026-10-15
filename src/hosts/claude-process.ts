@@ -1,9 +1,12 @@
 import {
   awaitHostProcess,
-  boundedProcessText,
   MAX_EVENT_BYTES,
   HostProcessInterruption,
 } from "./process-lifecycle";
+import {
+  captureBoundedText,
+  terminateOwnedProcessGroup,
+} from "../process-lifecycle";
 import {
   HostProcessDiagnostics,
   type HostDiagnostics,
@@ -12,9 +15,12 @@ import {
 const MAX_STDERR_BYTES = 64 * 1024;
 
 function stop(proc: Bun.Subprocess): void {
+  if (process.platform !== "win32") {
+    terminateOwnedProcessGroup(proc, { fallbackError: "propagate" });
+    return;
+  }
   try {
-    if (process.platform !== "win32") process.kill(-proc.pid, "SIGKILL");
-    else proc.kill("SIGKILL");
+    proc.kill("SIGKILL");
   } catch {
     proc.kill("SIGKILL");
   }
@@ -56,22 +62,22 @@ function claudeCompletion(
   proc: ReturnType<typeof spawnClaudeProcess>,
   capture: HostProcessDiagnostics,
 ) {
-  const stdout = boundedProcessText(
-    proc.stdout,
-    MAX_EVENT_BYTES,
-    "Claude process output exceeds its limit",
-    (bytes) => {
+  const stdout = captureBoundedText(proc.stdout, {
+    limit: MAX_EVENT_BYTES,
+    overflow: "reject",
+    exceeded: () => new Error("Claude process output exceeds its limit"),
+    observe: (bytes) => {
       capture.stdout.add(bytes);
     },
-  );
-  const stderr = boundedProcessText(
-    proc.stderr,
-    MAX_STDERR_BYTES,
-    "Claude process output exceeds its limit",
-    (bytes) => {
+  });
+  const stderr = captureBoundedText(proc.stderr, {
+    limit: MAX_STDERR_BYTES,
+    overflow: "reject",
+    exceeded: () => new Error("Claude process output exceeds its limit"),
+    observe: (bytes) => {
       capture.stderr.add(bytes);
     },
-  );
+  });
   const completed = Promise.all([stdout, stderr, proc.exited]).then(
     ([out, err, code]) => ({ out, err, code }),
   );

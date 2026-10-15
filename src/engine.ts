@@ -1,14 +1,17 @@
-export { EvaluationConfigurationError } from "./evaluation-types";
+export {
+  EvaluationConfigurationError,
+  HostExecutionFailure,
+} from "./evaluation/types";
 export type {
   HostResult,
   HostAdapter,
   ResolvedCase,
   EvaluationOptions,
   CliResult,
-} from "./evaluation-types";
-export { runEvaluation } from "./evaluation-run";
-export { loadRuntimeConfiguration } from "./runtime-config";
-export type { RuntimeConfiguration, RuntimePolicy } from "./runtime-config";
+} from "./evaluation/types";
+export { runEvaluation } from "./evaluation/run";
+export { loadRuntimeConfiguration } from "./runtime/config";
+export type { RuntimeConfiguration, RuntimePolicy } from "./runtime/config";
 export type {
   RuntimeArtifactDirectory,
   CandidateArtifactRoots,

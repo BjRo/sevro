@@ -1,79 +1,60 @@
-/** Structural contracts for data validated by the versioned JSON schemas. */
-export type CliResultData = {
+import type { AdvisoryAssessment } from "./advisory";
+import type {
+  ArtifactReference,
+  Assessment,
+  CheckOutcome,
+  Diagnostic,
+  DomainOutcome,
+  EvidenceRoute,
+  ExecutionStatus,
+  ExitCode,
+  GradingStatus,
+  MetricEvidence,
+  ObservationCompleteness,
+  ObservationEvidence,
+  OutcomeStatus,
+  RawResultReference,
+  TaskVerdict,
+  UsageEvidence,
+} from "./contract-types";
+import type { IdentityDimensions } from "./identity";
+import type { InstrumentationRequest } from "./instrumentation";
+
+/** Wire assessments additionally allow optional serialized error codes. */
+export type WireAssessment = {
+  execution: Assessment["execution"] & { errorCode?: string };
+  grading: Assessment["grading"] & { errorCode?: string };
+  task: Assessment["task"];
+};
+
+/** Validated v1 wire data also represents failures before run allocation. */
+export type CliResultData = WireAssessment & {
   format: "sevro.cli-result.v1";
   runId: string | null;
-  execution: CliResultDataExecution;
-  grading: CliResultDataGrading;
-  task: CliResultDataTask;
-  exitCode: 0 | 1 | 2 | 3 | 4 | 64 | 70 | 130 | 143;
+  exitCode: ExitCode;
   evidencePath: string | null;
   cases: Array<CliResultDataCase>;
-  diagnostic?: CliResultDataDiagnostic;
+  diagnostic?: Diagnostic;
 };
-type CliResultDataExecution = {
-  status: "completed" | "failed" | "cancelled" | "not_run";
-  errorCode?: string;
-};
-type CliResultDataGrading = {
-  status: "completed" | "error" | "unavailable" | "not_requested";
-  errorCode?: string;
-};
-type CliResultDataTask = { verdict: "passed" | "failed" | "not_assessed" };
-type CliResultDataCheck = {
-  id: string;
-  grader: string;
-  status: "passed" | "failed" | "unavailable";
-  detail?: string;
-  evidenceRefs?: Array<string>;
-};
-type CliResultDataDomainOutcome = {
-  id: string;
-  status: "passed" | "failed" | "unavailable";
-  detail?: string;
-  evidenceRefs: Array<string>;
-  data?: Record<string, unknown>;
-};
-type CliResultDataTrial = {
+export type CliResultDataTrial = WireAssessment & {
   trial: number;
-  execution: CliResultDataExecution;
-  grading: CliResultDataGrading;
-  task: CliResultDataTask;
-  checks: Array<CliResultDataCheck>;
-  domainOutcomes?: Array<CliResultDataDomainOutcome>;
+  checks: Array<CheckOutcome>;
+  domainOutcomes?: Array<DomainOutcome>;
   artifactPath: string | null;
 };
-type CliResultDataCase = {
+export type CliResultDataCase = WireAssessment & {
   caseId: string;
-  execution: CliResultDataExecution;
-  grading: CliResultDataGrading;
-  task: CliResultDataTask;
   trials: Array<CliResultDataTrial>;
 };
-type CliResultDataDiagnostic = { code: string; message: string };
+
+/** Structural contracts for data validated by the versioned JSON schemas. */
 export type RunEvidenceData = {
   format: "sevro.run-evidence.v1";
   runId: string;
   evaluationIdentity: {
     algorithm: "sevro.identity.v1";
     digest: RunEvidenceDataDigest;
-    dimensions: {
-      runnerBuildDigest: RunEvidenceDataDigest;
-      projectDigest: RunEvidenceDataDigest;
-      configurationDigest: RunEvidenceDataDigest;
-      extensionDigest: RunEvidenceDataDigest | null;
-      extensionProtocol: "sevro.extension.v1" | null;
-      caseDigest: RunEvidenceDataDigest;
-      fixtureDigest: RunEvidenceDataDigest;
-      checksDigest: RunEvidenceDataDigest;
-      requiredEvidenceDigest: RunEvidenceDataDigest;
-      evaluatorDigest: RunEvidenceDataDigest;
-      graderDigest: RunEvidenceDataDigest;
-      instrumentationDigest: RunEvidenceDataDigest;
-      routeDigest: RunEvidenceDataDigest;
-      condition: "passive" | "enforced";
-      trialCount: number;
-      passThreshold: number;
-    };
+    dimensions: IdentityDimensions;
   };
   configuration: {
     digest: RunEvidenceDataDigest;
@@ -89,17 +70,17 @@ export type RunEvidenceData = {
   condition: {
     requested: "passive" | "enforced";
     actual: "passive" | "enforced" | "unknown";
-    requestedInstrumentation: RunEvidenceDataInstrumentationList;
-    appliedInstrumentation: RunEvidenceDataInstrumentationList;
+    requestedInstrumentation: InstrumentationRequest[];
+    appliedInstrumentation: InstrumentationRequest[];
   };
   graders: {
     active: Array<RunEvidenceDataGrader>;
     replacedDefaults: Array<string>;
   };
-  routes: Array<RunEvidenceDataRoute>;
+  routes: Array<EvidenceRoute>;
   result: CliResultData;
   trials: Array<RunEvidenceDataTrialEvidence>;
-  diagnostic?: RunEvidenceDataDiagnostic;
+  diagnostic?: Diagnostic;
 };
 type RunEvidenceDataDigest = string;
 type RunEvidenceDataFileUrl = string;
@@ -126,49 +107,18 @@ type RunEvidenceDataExtension = {
   capabilities: Array<string>;
   replacements: { graders: Array<string>; taskVerdictPolicy: string | null };
 };
-type RunEvidenceDataInstrumentationList = Array<{
-  id: string;
-  configuration: Record<string, unknown>;
-}>;
 type RunEvidenceDataGrader = {
   id: string;
   source: "builtin" | "extension";
   version: string;
 };
-type RunEvidenceDataRoute = {
-  role: "candidate" | "semantic" | "advisory";
-  host: string;
-  model: string;
-  effort: string;
-};
-type RunEvidenceDataAdvisoryReview = null | {
+export type AdvisoryReviewData = {
   status: "completed" | "failed" | "not_run";
-  assessment: null | {
-    verdict: "pass" | "fail";
-    overallScore: number;
-    dimensions: {
-      correctness: number;
-      maintainability: number;
-      testQuality: number;
-      scopeDiscipline: number;
-    };
-    strengths: Array<string>;
-    weaknesses: Array<string>;
-    summary: string;
-  };
-  usage: {
-    inputTokens: number | null;
-    outputTokens: number | null;
-    costUsd: number | null;
-    complete: boolean;
-  };
-  rawResult: {
-    source: string;
-    path: RunEvidenceDataFileUrl | null;
-    sha256: RunEvidenceDataDigest | null;
-  };
+  assessment: AdvisoryAssessment | null;
+  usage: UsageEvidence;
+  rawResult: RawResultReference;
 };
-type RunEvidenceDataTrialEvidence = {
+export type RunEvidenceDataTrialEvidence = {
   caseId: string;
   trial: number;
   executionMode: "executed" | "dry" | "unknown";
@@ -176,50 +126,22 @@ type RunEvidenceDataTrialEvidence = {
   condition: {
     requested: "passive" | "enforced";
     actual: "passive" | "enforced" | "unknown";
-    appliedInstrumentation: RunEvidenceDataInstrumentationList;
+    appliedInstrumentation: InstrumentationRequest[];
   };
-  observationCompleteness: "complete" | "partial" | "unavailable";
-  observations: Array<{
-    id: string;
-    source: string;
-    completeness: "complete" | "partial" | "unavailable";
-    data: Record<string, unknown>;
-  }>;
-  metrics: Array<RunEvidenceDataMetric>;
-  domainOutcomes?: Array<{
-    id: string;
-    status: "passed" | "failed" | "unavailable";
-    detail?: string;
-    evidenceRefs: Array<string>;
-    data?: Record<string, unknown>;
-  }>;
+  observationCompleteness: ObservationCompleteness;
+  observations: Array<ObservationEvidence>;
+  metrics: Array<MetricEvidence>;
+  domainOutcomes?: Array<DomainOutcome>;
   taskVerdictPolicy: null | {
     id: string;
-    recommendation: "passed" | "failed" | "not_assessed" | null;
+    recommendation: TaskVerdict | null;
   };
-  advisoryReview?: RunEvidenceDataAdvisoryReview;
-  routes: Array<RunEvidenceDataRoute>;
-  usage: {
-    inputTokens: number | null;
-    outputTokens: number | null;
-    costUsd: number | null;
-    complete: boolean;
-  };
-  rawResult: {
-    source: string;
-    path: RunEvidenceDataFileUrl | null;
-    sha256: RunEvidenceDataDigest | null;
-  };
-  artifactRefs: Array<{
-    id: string;
-    path: RunEvidenceDataFileUrl;
-    sha256: RunEvidenceDataDigest;
-    gitExclude?: boolean;
-    executable?: boolean;
-  }>;
+  advisoryReview?: AdvisoryReviewData | null;
+  routes: Array<EvidenceRoute>;
+  usage: UsageEvidence;
+  rawResult: RawResultReference;
+  artifactRefs: Array<ArtifactReference>;
 };
-type RunEvidenceDataDiagnostic = { code: string; message: string };
-type RunEvidenceDataMetric = { id: string; value: number | null; unit: string };
 export type ReportData = {
   format: "sevro.report.v1";
   inputs: Array<ReportDataInput>;
@@ -233,28 +155,21 @@ export type ReportData = {
 };
 type ReportDataPath = string;
 type ReportDataDigest = string;
-type ReportDataState =
-  | "completed"
-  | "failed"
-  | "cancelled"
-  | "not_run"
-  | "error"
-  | "unavailable"
-  | "not_requested";
-type ReportDataVerdict = "passed" | "failed" | "not_assessed";
+/** The report wire schema deliberately allows either state family in rows. */
+type ReportDataState = ExecutionStatus | GradingStatus;
 type ReportDataInput = {
   resultFile: ReportDataPath;
-  execution: "completed" | "failed" | "cancelled" | "not_run";
-  grading: "completed" | "error" | "unavailable" | "not_requested";
-  task: ReportDataVerdict;
-  exitCode: 0 | 1 | 2 | 3 | 4 | 64 | 70 | 130 | 143;
+  execution: ExecutionStatus;
+  grading: GradingStatus;
+  task: TaskVerdict;
+  exitCode: ExitCode;
   caseCount: number;
 };
-type ReportDataRoute = { host: string; model: string; effort: string };
+type ReportDataRoute = Omit<EvidenceRoute, "role">;
 type ReportDataOutcome = {
   trial: number;
   id: string;
-  status: "passed" | "failed" | "unavailable";
+  status: OutcomeStatus;
 };
 type ReportDataRow = {
   resultFile: ReportDataPath;
@@ -263,8 +178,8 @@ type ReportDataRow = {
   caseId: string;
   execution: ReportDataState;
   grading: ReportDataState;
-  task: ReportDataVerdict;
-  exitCode: 0 | 1 | 2 | 3 | 4 | 64 | 70 | 130 | 143;
+  task: TaskVerdict;
+  exitCode: ExitCode;
   trialCount: number;
   taskPassRate: number | null;
   candidateDurationMs: number | null;
@@ -276,11 +191,6 @@ type ReportDataRow = {
   requestedCondition: "passive" | "enforced" | null;
   actualCondition: "passive" | "enforced" | "unknown" | null;
   candidateRoute: ReportDataRoute | null;
-  routes: Array<{
-    role: "candidate" | "semantic" | "advisory";
-    host: string;
-    model: string;
-    effort: string;
-  }>;
+  routes: Array<EvidenceRoute>;
   domainOutcomes: Array<ReportDataOutcome>;
 };

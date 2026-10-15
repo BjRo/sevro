@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { allocateNativeState } from "./native-transcript-state";
-import { fixtureParts } from "./preparation";
+import { fixtureParts } from "./fixtures/preparation";
 import { isRecord, isUnknownArray } from "./value-guards";
 import { sha256 } from "./identity";
 

@@ -2,7 +2,7 @@ import { test, expect } from "bun:test";
 import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fixtureBinDirectory } from "../src/fixture-bin";
+import { fixtureBinDirectory } from "../src/fixtures/bin";
 test("fixture binary PATH refuses a Git directory redirected outside the workspace", async () => {
   const root = await mkdtemp(join(tmpdir(), "sevro-bin-boundary-"));
   try {

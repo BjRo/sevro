@@ -6,7 +6,7 @@ import {
   requireNativeTranscriptViews,
   requireNativeHookRoots,
 } from "../native-transcript-state";
-import { requireRuntimeReadRoots } from "../runtime-paths";
+import { requireRuntimeReadRoots } from "../runtime/paths";
 import { requireCandidateArtifactRoots } from "../candidate-artifacts";
 import {
   commandRuntimeRoot,

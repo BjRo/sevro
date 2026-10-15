@@ -1,6 +1,6 @@
 import { type ResolvedCase } from "./engine";
-import { prepareGeneratedFixture } from "./generated-fixture";
-import { prepareRepositoryFixture } from "./repository-fixture";
+import { prepareGeneratedFixture } from "./fixtures/generated";
+import { prepareRepositoryFixture } from "./fixtures/repository";
 import {
   isOptionalNonblankString,
   isRecord,

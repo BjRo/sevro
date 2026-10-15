@@ -3,7 +3,7 @@ const unreachable: Partial<Record<NodeJS.Platform, string[]>> = {
   linux: [
     "src/hosts/claude-keychain.ts",
     "src/hosts/mac-sandbox.ts",
-    "src/runtime-discovery-apple.ts",
+    "src/runtime/discovery-apple.ts",
   ],
 };
 

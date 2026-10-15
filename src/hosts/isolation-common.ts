@@ -1,7 +1,7 @@
 import { realpath } from "node:fs/promises";
 import { isAbsolute, relative, sep } from "node:path";
-import { insideRuntimeRoot } from "../runtime-paths";
-import { workspaceBoundaryException } from "../workspace-state";
+import { insideRuntimeRoot } from "../runtime/paths";
+import { workspaceBoundaryException } from "../fixtures/workspace-state";
 import type { CandidateArtifactRoots } from "../candidate-artifacts";
 
 export class HostIsolationError extends Error {

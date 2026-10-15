@@ -1,4 +1,8 @@
-import type { CliResultData, RunEvidenceData } from "./schema-types";
+import type {
+  CliResultData,
+  ReportData,
+  RunEvidenceData,
+} from "./schema-types";
 import { readFile } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import { parseArgs } from "node:util";
@@ -10,29 +14,7 @@ type Evidence = RunEvidenceData;
 type Case = CliResult["cases"][number];
 type Trial = Case["trials"][number];
 
-export type ReportRow = {
-  resultFile: string;
-  evidencePath: string | null;
-  runId: string | null;
-  caseId: string;
-  execution: string;
-  grading: string;
-  task: string;
-  exitCode: number;
-  trialCount: number;
-  taskPassRate: number | null;
-  candidateDurationMs: number | null;
-  inputTokens: number | null;
-  outputTokens: number | null;
-  costUsd: number | null;
-  runnerBuildDigest: string | null;
-  evaluationDigest: string | null;
-  requestedCondition: string | null;
-  actualCondition: string | null;
-  candidateRoute: { host: string; model: string; effort: string } | null;
-  routes: Array<{ role: string; host: string; model: string; effort: string }>;
-  domainOutcomes: Array<{ trial: number; id: string; status: string }>;
-};
+export type ReportRow = ReportData["rows"][number];
 
 function sumKnown(values: Array<number | null | undefined>): number | null {
   return values.length && values.every((value) => value != null)
@@ -191,14 +173,7 @@ export async function createReport(paths: string[]) {
   if (!paths.length || new Set(paths).size !== paths.length)
     throw new Error("report needs distinct result files");
   const rows: ReportRow[] = [];
-  const inputs: Array<{
-    resultFile: string;
-    execution: string;
-    grading: string;
-    task: string;
-    exitCode: number;
-    caseCount: number;
-  }> = [];
+  const inputs: ReportData["inputs"] = [];
   for (const path of paths) {
     const result = await loadResult(path);
     const evidence = await loadEvidence(result);

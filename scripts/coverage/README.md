@@ -8,7 +8,7 @@ Run these commands from the repository root:
 
 ```sh
 bun run check:typescript
-bun run check:typescript --coverage tests/cli.test.ts
+bun run check:typescript --coverage tests/cli/results.test.ts
 ```
 
 The first command runs the complete quality gate. The second is a diagnostic

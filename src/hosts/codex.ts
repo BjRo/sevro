@@ -16,13 +16,13 @@ import {
   failedNativeTranscripts,
   retainEnabledNativeTranscripts,
 } from "../native-transcripts";
-import { runtimeNativeGoalEnabled } from "../runtime-config";
+import { runtimeNativeGoalEnabled } from "../runtime/config";
 import {
   releaseRuntimeHooks,
   runtimeHookObservation,
   type HookMounts,
-} from "../runtime-hooks";
-import { runtimeObservations } from "../runtime-state";
+} from "../runtime/hooks";
+import { runtimeObservations } from "../runtime/state";
 import { isOptionalNonblankString, isRecord } from "../value-guards";
 import { runCodexAppServer } from "./codex-app-server";
 import { summarizeCodexEvents, type CodexEventSummary } from "./codex-events";

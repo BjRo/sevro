@@ -4,9 +4,20 @@ import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { isAbsolute } from "node:path";
 import { canonicalJson, hashJson } from "./identity";
-import type { GeneratedFixture } from "./generated-fixture";
-import type { RepositoryFixture } from "./repository-fixture";
-import type { FixtureSetupDeclaration } from "./fixture-setup";
+import type { GeneratedFixture } from "./fixtures/generated";
+import type { RepositoryFixture } from "./fixtures/repository";
+import type { FixtureSetupDeclaration } from "./fixtures/setup";
+import type {
+  ArtifactReference,
+  Assessment,
+  CheckDeclaration,
+  DomainOutcome,
+  ExtensionCheckOutcome,
+  MetricEvidence,
+  ObservationEvidence,
+  TaskVerdict,
+} from "./contract-types";
+import type { InstrumentationRequest } from "./instrumentation";
 import {
   ExtensionProtocolError,
   exchangeExtension,
@@ -32,11 +43,7 @@ export interface ExtensionCase {
     | { kind: "inline"; files: Record<string, string> }
     | RepositoryFixture
     | GeneratedFixture;
-  checks: {
-    id: string;
-    grader: string;
-    configuration: Record<string, unknown>;
-  }[];
+  checks: CheckDeclaration[];
   requiredEvidence: string[];
   extensionData: Record<string, unknown>;
 }
@@ -51,10 +58,7 @@ export interface PreparationResult {
     gitExclude?: boolean;
     executable?: boolean;
   }[];
-  requestedInstrumentation: {
-    id: string;
-    configuration: Record<string, unknown>;
-  }[];
+  requestedInstrumentation: InstrumentationRequest[];
   fixtureSetup?: FixtureSetupDeclaration;
   codexMarketplace?: {
     artifactRoot: string;
@@ -77,48 +81,20 @@ export interface PreparationResult {
 
 export interface EvaluationRequest {
   caseId: string;
-  execution: {
-    status: "completed" | "failed" | "cancelled" | "not_run";
+  execution: Assessment["execution"] & {
     errorCode?: string;
   };
-  observations: {
-    id: string;
-    source: string;
-    completeness: "complete" | "partial" | "unavailable";
-    data: Record<string, unknown>;
-  }[];
-  builtinChecks: {
-    id: string;
-    status: "passed" | "failed" | "unavailable";
-    detail?: string;
-    evidenceRefs: string[];
-  }[];
-  artifacts: {
-    id: string;
-    path: string;
-    sha256: string;
-    gitExclude?: boolean;
-    executable?: boolean;
-  }[];
+  observations: ObservationEvidence[];
+  builtinChecks: ExtensionCheckOutcome[];
+  artifacts: ArtifactReference[];
   extensionData: Record<string, unknown>;
 }
 
 export interface EvaluationResult {
-  checks: {
-    id: string;
-    status: "passed" | "failed" | "unavailable";
-    detail?: string;
-    evidenceRefs: string[];
-  }[];
-  metrics: { id: string; value: number | null; unit: string }[];
-  domainOutcomes?: {
-    id: string;
-    status: "passed" | "failed" | "unavailable";
-    detail?: string;
-    evidenceRefs: string[];
-    data?: Record<string, unknown>;
-  }[];
-  taskVerdictRecommendation?: "passed" | "failed" | "not_assessed";
+  checks: ExtensionCheckOutcome[];
+  metrics: MetricEvidence[];
+  domainOutcomes?: DomainOutcome[];
+  taskVerdictRecommendation?: TaskVerdict;
 }
 
 export interface ExtensionSessionOptions extends ExchangeOptions {

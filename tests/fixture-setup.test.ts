@@ -3,7 +3,7 @@ import { afterEach, test, expect } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { prepareFixtureSetup, runFixtureSetup } from "../src/fixture-setup";
+import { prepareFixtureSetup, runFixtureSetup } from "../src/fixtures/setup";
 const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(

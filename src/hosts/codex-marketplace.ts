@@ -1,7 +1,7 @@
 import type { Dirent } from "node:fs";
 import { readFile, readdir, realpath, stat } from "node:fs/promises";
 import { isAbsolute, join, relative, sep } from "node:path";
-import { fixtureParts } from "../preparation";
+import { fixtureParts } from "../fixtures/preparation";
 import type { HostAdapter } from "../engine";
 import { runCodexProcess } from "./codex-process";
 import { isRecord, isUnknownArray } from "../value-guards";

@@ -7,12 +7,12 @@ import {
   requireNativeHookRoots,
 } from "../native-transcript-state";
 import { requireCandidateArtifactRoots } from "../candidate-artifacts";
-import { workspaceBoundaryException } from "../workspace-state";
+import { workspaceBoundaryException } from "../fixtures/workspace-state";
 import {
   insideRuntimeRoot,
   isRuntimeHomeRoot,
   requireRuntimeReadRoots,
-} from "../runtime-paths";
+} from "../runtime/paths";
 import {
   commandRuntimeRoot,
   HostIsolationError,

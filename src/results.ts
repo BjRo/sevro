@@ -1,21 +1,17 @@
-export type ExecutionStatus = "completed" | "failed" | "cancelled" | "not_run";
-export type GradingStatus =
-  "completed" | "error" | "unavailable" | "not_requested";
-export type TaskVerdict = "passed" | "failed" | "not_assessed";
-
-export interface CheckOutcome {
-  id: string;
-  grader: string;
-  status: "passed" | "failed" | "unavailable";
-  detail?: string;
-  evidenceRefs?: string[];
-}
-
-export interface Assessment {
-  execution: { status: ExecutionStatus };
-  grading: { status: GradingStatus };
-  task: { verdict: TaskVerdict };
-}
+import type {
+  Assessment,
+  CheckOutcome,
+  ExecutionStatus,
+  GradingStatus,
+  TaskVerdict,
+} from "./contract-types";
+export type {
+  Assessment,
+  CheckOutcome,
+  ExecutionStatus,
+  GradingStatus,
+  TaskVerdict,
+} from "./contract-types";
 
 export interface TrialInput {
   execution: ExecutionStatus;

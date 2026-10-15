@@ -1,10 +1,10 @@
-import { isMissingFile } from "../fixture-tools";
+import { isMissingFile } from "../fixtures/tools";
 import { realpath } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
 import { isAbsolute, resolve } from "node:path";
 import { protectedWorktrees } from "./protected-worktrees";
 import { nativeStateParent } from "../native-transcript-state";
-import { workspaceStateParent } from "../workspace-state";
+import { workspaceStateParent } from "../fixtures/workspace-state";
 
 /** Include source, results, host configuration, and every active peer fixture. */
 interface ProtectedRootsOptions {
