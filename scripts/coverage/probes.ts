@@ -115,6 +115,39 @@ export function integrityProbes() {
     "Missing coverage reports",
   );
   storageProbes(baseline, record);
+  storedCompletionProbe();
+}
+
+function storedCompletionProbe() {
+  const { baseline, record } = fixture();
+  const directory = mkdtempSync(join(tmpdir(), "sevro-report-selection-"));
+  const checkpoint = { ...record, completion: "checkpoint" };
+  try {
+    for (const [name, value] of [
+      ["1.started.json", owner],
+      ["1.complete.json", record],
+      ["1.checkpoint.json", checkpoint],
+      ["2.started.json", { ...owner, pid: 2 }],
+      ["2.checkpoint.json", { ...checkpoint, pid: 2 }],
+      ["2.killed.json", { ...owner, pid: 2, signal: "SIGKILL" }],
+    ] as const) {
+      writeFileSync(join(directory, name), JSON.stringify(value));
+    }
+    const collection = loadReports(directory, baseline, identity);
+    const map = mergeChecked(
+      baseline,
+      collection.records,
+      collection.started,
+      identity,
+      collection.killed,
+    );
+    if (Object.values(map.fileCoverageFor(path).s).some((count) => count !== 2))
+      throw new Error("Stored completion selection changed exact counters");
+    verifyConservative(map.getCoverageSummary().toJSON());
+    console.log("stored-completion-selection: exact counters");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 }
 
 function storageProbes(

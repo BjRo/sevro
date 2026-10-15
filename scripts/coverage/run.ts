@@ -184,17 +184,20 @@ export function loadReports(
   const killed = names
     .filter((name) => name.endsWith(".killed.json"))
     .map(load);
-  const snapshots = names
-    .filter(snapshotName)
-    .map(load)
-    .map((value) => coverageRecord(value, baseline, identity));
-  requireRegisteredSnapshots(snapshots, started);
+  const snapshots = new Map(
+    names
+      .filter(snapshotName)
+      .map(
+        (name) =>
+          [name, coverageRecord(load(name), baseline, identity)] as const,
+      ),
+  );
+  requireRegisteredSnapshots(snapshots.values(), started);
   const records = started.flatMap((record) => {
-    const complete = `${record.pid}.complete.json`;
-    const checkpoint = `${record.pid}.checkpoint.json`;
-    if (names.includes(complete)) return [load(complete)];
-    if (names.includes(checkpoint)) return [load(checkpoint)];
-    return [];
+    const snapshot =
+      snapshots.get(`${record.pid}.complete.json`) ??
+      snapshots.get(`${record.pid}.checkpoint.json`);
+    return snapshot ? [snapshot] : [];
   });
   return { started, killed, records };
 }
@@ -220,7 +223,7 @@ function snapshotName(name: string) {
 }
 
 function requireRegisteredSnapshots(
-  snapshots: ReturnType<typeof coverageRecord>[],
+  snapshots: Iterable<ReturnType<typeof coverageRecord>>,
   started: CoverageParticipant[],
 ) {
   for (const report of snapshots) {

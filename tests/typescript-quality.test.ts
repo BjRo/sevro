@@ -284,5 +284,8 @@ test("the public TypeScript gate audits all stored reports before choosing compl
   );
   expect(child.stdout.toString()).toContain("misnamed-completion: refused");
   expect(child.stdout.toString()).toContain("unexpected-report-file: refused");
+  expect(child.stdout.toString()).toContain(
+    "stored-completion-selection: exact counters",
+  );
   expect(child.exitCode).toBe(0);
 });
