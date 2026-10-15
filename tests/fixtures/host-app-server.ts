@@ -67,6 +67,10 @@ function initializeResponse(id: unknown): void {
 }
 function startThread(id: unknown): void {
   if (mode === "exit-pending-thread-start") process.exit(7);
+  if (mode === "stalled-thread-start") {
+    stallThreadStart();
+    return;
+  }
   overloadNotifications();
   send({
     id,
@@ -77,6 +81,12 @@ function startThread(id: unknown): void {
       modelProvider: "openai",
     },
   });
+}
+// Observed live: startup notifications arrive, but thread/start never answers.
+function stallThreadStart(): void {
+  send({ method: "remoteControl/status/changed", params: {} });
+  send({ method: "configWarning", params: {} });
+  send({ method: "account/updated", params: {} });
 }
 function notify(method: string, params: Record<string, unknown>): void {
   send({ method, params: { threadId: "root", ...params } });
@@ -130,7 +140,7 @@ function startTurn(id: unknown): void {
   const turnId = turnCount === 1 ? "first" : "follow-up";
   peerReceipt(`client-${turnId}`);
   send({ id, result: { turn: { id: turnId } } });
-  if (exitAfterTurnResponse()) return;
+  if (endAfterTurnResponse()) return;
   send({ method: "account/private", params: "PRIVATE_ACCOUNT" });
   notify("error", {
     threadId: "foreign",
@@ -160,7 +170,8 @@ function startTurn(id: unknown): void {
   });
   completeTurnNotification(turnId);
 }
-function exitAfterTurnResponse(): boolean {
+function endAfterTurnResponse(): boolean {
+  if (mode === "stalled-turn") return true;
   if (mode !== "exit-after-turn-response") return false;
   process.stdout.write("", () => {
     process.exit(7);

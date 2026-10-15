@@ -148,6 +148,10 @@ Codex route, including semantic and advisory roles, and to both `exec` and
 `app-server` entrypoints. For a 20-minute app-server evaluation, add
 `--codex-entrypoint app-server --codex-timeout-ms 1200000` to the Codex command
 above. The option requires a Codex host route; invalid values fail before a run.
+For `app-server`, this is the only deadline for the whole session, including
+startup requests such as `thread/start`. If it expires while a request is
+unanswered, the failure names that request, for example
+`App-server evaluation time bound reached awaiting thread/start`.
 
 ### Retain native host diagnostics
 

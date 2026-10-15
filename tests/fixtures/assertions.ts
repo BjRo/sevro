@@ -151,6 +151,11 @@ export function objectContaining(value: object): unknown {
   return matcher;
 }
 
+export function stringMatching(pattern: RegExp): unknown {
+  const matcher: unknown = expect.stringMatching(pattern);
+  return matcher;
+}
+
 export function arrayContaining(value: unknown[]): unknown {
   const matcher: unknown = expect.arrayContaining(value);
   return matcher;

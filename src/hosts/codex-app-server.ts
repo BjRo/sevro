@@ -149,7 +149,7 @@ class AppServerRpc {
     {
       resolve: (value: RecordValue) => void;
       reject: (error: Error) => void;
-      timer: ReturnType<typeof setTimeout>;
+      method: string;
     }
   >();
   private wake?: () => void;
@@ -210,10 +210,7 @@ class AppServerRpc {
 
   fail(error: unknown): void {
     this.failure ??= error instanceof Error ? error : new Error(String(error));
-    for (const pending of this.pending.values()) {
-      clearTimeout(pending.timer);
-      pending.reject(this.failure);
-    }
+    for (const pending of this.pending.values()) pending.reject(this.failure);
     this.pending.clear();
     this.wake?.();
   }
@@ -278,7 +275,6 @@ class AppServerRpc {
     // Validate before removing the waiter so malformed responses reject it.
     const value = record(message.error ?? message.result);
     this.pending.delete(id);
-    clearTimeout(pending.timer);
     if (message.error)
       pending.reject(
         new Error(`App-server RPC failed (${String(value.code)})`),
@@ -308,20 +304,22 @@ class AppServerRpc {
     this.wake?.();
   }
 
+  /** The session's configured time bound is the only deadline, including startup. */
   async call(method: string, params: RecordValue): Promise<RecordValue> {
     if (this.failure) throw this.failure;
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.fail(new Error(`App-server RPC timeout: ${method}`));
-      }, 45000);
-      this.pending.set(id, { resolve, reject, timer });
+      this.pending.set(id, { resolve, reject, method });
       try {
         this.send({ id, method, params });
       } catch (error) {
         this.fail(error);
       }
     });
+  }
+
+  pendingMethods(): string[] {
+    return Array.from(this.pending.values(), (pending) => pending.method);
   }
 
   async initialize(): Promise<void> {
@@ -882,6 +880,11 @@ function sessionFailure(session: AppServerSession, error: unknown): void {
     error instanceof Error ? error.message : String(error);
   session.emit({ type: "turn.failed" });
 }
+/** Name an unanswered request so a stalled startup stays distinguishable. */
+function timeBoundFailure(pending: string[]): string {
+  const reached = "App-server evaluation time bound reached";
+  return pending.length ? `${reached} awaiting ${pending.join(", ")}` : reached;
+}
 async function completeSession(
   session: AppServerSession,
   rpc: AppServerRpc,
@@ -893,7 +896,7 @@ async function completeSession(
   };
   request.signal?.addEventListener("abort", cancel, { once: true });
   const deadline = setTimeout(() => {
-    rpc.fail(new Error("App-server evaluation time bound reached"));
+    rpc.fail(new Error(timeBoundFailure(rpc.pendingMethods())));
   }, bound);
   try {
     await session.run();
