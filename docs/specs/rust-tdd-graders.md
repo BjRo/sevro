@@ -844,6 +844,63 @@ the binary and those test targets passed. Owned Rustfmt, ledger Prettier and
 documentation checks passed. The coordinator retains combined-candidate
 coverage, review and exact-head macOS/Ubuntu acceptance responsibility.
 
+## Git HEAD mixed checks and failure boundaries
+
+The next bounded cohort uses the same real two-commit generated fixture and
+TypeScript adapter through the public CLI. Every fixture owns a unique input,
+result and temporary workspace root; cleanup removes only that fixture root.
+Independent TypeScript captures are reproduced with
+`python3 /tmp/sevro-git-head-boundary-baseline.py <mode>` and retain the exact
+command, declarations, adapter, stdout, stderr, exit, result/evidence and
+authoritative source hashes in each capture directory.
+
+- `mixed`, `/private/tmp/sevro-git-head-mixed.z8dfn40n`: declared Git HEAD
+  unchanged then exact-output checks both pass, preserving that declaration
+  order and their distinct evidence references. Exit is 0 and execution and
+  grading complete. `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_git_head git_head_and_output_checks_preserve_declaration_order -- --exact`
+  passed initially once an unrelated bridge setup failure was repaired by its
+  owner. The earlier attempt could not import `./host-receipt` from the
+  temporary adapter bridge and did not execute grading; it is setup evidence,
+  not a behavioral red.
+- `missing`, `/private/tmp/sevro-git-head-missing.ka7m6szm`: a completed
+  candidate without a final message still receives a failed Git `changed`
+  check for unchanged HEAD. The output check is unavailable. At trial, case
+  and run level the literal result is completed execution, unavailable grading,
+  failed task and exit 4. The complete Git observation and unavailable final
+  observation coexist; raw result path/hash are null and the workspace remains.
+  `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_git_head git_head_failure_remains_failed_when_output_is_unavailable -- --exact`
+  produced a genuine behavioral red: Rust returned task `not_assessed` instead
+  of `failed`, while exit 4 already matched. After separating task verdict
+  reduction from grading status in `graders.rs`, the identical command passed
+  one test. A failed check now preserves task failure independently of another
+  check's unavailable status, matching `src/results.ts`.
+
+Further independent captures are retained for malformed `.git` metadata
+(`/private/tmp/sevro-git-head-malformed.n64toa5o`), actual Git blocked reading a
+FIFO at `.git/HEAD` until its ten-second deadline
+(`/private/tmp/sevro-git-head-timeout.snzyivfh`), and SIGTERM after an actual Git
+FIFO reader connects (`/private/tmp/sevro-git-head-cancel._zb0cid2`). Malformed
+metadata and timeout return completed/error/not_assessed and exit 3 with
+`Git HEAD grading did not complete`; cancellation returns
+cancelled/not_requested/not_assessed and exit 143 with `run cancelled`.
+All three retain the preceding passed output check and its evidence. The FIFO
+probe neither substitutes Git nor injects an internal grader error. Invalid
+kind (`/private/tmp/sevro-git-head-invalid-kind.ogbx7u3x`) and inline fixture
+(`/private/tmp/sevro-git-head-inline.jaiw2ixo`) are invocation refusals, exit 64,
+with the literal messages `invalid Git HEAD check declaration` and
+`Git HEAD checks require a Git fixture`. These latter captures are baseline
+evidence only until sequential durable controls run.
+
+The ready change is limited to `graders.rs`, `run_git_head.rs` and this ledger:
+the original three Git HEAD controls plus the two completed controls above.
+The authored malformed-Git control is preserved outside the repository as
+`/tmp/sevro-git-head-malformed-pending.patch`; it has not been executed and is
+not a claimed behavioral red. Facade core integration and repository fixture
+ownership prevent a current combined Cargo run at this handoff. Owned Rustfmt,
+ledger Prettier and documentation checks pass. The coordinator will freeze
+these three files over the committed base and run affected acceptance before
+publication; the two actual focused greens do not substitute for that gate.
+
 ## Remaining boundaries
 
 This ledger covers `sevro.output` with `expectExact`, `validJson`, ordinary

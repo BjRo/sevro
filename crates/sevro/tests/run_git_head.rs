@@ -222,6 +222,159 @@ fn read_json(path: &Path) -> Value {
     serde_json::from_slice(&fs::read(path).unwrap()).unwrap()
 }
 
+fn assert_persisted(fixture: &Fixture, result: &Value) -> Value {
+    let path = Path::new(result["evidencePath"].as_str().unwrap());
+    let evidence = read_json(path);
+    assert_eq!(evidence["result"], *result);
+    assert_eq!(
+        read_json(&path.parent().unwrap().join("result.json")),
+        *result
+    );
+    assert_eq!(read_json(&fixture.0.join("results/latest.json")), *result);
+    let trial = &result["cases"][0]["trials"][0];
+    assert_eq!(
+        read_json(Path::new(trial["artifactPath"].as_str().unwrap()))["result"],
+        *trial
+    );
+    evidence
+}
+
+#[test]
+fn git_head_and_output_checks_preserve_declaration_order() {
+    let fixture = Fixture::new();
+    let path = fixture.0.join("case.json");
+    let mut case = read_json(&path);
+    case["checks"].as_array_mut().unwrap().push(json!({
+        "id":"output","grader":"sevro.output","configuration":{"expectExact":"ready"}
+    }));
+    fs::write(path, serde_json::to_vec(&case).unwrap()).unwrap();
+    let output = fixture.invoke();
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let case = &result["cases"][0];
+    let trial = &case["trials"][0];
+    for assessment in [&result, case, trial] {
+        assert_eq!(assessment["execution"]["status"], "completed");
+        assert_eq!(assessment["grading"]["status"], "completed");
+        assert_eq!(assessment["task"]["verdict"], "passed");
+    }
+    assert_eq!(result["exitCode"], 0);
+    assert_eq!(
+        trial["checks"],
+        json!([
+            {"id":"head-unchanged","grader":"sevro.git-head","status":"passed",
+             "detail":"candidate created or switched to a different commit","evidenceRefs":["sevro.observation.git-head"]},
+            {"id":"output","grader":"sevro.output","status":"passed","detail":"ok",
+             "evidenceRefs":["sevro.observation.final-message"]}
+        ])
+    );
+    let evidence = assert_persisted(&fixture, &result);
+    let observations = evidence["trials"][0]["observations"].as_array().unwrap();
+    assert_eq!(
+        observations
+            .iter()
+            .find(|value| value["id"] == "sevro.observation.git-head")
+            .unwrap(),
+        &json!({"id":"sevro.observation.git-head","source":"sevro.git-head","completeness":"complete",
+            "data":{"baseRevision":BASE_REVISION,"currentRevision":BASE_REVISION,"baseAncestor":true}})
+    );
+    let workspace = Path::new(
+        observations
+            .iter()
+            .find(|value| value["id"] == "sevro.observation.workspaces")
+            .unwrap()["data"]["candidate"]
+            .as_str()
+            .unwrap(),
+    );
+    assert!(workspace.starts_with(fixture.0.join("temporary")));
+    assert!(!workspace.exists());
+}
+
+#[test]
+fn git_head_failure_remains_failed_when_output_is_unavailable() {
+    let fixture = Fixture::new();
+    let path = fixture.0.join("case.json");
+    let mut case = read_json(&path);
+    case["checks"] = json!([
+        {"id":"head-changed","grader":"sevro.git-head","configuration":{"kind":"changed"}},
+        {"id":"output","grader":"sevro.output","configuration":{"expectExact":"ready"}}
+    ]);
+    fs::write(path, serde_json::to_vec(&case).unwrap()).unwrap();
+    let adapter = fixture.0.join("adapter.ts");
+    fs::write(
+        &adapter,
+        fs::read_to_string(&adapter)
+            .unwrap()
+            .replace("finalMessage:'ready'", "finalMessage:null"),
+    )
+    .unwrap();
+    let output = fixture.invoke();
+    assert_eq!(
+        output.status.code(),
+        Some(4),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let case = &result["cases"][0];
+    let trial = &case["trials"][0];
+    for assessment in [&result, case, trial] {
+        assert_eq!(assessment["execution"]["status"], "completed");
+        assert_eq!(assessment["grading"]["status"], "unavailable");
+        assert_eq!(assessment["task"]["verdict"], "failed");
+    }
+    assert_eq!(result["exitCode"], 4);
+    assert_eq!(
+        trial["checks"],
+        json!([
+            {"id":"head-changed","grader":"sevro.git-head","status":"failed",
+             "detail":"candidate did not create the expected commit","evidenceRefs":["sevro.observation.git-head"]},
+            {"id":"output","grader":"sevro.output","status":"unavailable",
+             "detail":"output observation unavailable","evidenceRefs":[]}
+        ])
+    );
+    let evidence = assert_persisted(&fixture, &result);
+    let retained = &evidence["trials"][0];
+    assert_eq!(
+        retained["rawResult"],
+        json!({"source":"sevro.host.synthetic","path":null,"sha256":null})
+    );
+    let observations = retained["observations"].as_array().unwrap();
+    assert_eq!(
+        observations
+            .iter()
+            .find(|value| value["id"] == "sevro.observation.git-head")
+            .unwrap(),
+        &json!({"id":"sevro.observation.git-head","source":"sevro.git-head","completeness":"complete",
+            "data":{"baseRevision":BASE_REVISION,"currentRevision":BASE_REVISION,"baseAncestor":true}})
+    );
+    assert_eq!(
+        observations
+            .iter()
+            .find(|value| value["id"] == "sevro.observation.final-message")
+            .unwrap(),
+        &json!({"id":"sevro.observation.final-message","source":"sevro.host.synthetic","completeness":"unavailable","data":{}})
+    );
+    let workspace = Path::new(
+        observations
+            .iter()
+            .find(|value| value["id"] == "sevro.observation.workspaces")
+            .unwrap()["data"]["candidate"]
+            .as_str()
+            .unwrap(),
+    );
+    assert!(workspace.starts_with(fixture.0.join("temporary")));
+    assert_eq!(
+        fs::read_to_string(workspace.join("README.md")).unwrap(),
+        "second\n"
+    );
+}
+
 #[test]
 fn git_head_unchanged_passes_with_runner_owned_base() {
     let fixture = Fixture::new();

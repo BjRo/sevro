@@ -546,20 +546,25 @@ pub(super) fn evaluate(
     }
     results.sort_by_key(|result| checks.iter().position(|check| check.id == result.id));
     let checks = results;
-    let (grading, task) = if checks.is_empty() {
-        (GradingStatus::NotRequested, TaskVerdict::NotAssessed)
+    let grading = if checks.is_empty() {
+        GradingStatus::NotRequested
     } else if checks
         .iter()
         .any(|check| check.status == CheckStatus::Unavailable)
     {
-        (GradingStatus::Unavailable, TaskVerdict::NotAssessed)
-    } else if checks
+        GradingStatus::Unavailable
+    } else {
+        GradingStatus::Completed
+    };
+    let task = if checks
         .iter()
         .any(|check| check.status == CheckStatus::Failed)
     {
-        (GradingStatus::Completed, TaskVerdict::Failed)
+        TaskVerdict::Failed
+    } else if matches!(grading, GradingStatus::Completed) {
+        TaskVerdict::Passed
     } else {
-        (GradingStatus::Completed, TaskVerdict::Passed)
+        TaskVerdict::NotAssessed
     };
     Ok(Assessment {
         checks,
