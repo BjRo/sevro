@@ -85,14 +85,21 @@ impl FixtureSetup {
                     .replace("{{sevro.workspace}}", workspace_text),
             )
         });
+        let inherited_path = std::env::var_os("PATH").unwrap_or_else(|| "/usr/bin:/bin".into());
+        let path = match super::tools::bin_directory(workspace)? {
+            Some(directory) => {
+                let mut path = directory.into_os_string();
+                path.push(":");
+                path.push(inherited_path);
+                path
+            }
+            None => inherited_path,
+        };
         let mut process = Command::new(&self.command[0])
             .args(&self.command[1..])
             .current_dir(workspace)
             .env_clear()
-            .env(
-                "PATH",
-                std::env::var_os("PATH").unwrap_or_else(|| "/usr/bin:/bin".into()),
-            )
+            .env("PATH", path)
             .env(
                 "LANG",
                 std::env::var_os("LANG").unwrap_or_else(|| "C".into()),

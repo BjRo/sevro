@@ -211,3 +211,75 @@ native-bundle --test installed_bundle` reported eleven passed and zero ignored;
 -- -D warnings`, `rustfmt --edition 2024 --check
 crates/sevro/tests/installed_bundle.rs`, `bunx --no-install prettier --check
 docs/specs/rust-tdd-installation.md`, and `bun run check:docs` exited 0.
+
+## Installed manifest refusal boundaries
+
+The [native bundle identity contract](../identity-v1.md) requires the declared
+format and executable, sorted unique safe asset paths, mandatory asset entries,
+and package metadata matching the executable. The next bounded controls use
+that contract as their oracle. Earlier compiler coverage only identified the
+unexercised boundaries; it did not supply expected behavior.
+
+Each fixture first completes a real installed-binary run with an owned adapter
+that records candidate invocations. The positive run proves that the marker is
+live. The test then changes only the owned copied manifest or package metadata.
+Every refusal must return 70 with `not_run` execution, `not_requested` grading,
+`not_assessed`, null evidence, and no cases. The candidate marker cannot change,
+no new result entry may appear, and the previous latest result and consumer
+README must remain byte-for-byte unchanged.
+
+These commands ran successively while product code remained unchanged:
+
+```sh
+cargo test --locked -p sevro --features native-bundle --test installed_bundle unsupported_bundle_manifest_identity_refuses_before_candidate_execution -- --exact
+cargo test --locked -p sevro --features native-bundle --test installed_bundle unsorted_or_duplicate_bundle_assets_refuse_before_candidate_execution -- --exact
+cargo test --locked -p sevro --features native-bundle --test installed_bundle unsafe_manifest_paths_refuse_without_changing_outside_files -- --exact
+cargo test --locked -p sevro --features native-bundle --test installed_bundle omitting_a_required_bundle_asset_refuses_before_candidate_execution -- --exact
+cargo test --locked -p sevro --features native-bundle --test installed_bundle mismatched_bundle_package_identity_refuses_before_candidate_execution -- --exact
+```
+
+All five commands passed on their first actual test execution, with one test
+passed and zero ignored each. They are initial-green characterization controls;
+no behavioral red or product fix is claimed. After the first green, its repeated
+preservation assertions were extracted into a fixture helper and the identical
+first command passed again before the next control was added.
+
+The first control independently changes the manifest format and executable.
+The second swaps two entries or duplicates one without changing physical assets.
+The expanded unsafe-path control adds empty, empty-component, dot-component,
+NUL, and undeclared-root paths to the existing traversal, backslash, and absolute
+path cases, preserving its outside-file sentinel. The fourth removes the required
+`docs/installing.md` declaration while leaving that physical file unchanged. The
+last independently changes the package name and version. Altered manifests or
+package metadata are preserved by the corresponding refusal controls.
+
+Retained command logs, pre-change source copies, and final receipts are under
+`/Users/bjro/.codex/artifacts/sevro-bundle-manifest-controls.HD9zLR`.
+`bundle-before.rs` remains byte-identical to
+`crates/sevro/src/run/provenance/bundle.rs`. One preliminary orchestration-wrapper
+failure occurred before Cargo started; it is not a behavioral red. The runtime
+lane uses the dedicated target under
+`/Users/bjro/.codex/artifacts/sevro-native-bundle-20261016.cqkieS/target` with the
+previously documented Rust toolchain environment. No quality threshold, source
+disposition, or shared fixture changed. These local controls do not establish
+new full-suite coverage or exact-candidate CI acceptance.
+
+The first affected-suite command, `cargo test --locked -p sevro --features
+native-bundle --test installed_bundle`, exited 101 with nine passed and six
+failed. All six failures were filesystem `ENOSPC` errors while creating or
+copying test fixtures, before behavior assertions; the shared APFS volume had
+only 396 MiB available. This environment failure is retained in
+`06-bundle-suite.log` and is not product red evidence. Only the three partial
+fixture directories identified in that run's errors were removed by this lane.
+
+After the coordinator reclaimed completed snapshot build caches and confirmed
+3.8 GiB available, the identical command passed with fifteen tests passed, zero
+failed, and zero ignored in 25.47 seconds. Ordinary test parallelism and the
+waited-child executable-copy fixture were unchanged. That successful run is
+retained separately in `06-bundle-suite-after-capacity.log`.
+
+Final scoped checks also passed: `cargo clippy --locked -p sevro --features
+native-bundle --test installed_bundle -- -D warnings`, `rustfmt --edition 2024
+--check crates/sevro/tests/installed_bundle.rs`, `bunx --no-install prettier
+--check docs/specs/rust-tdd-installation.md`, and `bun run check:docs`. Only
+`crates/sevro/tests/installed_bundle.rs` and this ledger changed in this slice.

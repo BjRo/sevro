@@ -20,6 +20,8 @@ pub(in crate::run) struct GeneratedFixture {
     commit_files: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     hooks: Option<BTreeMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    bin: Option<BTreeMap<String, String>>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -36,6 +38,9 @@ impl GeneratedFixture {
         }
         if let Some(hooks) = &self.hooks {
             super::tools::validate_hooks(hooks)?;
+        }
+        if let Some(bin) = &self.bin {
+            super::tools::validate_bin(bin)?;
         }
         let mut files = 0;
         let mut bytes = 0;
@@ -131,6 +136,18 @@ impl GeneratedFixture {
             && !staged.is_empty()
         {
             add(workspace, staged.iter().map(String::as_str))?;
+        }
+        if let Some(bin) = &self.bin
+            && !bin.is_empty()
+        {
+            let directory = workspace.join(".git/fixture-bin");
+            storage::private_directory(&directory)?;
+            super::tools::install(
+                bin,
+                &directory,
+                "fixture binary directory is invalid",
+                "fixture binary target is invalid",
+            )?;
         }
         if let Some(hooks) = &self.hooks {
             super::tools::install(

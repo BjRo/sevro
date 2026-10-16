@@ -219,6 +219,124 @@ fn rejects_staging_paths_outside_generated_overlay_before_run_admission() {
 }
 
 #[test]
+fn rejects_case_colliding_generated_overlay_paths_before_admission() {
+    let fixture = GeneratedFixture::new();
+    fixture.set_declaration(json!({
+        "kind":"generated",
+        "commits":[{"message":"Baseline","files":{"README.md":"baseline"}}],
+        "files":{"Notes.txt":"first","notes.txt":"second"}
+    }));
+    let output = fixture.invoke(&[]);
+    assert_invalid(&fixture, &output, "generated fixture paths collide");
+}
+
+const BOUNDARY_OBSERVER: &str = r#"import {execFileSync} from 'node:child_process';
+import {existsSync,readFileSync} from 'node:fs';
+import {join} from 'node:path';
+export default {id:'example.generated-boundary',model:'observer-v1',effort:'none',async run({workspace}) {
+ const git=(...args)=>execFileSync('git',args,{cwd:workspace,encoding:'utf8'});
+ const data=existsSync(join(workspace,'data.txt'))?readFileSync(join(workspace,'data.txt')):null;
+ return {complete:true,finalMessage:JSON.stringify({trackedFiles:git('ls-files','-z').split('\0').filter(Boolean).length,historyCommits:Number(git('rev-list','--count','HEAD').trim()),dataBytes:data?.byteLength??null,dataFirstLast:data?data.subarray(0,2).toString()+data.subarray(-2).toString():null})};
+}};
+"#;
+
+#[test]
+fn accepts_exactly_1024_generated_history_file_entries() {
+    let fixture = GeneratedFixture::new();
+    let files: serde_json::Map<String, Value> = (0..1024)
+        .map(|index| (format!("file-{index}.txt"), json!("ready")))
+        .collect();
+    fixture.set_declaration(json!({
+        "kind":"generated","commits":[{"message":"Baseline","files":files}]
+    }));
+    fs::write(fixture.0.join("observer.mjs"), BOUNDARY_OBSERVER).unwrap();
+    let evidence = completed_evidence(&fixture.invoke(&[]));
+    assert_eq!(
+        evidence["evaluationIdentity"]["dimensions"]["fixtureDigest"],
+        "9dc1b44dce63eac6f010b71bf327bd3a1ed0fd5bf6b3e72ccbf22adae24e3e34"
+    );
+    assert_eq!(
+        raw_receipt(&evidence),
+        json!({"trackedFiles":1024,"historyCommits":1,"dataBytes":null,"dataFirstLast":null})
+    );
+}
+
+#[test]
+fn counts_generated_overlay_entries_toward_the_history_file_limit() {
+    let fixture = GeneratedFixture::new();
+    let files: serde_json::Map<String, Value> = (0..1024)
+        .map(|index| (format!("file-{index}.txt"), json!("ready")))
+        .collect();
+    fixture.set_declaration(json!({
+        "kind":"generated","commits":[{"message":"Baseline","files":files}],
+        "files":{"extra.txt":"ready"}
+    }));
+    let output = fixture.invoke(&[]);
+    assert_invalid(
+        &fixture,
+        &output,
+        "generated fixture exceeds the size limit",
+    );
+}
+
+#[test]
+fn counts_repeated_generated_paths_in_each_history_entry() {
+    let fixture = GeneratedFixture::new();
+    let files: serde_json::Map<String, Value> = (0..1024)
+        .map(|index| (format!("file-{index}.txt"), json!("ready")))
+        .collect();
+    fixture.set_declaration(json!({
+        "kind":"generated","commits":[
+            {"message":"Baseline","files":files},
+            {"message":"Revise","files":{"file-0.txt":"revised"}}
+        ]
+    }));
+    let output = fixture.invoke(&[]);
+    assert_invalid(
+        &fixture,
+        &output,
+        "generated fixture exceeds the size limit",
+    );
+}
+
+#[test]
+fn accepts_exactly_32_mib_of_generated_utf8_history() {
+    let fixture = GeneratedFixture::new();
+    // Baseline and data.txt contribute eight UTF-8 bytes each.
+    fixture.set_declaration(json!({
+        "kind":"generated","commits":[{"message":"Baseline","files":{
+            "data.txt":"é".repeat(16_777_208)
+        }}]
+    }));
+    fs::write(fixture.0.join("observer.mjs"), BOUNDARY_OBSERVER).unwrap();
+    let evidence = completed_evidence(&fixture.invoke(&[]));
+    assert_eq!(
+        evidence["evaluationIdentity"]["dimensions"]["fixtureDigest"],
+        "da214e5211e6a40aef3c7a9178a43689e44d9b84d18d3ba27fbaaa8eef8a3b9a"
+    );
+    assert_eq!(
+        raw_receipt(&evidence),
+        json!({"trackedFiles":1,"historyCommits":1,"dataBytes":33_554_416,"dataFirstLast":"éé"})
+    );
+}
+
+#[test]
+fn rejects_generated_history_one_utf8_byte_above_32_mib() {
+    let fixture = GeneratedFixture::new();
+    fixture.set_declaration(json!({
+        "kind":"generated","commits":[{"message":"Baseline","files":{
+            "data.txt":format!("{}x", "é".repeat(16_777_208))
+        }}]
+    }));
+    let output = fixture.invoke(&[]);
+    assert_invalid(
+        &fixture,
+        &output,
+        "generated fixture exceeds the size limit",
+    );
+}
+
+#[test]
 fn gives_generated_trials_identical_history_and_fresh_working_trees() {
     let fixture = GeneratedFixture::new();
     let mut declaration = declaration();

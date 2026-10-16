@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use uuid::Uuid;
 
+#[path = "run_repository/fixture_bin.rs"]
+mod fixture_bin;
 #[path = "run_repository/hooks.rs"]
 mod hooks;
 #[path = "run_repository/isolation.rs"]

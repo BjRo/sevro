@@ -20,6 +20,12 @@ struct InstalledBundle {
     bundle: PathBuf,
 }
 
+struct RefusalBaseline {
+    marker: PathBuf,
+    latest: Vec<u8>,
+    result_entries: std::collections::BTreeSet<std::ffi::OsString>,
+}
+
 impl InstalledBundle {
     fn new() -> Self {
         let root = std::env::temp_dir().join(format!("sevro-bundle-{}", uuid::Uuid::new_v4()));
@@ -63,6 +69,63 @@ impl InstalledBundle {
 
     fn run_case(&self, case: &str) -> Output {
         self.run_case_binary(case, &self.bundle.join("bin/sevro"), &[])
+    }
+
+    fn record_candidate_runs(&self) -> PathBuf {
+        let marker = self.root.join("candidate-runs.txt");
+        let marker_json = serde_json::to_string(&marker).unwrap();
+        fs::write(
+            self.bundle.join("examples/basic/host.ts"),
+            format!(
+                r#"import {{ appendFileSync }} from "node:fs";
+export default {{
+  id: "sevro.host.example", model: "deterministic-example", effort: "none",
+  run() {{
+    appendFileSync({marker_json}, "run\n");
+    return Promise.resolve({{ finalMessage: "ready", complete: true }});
+  }}
+}};
+"#
+            ),
+        )
+        .unwrap();
+        marker
+    }
+
+    fn refusal_baseline(&self) -> RefusalBaseline {
+        let marker = self.record_candidate_runs();
+        completed_evidence(&self.run());
+        assert_eq!(fs::read(&marker).unwrap(), b"run\n");
+        RefusalBaseline {
+            marker,
+            latest: fs::read(self.root.join("results/latest.json")).unwrap(),
+            result_entries: self.result_entries(),
+        }
+    }
+
+    fn result_entries(&self) -> std::collections::BTreeSet<std::ffi::OsString> {
+        fs::read_dir(self.root.join("results"))
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect()
+    }
+
+    fn assert_refused_before_candidate(&self, output: &Output, baseline: &RefusalBaseline) {
+        assert_refusal(output);
+        let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(result["execution"]["status"], "not_run");
+        assert_eq!(result["grading"]["status"], "not_requested");
+        assert_eq!(result["cases"], json!([]));
+        assert_eq!(fs::read(&baseline.marker).unwrap(), b"run\n");
+        assert_eq!(
+            fs::read(self.root.join("results/latest.json")).unwrap(),
+            baseline.latest
+        );
+        assert_eq!(self.result_entries(), baseline.result_entries);
+        assert_eq!(
+            fs::read(self.root.join("project/README.md")).unwrap(),
+            b"consumer project\n"
+        );
     }
 
     fn run_case_binary(&self, case: &str, binary: &Path, extra: &[&str]) -> Output {
@@ -498,6 +561,82 @@ fn missing_bundle_manifest_or_asset_refuses_without_replacing_latest() {
     }
 }
 
+#[test]
+fn unsupported_bundle_manifest_identity_refuses_before_candidate_execution() {
+    let installed = InstalledBundle::new();
+    let baseline = installed.refusal_baseline();
+    let manifest_path = installed.bundle.join("sevro-native-bundle.json");
+    let original: Value = serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+    for (key, value) in [
+        ("format", "sevro.native-bundle.v2"),
+        ("executable", "bin/another-runner"),
+    ] {
+        let mut manifest = original.clone();
+        manifest[key] = json!(value);
+        let bytes = serde_json::to_vec(&manifest).unwrap();
+        fs::write(&manifest_path, &bytes).unwrap();
+        let output = installed.run();
+        installed.assert_refused_before_candidate(&output, &baseline);
+        assert_eq!(fs::read(&manifest_path).unwrap(), bytes);
+    }
+}
+
+#[test]
+fn unsorted_or_duplicate_bundle_assets_refuse_before_candidate_execution() {
+    let installed = InstalledBundle::new();
+    let baseline = installed.refusal_baseline();
+    let manifest_path = installed.bundle.join("sevro-native-bundle.json");
+    let original: Value = serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+    for duplicate in [false, true] {
+        let mut manifest = original.clone();
+        let assets = manifest["assets"].as_array_mut().unwrap();
+        if duplicate {
+            assets.insert(1, assets[0].clone());
+        } else {
+            assets.swap(0, 1);
+        }
+        let bytes = serde_json::to_vec(&manifest).unwrap();
+        fs::write(&manifest_path, &bytes).unwrap();
+        installed.assert_refused_before_candidate(&installed.run(), &baseline);
+        assert_eq!(fs::read(&manifest_path).unwrap(), bytes);
+    }
+}
+
+#[test]
+fn omitting_a_required_bundle_asset_refuses_before_candidate_execution() {
+    let installed = InstalledBundle::new();
+    let baseline = installed.refusal_baseline();
+    let asset_path = installed.bundle.join("docs/installing.md");
+    let asset_bytes = fs::read(&asset_path).unwrap();
+    let manifest_path = installed.bundle.join("sevro-native-bundle.json");
+    let mut manifest: Value = serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+    let assets = manifest["assets"].as_array_mut().unwrap();
+    let previous_count = assets.len();
+    assets.retain(|asset| asset != "docs/installing.md");
+    assert_eq!(assets.len(), previous_count - 1);
+    let bytes = serde_json::to_vec(&manifest).unwrap();
+    fs::write(&manifest_path, &bytes).unwrap();
+    installed.assert_refused_before_candidate(&installed.run(), &baseline);
+    assert_eq!(fs::read(&manifest_path).unwrap(), bytes);
+    assert_eq!(fs::read(&asset_path).unwrap(), asset_bytes);
+}
+
+#[test]
+fn mismatched_bundle_package_identity_refuses_before_candidate_execution() {
+    let installed = InstalledBundle::new();
+    let baseline = installed.refusal_baseline();
+    let package_path = installed.bundle.join("package.json");
+    let original: Value = serde_json::from_slice(&fs::read(&package_path).unwrap()).unwrap();
+    for (key, value) in [("name", "@example/different-runner"), ("version", "0.0.0")] {
+        let mut package = original.clone();
+        package[key] = json!(value);
+        let bytes = serde_json::to_vec(&package).unwrap();
+        fs::write(&package_path, &bytes).unwrap();
+        installed.assert_refused_before_candidate(&installed.run(), &baseline);
+        assert_eq!(fs::read(&package_path).unwrap(), bytes);
+    }
+}
+
 fn assert_refusal(output: &Output) {
     assert_eq!(
         output.status.code(),
@@ -542,14 +681,20 @@ fn explicit_runner_digest_overrides_automatic_bundle_identity() {
 #[test]
 fn unsafe_manifest_paths_refuse_without_changing_outside_files() {
     let installed = InstalledBundle::new();
+    let baseline = installed.refusal_baseline();
     let outside = installed.root.join("outside.txt");
     fs::write(&outside, "outside bundle\n").unwrap();
     let manifest_path = installed.bundle.join("sevro-native-bundle.json");
     let original: Value = serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
     for path in [
+        "",
         "../outside.txt",
         "docs/../outside.txt",
         "docs\\outside.txt",
+        "docs//installing.md",
+        "docs/./installing.md",
+        "docs/\0installing.md",
+        "unexpected-root/file.txt",
         outside.to_str().unwrap(),
     ] {
         let mut manifest = original.clone();
@@ -563,12 +708,11 @@ fn unsafe_manifest_paths_refuse_without_changing_outside_files() {
         });
         fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
         let output = installed.run();
-        assert_refusal(&output);
+        installed.assert_refused_before_candidate(&output, &baseline);
         assert!(
             String::from_utf8_lossy(&output.stdout).contains("unsafe or undeclared asset path")
         );
         assert_eq!(fs::read(&outside).unwrap(), b"outside bundle\n");
-        assert!(!installed.root.join("results/latest.json").exists());
     }
 }
 

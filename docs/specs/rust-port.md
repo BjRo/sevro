@@ -113,6 +113,10 @@ implementation covers these public seams:
 - Repository fixture preparation and mapped-worktree isolation, with
   [fixture TDD evidence](rust-tdd-fixtures.md) and
   [preparation-artifact boundary evidence](rust-tdd-preparation-artifacts.md).
+- Generated fixture executables and setup PATH precedence, with
+  [fixture-bin TDD evidence](rust-tdd-fixture-bin.md).
+- Selected source-map validation before execution, with
+  [source-map input evidence](rust-tdd-source-maps.md).
 - Fixture setup deadline, descendant cleanup, and failed-workspace retention,
   with [setup-deadline TDD evidence](rust-tdd-setup-deadline.md).
 - Project content snapshots and Git provenance, with
@@ -130,6 +134,8 @@ implementation covers these public seams:
   [result TDD evidence](rust-tdd-results.md).
 - Cleanup of permission-locked workspaces and result-publication failures, with
   [storage TDD evidence](rust-tdd-storage.md).
+- Independent retained-result and ownership roots, with
+  [state-root TDD evidence](rust-tdd-state-root.md).
 
 Each implementation ledger identifies its tested boundary and remaining gaps.
 These initial evaluation slices do not establish complete lifecycle parity.

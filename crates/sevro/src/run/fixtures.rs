@@ -227,6 +227,7 @@ pub(super) fn materialize(
             return Ok(true);
         }
         artifacts::mount(&fixture.artifacts, &workspace)?;
+        tools::bin_directory(&workspace)?;
         Ok(cancellation.is_cancelled())
     })();
     // An admitted workspace remains available when materialization fails.

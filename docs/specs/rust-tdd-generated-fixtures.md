@@ -349,3 +349,93 @@ Final hook-cohort checks passed on macOS, using the same dedicated Cargo target:
 This cohort does not claim Linux execution, coverage-gate results or a complete
 filesystem I/O-error matrix. It adds no permission-race probes or coverage
 exemptions. Combined acceptance and publication remain coordinator-owned.
+
+## Generated path, history-entry and UTF-8 boundaries
+
+This test-only cohort uses the real `sevro run --json --case-file` seam. The
+independent expectations come from `generated fixture declarations refuse
+case-colliding overlay files` and `generated declarations bound all history
+file entries and total UTF-8 bytes` in
+[the TypeScript declaration tests](../../tests/fixtures/declaration-validation.test.ts),
+the [generated fixture contract](../development-cli.md), and actual unchanged
+TypeScript CLI invocations. Direct case files reach the fixture semantic checks;
+these vectors do not depend on invalid extension envelopes rejected by an
+earlier schema.
+
+The external reproducer is `/tmp/sevro-generated-boundaries-oracle.mjs`.
+Running `bun /tmp/sevro-generated-boundaries-oracle.mjs <vector>` creates an
+owned temporary directory containing the case, real adapter, and
+`observation.json` with literal CLI arguments, stdout, stderr and exit status.
+The adapter observes actual Git history and file bytes; it implements no fixture
+preparation or validation. The retained oracle directories are:
+
+| Vector           | Oracle directory                                              | Observed public outcome                                             |
+| ---------------- | ------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `case-collision` | `/private/tmp/sevro-generated-boundary-case-collision.WpEzw3` | Exit 64, `generated fixture paths collide`, no results directory    |
+| `file-limit`     | `/private/tmp/sevro-generated-boundary-file-limit.BldgXc`     | Exit 0, one commit with 1024 tracked files                          |
+| `file-over`      | `/private/tmp/sevro-generated-boundary-file-over.by9oej`      | Exit 64 after one extra overlay entry, no results directory         |
+| `history-over`   | `/private/tmp/sevro-generated-boundary-history-over.ZNdUpK`   | Exit 64 after a second commit repeats one existing path, no results |
+| `utf8-limit`     | `/private/tmp/sevro-generated-boundary-utf8-limit.GNnlxN`     | Exit 0 at 33,554,432 aggregate UTF-8 bytes                          |
+| `utf8-over`      | `/private/tmp/sevro-generated-boundary-utf8-over.F0OKqu`      | Exit 64 at 33,554,433 aggregate UTF-8 bytes, no results directory   |
+
+The collision uses the exact `Notes.txt: first` and `notes.txt: second` overlay
+from the TypeScript declaration test. The file-count baseline declares 1024
+distinct `file-<index>.txt` history entries. Adding `extra.txt` in the overlay
+exceeds the aggregate count. Adding a second commit that changes `file-0.txt`
+also exceeds it: repeated paths are distinct history entries even though the
+path-collision inventory deduplicates exact repeats.
+
+The UTF-8 baseline has commit message `Baseline`, path `data.txt`, and
+16,777,208 copies of `é`. The message and path contribute 16 bytes; contents
+contribute 33,554,416 bytes. The negative vector appends one ASCII byte. Both
+vectors contain fewer than 32 MiB characters, so a character-count limit would
+incorrectly admit the negative vector. The positive adapter receipt reports one
+tracked file, one commit, 33,554,416 content bytes and `éé` as the first/last
+characters. The independently observed fixture digests are
+`9dc1b44dce63eac6f010b71bf327bd3a1ed0fd5bf6b3e72ccbf22adae24e3e34`
+for the 1024-entry baseline and
+`da214e5211e6a40aef3c7a9178a43689e44d9b84d18d3ba27fbaaa8eef8a3b9a`
+for the exact UTF-8 limit. The tests assert these fixed observations rather than
+recomputing fixture identity.
+
+Each test was added only after the preceding test passed. Every first run passed
+against unchanged product code, so these are characterizations, not claimed
+red/green repairs:
+
+- First-run characterization — `cargo test -p sevro --test run_generated --locked rejects_case_colliding_generated_overlay_paths_before_admission -- --exact`:
+  1 passed; raw output `case-collision.log`.
+- First-run characterization — `cargo test -p sevro --test run_generated --locked accepts_exactly_1024_generated_history_file_entries -- --exact`:
+  1 passed; raw output `file-limit.log`.
+- First-run characterization — `cargo test -p sevro --test run_generated --locked counts_generated_overlay_entries_toward_the_history_file_limit -- --exact`:
+  1 passed; raw output `file-over.log`.
+- First-run characterization — `cargo test -p sevro --test run_generated --locked counts_repeated_generated_paths_in_each_history_entry -- --exact`:
+  1 passed; raw output `history-over.log`.
+- First-run characterization — `cargo test -p sevro --test run_generated --locked accepts_exactly_32_mib_of_generated_utf8_history -- --exact`:
+  1 passed; raw output `utf8-limit.log`.
+- First-run characterization — `cargo test -p sevro --test run_generated --locked rejects_generated_history_one_utf8_byte_above_32_mib -- --exact`:
+  1 passed; raw output `utf8-over.log`.
+
+Raw Cargo logs are retained under
+`/tmp/sevro-generated-boundary-evidence.PZ9O5g/`. All commands use the pinned
+toolchain, dedicated `CARGO_TARGET_DIR=/tmp/sevro-generated-target.jMxLbl`, and
+`lean-ctx`. Rejected cases compare the complete unassessed JSON result and exact
+named case-file diagnostic (`generated fixture exceeds the size limit` for
+count/byte limits), with no run ID, evidence path or results directory. Accepted
+cases execute real Git materialization and compare persisted evidence and the
+adapter receipt. No product files, frozen repository-hook files, thresholds,
+exclusions or dependency manifests changed.
+
+Final boundary-cohort checks passed on macOS:
+
+- `cargo test -p sevro --test run_generated --locked`: all 28 tests passed with
+  default parallelism, none ignored or filtered; `generated-suite.log`.
+- `cargo clippy -p sevro --lib --test run_generated --locked -- -D warnings`:
+  passed; `clippy.log`.
+- `rustfmt --edition 2024 --config skip_children=true --check crates/sevro/tests/run_generated.rs`:
+  passed; `format-check.log`.
+- `bunx prettier --write docs/specs/rust-tdd-generated-fixtures.md` and
+  `bun run check:docs`: passed; `prettier.log` and `docs.log`.
+
+This bounded cohort does not claim complete generated-fixture boundary coverage,
+Linux execution, a global coverage result or publication acceptance. It adds six
+public characterization tests and changes no product behavior.
