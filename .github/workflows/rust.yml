@@ -48,6 +48,7 @@ jobs:
       - name: Check macOS isolation prerequisites
         if: runner.os == 'macOS'
         run: |
+          brew install ripgrep
           command -v sandbox-exec
           command -v rg
           /usr/bin/cc --version
