@@ -1,7 +1,7 @@
 {
   "scope": "Bounded embedded-schema notice collection for the AJV bundle, rquickjs, and vendored QuickJS-NG. This is not a complete inventory of native linked dependencies or release linkage.",
   "pathsRelativeTo": "repository root",
-  "noticeCopies": "The listed notice files preserve the inspected upstream license bytes without modification.",
+  "noticeCopies": "The listed notice files preserve the inspected upstream license text without modification. The QuickJS-NG notice concatenates quickjs/LICENSE, one separating newline, and the exact Unicode notice text from quickjs/libunicode-table.h lines 5-43, excluding its C comment delimiters.",
   "bundle": {
     "path": "crates/sevro/assets/schema/ajv-8.20.0.bundle.js",
     "sha256": "7e2561d48545b3c92da0370e49debf6ab948e02d9dd0981cca13eff6bda61bcb",
@@ -86,18 +86,27 @@
     {
       "name": "QuickJS-NG",
       "version": "0.16.2",
-      "license": "MIT",
+      "license": "MIT AND Unicode-3.0",
       "source": {
         "kind": "vendored-cargo-package-source",
         "package": "rquickjs-sys",
         "packageVersion": "0.14.0",
         "repository": "https://github.com/quickjs-ng/quickjs",
         "path": "quickjs/LICENSE",
-        "versionEvidence": "quickjs/quickjs.h:QJS_VERSION_MAJOR,QJS_VERSION_MINOR,QJS_VERSION_PATCH"
+        "versionEvidence": "quickjs/quickjs.h:QJS_VERSION_MAJOR,QJS_VERSION_MINOR,QJS_VERSION_PATCH",
+        "additionalNotices": [
+          {
+            "path": "quickjs/libunicode-table.h",
+            "lines": [5, 43],
+            "license": "Unicode-3.0",
+            "sourceSha256": "5840a921ac11664b505ee37b1219f518fff2a04972fe848b4bdf1e85c5a0bd83",
+            "noticeSha256": "e7a93b009565cfce55919a381437ac4db883e9da2126fa28b91d12732bc53d96"
+          }
+        ]
       },
       "notice": {
         "path": "docs/licenses/schema-quickjs/quickjs-ng-0.16.2-LICENSE.txt",
-        "sha256": "96f73f9d2a16c21a36b418f06073be26e7d6d5e7c1bc99756b21a4f2c74ef171"
+        "sha256": "4f2aa22873e7bf98721dc31f112f482e77e3989b0be0a757b711ae4f011e6d5e"
       }
     }
   ]
