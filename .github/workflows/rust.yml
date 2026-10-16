@@ -42,6 +42,8 @@ jobs:
           bun-version: 1.3.13
       - name: Install compatibility dependencies
         run: bun install --frozen-lockfile
+      - name: Check pinned schema runtime asset
+        run: bun scripts/rust/generate-schema-runtime.ts --check
       - name: Prepare Linux isolation
         if: runner.os == 'Linux'
         run: bash scripts/setup-ci-linux.sh
@@ -150,6 +152,8 @@ jobs:
           bun-version: 1.3.13
       - name: Install compatibility dependencies
         run: bun install --frozen-lockfile
+      - name: Check pinned schema runtime asset
+        run: bun scripts/rust/generate-schema-runtime.ts --check
       - name: Prepare Linux isolation
         if: runner.os == 'Linux'
         run: bash scripts/setup-ci-linux.sh

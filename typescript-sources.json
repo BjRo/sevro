@@ -136,6 +136,7 @@
     "src/generated/run-evidence.cjs",
     "src/generated/runtime.cjs"
   ],
+  "thirdParty": ["crates/sevro/assets/schema/ajv-8.20.0.bundle.js"],
   "declarations": [
     "src/generated/runtime.d.cts",
     "src/generated/cli-result.d.cts",
@@ -182,6 +183,7 @@
     "scripts/guide/fixture.ts",
     "scripts/prepare-release.ts",
     "scripts/release-documentation.ts",
+    "scripts/rust/generate-schema-runtime.ts",
     "scripts/setup-ci-codex.ts",
     "scripts/sync-guide.ts",
     "scripts/sync-release-docs.ts",

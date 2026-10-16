@@ -8,6 +8,7 @@ const rolePaths: Record<string, RegExp> = {
   production: /^src\/.*(?<!\.d)\.ts$/,
   generated:
     /^src\/generated\/(?:cli-result|run-evidence|report|extension|runtime)\.cjs$/,
+  thirdParty: /^crates\/sevro\/assets\/schema\/ajv-8\.20\.0\.bundle\.js$/,
   declarations: /\.d\.[cm]?ts$/,
   tooling: /^(?:scripts\/|eslint\.config\.mjs$)/,
   tests: /^tests\//,
@@ -30,6 +31,27 @@ function checkRoles(inventory: Record<string, string[]>) {
         throw new Error(`Invalid ${kind} source disposition: ${file}`);
   }
   checkGeneratedScope(inventory.generated);
+  checkThirdPartyScope(inventory.thirdParty);
+}
+
+function checkThirdPartyScope(files: string[] | undefined) {
+  if (files?.length !== 1)
+    throw new Error("Expected the exact pinned upstream schema bundle");
+}
+
+function checkSchemaRuntime(root: string) {
+  const checked = Bun.spawnSync(
+    [
+      process.execPath,
+      resolve(root, "scripts/rust/generate-schema-runtime.ts"),
+      "--check",
+    ],
+    { cwd: root, stdout: "pipe", stderr: "pipe" },
+  );
+  if (checked.exitCode !== 0)
+    throw new Error(
+      `Schema runtime provenance failed: ${checked.stderr.toString()}`,
+    );
 }
 
 function checkGeneratedScope(generated: string[] | undefined) {
@@ -62,7 +84,8 @@ async function requireLintedFiles(
       resolve(root, file),
     );
     if (!configuration) throw new Error(`Source is outside lint: ${file}`);
-    if (kind !== "generated") requireUnsafeRules(configuration, file);
+    if (kind !== "generated" && kind !== "thirdParty")
+      requireUnsafeRules(configuration, file);
   }
 }
 
@@ -90,6 +113,7 @@ function errorRule(setting: unknown) {
 const kinds = [
   "production",
   "generated",
+  "thirdParty",
   "declarations",
   "tooling",
   "tests",
@@ -167,7 +191,7 @@ function checkTypedDisposition(
   if (!configuration) throw new Error("Cannot read TypeScript configuration");
   const files = new Set(configuration.fileNames.map((path) => resolve(path)));
   for (const [kind, declared] of Object.entries(inventory)) {
-    if (kind === "generated") continue;
+    if (kind === "generated" || kind === "thirdParty") continue;
     requireTyped(root, declared, files);
   }
 }
@@ -187,6 +211,7 @@ export function sourceInventory(root: string) {
   ].filter(sourceFile);
   compareInventory(found, declared);
   checkRoles(inventory);
+  checkSchemaRuntime(root);
   return inventory;
 }
 
