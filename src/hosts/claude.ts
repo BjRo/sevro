@@ -48,6 +48,7 @@ import {
 } from "../host-diagnostics";
 import { CLAUDE_AUTH_VARIABLES } from "./claude-credential";
 import { claudeToolCallsObservation } from "./claude-tool-calls";
+import { claudeSkillActivationsObservation } from "./claude-skill-activations";
 import { claudeNativeControls } from "./native-controls";
 export type { ClaudeHostOptions } from "./claude-state";
 
@@ -260,6 +261,7 @@ export function createClaudeHost(options: ClaudeHostOptions): HostAdapter {
       "sevro.host.runtime",
       "sevro.host.native-transcripts",
       "sevro.host.hooks",
+      "sevro.host.skill-activations",
       "sevro.claude.plugin-dirs",
       "sevro.claude.explicit-invocation",
       ...(options.projectSettings
@@ -562,6 +564,7 @@ async function claudeObservations(
     claudeNativeControls(execution.out, execution.code),
     ...(repository ? [repository] : []),
     ...(execution.continuation ? [execution.continuation] : []),
+    claudeSkillActivationsObservation(execution.out, execution.code),
   ];
 }
 

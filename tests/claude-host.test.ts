@@ -404,8 +404,9 @@ await mkdir(project, { recursive: true });
 const command = { type: "user", sessionId: "session-one", message: { content: "<command-message>probe</command-message>\\n<command-name>/probe</command-name>" + (args ? "\\n<command-args>" + args + "</command-args>" : "") } };
 const loaded = { type: "user", sessionId: "session-one", isMeta: true, message: { content: "Base directory for this skill: " + skillDir + "\\n\\n" + body + "\\n\\nARGUMENTS: " + args } };
 const assistant = { type: "assistant", sessionId: "session-one", message: { content: [{ type: "tool_use", id: "skill-one", name: "Skill", input: { skill: "probe" } }] } };
+const skillResult = { type: "user", sessionId: "session-one", message: { content: [{ type: "tool_result", tool_use_id: "skill-one", content: "Skill loaded", is_error: false }] } };
 await writeFile(join(project, "session-one.jsonl"), [command, ...(await Bun.file("unverified.flag").exists() ? [] : [loaded]), assistant].map(entry => JSON.stringify(entry)).join("\\n"));
-for (const entry of [{ type: "system", subtype: "init", session_id: "session-one" }, assistant, { type: "result", subtype: "success", is_error: false, result: "ready", session_id: "session-one" }]) process.stdout.write(JSON.stringify(entry) + "\\n");
+for (const entry of [{ type: "system", subtype: "init", session_id: "session-one" }, assistant, skillResult, { type: "result", subtype: "success", is_error: false, result: "ready", session_id: "session-one" }]) process.stdout.write(JSON.stringify(entry) + "\\n");
 `,
     { mode: 0o755 },
   );
@@ -431,6 +432,14 @@ for (const entry of [{ type: "system", subtype: "init", session_id: "session-one
   };
   const completed = await host.run(request);
   expect(completed.finalMessage).toBe("ready");
+  expect(
+    completed.observations?.find(
+      (item) => item.id === "sevro.host.skill-activations",
+    ),
+  ).toMatchObject({
+    completeness: "complete",
+    data: { method: "skill_tool_result", observedSkills: ["probe"] },
+  });
   expectUnknown(completed.observations).toContainEqual({
     id: "sevro.claude.repository-invocation",
     completeness: "complete",

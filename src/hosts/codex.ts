@@ -42,6 +42,12 @@ import {
 } from "./codex-state";
 import { codexNativeControls } from "./native-controls";
 import { workspaceFingerprint } from "./workspace-fingerprint";
+import { codexSkillCatalogRoots } from "./skill-hook-catalog";
+import {
+  prepareSkillTracking,
+  skillTrackingObservation,
+  type SkillTracking,
+} from "./skill-hooks";
 import {
   cleanupNativeState,
   createHostDiagnostics,
@@ -76,6 +82,7 @@ interface ExecutionContext {
   timeoutMs: number;
   installedPluginRoots: string[];
   hooks?: HookMounts;
+  skillTracking: SkillTracking;
   diagnostics?: HostDiagnostics;
 }
 interface TurnResult {
@@ -136,6 +143,7 @@ function codexCapabilities(
     "sevro.host.runtime",
     "sevro.host.native-transcripts",
     "sevro.host.hooks",
+    "sevro.host.skill-activations",
     ...(entrypoint === "app-server" ? ["sevro.host.native-goal"] : []),
     "sevro.codex.plugin-marketplace",
     "sevro.codex.explicit-invocation",
@@ -261,6 +269,11 @@ async function executeCodexRequest(
     diagnosticStage(diagnostics, "hooks-preparation");
     const hooks = await codexHookMounts(request, state, installedPluginRoots);
     activeHooks = hooks;
+    const skillTracking = await prepareCodexSkillTracking(
+      state,
+      request,
+      installedPluginRoots,
+    );
     await codexPreflight(options, request, state, diagnostics);
     const context: ExecutionContext = {
       options,
@@ -269,26 +282,13 @@ async function executeCodexRequest(
       timeoutMs,
       installedPluginRoots,
       hooks,
+      skillTracking,
       diagnostics,
     };
     const turns = await new CodexTurnExecution(context).run();
     if (turns.summary.complete)
       diagnosticStage(diagnostics, "result-processing");
-    const result = await codexHostResult(context, turns);
-    await retainReturnedHostFailure(
-      diagnostics,
-      result,
-      "Codex host execution did not complete",
-    );
-    await retainEnabledNativeTranscripts(
-      result,
-      request.runtimePolicy,
-      join(state.codexHome, "sessions"),
-      "codex",
-      request.runtimeRole,
-      turns.summary.threadId,
-    );
-    return result;
+    return await retainCodexResult(context, turns);
   } catch (cause) {
     return await failedNativeTranscripts(
       cause,
@@ -306,6 +306,60 @@ async function executeCodexRequest(
       if (helperRoot) await rm(helperRoot, { recursive: true, force: true });
     });
   }
+}
+
+async function retainCodexResult(context: ExecutionContext, turns: TurnResult) {
+  const result = await codexHostResult(context, turns);
+  await retainReturnedHostFailure(
+    context.diagnostics,
+    result,
+    "Codex host execution did not complete",
+  );
+  await retainEnabledNativeTranscripts(
+    result,
+    context.request.runtimePolicy,
+    join(context.state.codexHome, "sessions"),
+    "codex",
+    context.request.runtimeRole,
+    turns.summary.threadId,
+  );
+  return result;
+}
+
+async function prepareCodexSkillTracking(
+  state: CodexState,
+  request: Request,
+  pluginRoots: string[],
+): Promise<SkillTracking> {
+  const roots = await codexSkillCatalogRoots(request.workspace, pluginRoots, [
+    { directory: join(state.codexHome, "skills"), boundary: state.codexHome },
+    {
+      directory: join(state.parentHome, ".agents/skills"),
+      boundary: state.parentHome,
+    },
+    {
+      directory: join(state.commandHome, ".agents/skills"),
+      boundary: state.commandHome,
+    },
+    {
+      directory: join(state.commandHome, ".codex/skills"),
+      boundary: state.commandHome,
+    },
+  ]);
+  const tracking = await prepareSkillTracking({
+    privateRoot: state.codexHome,
+    host: "codex",
+    roots,
+  });
+  await writeFile(
+    join(state.codexHome, "hooks.json"),
+    JSON.stringify({ hooks: tracking.hooks }),
+    {
+      flag: "wx",
+      mode: 0o600,
+    },
+  );
+  return tracking;
 }
 
 async function validateCodexRequest(
@@ -792,7 +846,7 @@ async function codexObservations(context: ExecutionContext, turns: TurnResult) {
     turns.summary.complete,
   );
   return [
-    ...(await codexHookObservations(context.hooks)),
+    ...(await codexHookObservations(context)),
     ...runtimeObservations(
       context.request.runtimePolicy,
       context.request.runtimeRole,
@@ -805,11 +859,17 @@ async function codexObservations(context: ExecutionContext, turns: TurnResult) {
     codexNativeControls(native),
     ...(turns.continuation ? [turns.continuation] : []),
     ...(explicit ? [explicit] : []),
+    await skillTrackingObservation(
+      context.skillTracking,
+      turns.summary.threadId,
+      turns.summary.complete,
+    ),
   ];
 }
 
-async function codexHookObservations(hooks: HookMounts | undefined) {
-  return hooks ? [await runtimeHookObservation(hooks)] : [];
+async function codexHookObservations(context: ExecutionContext) {
+  if (!context.request.runtimePolicy) return [];
+  return context.hooks ? [await runtimeHookObservation(context.hooks)] : [];
 }
 function codexArtifacts(turns: TurnResult) {
   return [

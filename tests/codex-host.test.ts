@@ -141,6 +141,9 @@ if [ -f "$workspace/.git/unchanged.flag" ]; then capture_root="$workspace/.git";
 printf '%s\\n' "$@" > "$capture_root/argv.txt"
 if [ -n "\${OPENAI_API_KEY:-}" ]; then exit 97; fi
 /bin/cat > "$capture_root/prompt.txt"
+if [ -f "$workspace/.git/skill-hooks.ts" ]; then
+  '${process.execPath.replaceAll("'", `'"'"'`)}' "$workspace/.git/skill-hooks.ts" || exit 91
+fi
 if [ -f "$workspace/capture-model-input.flag" ]; then
   if [ -e "$workspace/.codex" ]; then exit 93; fi
   ${quotedCodex} debug prompt-input "Read the installed probe skill" > "$workspace/model-input.json" || exit 94
@@ -212,6 +215,46 @@ async function ordinaryCodexRequest() {
   };
   return { paths, host, request, workspace };
 }
+
+test("Codex host collects runner-owned hooks independently of command syntax", async () => {
+  if (!isolatedNativeHost) return;
+  const { host, request } = await ordinaryCodexRequest();
+  await mkdir(join(request.workspace, ".git"));
+  await mkdir(join(request.workspace, ".agents/skills/probe"), {
+    recursive: true,
+  });
+  await writeFile(
+    join(request.workspace, ".agents/skills/probe/SKILL.md"),
+    "Full private skill instructions.\n",
+  );
+  await writeFile(
+    join(request.workspace, ".git/skill-hooks.ts"),
+    `
+const definitions = await Bun.file(process.env.CODEX_HOME + "/hooks.json").json();
+const body = await Bun.file(".agents/skills/probe/SKILL.md").text();
+for (const name of ["SessionStart", "PreToolUse", "PostToolUse", "Stop"]) {
+  const input = {hook_event_name: name, session_id: "thread-1", tool_use_id: "read-1", tool_name: "mcp__reader__read", tool_response: body};
+  const command = definitions.hooks[name][0].hooks[0].command;
+  const child = Bun.spawn(["/bin/sh", "-c", command], {stdin: Buffer.from(JSON.stringify(input)), stdout: "pipe", stderr: "pipe"});
+  if (await child.exited !== 0) process.exit(90);
+}
+`,
+  );
+  const result = await host.run(request);
+  expect(result.complete).toBe(true);
+  expect(host.hostCapabilities).toContain("sevro.host.skill-activations");
+  expect(
+    result.observations?.find(
+      (item) => item.id === "sevro.host.skill-activations",
+    ),
+  ).toMatchObject({
+    completeness: "complete",
+    data: { method: "tool_result_body_match", observedSkills: ["probe"] },
+  });
+  expect(JSON.stringify(result.observations)).not.toContain(
+    "Full private skill instructions.",
+  );
+});
 
 test.each([
   { state: "unchanged files", config: '{"timeoutMs":1000}', truncated: false },

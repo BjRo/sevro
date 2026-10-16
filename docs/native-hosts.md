@@ -48,6 +48,46 @@ plugin hooks and reuses declared host tools with private caches. These changes
 require `rc.3` or later. The CLI reference covers credential scrubbing
 and follow-ups.
 
+## Skill activation evidence
+
+Both bundled adapters advertise `sevro.host.skill-activations`. Its observation
+retains qualified `observedSkills`, bounded call identities, and explicit
+`complete` or `partial` collection status. It supplements the existing explicit
+dispatch, nested-skill and Codex mounted-file read receipts; those receipts keep
+their existing meaning.
+
+Codex installs passive runner-owned hooks in its private home for each request.
+The `tool_result_body_match` method compares returned tool content against a
+snapshot of prepared repository, plugin and private user skill bodies. It does
+not parse shell commands, so variables, pipelines, Python and nested Code Mode
+calls use the same collector. Pre/post call pairs and session start/stop markers
+establish collection health. Unselected plugin handlers are removed before
+hooks are enabled, and fixture-local Codex configuration remains untrusted.
+No global hook installation or root privileges are required.
+
+This Codex receipt proves exact body exposure to the tool caller. Code Mode can
+discard that output before returning to the model. An identical ordinary
+document also matches; the receipt does not prove its source file was opened.
+Identical bodies registered under different names are reported as
+`ambiguousSkills`, with partial evidence. Partial, transformed and separately
+paged bodies do not establish a full-body match. Newly created or changed skill
+bodies are outside the prepared snapshot. A complete empty observation is
+limited to this scope and the supported local tool hook paths.
+
+Claude's `skill_tool_result` method observes its existing structured `Skill`
+stream without enabling additional command hooks. It pairs each call with a
+successful result under the same session, parent actor and tool-use ID.
+Failed calls remain failed; unmatched attempts and malformed or conflicting
+records remain partial. Native explicit command expansion can load a skill
+without a `Skill` call, so explicit-dispatch receipts remain independent.
+
+The collectors retain no tool arguments, outputs or skill bodies in the new
+observation. Codex catalogs at most 128 skills, each at most 1 MiB, with an
+8 MiB total body budget. Call receipts are bounded; missing collection,
+unfinished calls, catalog or receipt limits, and failed execution remain
+partial. Required evidence must not interpret these states as proof that a
+skill was unused.
+
 ## Keep sources and credentials separate
 
 Declare source/private roots as documented. Never put credentials in prompts,
