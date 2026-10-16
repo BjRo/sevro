@@ -80,14 +80,17 @@ export async function codexHookMounts(
   state: CodexState,
   installedPluginRoots: string[],
 ) {
-  if (!request.runtimePolicy) return undefined;
   const hooks = await prepareHookMounts({
     workspace: request.workspace,
     stateRoot: state.stateRoot,
     privateRoot: state.codexHome,
     pluginRoots: installedPluginRoots,
     protectedRoots: state.protectedRoots,
-    policy: request.runtimePolicy,
+    policy: request.runtimePolicy ?? {
+      format: "sevro.runtime.v1",
+      environment: {},
+      readOnlyRoots: [],
+    },
   });
   for (const [index, root] of installedPluginRoots.entries()) {
     const curated = hooks.directories[index];
@@ -186,9 +189,7 @@ async function writeCodexProfile(
 }
 
 function fixtureTrustConfiguration(request: Request): string {
-  return request.runtimePolicy?.codexState === true
-    ? `\n[projects.${JSON.stringify(request.workspace)}]\ntrust_level = "untrusted"\n`
-    : "";
+  return `\n[projects.${JSON.stringify(request.workspace)}]\ntrust_level = "untrusted"\n`;
 }
 
 function codexProfileEnvironment(

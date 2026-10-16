@@ -20,19 +20,8 @@ import {
   isStringArray,
   isUnknownArray,
 } from "../../src/value-guards";
-import {
-  effectAttempts,
-  inspectedSources,
-  usedGuide,
-  type Turn,
-} from "./evidence";
-import {
-  casesPath,
-  fixtureCheck,
-  guideFixture,
-  guidePath,
-  guideRoot,
-} from "./fixture";
+import { effectAttempts, inspectedSources, type Turn } from "./evidence";
+import { casesPath, fixtureCheck, guideFixture, guideRoot } from "./fixture";
 
 type Host = "codex" | "claude";
 const prefix = "sevro.guide.";
@@ -82,9 +71,7 @@ function selectionId(host: Host, data: Record<string, unknown>): string {
     return host === "codex"
       ? "sevro.codex.explicit-invocation"
       : "sevro.claude.repository-invocation";
-  return host === "codex"
-    ? "sevro.codex.skill-reads"
-    : "sevro.claude.tool-calls";
+  return "sevro.host.skill-activations";
 }
 
 function customNames(test: ExtensionCase): string[] {
@@ -233,25 +220,19 @@ function explicitSelection(receipt: Observation, host: Host): boolean {
   return receipt.data.accepted === true && receipt.data.skill === "sevro-guide";
 }
 
-async function selection(
+function selection(
   receipt: Observation,
   host: Host,
   data: Record<string, unknown>,
-  first: Turn,
 ) {
   if (typeof data[prefix + "activation"] !== "boolean")
     throw new Error("Missing guide activation expectation");
   let selected: boolean;
   if (data[prefix + "explicit"]) selected = explicitSelection(receipt, host);
-  else if (host === "codex")
+  else
     selected =
       isStringArray(receipt.data.observedSkills) &&
       receipt.data.observedSkills.includes("sevro-guide");
-  else
-    selected = usedGuide(
-      first,
-      (await readFile(join(guideRoot, guidePath), "utf8")).trim(),
-    );
   return selected === data[prefix + "activation"];
 }
 
@@ -283,7 +264,7 @@ async function gradeGuide(
   if (!first || !receipt) return unavailable(test);
   if (test.followUpPrompt && !follow) return unavailable(test);
   const values: Record<string, boolean> = {
-    selection: await selection(receipt, host, data, first),
+    selection: selection(receipt, host, data),
     "no-effects": effectAttempts(first).length === 0,
     ...sourceChecks(data, first),
     ...followChecks(data, first, follow),
@@ -357,9 +338,12 @@ async function response(request: ExtensionRequest): Promise<object> {
   switch (request.method) {
     case "describe":
       return {
-        extension: { id: "sevro.guide", version: "3.0.0" },
+        extension: { id: "sevro.guide", version: "4.0.0" },
         protocols: ["sevro.extension.v1"],
-        requiredCapabilities: ["sevro.case.host-route"],
+        requiredCapabilities: [
+          "sevro.case.host-route",
+          "sevro.host.skill-activations",
+        ],
         optionalCapabilities: [
           "sevro.host.continuation",
           "sevro.codex.repository-invocation",

@@ -171,7 +171,7 @@ other invocation declarations and enters retained configuration and identity.
 The host validates the bounded mount without following symbolic links. Its
 `sevro.claude.repository-invocation` observation binds one native command, exact
 arguments, and the complete mounted body before the first assistant entry in
-the completed session. It retains only acceptance and ordered skill metadata.
+the completed session. It retains only acceptance and the dispatched skill name.
 Missing or ambiguous session evidence yields a partial observation; later Skill
 calls cannot repair an unverified explicit repository dispatch.
 
@@ -224,6 +224,12 @@ grader error, or unavailable required evidence.
 Host adapters can supply additional namespaced observations. The engine bounds
 and retains those records, then passes them to `evaluate`. Required observation
 IDs must be present with `complete` evidence before a task can pass.
+The bundled adapters expose [skill activation evidence](native-hosts.md#skill-activation-evidence)
+as `sevro.host.skill-activations`, with separate methods for Codex tool-result
+body exposure and successful Claude `Skill` calls.
+This replaces the retired Codex skill-read and Claude nested-skill observations.
+Explicit invocation receipts remain dispatch evidence and do not contribute to
+`observedSkills`; extensions must migrate activation checks to the common ID.
 Host adapters can also supply bounded evidence artifacts. The engine persists
 their bytes outside the candidate workspace before `evaluate`, then passes
 file URLs and digests through the existing artifact references. A required host

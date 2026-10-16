@@ -28,7 +28,6 @@ import { isOptionalNonblankString, isRecord } from "../value-guards";
 import { runClaudeTurns, type ClaudeSession } from "./claude-continuation";
 import { summarizeClaudeEvents } from "./claude-events";
 import { observeClaudeNativeGoal } from "./claude-native-goal";
-import { claudeNestedSkillsObservation } from "./claude-nested-skills";
 import { runClaudeProcess } from "./claude-process";
 import {
   claudeRepositoryInvocationObservation,
@@ -48,6 +47,7 @@ import {
 } from "../host-diagnostics";
 import { CLAUDE_AUTH_VARIABLES } from "./claude-credential";
 import { claudeToolCallsObservation } from "./claude-tool-calls";
+import { claudeSkillActivationsObservation } from "./claude-skill-activations";
 import { claudeNativeControls } from "./native-controls";
 export type { ClaudeHostOptions } from "./claude-state";
 
@@ -260,6 +260,7 @@ export function createClaudeHost(options: ClaudeHostOptions): HostAdapter {
       "sevro.host.runtime",
       "sevro.host.native-transcripts",
       "sevro.host.hooks",
+      "sevro.host.skill-activations",
       "sevro.claude.plugin-dirs",
       "sevro.claude.explicit-invocation",
       ...(options.projectSettings
@@ -267,7 +268,6 @@ export function createClaudeHost(options: ClaudeHostOptions): HostAdapter {
         : []),
       "sevro.claude.tool-calls",
       "sevro.host.native-controls",
-      "sevro.claude.nested-skills",
       "sevro.host.continuation",
       "sevro.claude.continuation",
     ],
@@ -538,11 +538,6 @@ async function claudeObservations(
   request: Request,
   invocation: RepositoryInvocation | null,
 ) {
-  const nested = await claudeNestedSkillsObservation(
-    execution.out,
-    configRoot,
-    request.workspace,
-  );
   const tools = claudeToolCallsObservation(execution.out, execution.code);
   const repository = await repositoryObservation(
     execution,
@@ -558,10 +553,10 @@ async function claudeObservations(
       configRoot,
       execution.followUpOut ?? execution.out,
     ),
-    nested,
     claudeNativeControls(execution.out, execution.code),
     ...(repository ? [repository] : []),
     ...(execution.continuation ? [execution.continuation] : []),
+    claudeSkillActivationsObservation(execution.out, execution.code),
   ];
 }
 

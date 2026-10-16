@@ -73,6 +73,10 @@ Automatic checks remain signals, not a complete truth judgment. Acceptance
 requires inspecting material claims against the sources actually read.
 File listings do not count as source inspection; follow-ups require fresh
 content. Explicit invocation requires Sevro's complete host dispatch receipt.
+Automatic selection requires the complete `sevro.host.skill-activations`
+observation on both hosts. Codex uses passive tool-result hooks; Claude uses
+successful native `Skill` calls. The evaluator does not fall back to command
+patterns, direct Claude file reads, or retired skill-read observations.
 See the [guide contract](specs/repository-guide.md).
 
 The [earlier verification record](guide-verification.json) describes historical

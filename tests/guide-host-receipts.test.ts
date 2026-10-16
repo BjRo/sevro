@@ -22,7 +22,7 @@ function shellQuote(value: string) {
   return "'" + value.replaceAll("'", "'\"'\"'") + "'";
 }
 
-async function hostFixture() {
+async function hostFixture(emitHooks: boolean) {
   const projectRoot = await mkdtemp(
     join(tmpdir(), "sevro-guide-receipt-project-"),
   );
@@ -33,6 +33,18 @@ async function hostFixture() {
   const authFile = join(projectRoot, "auth.json");
   await writeFile(authFile, "synthetic-test-auth", { mode: 0o600 });
   const binary = join(tools, "fake-codex");
+  const hookPeer = join(tools, "emit-hooks.ts");
+  await writeFile(
+    hookPeer,
+    `const config = await Bun.file(process.env.CODEX_HOME + "/hooks.json").json();
+for (const event of ["SessionStart", "PreToolUse", "PostToolUse", "Stop"]) {
+  const input = {hook_event_name: event, session_id: "receipt-test", tool_use_id: "read", tool_name: "reader", tool_response: ${JSON.stringify(body)}};
+  const command = config.hooks[event][0].hooks[0].command;
+  const child = Bun.spawn(["/bin/sh", "-c", command], {stdin: Buffer.from(JSON.stringify(input)), stdout: "pipe", stderr: "pipe"});
+  if (await child.exited !== 0) process.exit(90);
+}
+`,
+  );
   const events = [
     { type: "thread.started", thread_id: "receipt-test" },
     {
@@ -74,7 +86,11 @@ async function hostFixture() {
   ];
   await writeFile(
     binary,
-    "#!/bin/sh\n/bin/cat >/dev/null\nprintf '%s\\n' " +
+    "#!/bin/sh\n/bin/cat >/dev/null\n" +
+      (emitHooks
+        ? `${shellQuote(process.execPath)} ${shellQuote(hookPeer)} || exit 90\n`
+        : "") +
+      "printf '%s\\n' " +
       events.map((event) => shellQuote(JSON.stringify(event))).join(" ") +
       "\n",
     { mode: 0o700 },
@@ -82,58 +98,73 @@ async function hostFixture() {
   return { projectRoot, resultsRoot, authFile, binary };
 }
 
-test("Sevro retains complete evidence for batched mounted-skill reads", async () => {
-  const sandboxBinary = Bun.which("codex");
-  if (!isolatedNativeHost || !sandboxBinary) return;
-  const paths = await hostFixture();
-  const host = createCodexHost({
-    ...paths,
-    sandboxBinary,
-    model: "synthetic",
-    effort: "medium",
-    additionalProtectedRoots: [],
-  });
-  const { result } = await runEvaluation({
-    projectRoot: paths.projectRoot,
-    resultsRoot: paths.resultsRoot,
-    host,
-    case: {
-      id: "batched-guide-read",
-      prompt: "Read the guide and return ready.",
-      fixture: {
-        files: {
-          ".agents/skills/probe/SKILL.md": body,
-          "README.md": "Repository documentation\n",
+test.each([
+  { emitHooks: true, completeness: "complete", observedSkills: ["probe"] },
+  { emitHooks: false, completeness: "partial", observedSkills: [] },
+])(
+  "Sevro requires hook evidence even when the event transcript contains a full skill body: $emitHooks",
+  async ({ emitHooks, completeness, observedSkills }) => {
+    const sandboxBinary = Bun.which("codex");
+    if (!isolatedNativeHost || !sandboxBinary) return;
+    const paths = await hostFixture(emitHooks);
+    const host = createCodexHost({
+      ...paths,
+      sandboxBinary,
+      model: "synthetic",
+      effort: "medium",
+      additionalProtectedRoots: [],
+    });
+    const { result } = await runEvaluation({
+      projectRoot: paths.projectRoot,
+      resultsRoot: paths.resultsRoot,
+      host,
+      case: {
+        id: "batched-guide-read",
+        prompt: "Read the guide and return ready.",
+        fixture: {
+          files: {
+            ".agents/skills/probe/SKILL.md": body,
+            "README.md": "Repository documentation\n",
+          },
         },
+        checks: [
+          {
+            id: "response",
+            grader: "sevro.regex",
+            configuration: { pattern: "^ready$" },
+          },
+        ],
+        requiredEvidence: ["sevro.host.skill-activations"],
       },
-      checks: [
-        {
-          id: "response",
-          grader: "sevro.regex",
-          configuration: { pattern: "^ready$" },
-        },
-      ],
-      requiredEvidence: ["sevro.codex.skill-reads"],
-    },
-    runnerBuildDigest: "a".repeat(64),
-    projectDigest: "b".repeat(64),
-    condition: "passive",
-    trialCount: 1,
-    passThreshold: 1,
-  });
-  expect(result.exitCode).toBe(0);
-  expect(result.task.verdict).toBe("passed");
-  const evidence = parseRunEvidence(
-    await readFile(result.evidencePath, "utf8"),
-  );
-  expect(defined(evidence.trials[0]).observations).toContainEqual({
-    id: "sevro.codex.skill-reads",
-    source: "sevro.host.codex",
-    completeness: "complete",
-    data: {
-      method: "skill_file_read_probe",
-      primarySkill: "probe",
-      observedSkills: ["probe"],
-    },
-  });
-}, 30000);
+      runnerBuildDigest: "a".repeat(64),
+      projectDigest: "b".repeat(64),
+      condition: "passive",
+      trialCount: 1,
+      passThreshold: 1,
+    });
+    if (emitHooks) {
+      expect(result.exitCode).toBe(0);
+      expect(result.task.verdict).toBe("passed");
+    } else {
+      expect(result.exitCode).not.toBe(0);
+      expect(result.task.verdict).not.toBe("passed");
+    }
+    const evidence = parseRunEvidence(
+      await readFile(result.evidencePath, "utf8"),
+    );
+    expect(
+      defined(evidence.trials[0]).observations.find(
+        (item) => item.id === "sevro.host.skill-activations",
+      ),
+    ).toMatchObject({
+      id: "sevro.host.skill-activations",
+      source: "sevro.host.codex",
+      completeness,
+      data: {
+        method: "tool_result_body_match",
+        observedSkills,
+      },
+    });
+  },
+  30000,
+);

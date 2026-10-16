@@ -22,14 +22,6 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { runEvaluation } from "../src/engine";
 import { createCodexHost } from "../src/hosts/codex";
-import { createHash } from "node:crypto";
-import { pathToFileURL } from "node:url";
-import {
-  mixedReadProgram,
-  mixedReadCommand,
-  mixedReadOutput,
-  mixedReadSkill,
-} from "./fixtures/codex-mixed-skill-read";
 import {
   allocateWorkspace,
   removeWorkspace,
@@ -141,6 +133,9 @@ if [ -f "$workspace/.git/unchanged.flag" ]; then capture_root="$workspace/.git";
 printf '%s\\n' "$@" > "$capture_root/argv.txt"
 if [ -n "\${OPENAI_API_KEY:-}" ]; then exit 97; fi
 /bin/cat > "$capture_root/prompt.txt"
+if [ -f "$workspace/.git/skill-hooks.ts" ]; then
+  '${process.execPath.replaceAll("'", `'"'"'`)}' "$workspace/.git/skill-hooks.ts" || exit 91
+fi
 if [ -f "$workspace/capture-model-input.flag" ]; then
   if [ -e "$workspace/.codex" ]; then exit 93; fi
   ${quotedCodex} debug prompt-input "Read the installed probe skill" > "$workspace/model-input.json" || exit 94
@@ -213,370 +208,276 @@ async function ordinaryCodexRequest() {
   return { paths, host, request, workspace };
 }
 
-test.each([
-  { state: "unchanged files", config: '{"timeoutMs":1000}', truncated: false },
-  {
-    state: "later config change",
-    config: '{"timeoutMs":2500}',
-    truncated: false,
-  },
-  { state: "truncated output", config: '{"timeoutMs":1000}', truncated: true },
-])(
-  "Codex recovers issue 86 mixed Skill output with $state",
-  // eslint-disable-next-line max-lines-per-function -- Replay one published native program through the host observation boundary; bounded by sevro/test-callback-lines.
-  async ({ config, truncated }) => {
-    if (!isolatedNativeHost || !Bun.which("codex")) return;
-    const selected = await ordinaryCodexRequest();
-    const skillRoot = join(selected.workspace, ".agents/skills/ship-proposal");
-    await mkdir(skillRoot, { recursive: true });
-    await writeFile(join(skillRoot, "SKILL.md"), mixedReadSkill);
-    await writeFile(join(selected.workspace, "config.json"), config);
-    await writeFile(
-      join(selected.workspace, "check.sh"),
-      '#!/usr/bin/env bash\nset -eu\ntest "$(cat config.json)" = \'{"timeoutMs":2500}\'\n',
-    );
-    await writeFile(
-      join(selected.workspace, "NOTES.md"),
-      "Initial delivery notes.\nAdditional local delivery notes.\n",
-    );
-    expect(Buffer.byteLength(mixedReadSkill)).toBe(992);
-    expect(createHash("sha256").update(mixedReadSkill).digest("hex")).toBe(
-      "763444720e5885fafce7e03d21090871ca1de72766255c7b8cadc3484f5ca89c",
-    );
-    expect(createHash("sha256").update(mixedReadOutput).digest("hex")).toBe(
-      "caeda787f1cb4352ae253171bca6ffcd348eb29bb7082ac26a39d4a5a07a4414",
-    );
-    const output =
-      mixedReadOutput + (truncated ? "Warning: truncated output" : "");
-    const expected = truncated ? [] : ["ship-proposal"];
-    const item = {
-      id: "issue-86-read",
-      type: "CommandExecution",
-      source: "unified_exec_startup",
-      process_id: "36617",
-      command: ["/bin/zsh", "-c", mixedReadCommand],
-      cwd: pathToFileURL(selected.workspace).href,
-      status: "completed",
-      exit_code: 0,
-      aggregated_output: output,
-    };
-    const native = [
-      {
-        ordinal: 44,
-        payload: {
-          type: "custom_tool_call",
-          name: "exec",
-          call_id: "issue-86",
-          input: mixedReadProgram,
-        },
-      },
-      { ordinal: 48, payload: { type: "item_completed", item } },
-      {
-        ordinal: 49,
-        payload: {
-          type: "custom_tool_call_output",
-          call_id: "issue-86",
-          output: [
-            {
-              type: "input_text",
-              text: "Script completed\nWall time 1.17 seconds\nOutput:\n",
-            },
-            {
-              type: "input_text",
-              text: JSON.stringify({
-                i: 0,
-                status: "fulfilled",
-                value: {
-                  exit_code: 0,
-                  output: "other supporting read unavailable",
-                },
-              }),
-            },
-            {
-              type: "input_text",
-              text: JSON.stringify({
-                i: 1,
-                status: "fulfilled",
-                value: {
-                  exit_code: 0,
-                  output: "other supporting read unavailable",
-                },
-              }),
-            },
-            {
-              type: "input_text",
-              text: JSON.stringify({
-                i: 2,
-                status: "fulfilled",
-                value: {
-                  chunk_id: "26b261",
-                  wall_time_seconds: 0.349407833,
-                  exit_code: 0,
-                  original_token_count: 286,
-                  output,
-                },
-              }),
-            },
-          ],
-        },
-      },
-    ];
-    const events = [
-      { type: "thread.started", thread_id: "thread-1" },
-      {
-        type: "item.completed",
-        item: {
-          ...item,
-          type: "command_execution",
-          command: mixedReadCommand,
-          aggregated_output: "",
-        },
-      },
-      {
-        type: "item.completed",
-        item: { type: "agent_message", text: "ready" },
-      },
-      { type: "turn.completed" },
-    ];
-    await writeFile(
-      join(selected.workspace, "compound-native.jsonl"),
-      native.map((entry) => JSON.stringify(entry)).join("\n") + "\n",
-    );
-    await writeFile(
-      join(selected.workspace, "compound-events.jsonl"),
-      events.map((entry) => JSON.stringify(entry)).join("\n") + "\n",
-    );
-    const result = await selected.host.run(selected.request);
-    expectUnknown(result.observations).toContainEqual(
-      objectContaining({
-        id: "sevro.codex.skill-reads",
-        data: objectContaining({ observedSkills: expected }),
-      }),
-    );
-    expectUnknown(result.observations).toContainEqual(
-      objectContaining({
-        id: "sevro.codex.native-calls",
-        data: objectContaining({
-          parentReadDiagnostics: objectContaining({
-            observedSkills: expected,
-            completedReads: expected.map((skill) => ({ skill, ordinal: 48 })),
-          }),
-        }),
-      }),
-    );
-  },
-);
-
-async function compoundReadFixture(skill: string, command: string) {
-  const selected = await ordinaryCodexRequest();
-  const skillRoot = join(selected.workspace, ".agents", "skills", skill);
-  const body = `---\nname: ${skill}\ndescription: Compound read fixture\n---\nRead this complete skill body.\n`;
-  await mkdir(skillRoot, { recursive: true });
-  await mkdir(join(selected.workspace, "docs"));
-  await mkdir(join(selected.workspace, "docs/specs"));
-  await writeFile(join(skillRoot, "SKILL.md"), body);
-  await writeFile(
-    join(selected.workspace, "docs/specs/repository-guide.md"),
-    "Repository guide contract\n",
-  );
-  await writeFile(
-    join(selected.workspace, "README.md"),
-    "offline deployment\n",
-  );
-  const literalCommand = command.replaceAll("$WORKSPACE", selected.workspace);
-  const process = Bun.spawn(["/bin/sh", "-c", literalCommand], {
-    cwd: selected.workspace,
-    stdout: "pipe",
-    stderr: "pipe",
+test("Codex host collects runner-owned hooks independently of command syntax", async () => {
+  if (!isolatedNativeHost) return;
+  const { host, request } = await ordinaryCodexRequest();
+  await mkdir(join(request.workspace, ".git"));
+  await mkdir(join(request.workspace, ".agents/skills/probe"), {
+    recursive: true,
   });
-  const [output, error, exitCode] = await Promise.all([
-    new Response(process.stdout).text(),
-    new Response(process.stderr).text(),
-    process.exited,
-  ]);
-  expect(exitCode, error).toBe(0);
-  expect(output).toContain(body);
-  const item = {
-    id: "compound-read",
-    type: "command_execution",
-    command: literalCommand,
-    aggregated_output: output,
-    status: "completed",
-    exit_code: exitCode,
-  };
-  const events = [
-    { type: "thread.started", thread_id: "thread-1" },
-    { type: "item.completed", item },
-    { type: "item.completed", item: { type: "agent_message", text: "ready" } },
-    { type: "turn.completed" },
-  ];
   await writeFile(
-    join(selected.workspace, "compound-events.jsonl"),
-    events.map((event) => JSON.stringify(event)).join("\n") + "\n",
+    join(request.workspace, ".agents/skills/probe/SKILL.md"),
+    "Full private skill instructions.\n",
   );
   await writeFile(
-    join(selected.workspace, "compound-native.jsonl"),
-    JSON.stringify({
-      ordinal: 0,
-      payload: {
-        type: "item_completed",
-        item: {
-          ...item,
-          type: "CommandExecution",
-          command: ["/bin/sh", "-c", literalCommand],
-          cwd: selected.workspace,
-        },
-      },
-    }) + "\n",
+    join(request.workspace, ".git/skill-hooks.ts"),
+    `
+const definitions = await Bun.file(process.env.CODEX_HOME + "/hooks.json").json();
+const body = await Bun.file(".agents/skills/probe/SKILL.md").text();
+for (const name of ["SessionStart", "PreToolUse", "PostToolUse", "Stop"]) {
+  const input = {hook_event_name: name, session_id: "thread-1", tool_use_id: "read-1", tool_name: "mcp__reader__read", tool_response: body};
+  const command = definitions.hooks[name][0].hooks[0].command;
+  const child = Bun.spawn(["/bin/sh", "-c", command], {stdin: Buffer.from(JSON.stringify(input)), stdout: "pipe", stderr: "pipe"});
+  if (await child.exited !== 0) process.exit(90);
+}
+`,
   );
-  return selected;
+  const result = await host.run(request);
+  expect(result.complete).toBe(true);
+  expect(host.hostCapabilities).toContain("sevro.host.skill-activations");
+  expect(
+    result.observations?.some((item) => item.id.endsWith("skill-reads")),
+  ).toBe(false);
+  expect(
+    result.observations?.find(
+      (item) => item.id === "sevro.host.skill-activations",
+    ),
+  ).toMatchObject({
+    completeness: "complete",
+    data: { method: "tool_result_body_match", observedSkills: ["probe"] },
+  });
+  expect(JSON.stringify(result.observations)).not.toContain(
+    "Full private skill instructions.",
+  );
+});
+
+const pagedSkillPages = [
+  "---\nname: probe\ndescription: A paged skill tracking fixture.\n---\n# First page\nRead the first instruction before continuing.\n",
+  "# Second page\nRead the second instruction and return the requested result.\n",
+] as const;
+
+async function runPagedCodex(
+  pages: readonly { text: string; session?: string; turn?: string }[],
+  options: { body?: string; aliases?: string[] } = {},
+) {
+  const { host, request } = await ordinaryCodexRequest();
+  const body = options.body ?? pagedSkillPages.join("");
+  await mkdir(join(request.workspace, ".git"));
+  for (const name of ["probe", ...(options.aliases ?? [])]) {
+    await mkdir(join(request.workspace, ".agents/skills", name), {
+      recursive: true,
+    });
+    await writeFile(
+      join(request.workspace, ".agents/skills", name, "SKILL.md"),
+      body,
+    );
+  }
+  await writeFile(
+    join(request.workspace, ".git/skill-hooks.ts"),
+    `
+const definitions = await Bun.file(process.env.CODEX_HOME + "/hooks.json").json();
+async function emit(name, fields = {}) {
+  const input = {hook_event_name: name, session_id: "thread-1", turn_id: "turn-1", ...fields};
+  const command = definitions.hooks[name][0].hooks[0].command;
+  const child = Bun.spawn(["/bin/sh", "-c", command], {stdin: Buffer.from(JSON.stringify(input)), stdout: "pipe", stderr: "pipe"});
+  if (await child.exited !== 0) process.exit(90);
+}
+await emit("SessionStart");
+for (const [index, page] of ${JSON.stringify(pages)}.entries()) {
+  const identity = {tool_use_id: "page-" + index, tool_name: "Bash", session_id: page.session ?? "thread-1", turn_id: page.turn ?? "turn-1"};
+  await emit("PreToolUse", identity);
+  await emit("PostToolUse", {...identity, tool_response: {output: "private-output-prefix\\n" + page.text + "private-output-suffix"}});
+}
+await emit("Stop");
+`,
+  );
+  return host.run(request);
 }
 
-test.each([
-  {
-    label: "read followed by search",
-    command:
-      "cat .agents/skills/darrow-guide/SKILL.md; rg -n -i 'offline|\\bSLA\\b|service.level|guaranteed|deployment' README.md docs .agents/skills/darrow-guide",
-  },
-  {
-    label: "additional literal file read",
-    command:
-      "cat .agents/skills/darrow-guide/SKILL.md; cat docs/specs/repository-guide.md; rg -n -i 'offline|\\bsla\\b|service.level|guarantee|deployment' --glob '*.md' --glob '!docs/research/**' --glob '!**/SKILL.md' .",
-  },
-])(
-  "Codex compound $label retains complete activation evidence",
-  async ({ command }) => {
-    if (!isolatedNativeHost || !Bun.which("codex")) return;
-    const skill = "darrow-guide";
-    const selected = await compoundReadFixture(skill, command);
-    const result = await selected.host.run({
-      ...selected.request,
-      prompt: `Use $${skill} and return ready.`,
-      explicitSkillInvocation: {
-        scope: "repository",
-        skillName: skill,
-        token: `$${skill}`,
-      },
-    });
-    expect(result.complete).toBe(true);
-    expectUnknown(result.observations).toContainEqual({
-      id: "sevro.codex.skill-reads",
-      completeness: "complete",
-      data: {
-        method: "skill_file_read_probe",
-        primarySkill: skill,
-        observedSkills: [skill],
-      },
-    });
-    expectUnknown(result.observations).toContainEqual({
-      id: "sevro.codex.explicit-invocation",
-      completeness: "complete",
-      data: {
-        method: "explicit_invocation",
-        primarySkill: skill,
-        observedSkills: [skill],
-      },
-    });
-    expectUnknown(result.observations).toContainEqual(
-      objectContaining({
-        id: "sevro.codex.native-calls",
-        completeness: "complete",
-        data: objectContaining({
-          parentReadDiagnostics: objectContaining({
-            completeness: "complete",
-            observedSkills: [skill],
-            completedReads: [{ skill, ordinal: 0 }],
-          }),
-        }),
-      }),
-    );
-  },
-);
-
-test("Codex verified owner dispatch remains complete when supporting reads are partial", async () => {
-  if (!isolatedNativeHost || !Bun.which("codex")) return;
-  const selected = await compoundReadFixture(
-    "darrow-guide",
-    "cat .agents/skills/darrow-guide/SKILL.md",
-  );
-  const path = join(selected.workspace, "compound-events.jsonl");
-  const events = await readFile(path, "utf8");
-  await writeFile(
-    path,
-    events.replace("Read this complete skill body.", "Incomplete."),
-  );
-  const result = await selected.host.run({
-    ...selected.request,
-    prompt: "Use $darrow-guide and return ready.",
-    explicitSkillInvocation: {
-      scope: "repository",
-      skillName: "darrow-guide",
-      token: "$darrow-guide",
-    },
-  });
+test("Codex host accounts for paged tool results", async () => {
+  if (!isolatedNativeHost) return;
+  const result = await runPagedCodex(pagedSkillPages.map((text) => ({ text })));
   expect(result.complete).toBe(true);
-  expectUnknown(result.observations).toContainEqual(
-    objectContaining({
-      id: "sevro.codex.skill-reads",
-      completeness: "partial",
-    }),
-  );
-  expectUnknown(result.observations).toContainEqual({
-    id: "sevro.codex.explicit-invocation",
+  expect(
+    result.observations?.find(
+      (item) => item.id === "sevro.host.skill-activations",
+    ),
+  ).toMatchObject({
     completeness: "complete",
-    data: {
-      method: "explicit_invocation",
-      primarySkill: "darrow-guide",
-      observedSkills: ["darrow-guide"],
-    },
+    data: { method: "tool_result_body_match", observedSkills: ["probe"] },
+  });
+  expect(JSON.stringify(result.observations)).not.toContain(
+    "private-output-prefix",
+  );
+  expect(JSON.stringify(result.observations)).not.toContain(pagedSkillPages[0]);
+});
+
+test.each([
+  { name: "missing tail", pages: [{ text: pagedSkillPages[0] }] },
+  {
+    name: "duplicate page",
+    pages: [{ text: pagedSkillPages[0] }, { text: pagedSkillPages[0] }],
+  },
+  {
+    name: "other session",
+    pages: [
+      { text: pagedSkillPages[0] },
+      { text: pagedSkillPages[1], session: "child-1" },
+    ],
+  },
+  {
+    name: "other turn",
+    pages: [
+      { text: pagedSkillPages[0] },
+      { text: pagedSkillPages[1], turn: "turn-2" },
+    ],
+  },
+  {
+    name: "hole",
+    pages: [
+      { text: pagedSkillPages.join("").slice(0, 80) },
+      { text: pagedSkillPages.join("").slice(90) },
+    ],
+  },
+  {
+    name: "changed tail",
+    pages: [
+      { text: pagedSkillPages[0] },
+      {
+        text: pagedSkillPages[1].replace(
+          "second instruction",
+          "changed instruction",
+        ),
+      },
+    ],
+  },
+])("incomplete paged tool results stay unknown: $name", async ({ pages }) => {
+  if (!isolatedNativeHost) return;
+  const result = await runPagedCodex(pages);
+  expect(result.complete).toBe(true);
+  expect(
+    result.observations?.find(
+      (item) => item.id === "sevro.host.skill-activations",
+    ),
+  ).toMatchObject({
+    completeness: "partial",
+    data: { observedSkills: [], partialSkills: ["probe"] },
   });
 });
 
-test("Codex app-server continuation retains separate completed phase reads", async () => {
-  if (!isolatedNativeHost || !Bun.which("codex")) return;
-  const selected = await ordinaryCodexRequest();
-  await mkdir(join(selected.workspace, ".git"));
-  await writeFile(join(selected.workspace, "feedback.txt"), "Continue");
-  for (const skill of ["initial", "follow-up"]) {
-    const root = join(selected.workspace, ".agents/skills", skill);
-    await mkdir(root, { recursive: true });
-    await writeFile(
-      join(root, "SKILL.md"),
-      `---\nname: ${skill}\n---\nRead the complete body.\n`,
-    );
-  }
-  const binary = join(dirname(selected.paths.fakeBinary), "phase-peer");
-  await writeFile(
-    binary,
-    `#!/bin/sh\nexec '${process.execPath}' '${join(import.meta.dir, "fixtures/app-server-peer.ts")}' "$@"\n`,
-    { mode: 0o700 },
+test.each([
+  { name: "reverse order", pages: [...pagedSkillPages].reverse() },
+  {
+    name: "overlap",
+    pages: [
+      pagedSkillPages.join("").slice(0, 140),
+      pagedSkillPages.join("").slice(100),
+    ],
+  },
+  {
+    name: "full body resolves fragments",
+    pages: [pagedSkillPages[0], pagedSkillPages.join(""), pagedSkillPages[1]],
+  },
+])("complete paged tool results tolerate $name", async ({ pages }) => {
+  if (!isolatedNativeHost) return;
+  const result = await runPagedCodex(pages.map((text) => ({ text })));
+  expect(
+    result.observations?.find(
+      (item) => item.id === "sevro.host.skill-activations",
+    ),
+  ).toMatchObject({
+    completeness: "complete",
+    data: { observedSkills: ["probe"], partialSkills: [] },
+  });
+});
+
+test("paged tool results with identical skill bodies remain ambiguous", async () => {
+  if (!isolatedNativeHost) return;
+  const result = await runPagedCodex(
+    pagedSkillPages.map((text) => ({ text })),
+    { aliases: ["other"] },
   );
-  const host = createCodexHost({
-    ...ordinaryCodexOptions,
-    ...selected.paths,
-    binary,
-    authFile: selected.paths.authFile,
-    sandboxBinary: defined(Bun.which("codex")),
-    entrypoint: "app-server",
+  expect(
+    result.observations?.find(
+      (item) => item.id === "sevro.host.skill-activations",
+    ),
+  ).toMatchObject({
+    completeness: "partial",
+    data: { observedSkills: [], ambiguousSkills: ["other", "probe"] },
   });
-  const result = await host.run({
-    ...selected.request,
-    followUpPrompt: "Continue.",
+});
+
+test("repeated page text cannot prove different body positions were exposed", async () => {
+  if (!isolatedNativeHost) return;
+  const repeated =
+    "Read this repeated instruction before any subsequent action.\n";
+  const result = await runPagedCodex([{ text: repeated }, { text: repeated }], {
+    body: repeated.repeat(3),
   });
-  expect(result.complete).toBe(true);
-  for (const [phase, skill] of [
-    ["initial", "initial"],
-    ["follow-up", "follow-up"],
-  ]) {
-    expectUnknown(result.observations).toContainEqual({
-      id: `sevro.codex.${phase}-skill-reads`,
-      completeness: "complete",
-      data: {
-        method: "skill_file_read_probe",
-        primarySkill: skill,
-        observedSkills: [skill],
+  expect(
+    result.observations?.find(
+      (item) => item.id === "sevro.host.skill-activations",
+    ),
+  ).toMatchObject({
+    completeness: "partial",
+    data: { observedSkills: [], partialSkills: ["probe"] },
+  });
+});
+
+test.each([
+  "repeat\n",
+  "Read this repeated instruction before any subsequent action.\n",
+])("paged matching limits keep evidence unknown: %j", async (line) => {
+  if (!isolatedNativeHost) return;
+  const result = await runPagedCodex([{ text: line }], {
+    body: line.repeat(5000),
+  });
+  expect(
+    result.observations?.find(
+      (item) => item.id === "sevro.host.skill-activations",
+    ),
+  ).toMatchObject({
+    completeness: "partial",
+    data: { observedSkills: [] },
+  });
+});
+
+test("Codex state opt-in still refuses a configuration path that is a file", async () => {
+  if (!isolatedNativeHost || !Bun.which("codex")) return;
+  const { host, request } = await ordinaryCodexRequest();
+  await writeFile(join(request.workspace, ".codex"), "not a directory");
+  expect(
+    host.run({
+      ...request,
+      runtimePolicy: {
+        format: "sevro.runtime.v1",
+        environment: {},
+        readOnlyRoots: [],
+        codexState: true,
       },
+    }),
+  ).rejects.toThrow("fixture Codex configuration must be a physical directory");
+});
+
+test("Codex continuation stays partial when the workspace fingerprint cannot be read", async () => {
+  if (!isolatedNativeHost || !Bun.which("codex")) return;
+  const { host, request } = await ordinaryCodexRequest();
+  const path = join(request.workspace, "unreadable.txt");
+  await writeFile(path, "private content");
+  await chmod(path, 0);
+  try {
+    const result = await host.run({ ...request, followUpPrompt: "Continue." });
+    expect(result.complete).toBe(true);
+    expect(
+      result.observations?.find(
+        (item) => item.id === "sevro.codex.continuation",
+      ),
+    ).toMatchObject({
+      completeness: "partial",
+      data: { preFollowUpWorktreeUnchanged: null },
     });
+  } finally {
+    await chmod(path, 0o600);
   }
 });
 
@@ -621,149 +522,8 @@ test("failed app-server execution cannot yield a complete owner-dispatch receipt
     data: {
       method: "explicit_invocation",
       primarySkill: "probe",
-      observedSkills: ["probe"],
     },
   });
-});
-
-test("Codex compound fallback read followed by discovery retains complete activation evidence", async () => {
-  if (!isolatedNativeHost || !Bun.which("codex")) return;
-  const skill = "tdd";
-  const selected = await compoundReadFixture(
-    skill,
-    "cat \"$WORKSPACE/.agents/skills/tdd/SKILL.md\" 2>/dev/null ||\n  cat \"$WORKSPACE/.agents/skills/darrow-tdd/tdd/SKILL.md\" 2>/dev/null ||\n  true\nrg --files -g 'AGENTS.md' -g 'SKILL.md' -g 'README*' -g 'test.sh' -g 'src/**' -g 'tests/**' -g 'test/**' -g 'package.json'",
-  );
-  expect(
-    await Bun.file(
-      join(selected.workspace, ".agents/skills/darrow-tdd/tdd/SKILL.md"),
-    ).exists(),
-  ).toBe(false);
-  const result = await selected.host.run({
-    ...selected.request,
-    prompt: `Use $${skill} and return ready.`,
-    explicitSkillInvocation: {
-      scope: "repository",
-      skillName: skill,
-      token: `$${skill}`,
-    },
-  });
-  expect(result.complete).toBe(true);
-  expectUnknown(result.observations).toContainEqual({
-    id: "sevro.codex.skill-reads",
-    completeness: "complete",
-    data: {
-      method: "skill_file_read_probe",
-      primarySkill: skill,
-      observedSkills: [skill],
-    },
-  });
-  expectUnknown(result.observations).toContainEqual({
-    id: "sevro.codex.explicit-invocation",
-    completeness: "complete",
-    data: {
-      method: "explicit_invocation",
-      primarySkill: skill,
-      observedSkills: [skill],
-    },
-  });
-  expectUnknown(result.observations).toContainEqual(
-    objectContaining({
-      id: "sevro.codex.native-calls",
-      completeness: "complete",
-      data: objectContaining({
-        parentReadDiagnostics: objectContaining({
-          completeness: "complete",
-          observedSkills: [skill],
-          completedReads: [{ skill, ordinal: 0 }],
-        }),
-      }),
-    }),
-  );
-});
-
-test("Codex recognizes a terminal Skill read after ordinary files and Git discovery", async () => {
-  if (!isolatedNativeHost || !Bun.which("codex")) return;
-  const selected = await compoundReadFixture(
-    "ship-proposal",
-    "cat README.md; git status --short; git diff --stat; cat .agents/skills/ship-proposal/SKILL.md",
-  );
-  const result = await selected.host.run(selected.request);
-  expectUnknown(result.observations).toContainEqual(
-    objectContaining({
-      id: "sevro.codex.skill-reads",
-      data: objectContaining({ observedSkills: ["ship-proposal"] }),
-    }),
-  );
-});
-
-test("Codex recognizes a Skill read before working-directory discovery", async () => {
-  if (!isolatedNativeHost || !Bun.which("codex")) return;
-  const selected = await compoundReadFixture(
-    "fetch-work-item",
-    "cat .agents/skills/fetch-work-item/SKILL.md; pwd",
-  );
-  const result = await selected.host.run(selected.request);
-  expectUnknown(result.observations).toContainEqual(
-    objectContaining({
-      id: "sevro.codex.skill-reads",
-      completeness: "complete",
-      data: objectContaining({ observedSkills: ["fetch-work-item"] }),
-    }),
-  );
-});
-
-test.each([
-  "cat README.md .agents/skills/ship-proposal/SKILL.md",
-  "cat README.md; cat .agents/skills/ship-proposal/SKILL.md",
-])(
-  "Codex recognizes a batched Skill read after ordinary files change: %s",
-  async (command) => {
-    if (!isolatedNativeHost || !Bun.which("codex")) return;
-    const selected = await compoundReadFixture("ship-proposal", command);
-    await writeFile(
-      join(selected.workspace, "README.md"),
-      "Changed after the read\n",
-    );
-    const result = await selected.host.run(selected.request);
-    expectUnknown(result.observations).toContainEqual(
-      objectContaining({
-        id: "sevro.codex.skill-reads",
-        completeness: "complete",
-        data: objectContaining({ observedSkills: ["ship-proposal"] }),
-      }),
-    );
-  },
-);
-
-test("Codex recognizes the reviewer-route repository-prefixed skill read", async () => {
-  if (!isolatedNativeHost || !Bun.which("codex")) return;
-  const skill = "code-review";
-  const selected = await compoundReadFixture(
-    skill,
-    'unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES\n git -C "$PWD" rev-parse --show-toplevel\ncat .agents/skills/code-review/SKILL.md',
-  );
-  const result = await selected.host.run({
-    ...selected.request,
-    prompt: "Use $code-review and return ready.",
-    explicitSkillInvocation: {
-      scope: "repository",
-      skillName: skill,
-      token: "$code-review",
-    },
-  });
-  expectUnknown(result.observations).toContainEqual(
-    objectContaining({
-      id: "sevro.codex.skill-reads",
-      completeness: "complete",
-      data: objectContaining({ primarySkill: skill, observedSkills: [skill] }),
-    }),
-  );
-  expectUnknown(result.observations).toContainEqual(
-    objectContaining({
-      id: "sevro.codex.explicit-invocation",
-      completeness: "complete",
-    }),
-  );
 });
 
 test.each([
@@ -1168,41 +928,10 @@ test("Codex host binds bounded native calls to its completed thread", async () =
       truncated: false,
     },
   });
-  expectUnknown(result.observations).toContainEqual({
-    id: "sevro.codex.native-calls",
-    completeness: "complete",
-    data: {
-      method: "native_session",
-      calls: [
-        {
-          ordinal: 0,
-          namespace: "functions",
-          name: "create_goal",
-          evidence: "invocation_attempt",
-        },
-      ],
-      toolCalls: [{ ordinal: 0, namespace: "functions", name: "create_goal" }],
-      submittedExecCalls: 0,
-      acceptedSpawns: [],
-      feedbackCalls: [],
-      parentReadDiagnostics: {
-        completeness: "complete",
-        observedSkills: [],
-        completedReads: [],
-        recoverySources: [],
-        commandExecutions: 0,
-        readAttempts: 0,
-        truncated: false,
-      },
-      childSessions: [],
-      childrenTruncated: false,
-    },
-  });
   expect(JSON.stringify(result.observations)).not.toContain(
     "private objective",
   );
 });
-// eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("Codex host resumes a second prompt in the initial thread", async () => {
   const installedCodex = Bun.which("codex");
   if (!isolatedNativeHost || !installedCodex) return;
@@ -1257,15 +986,6 @@ test("Codex host resumes a second prompt in the initial thread", async () => {
       preFollowUpWorktreeUnchanged: false,
     },
   });
-  expectUnknown(result.observations).toContainEqual({
-    id: "sevro.codex.initial-skill-reads",
-    completeness: "complete",
-    data: {
-      method: "skill_file_read_probe",
-      primarySkill: null,
-      observedSkills: [],
-    },
-  });
   expectUnknown(result.observations).toContainEqual(
     objectContaining({
       id: "sevro.codex.native-calls",
@@ -1284,15 +1004,6 @@ test("Codex host resumes a second prompt in the initial thread", async () => {
       }),
     }),
   );
-  expectUnknown(result.observations).toContainEqual({
-    id: "sevro.codex.follow-up-skill-reads",
-    completeness: "complete",
-    data: {
-      method: "skill_file_read_probe",
-      primarySkill: null,
-      observedSkills: [],
-    },
-  });
 });
 test("Codex continuation ignores Git-private fixture state at the boundary", async () => {
   const installedCodex = Bun.which("codex");
@@ -1408,15 +1119,6 @@ exec '${selected.paths.fakeBinary}' "$@"
       });
       expect(result.complete).toBe(true);
       expect(result.finalMessage).toBe("ready");
-      expectUnknown(result.observations).toContainEqual({
-        id: "sevro.codex.skill-reads",
-        completeness: "complete",
-        data: {
-          method: "skill_file_read_probe",
-          primarySkill: entrypoint === "exec" ? "probe" : null,
-          observedSkills: entrypoint === "exec" ? ["probe"] : [],
-        },
-      });
       expectUnknown(result.observations).toContainEqual({
         id: "sevro.host.hooks",
         completeness: "complete",
@@ -1578,31 +1280,9 @@ test("Codex host installs a declared local plugin in its isolated home", async (
   assertPluginPromptPermissions(modelInput);
   expect(result.finalMessage).toBe("ready");
   expect(result.complete).toBe(true);
-  expect(result.observations?.[0]).toMatchObject({
-    id: "sevro.codex.skill-reads",
-    completeness: "complete",
-    data: { primarySkill: "probe", observedSkills: ["probe"] },
-  });
   await writeFile(join(workspace, "follow-up-skill-read.flag"), "\n");
   const resumed = await host.run({ ...request, followUpPrompt: "Continue." });
-  expectUnknown(resumed.observations).toContainEqual({
-    id: "sevro.codex.initial-skill-reads",
-    completeness: "complete",
-    data: {
-      method: "skill_file_read_probe",
-      primarySkill: "probe",
-      observedSkills: ["probe"],
-    },
-  });
-  expectUnknown(resumed.observations).toContainEqual({
-    id: "sevro.codex.follow-up-skill-reads",
-    completeness: "complete",
-    data: {
-      method: "skill_file_read_probe",
-      primarySkill: "probe",
-      observedSkills: ["probe"],
-    },
-  });
+  expect(resumed.complete).toBe(true);
   expect(await readFile(join(workspace, "created.txt"), "utf8")).toBe(
     "created\n",
   );
@@ -1623,12 +1303,7 @@ test("Codex host installs a declared local plugin in its isolated home", async (
     data: {
       method: "explicit_invocation",
       primarySkill: "probe",
-      observedSkills: ["probe"],
     },
-  });
-  expect(dispatched.observations?.[0]).toMatchObject({
-    id: "sevro.codex.skill-reads",
-    data: { primarySkill: null, observedSkills: [] },
   });
   expect(
     host.run({ ...explicit, prompt: "Use $probe:probe twice: $probe:probe." }),
@@ -1697,7 +1372,6 @@ test("Codex host dispatches a verified repository skill without a plugin", async
     data: {
       method: "explicit_invocation",
       primarySkill: "probe",
-      observedSkills: ["probe"],
     },
   });
   expect(
@@ -1789,16 +1463,6 @@ test("Codex host verifies its permission profile and feeds the engine", async ()
     host: "sevro.host.codex",
     model: "synthetic-codex",
     effort: "low",
-  });
-  expectUnknown(defined(evidence.trials[0]).observations).toContainEqual({
-    id: "sevro.codex.skill-reads",
-    source: "sevro.host.codex",
-    completeness: "complete",
-    data: {
-      method: "skill_file_read_probe",
-      primarySkill: null,
-      observedSkills: [],
-    },
   });
   const [events] = defined(evidence.trials[0]).artifactRefs;
   expect(defined(events).id).toBe("sevro.codex.events");

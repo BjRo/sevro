@@ -2,7 +2,6 @@ import { expectUnknown } from "./fixtures/assertions";
 import { defined } from "./fixtures/assertions";
 import { afterEach, test, expect } from "bun:test";
 import {
-  chmod,
   mkdir,
   mkdtemp,
   readFile,
@@ -15,7 +14,6 @@ import { join } from "node:path";
 import {
   codexNativeCallObservation,
   codexNativeSessionLastOrdinal,
-  codexNativeSkillReadRecovery,
 } from "../src/hosts/codex-native-calls";
 import { codexNativeControls } from "../src/hosts/native-controls";
 const roots: string[] = [];
@@ -195,6 +193,52 @@ async function submittedProgram(input: string, ordinal: number) {
     await codexNativeCallObservation(root, "thread-1"),
   );
 }
+
+test.each([
+  "await service.exec_command({});",
+  "await tools.reader.exec_command({});",
+  "let result = await tools.get_goal({});",
+  "const result;",
+  "for (const item of []) text(item);",
+  "const results = await Promise.all([]); for (item of results) text(item);",
+  "const results = await Promise.all([]); for (let item of results) text(item);",
+  "const results = await Promise.all([]); for (const item = 1 of results) text(item);",
+  "const results = await Promise.all([]); for (const item of results) { text(item); }",
+])(
+  "Code Mode cannot establish complete control evidence from unsupported bindings: %s",
+  async (input) => {
+    const observed = await submittedProgram(input, 0);
+    expect(observed.completeness).toBe("partial");
+    expect(observed.data.acceptedAgentCount).toBeNull();
+  },
+);
+
+test.each([
+  { callId: 42, output: [] },
+  { callId: "retained", output: { private: "unstructured result" } },
+  { callId: "retained", output: "{}" },
+])(
+  "Code Mode requires a bound structured completion before its control evidence is complete: %j",
+  async ({ callId, output }) => {
+    const root = await home();
+    await session(
+      root,
+      lines([
+        {
+          type: "custom_tool_call",
+          name: "exec",
+          call_id: callId,
+          input: "await tools.get_goal({});",
+        },
+        { type: "custom_tool_call_output", call_id: callId, output },
+      ]),
+    );
+    const observed = await codexNativeCallObservation(root, "thread-1");
+    expect(defined(observed.data.execCalls?.[0]).completeness).toBe("partial");
+    expect(codexNativeControls(observed).completeness).toBe("partial");
+    expect(JSON.stringify(observed)).not.toContain("unstructured result");
+  },
+);
 
 test.each([
   {
@@ -701,90 +745,6 @@ test("native goal and agent calls retain names and order without private argumen
   });
   expect(JSON.stringify(observed)).not.toContain("private");
 });
-// eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
-test("parent diagnostics cover sessions without a spawn", async () => {
-  const root = await home();
-  const workspace = await mkdtemp(
-    join(tmpdir(), "sevro-native-parent-workspace-"),
-  );
-  roots.push(workspace);
-  const skillDir = join(workspace, ".agents", "skills", "example");
-  await mkdir(skillDir, { recursive: true });
-  const body =
-    "---\nname: example\ndescription: Example\n---\n\nPrivate parent body.\n";
-  await writeFile(join(skillDir, "SKILL.md"), body);
-  const context = { workspace, installedPluginRoots: [] };
-  await session(
-    root,
-    lines([{ type: "item_completed", item: { type: "AgentMessage" } }]),
-  );
-  expectUnknown(
-    (await codexNativeCallObservation(root, "thread-1", context)).data
-      .parentReadDiagnostics,
-  ).toEqual({
-    completeness: "complete",
-    observedSkills: [],
-    completedReads: [],
-    recoverySources: [],
-    commandExecutions: 0,
-    readAttempts: 0,
-    truncated: false,
-  });
-  await session(
-    root,
-    lines([
-      {
-        type: "item_completed",
-        item: {
-          type: "CommandExecution",
-          command: ["/bin/zsh", "-lc", "cat .agents/skills/example/SKILL.md"],
-          aggregated_output: body,
-          exit_code: 0,
-          status: "completed",
-        },
-      },
-    ]),
-  );
-  const observed = await codexNativeCallObservation(root, "thread-1", context);
-  expect(observed.data.parentReadDiagnostics).toMatchObject({
-    completeness: "complete",
-    observedSkills: ["example"],
-    completedReads: [{ skill: "example", ordinal: 0 }],
-  });
-  await session(
-    root,
-    lines([
-      {
-        type: "item_completed",
-        item: {
-          type: "CommandExecution",
-          command: ["/bin/zsh", "-lc", "cat .agents/skills/example/SKILL.md"],
-          aggregated_output: body,
-          exit_code: 0,
-          status: "completed",
-        },
-      },
-      {
-        type: "item_completed",
-        item: {
-          type: "CommandExecution",
-          command: ["/bin/zsh", "-lc", "cat .agents/skills/example/SKILL.md"],
-          aggregated_output: body,
-          exit_code: 0,
-          status: "completed",
-        },
-      },
-    ]),
-  );
-  expectUnknown(
-    (await codexNativeCallObservation(root, "thread-1", context)).data
-      .parentReadDiagnostics?.completedReads,
-  ).toEqual([
-    { skill: "example", ordinal: 0 },
-    { skill: "example", ordinal: 1 },
-  ]);
-  expect(JSON.stringify(observed)).not.toContain("Private parent body.");
-});
 function lines(payloads: Array<Record<string, unknown>>) {
   return (
     payloads
@@ -820,20 +780,6 @@ const result = {
   call_id: "call_1",
   output: JSON.stringify({ task_name: "/root/reviewer" }),
 };
-async function childReadFixture() {
-  const root = await home();
-  const workspace = await mkdtemp(
-    join(tmpdir(), "sevro-native-child-workspace-"),
-  );
-  roots.push(workspace);
-  await session(root, lines([spawn, started, result]));
-  await session(
-    root,
-    lines([{ type: "item_completed", item: { type: "AgentMessage" } }]),
-    "thread-child",
-  );
-  return { root, workspace, context: { workspace, installedPluginRoots: [] } };
-}
 test("native spawn acceptance binds one request, start, and result", async () => {
   const root = await home();
   await session(root, lines([spawn, started, result]));
@@ -894,77 +840,6 @@ test("accepted child sessions distinguish available, malformed, and ambiguous ro
   expectUnknown(
     (await codexNativeCallObservation(root, "thread-1")).data.childSessions,
   ).toEqual([{ threadId: "thread-child", status: "ambiguous" }]);
-});
-test("accepted child skill reads require the exact mounted body", async () => {
-  const root = await home();
-  const workspace = await mkdtemp(
-    join(tmpdir(), "sevro-native-child-workspace-"),
-  );
-  roots.push(workspace);
-  const skillDir = join(workspace, ".agents", "skills", "example");
-  await mkdir(skillDir, { recursive: true });
-  const skillPath = join(skillDir, "SKILL.md");
-  const body =
-    "---\nname: example\ndescription: Example\n---\n\nPrivate skill body.\n";
-  await writeFile(skillPath, body);
-  await session(root, lines([spawn, started, result]));
-  const command = {
-    type: "item_completed",
-    item: {
-      type: "CommandExecution",
-      command: ["/bin/zsh", "-lc", `cat ${skillPath}`],
-      aggregated_output: body,
-      exit_code: 0,
-      status: "completed",
-    },
-  };
-  await session(root, lines([command]), "thread-child");
-  const context = { workspace, installedPluginRoots: [] };
-  const observed = await codexNativeCallObservation(root, "thread-1", context);
-  expectUnknown(observed.data.childSessions).toEqual([
-    {
-      threadId: "thread-child",
-      status: "available",
-      resultStatus: "unavailable",
-      nestedSpawns: [],
-      requestsTruncated: false,
-      readDiagnostics: {
-        completeness: "complete",
-        observedSkills: ["example"],
-        completedReads: [{ skill: "example", ordinal: 0 }],
-        recoverySources: [
-          {
-            ordinal: 0,
-            nativeOutput: true,
-            yieldedChunks: 0,
-            completedCall: false,
-            literalCommandCall: false,
-          },
-        ],
-        commandExecutions: 1,
-        readAttempts: 1,
-        truncated: false,
-      },
-    },
-  ]);
-  expect(JSON.stringify(observed)).not.toContain("Private skill body.");
-  expect(JSON.stringify(observed)).not.toContain(skillPath);
-  await session(
-    root,
-    lines([
-      { ...command, item: { ...command.item, aggregated_output: "summary" } },
-    ]),
-    "thread-child",
-  );
-  expect(
-    defined(
-      (await codexNativeCallObservation(root, "thread-1", context)).data
-        .childSessions[0],
-    ),
-  ).toMatchObject({
-    status: "available",
-    readDiagnostics: { completeness: "partial", observedSkills: [] },
-  });
 });
 test("accepted child completion binds one nonempty final message to its turn", async () => {
   const root = await home();
@@ -1150,87 +1025,6 @@ test("nested request truncation is explicit", async () => {
   });
   expect(defined(observed.data.childSessions[0]).nestedSpawns).toHaveLength(8);
 });
-test("child read diagnostics distinguish no read from harmless mentions", async () => {
-  const { root, context } = await childReadFixture();
-  expectUnknown(
-    defined(
-      (await codexNativeCallObservation(root, "thread-1", context)).data
-        .childSessions[0],
-    ).readDiagnostics,
-  ).toMatchObject({
-    completeness: "complete",
-    observedSkills: [],
-    completedReads: [],
-    commandExecutions: 0,
-    readAttempts: 0,
-    truncated: false,
-  });
-  await session(
-    root,
-    lines([
-      {
-        type: "item_completed",
-        item: {
-          type: "CommandExecution",
-          command: ["/bin/zsh", "-lc", "printf SKILL.md"],
-          aggregated_output: "SKILL.md",
-          exit_code: 0,
-          status: "completed",
-        },
-      },
-    ]),
-    "thread-child",
-  );
-  expect(
-    defined(
-      (await codexNativeCallObservation(root, "thread-1", context)).data
-        .childSessions[0],
-    ).readDiagnostics,
-  ).toMatchObject({
-    completeness: "complete",
-    observedSkills: [],
-    completedReads: [],
-    readAttempts: 0,
-    truncated: false,
-  });
-});
-
-test("child read diagnostics retain mounted frontmatter leaks from unrecognized commands", async () => {
-  const { root, workspace, context } = await childReadFixture();
-  const skillPath = join(workspace, ".agents", "skills", "example", "SKILL.md");
-  const body =
-    "---\nname: example\ndescription: Example\n---\n\nPrivate child body.\n";
-  await mkdir(join(workspace, ".agents", "skills", "example"), {
-    recursive: true,
-  });
-  await writeFile(skillPath, body);
-  await session(
-    root,
-    lines([
-      {
-        type: "item_completed",
-        item: {
-          type: "CommandExecution",
-          command: ["/bin/zsh", "-lc", "printf 'name: example\\n'"],
-          aggregated_output: "name: example\n",
-          exit_code: 0,
-          status: "completed",
-        },
-      },
-    ]),
-    "thread-child",
-  );
-  const leaked = await codexNativeCallObservation(root, "thread-1", context);
-  expect(defined(leaked.data.childSessions[0]).readDiagnostics).toMatchObject({
-    completeness: "partial",
-    observedSkills: [],
-    completedReads: [],
-    readAttempts: 1,
-    truncated: false,
-  });
-  expect(JSON.stringify(leaked)).not.toContain(body);
-  expect(JSON.stringify(leaked)).not.toContain(skillPath);
-});
 test("child session lookup is capped with an explicit truncation flag", async () => {
   const root = await home();
   const payloads = Array.from({ length: 9 }, (_, index) => {
@@ -1352,8 +1146,6 @@ test("native feedback retains target and unique response without message text", 
     },
   ]);
   const context = {
-    workspace: root,
-    installedPluginRoots: [],
     followUpPrompt: "private feedback",
   };
   expect(
@@ -1650,106 +1442,4 @@ test("invalid UTF-8 and oversized child bytes preserve partial evidence without 
     (await codexNativeCallObservation(root, "thread-1")).completeness,
   ).toBe("partial");
   expect(await codexNativeSessionLastOrdinal(root, "thread-1")).toBeNull();
-});
-
-function recoveryPayloads(command: unknown): Record<string, unknown>[] {
-  return [
-    {
-      type: "custom_tool_call",
-      name: "exec",
-      call_id: "read-call",
-      input:
-        'const result = await tools.exec_command({cmd:"cat .agents/skills/example/SKILL.md"}); text(result.output);',
-    },
-    {
-      type: "custom_tool_call_output",
-      call_id: "read-call",
-      output: {
-        session_id: 101,
-        chunk_id: "part",
-        wall_time_seconds: 0,
-        output: "private recovered bytes",
-      },
-    },
-    {
-      type: "item_completed",
-      item: {
-        id: "read",
-        type: "CommandExecution",
-        source: "unified_exec_startup",
-        process_id: "101",
-        command,
-        status: "completed",
-        exit_code: 0,
-      },
-    },
-    { type: "item_completed", item: { type: "AgentMessage" } },
-  ];
-}
-
-test("native recovery requires one validated shell command even with process-bound yielded output", async () => {
-  const root = await home();
-  await session(
-    root,
-    lines(
-      recoveryPayloads([
-        "/bin/sh",
-        "-c",
-        "cat .agents/skills/example/SKILL.md",
-      ]),
-    ),
-  );
-  const recovered = await codexNativeSkillReadRecovery(root, "thread-1");
-  expect(recovered.get("read")).toEqual({
-    command: "cat .agents/skills/example/SKILL.md",
-    output: "private recovered bytes",
-  });
-  for (const command of [
-    "cat .agents/skills/example/SKILL.md",
-    ["cat", "SKILL.md"],
-    ["/bin/sh", "-x", "cat SKILL.md"],
-    ["/bin/sh", "-c", 42],
-  ]) {
-    await session(root, lines(recoveryPayloads(command)));
-    expect((await codexNativeSkillReadRecovery(root, "thread-1")).size).toBe(0);
-  }
-  await session(root, "{broken\n");
-  expect((await codexNativeSkillReadRecovery(root, "thread-1")).size).toBe(0);
-  await session(root, " ".repeat(8 * 1024 * 1024 + 1));
-  expect((await codexNativeSkillReadRecovery(root, "thread-1")).size).toBe(0);
-});
-
-test("an unavailable skill context cannot make valid native calls complete", async () => {
-  const root = await home();
-  await session(root, lines([spawn, started, result]));
-  expect(
-    (
-      await codexNativeCallObservation(root, "thread-1", {
-        workspace: join(root, "missing-workspace"),
-        installedPluginRoots: [],
-      })
-    ).completeness,
-  ).toBe("partial");
-});
-
-test("an unreadable owned native session cannot supply recovered command output", async () => {
-  const root = await home();
-  await session(
-    root,
-    lines(
-      recoveryPayloads([
-        "/bin/sh",
-        "-c",
-        "cat .agents/skills/example/SKILL.md",
-      ]),
-    ),
-  );
-  const path = join(root, "sessions/2026/09/27/rollout-thread-1.jsonl");
-  await chmod(path, 0);
-  try {
-    expect(readFile(path)).rejects.toMatchObject({ code: "EACCES" });
-    expect((await codexNativeSkillReadRecovery(root, "thread-1")).size).toBe(0);
-  } finally {
-    await chmod(path, 0o600);
-  }
 });

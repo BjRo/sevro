@@ -428,9 +428,11 @@ host request's private native state. Curated hook read grants validate the
 canonical projection layout, ownership, private state permissions, and binding
 to that request. Only the selected plugin subtree is readable; it stays
 read-only, and credentials, private siblings, and peer requests remain denied.
-Ordinary filesystem declarations cannot select this exception. Codex still
-validates and filters installed plugins with a runtime policy when hooks are
-disabled. Projections are removed with their owning host request.
+Ordinary filesystem declarations cannot select this exception. Codex validates
+and filters installed plugins before enabling its runner-owned skill collector,
+including requests without a runtime policy. Plugin command handlers still
+require explicit hook authority. Projections are removed with their owning host
+request.
 
 Auxiliary `.mcp.json` and `.lsp.json` files and plugin mods are unsupported under
 hook authority. Manifest MCP/LSP declarations are removed from curated mounts.

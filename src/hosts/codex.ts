@@ -23,7 +23,7 @@ import {
   type HookMounts,
 } from "../runtime/hooks";
 import { runtimeObservations } from "../runtime/state";
-import { isOptionalNonblankString, isRecord } from "../value-guards";
+import { isOptionalNonblankString } from "../value-guards";
 import { runCodexAppServer } from "./codex-app-server";
 import { summarizeCodexEvents, type CodexEventSummary } from "./codex-events";
 import { verifyCodexInvocation } from "./codex-invocation";
@@ -31,10 +31,8 @@ import { installCodexPlugins } from "./codex-marketplace";
 import {
   codexNativeCallObservation,
   codexNativeSessionLastOrdinal,
-  codexNativeSkillReadRecovery,
 } from "./codex-native-calls";
 import { runCodexProcess, CodexProcessFailure } from "./codex-process";
-import { codexSkillReadObservation } from "./codex-skill-reads";
 import {
   codexHookMounts,
   prepareCodexState,
@@ -42,6 +40,12 @@ import {
 } from "./codex-state";
 import { codexNativeControls } from "./native-controls";
 import { workspaceFingerprint } from "./workspace-fingerprint";
+import { codexSkillCatalogRoots } from "./skill-hook-catalog";
+import {
+  prepareSkillTracking,
+  skillTrackingObservation,
+  type SkillTracking,
+} from "./skill-hooks";
 import {
   cleanupNativeState,
   createHostDiagnostics,
@@ -53,7 +57,6 @@ import {
   type HostDiagnostics,
 } from "../host-diagnostics";
 export type { CodexHostOptions } from "./codex-state";
-const MAX_EVENT_BYTES = 8 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 10 * 60_000;
 const MAX_TIMEOUT_MS = 30 * 60_000;
 
@@ -74,8 +77,8 @@ interface ExecutionContext {
   request: Request;
   state: CodexState;
   timeoutMs: number;
-  installedPluginRoots: string[];
-  hooks?: HookMounts;
+  hooks: HookMounts;
+  skillTracking: SkillTracking;
   diagnostics?: HostDiagnostics;
 }
 interface TurnResult {
@@ -85,7 +88,6 @@ interface TurnResult {
   followUpSummary: CodexEventSummary | null;
   appServer: AppServerResult | null;
   continuation: Observation | undefined;
-  observedEvents: string;
 }
 
 function validCodexPaths(options: CodexHostOptions): boolean {
@@ -136,14 +138,13 @@ function codexCapabilities(
     "sevro.host.runtime",
     "sevro.host.native-transcripts",
     "sevro.host.hooks",
+    "sevro.host.skill-activations",
     ...(entrypoint === "app-server" ? ["sevro.host.native-goal"] : []),
     "sevro.codex.plugin-marketplace",
     "sevro.codex.explicit-invocation",
     "sevro.codex.repository-invocation",
     "sevro.codex.native-calls",
     "sevro.host.native-controls",
-    "sevro.codex.initial-skill-reads",
-    "sevro.codex.follow-up-skill-reads",
   ];
 }
 function codexConfiguration(
@@ -261,34 +262,25 @@ async function executeCodexRequest(
     diagnosticStage(diagnostics, "hooks-preparation");
     const hooks = await codexHookMounts(request, state, installedPluginRoots);
     activeHooks = hooks;
+    const skillTracking = await prepareCodexSkillTracking(
+      state,
+      request,
+      installedPluginRoots,
+    );
     await codexPreflight(options, request, state, diagnostics);
     const context: ExecutionContext = {
       options,
       request,
       state,
       timeoutMs,
-      installedPluginRoots,
       hooks,
+      skillTracking,
       diagnostics,
     };
     const turns = await new CodexTurnExecution(context).run();
     if (turns.summary.complete)
       diagnosticStage(diagnostics, "result-processing");
-    const result = await codexHostResult(context, turns);
-    await retainReturnedHostFailure(
-      diagnostics,
-      result,
-      "Codex host execution did not complete",
-    );
-    await retainEnabledNativeTranscripts(
-      result,
-      request.runtimePolicy,
-      join(state.codexHome, "sessions"),
-      "codex",
-      request.runtimeRole,
-      turns.summary.threadId,
-    );
-    return result;
+    return await retainCodexResult(context, turns);
   } catch (cause) {
     return await failedNativeTranscripts(
       cause,
@@ -306,6 +298,60 @@ async function executeCodexRequest(
       if (helperRoot) await rm(helperRoot, { recursive: true, force: true });
     });
   }
+}
+
+async function retainCodexResult(context: ExecutionContext, turns: TurnResult) {
+  const result = await codexHostResult(context, turns);
+  await retainReturnedHostFailure(
+    context.diagnostics,
+    result,
+    "Codex host execution did not complete",
+  );
+  await retainEnabledNativeTranscripts(
+    result,
+    context.request.runtimePolicy,
+    join(context.state.codexHome, "sessions"),
+    "codex",
+    context.request.runtimeRole,
+    turns.summary.threadId,
+  );
+  return result;
+}
+
+async function prepareCodexSkillTracking(
+  state: CodexState,
+  request: Request,
+  pluginRoots: string[],
+): Promise<SkillTracking> {
+  const roots = await codexSkillCatalogRoots(request.workspace, pluginRoots, [
+    { directory: join(state.codexHome, "skills"), boundary: state.codexHome },
+    {
+      directory: join(state.parentHome, ".agents/skills"),
+      boundary: state.parentHome,
+    },
+    {
+      directory: join(state.commandHome, ".agents/skills"),
+      boundary: state.commandHome,
+    },
+    {
+      directory: join(state.commandHome, ".codex/skills"),
+      boundary: state.commandHome,
+    },
+  ]);
+  const tracking = await prepareSkillTracking({
+    privateRoot: state.codexHome,
+    host: "codex",
+    roots,
+  });
+  await writeFile(
+    join(state.codexHome, "hooks.json"),
+    JSON.stringify({ hooks: tracking.hooks }),
+    {
+      flag: "wx",
+      mode: 0o600,
+    },
+  );
+  return tracking;
 }
 
 async function validateCodexRequest(
@@ -427,7 +473,7 @@ function routeArgs(context: ExecutionContext): string[] {
     "-c",
     'approval_policy="never"',
     "-c",
-    `features.hooks=${Boolean(context.hooks)}`,
+    "features.hooks=true",
   ];
 }
 function initialTurnArgs(context: ExecutionContext): string[] {
@@ -442,7 +488,7 @@ function initialTurnArgs(context: ExecutionContext): string[] {
       ? []
       : ["--ephemeral"]),
     "--ignore-rules",
-    ...(context.hooks ? ["--dangerously-bypass-hook-trust"] : []),
+    "--dangerously-bypass-hook-trust",
     "-C",
     context.request.workspace,
     ...routeArgs(context),
@@ -461,7 +507,7 @@ function followUpTurnArgs(
     "--strict-config",
     "--skip-git-repo-check",
     "--ignore-rules",
-    ...(context.hooks ? ["--dangerously-bypass-hook-trust"] : []),
+    "--dangerously-bypass-hook-trust",
     ...routeArgs(context),
     threadId,
     "-",
@@ -555,18 +601,6 @@ async function initialSummary(
     ? appServerSummary(appServer, request.workspace)
     : summarizeCodexEvents(execution.out, execution.code);
 }
-function combinedEvents(
-  execution: ProcessResult,
-  followUp: ProcessResult | null,
-): string {
-  const out = followUp
-    ? `${execution.out.trimEnd()}\n${followUp.out.trimStart()}`
-    : execution.out;
-  if (Buffer.byteLength(out, "utf8") > MAX_EVENT_BYTES)
-    throw new Error("Codex combined event stream exceeds the size limit");
-  return out;
-}
-
 class CodexTurnExecution {
   private appServerContinuation?: Observation;
   constructor(private context: ExecutionContext) {}
@@ -592,7 +626,6 @@ class CodexTurnExecution {
       summary,
       appServer,
       ...follow,
-      observedEvents: combinedEvents(execution, follow.followUp),
     };
   }
 
@@ -612,11 +645,11 @@ class CodexTurnExecution {
         "-c",
         `default_permissions=${JSON.stringify(state.profileId)}`,
         "-c",
-        `features.hooks=${Boolean(this.context.hooks)}`,
+        "features.hooks=true",
       ],
       env: state.env,
       permissionProfile: state.profileId,
-      vettedHooks: Boolean(this.context.hooks),
+      vettedHooks: true,
       request: {
         repoDir: request.workspace,
         prompt: request.prompt,
@@ -673,64 +706,8 @@ class CodexTurnExecution {
   }
 }
 
-type SkillReads = Awaited<ReturnType<typeof codexSkillReadObservation>>;
-async function phaseSkillReads(
-  context: ExecutionContext,
-  turns: TurnResult,
-  recovered: Awaited<ReturnType<typeof codexNativeSkillReadRecovery>>,
-) {
-  const streams = phaseReadStreams(turns);
-  if (!streams) return { initial: null, followUp: null };
-  const initial = {
-    ...(await codexSkillReadObservation(
-      streams.initial,
-      context.request.workspace,
-      context.installedPluginRoots,
-      recovered,
-    )),
-    id: "sevro.codex.initial-skill-reads",
-  };
-  const followUp = {
-    ...(await codexSkillReadObservation(
-      streams.followUp,
-      context.request.workspace,
-      context.installedPluginRoots,
-      recovered,
-    )),
-    id: "sevro.codex.follow-up-skill-reads",
-  };
-  return { initial, followUp };
-}
-
-function phaseReadStreams(turns: TurnResult) {
-  if (turns.followUp)
-    return { initial: turns.execution.out, followUp: turns.followUp.out };
-  if (!completedAppServer(turns.appServer)) return null;
-  const lines = turns.execution.out.trimEnd().split("\n");
-  const boundaries = lines.flatMap((line, index) =>
-    isFeedbackBoundary(line, turns.summary.threadId) ? [index] : [],
-  );
-  const [boundary] = boundaries;
-  if (boundaries.length !== 1 || boundary === undefined) return null;
-  return {
-    initial: lines.slice(0, boundary).join("\n"),
-    followUp: lines.slice(boundary + 1).join("\n"),
-  };
-}
-function completedAppServer(result: AppServerResult | null): boolean {
-  return result !== null && result.code === 0;
-}
-function isFeedbackBoundary(line: string, threadId: string): boolean {
-  const event: unknown = JSON.parse(line);
-  return (
-    isRecord(event) &&
-    event.type === "sevro.codex.feedback-boundary" &&
-    event.threadId === threadId
-  );
-}
 function explicitInvocationReceipt(
   selected: Request["explicitSkillInvocation"],
-  reads: SkillReads,
   completed: boolean,
 ) {
   if (!selected) return null;
@@ -740,22 +717,7 @@ function explicitInvocationReceipt(
     data: {
       method: "explicit_invocation",
       primarySkill: selected.skillName,
-      observedSkills: [
-        selected.skillName,
-        ...reads.data.observedSkills.filter(
-          (skill) => skill !== selected.skillName,
-        ),
-      ],
     },
-  };
-}
-function nativeSkillContext(context: ExecutionContext) {
-  return {
-    workspace: context.request.workspace,
-    installedPluginRoots: context.installedPluginRoots,
-    ...(context.request.followUpPrompt
-      ? { followUpPrompt: context.request.followUpPrompt }
-      : {}),
   };
 }
 function appServerObservation(result: AppServerResult | null): Observation[] {
@@ -770,46 +732,37 @@ function appServerObservation(result: AppServerResult | null): Observation[] {
     : [];
 }
 async function codexObservations(context: ExecutionContext, turns: TurnResult) {
-  const recovered = await codexNativeSkillReadRecovery(
-    context.state.codexHome,
-    turns.summary.threadId,
-  );
-  const reads = await codexSkillReadObservation(
-    turns.observedEvents,
-    context.request.workspace,
-    context.installedPluginRoots,
-    recovered,
-  );
-  const phases = await phaseSkillReads(context, turns, recovered);
   const native = await codexNativeCallObservation(
     context.state.codexHome,
     turns.summary.threadId,
-    nativeSkillContext(context),
+    { followUpPrompt: context.request.followUpPrompt },
   );
   const explicit = explicitInvocationReceipt(
     context.request.explicitSkillInvocation,
-    reads,
     turns.summary.complete,
   );
   return [
-    ...(await codexHookObservations(context.hooks)),
+    ...(await codexHookObservations(context)),
     ...runtimeObservations(
       context.request.runtimePolicy,
       context.request.runtimeRole,
     ),
     ...appServerObservation(turns.appServer),
-    reads,
-    ...(phases.initial ? [phases.initial] : []),
-    ...(phases.followUp ? [phases.followUp] : []),
     native,
     codexNativeControls(native),
     ...(turns.continuation ? [turns.continuation] : []),
     ...(explicit ? [explicit] : []),
+    await skillTrackingObservation(
+      context.skillTracking,
+      turns.summary.threadId,
+      turns.summary.complete,
+    ),
   ];
 }
 
-async function codexHookObservations(hooks: HookMounts | undefined) {
-  return hooks ? [await runtimeHookObservation(hooks)] : [];
+async function codexHookObservations(context: ExecutionContext) {
+  if (!context.request.runtimePolicy) return [];
+  return [await runtimeHookObservation(context.hooks)];
 }
 function codexArtifacts(turns: TurnResult) {
   return [

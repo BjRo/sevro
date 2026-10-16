@@ -2,7 +2,6 @@ import { expect, test } from "bun:test";
 import { guideCli } from "./fixtures/documentation-tools";
 import { inspectMarkdown } from "../scripts/check-docs";
 import {
-  usedGuide,
   readOnlyCommand,
   effectAttempts,
   inspectedSources,
@@ -63,7 +62,7 @@ test("Declarative guide answer rules reject generic reassurance", () => {
   }
 });
 
-test("Native discovery is not satisfied by the skill name in an unrelated fixture path", () => {
+test("native source inspection distinguishes documentation from skill mount paths", () => {
   const request = {
     type: "tool_use",
     id: "read1",
@@ -95,11 +94,54 @@ test("Native discovery is not satisfied by the skill name in an unrelated fixtur
       },
     ],
   };
-  expect(usedGuide(turn, "Canonical guide body")).toBe(false);
   expect(inspectedSources(turn)).toEqual(["README.md"]);
   request.input.file_path =
     "/tmp/sevro-guide-trial-x/repository/.claude/skills/sevro-guide/SKILL.md";
-  expect(usedGuide(turn, "Canonical guide body")).toBe(false);
+});
+
+test("the native hook warning is not an effect while commands, errors and unknown actions remain guarded", () => {
+  const diagnostic = {
+    type: "item.completed",
+    item: {
+      type: "error",
+      message:
+        "`--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.",
+    },
+  };
+  expect(effectAttempts({ answer: "", events: [diagnostic] })).toEqual([]);
+  expect(
+    effectAttempts({
+      answer: "",
+      events: [
+        diagnostic,
+        {
+          type: "item.completed",
+          item: {
+            type: "command_execution",
+            command: "touch attempted",
+            exit_code: 1,
+          },
+        },
+      ],
+    }),
+  ).toEqual(["touch attempted"]);
+  expect(
+    effectAttempts({
+      answer: "",
+      events: [{ type: "item.completed", item: { type: "unknown_action" } }],
+    }),
+  ).toEqual(["unknown_action"]);
+  expect(
+    effectAttempts({
+      answer: "",
+      events: [
+        {
+          type: "item.completed",
+          item: { type: "error", message: "Unknown native failure" },
+        },
+      ],
+    }),
+  ).toEqual(["error"]);
 });
 
 test("Read-only command classification ignores words in grep patterns and rejects execution", () => {
@@ -166,7 +208,7 @@ test("Lexical signals cannot validate contradictory benchmark claims", () => {
   ).toEqual([]);
 });
 
-test("Mentioning or listing a source is not content inspection or guide activation", () => {
+test("mentioning or listing a source is not content inspection", () => {
   for (const command of [
     "echo .agents/skills/sevro-guide/SKILL.md",
     "printf .agents/skills/sevro-guide/SKILL.md",
@@ -193,7 +235,6 @@ test("Mentioning or listing a source is not content inspection or guide activati
         },
       ],
     };
-    expect(usedGuide(turn, "Canonical guide body")).toBe(false);
     expect(inspectedSources(turn)).toEqual([]);
   }
   const listing = {

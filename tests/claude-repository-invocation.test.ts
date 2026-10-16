@@ -1,4 +1,3 @@
-import { expectUnknown } from "./fixtures/assertions";
 import { test, expect } from "bun:test";
 import {
   mkdir,
@@ -282,7 +281,8 @@ test("Claude repository observation refuses unavailable, duplicate, or redirecte
     );
     const accepted = await observe();
     expect(accepted.completeness).toBe("complete");
-    expectUnknown(accepted.data.observedSkills).toEqual(["probe"]);
+    expect(accepted.data.skill).toBe("probe");
+    expect(accepted.data).not.toHaveProperty("observedSkills");
     expect(JSON.stringify(accepted)).not.toContain("Return ready");
     expect(
       (

@@ -276,10 +276,7 @@ function hostObservations(host: Host, caseId: string) {
   const selected = caseId === "unrelated" ? [] : ["sevro-guide"];
   return [
     {
-      id:
-        host === "codex"
-          ? "sevro.codex.skill-reads"
-          : "sevro.claude.tool-calls",
+      id: "sevro.host.skill-activations",
       completeness: "complete" as const,
       data: {
         method: "fixture-native-observation",
@@ -306,6 +303,7 @@ export function guideHost(
     effort: "none",
     hostCapabilities: [
       "sevro.host.continuation",
+      "sevro.host.skill-activations",
       `sevro.${host}.repository-invocation`,
     ],
     async run(request) {
@@ -332,7 +330,7 @@ export function guideHost(
         (item) =>
           !(
             scenario === "missing-selection" &&
-            item.id.endsWith(host === "codex" ? "skill-reads" : "tool-calls")
+            item.id === "sevro.host.skill-activations"
           ) &&
           !(
             scenario === "missing-continuation" &&

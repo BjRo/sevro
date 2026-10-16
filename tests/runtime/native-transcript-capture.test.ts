@@ -380,11 +380,6 @@ console.log(JSON.stringify({type:'result',session_id:'11111111-1111-4111-8111-11
   );
   expect(capture.data.files).toHaveLength(3);
   expect(capture.completeness).toBe("complete");
-  expect(
-    result.observations?.find(
-      (item) => item.id === "sevro.claude.nested-skills",
-    )?.completeness,
-  ).toBe("complete");
 });
 
 test("Claude opt-in preserves partial native transcripts on stream failure", async () => {
