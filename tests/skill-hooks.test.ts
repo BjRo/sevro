@@ -7,11 +7,128 @@ import {
   skillTrackingObservation,
   type SkillTracking,
 } from "../src/hosts/skill-hooks";
-import { skillHookCatalog } from "../src/hosts/skill-hook-catalog";
+import {
+  codexSkillCatalogRoots,
+  skillHookCatalog,
+} from "../src/hosts/skill-hook-catalog";
+import {
+  skillHookReceipt,
+  type SkillHookConfiguration,
+} from "../src/hosts/skill-hook-handler";
 
 const roots: string[] = [];
 const body =
   "---\nname: fixture\ndescription: Fixture only.\n---\n# Instructions\nRead the entire fixture.\n";
+const receiptConfiguration: SkillHookConfiguration = {
+  host: "codex",
+  receipts: "unused-by-pure-parser",
+  skills: [{ invocation: "fixture", sha256: "fixture-hash", body }],
+  catalogComplete: true,
+};
+
+test("hook receipt parsing rejects invalid envelopes and incomplete tool identities", () => {
+  for (const input of [null, [], {}, { hook_event_name: 42 }]) {
+    expect(() => skillHookReceipt(input, receiptConfiguration)).toThrow(
+      "invalid skill hook input",
+    );
+  }
+  for (const fields of [
+    { session_id: null },
+    { session_id: "invalid session" },
+    { tool_use_id: null },
+    { tool_name: null },
+  ]) {
+    const receipt = skillHookReceipt(
+      {
+        hook_event_name: "PostToolUse",
+        session_id: "session-a",
+        tool_use_id: "tool-a",
+        tool_name: "Bash",
+        ...fields,
+      },
+      receiptConfiguration,
+    );
+    expect(receipt.partial).toBe(true);
+  }
+  expect(
+    skillHookReceipt(
+      { hook_event_name: "SessionStart", session_id: "session-a" },
+      receiptConfiguration,
+    ).partial,
+  ).toBe(false);
+});
+
+test("hook receipts match complete bodies in nested responses and discard unrelated values", () => {
+  const receipt = skillHookReceipt(
+    {
+      hook_event_name: "PostToolUse",
+      session_id: "session-a",
+      turn_id: "turn-a",
+      tool_use_id: "tool-a",
+      tool_name: "mcp.read",
+      tool_response: [null, 42, false, { content: [body, body, "unrelated"] }],
+    },
+    receiptConfiguration,
+  );
+  expect(receipt).toEqual({
+    event: "PostToolUse",
+    sessionId: "session-a",
+    turnId: "turn-a",
+    toolUseId: "tool-a",
+    toolName: "mcp.read",
+    invocations: ["fixture"],
+    ambiguousInvocations: [],
+    partial: false,
+  });
+  const ignored = skillHookReceipt(
+    {
+      hook_event_name: "PreToolUse",
+      session_id: "session-a",
+      tool_response: body,
+    },
+    receiptConfiguration,
+  );
+  expect(ignored.invocations).toEqual([]);
+});
+
+test("hook receipts separate unique matches from identical skill bodies", () => {
+  const configuration = {
+    ...receiptConfiguration,
+    skills: [
+      ...receiptConfiguration.skills,
+      { invocation: "other", sha256: "fixture-hash", body },
+      {
+        invocation: "unique",
+        sha256: "unique-hash",
+        body: "Unique instructions.",
+      },
+    ],
+  };
+  const receipt = skillHookReceipt(
+    {
+      hook_event_name: "PostToolUse",
+      session_id: "session-a",
+      tool_use_id: "tool-a",
+      tool_name: "Bash",
+      tool_response: [body, "Unique instructions."],
+    },
+    configuration,
+  );
+  expect(receipt.invocations).toEqual(["unique"]);
+  expect(receipt.ambiguousInvocations).toEqual(["fixture", "other"]);
+  expect(receipt.partial).toBe(true);
+});
+
+test("excessively nested hook responses cannot masquerade as complete evidence", () => {
+  let nested: unknown = body;
+  for (let depth = 0; depth < 18; depth++) nested = [nested];
+  expect(() =>
+    skillHookReceipt(
+      { hook_event_name: "PostToolUse", tool_response: nested },
+      receiptConfiguration,
+    ),
+  ).toThrow("skill hook response nesting exceeds limit");
+});
 afterEach(async () => {
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
@@ -209,4 +326,153 @@ test("oversized catalogs and skills report incomplete discovery", async () => {
   const catalog = await skillHookCatalog([{ directory, boundary: root }]);
   expect(catalog.skills).toHaveLength(128);
   expect(catalog.catalogComplete).toBe(false);
+});
+
+function recorded(event: string, fields: Record<string, unknown> = {}) {
+  return skillHookReceipt(
+    {
+      hook_event_name: event,
+      session_id: "s",
+      tool_name: "B",
+      ...fields,
+    },
+    receiptConfiguration,
+  );
+}
+
+async function storeReceipts(tracking: SkillTracking, events: unknown[]) {
+  await writeFile(
+    join(tracking.configuration.receipts, "events.jsonl"),
+    events.map((event) => JSON.stringify(event)).join("\n") + "\n",
+  );
+}
+
+test("invalid receipt tails preserve earlier positives while marking collection partial", async () => {
+  const { tracking } = await fixture();
+  const valid = [
+    recorded("SessionStart"),
+    recorded("PreToolUse", { tool_use_id: "a" }),
+    recorded("PostToolUse", { tool_use_id: "a", tool_response: body }),
+    recorded("Stop"),
+  ];
+  for (const invalid of [
+    null,
+    { ...valid[0], event: "Unknown" },
+    { ...valid[0], sessionId: 42 },
+    { ...valid[0], invocations: null },
+    { ...valid[0], invocations: [42] },
+    { ...valid[0], ambiguousInvocations: null },
+    { ...valid[0], partial: null },
+  ]) {
+    await storeReceipts(tracking, [...valid, invalid]);
+    const observation = await skillTrackingObservation(tracking, "s", true);
+    expect(observation.completeness).toBe("partial");
+    expect(observation.data.observedSkills).toEqual(["fixture"]);
+  }
+});
+
+test("receipt files exceeding the collection budget cannot report complete evidence", async () => {
+  const { tracking } = await fixture();
+  await writeFile(
+    join(tracking.configuration.receipts, "events.jsonl"),
+    Buffer.alloc(8 * 1024 * 1024 + 1),
+  );
+  const observation = await skillTrackingObservation(tracking, "s", true);
+  expect(observation.completeness).toBe("partial");
+  expect(observation.data.calls).toEqual([]);
+});
+
+test("duplicate tool identities make an otherwise finished lifecycle partial", async () => {
+  const { tracking } = await fixture();
+  const pre = recorded("PreToolUse", { tool_use_id: "a" });
+  const post = recorded("PostToolUse", {
+    tool_use_id: "a",
+    tool_response: body,
+  });
+  for (const tools of [
+    [pre, pre, post],
+    [pre, post, pre, post],
+  ]) {
+    await storeReceipts(tracking, [
+      recorded("SessionStart"),
+      ...tools,
+      recorded("Stop"),
+    ]);
+    expect(
+      (await skillTrackingObservation(tracking, "s", true)).completeness,
+    ).toBe("partial");
+  }
+});
+
+test("retained activation calls respect both count and serialized byte limits", async () => {
+  const { tracking } = await fixture();
+  for (const padding of ["", "x".repeat(240)]) {
+    const events = [recorded("SessionStart")];
+    for (let index = 0; index < 129; index++) {
+      const identity = { tool_use_id: `${padding}${index}` };
+      events.push(recorded("PreToolUse", identity));
+      events.push(
+        recorded("PostToolUse", { ...identity, tool_response: body }),
+      );
+    }
+    events.push(recorded("Stop"));
+    await storeReceipts(tracking, events);
+    const observation = await skillTrackingObservation(tracking, "s", true);
+    expect(observation.completeness).toBe("partial");
+    expect(observation.data.truncated).toBe(true);
+    expect(observation.data.observedSkills).toEqual(["fixture"]);
+    if (padding) expect(observation.data.calls.length).toBeLessThan(128);
+    else expect(observation.data.calls).toHaveLength(128);
+    expect(
+      Buffer.byteLength(JSON.stringify(observation.data.calls)),
+    ).toBeLessThanOrEqual(24 * 1024);
+  }
+});
+
+test("the observer can collect a complete empty catalog when no roots are configured", async () => {
+  const { root } = await fixture();
+  const tracking = await prepareSkillTracking({
+    privateRoot: join(root, "empty"),
+    host: "codex",
+  });
+  await emit(tracking, "SessionStart");
+  await emit(tracking, "Stop");
+  const observation = await skillTrackingObservation(
+    tracking,
+    "session-a",
+    true,
+  );
+  expect(observation.completeness).toBe("complete");
+  expect(observation.data.observedSkills).toEqual([]);
+});
+
+test("catalog discovery rejects invalid plugin identity before installing a namespace", async () => {
+  const { root } = await fixture();
+  await mkdir(join(root, ".claude-plugin"));
+  for (const manifest of [null, {}, { name: 42 }]) {
+    await writeFile(
+      join(root, ".claude-plugin/plugin.json"),
+      JSON.stringify(manifest),
+    );
+    expect(codexSkillCatalogRoots(root, [root], [])).rejects.toThrow(
+      "invalid skill catalog plugin manifest",
+    );
+  }
+});
+
+test("catalog discovery skips empty documents and unrelated entries but flags redirected skill folders", async () => {
+  const { root, directory } = await fixture();
+  await mkdir(join(directory, "empty"));
+  await writeFile(join(directory, "empty/SKILL.md"), "");
+  await mkdir(join(directory, "invalid name"));
+  await writeFile(join(directory, "README.md"), "not a skill");
+  const clean = await skillHookCatalog([{ directory, boundary: root }]);
+  expect(clean.catalogComplete).toBe(true);
+  expect(clean.skills.map((skill) => skill.invocation)).toEqual(["fixture"]);
+  await symlink(join(directory, "fixture"), join(directory, "alias"));
+  const redirected = await skillHookCatalog([{ directory, boundary: root }]);
+  expect(redirected.catalogComplete).toBe(false);
+  expect(redirected.skills.map((skill) => skill.invocation)).toEqual([
+    "fixture",
+  ]);
 });

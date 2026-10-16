@@ -119,3 +119,70 @@ test("malformed streams and failed execution remain partial", () => {
     "partial",
   );
 });
+
+test("invalid Skill inputs and primitive events cannot establish complete evidence", () => {
+  for (const invalid of [null, { skill: "invalid name" }, { skill: 42 }]) {
+    const observation = claudeSkillActivationsObservation(
+      stream([event("assistant", { ...call(), input: invalid })]),
+      0,
+    );
+    expect(observation.completeness).toBe("partial");
+    expect(observation.data.calls).toEqual([]);
+  }
+  expect(
+    claudeSkillActivationsObservation(stream([null]), 0).completeness,
+  ).toBe("partial");
+});
+
+test("malformed blocks retain successful evidence while making collection partial", () => {
+  const observation = claudeSkillActivationsObservation(
+    stream([
+      event("assistant", call()),
+      event("assistant", null),
+      event("user", { type: "text", text: "unrelated" }),
+      event("user", { ...result(), tool_use_id: null }),
+      event("user", { ...result(), is_error: undefined }),
+    ]),
+    0,
+  );
+  expect(observation.completeness).toBe("partial");
+  expect(observation.data.observedSkills).toEqual(["plugin:read"]);
+  expect(
+    claudeSkillActivationsObservation(
+      stream([
+        event("assistant", call()),
+        event("user", { ...result(), is_error: undefined }),
+      ]),
+      0,
+    ).completeness,
+  ).toBe("complete");
+});
+
+test("conflicting result statuses make collection partial and retain the latest status", () => {
+  const observation = claudeSkillActivationsObservation(
+    stream([
+      event("assistant", call()),
+      event("user", result()),
+      event("user", result("call-a", true)),
+    ]),
+    0,
+  );
+  expect(observation.completeness).toBe("partial");
+  expect(observation.data.calls[0]?.status).toBe("failed");
+  expect(observation.data.observedSkills).toEqual([]);
+});
+
+test("Skill call overflow preserves the bounded prefix and reports partial evidence", () => {
+  const events = [];
+  for (let index = 0; index < 129; index++) {
+    events.push(event("assistant", call(`call-${index}`, `skill-${index}`)));
+    events.push(event("user", result(`call-${index}`)));
+  }
+  const observation = claudeSkillActivationsObservation(stream(events), 0);
+  expect(observation.completeness).toBe("partial");
+  expect(observation.data.truncated).toBe(true);
+  expect(observation.data.calls).toHaveLength(128);
+  expect(observation.data.observedSkills).toHaveLength(128);
+  expect(observation.data.observedSkills).toContain("skill-127");
+  expect(observation.data.observedSkills).not.toContain("skill-128");
+});
