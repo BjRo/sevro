@@ -251,6 +251,197 @@ for (const name of ["SessionStart", "PreToolUse", "PostToolUse", "Stop"]) {
   );
 });
 
+const pagedSkillPages = [
+  "---\nname: probe\ndescription: A paged skill tracking fixture.\n---\n# First page\nRead the first instruction before continuing.\n",
+  "# Second page\nRead the second instruction and return the requested result.\n",
+] as const;
+
+async function runPagedCodex(
+  pages: readonly { text: string; session?: string; turn?: string }[],
+  options: { body?: string; aliases?: string[] } = {},
+) {
+  const { host, request } = await ordinaryCodexRequest();
+  const body = options.body ?? pagedSkillPages.join("");
+  await mkdir(join(request.workspace, ".git"));
+  for (const name of ["probe", ...(options.aliases ?? [])]) {
+    await mkdir(join(request.workspace, ".agents/skills", name), {
+      recursive: true,
+    });
+    await writeFile(
+      join(request.workspace, ".agents/skills", name, "SKILL.md"),
+      body,
+    );
+  }
+  await writeFile(
+    join(request.workspace, ".git/skill-hooks.ts"),
+    `
+const definitions = await Bun.file(process.env.CODEX_HOME + "/hooks.json").json();
+async function emit(name, fields = {}) {
+  const input = {hook_event_name: name, session_id: "thread-1", turn_id: "turn-1", ...fields};
+  const command = definitions.hooks[name][0].hooks[0].command;
+  const child = Bun.spawn(["/bin/sh", "-c", command], {stdin: Buffer.from(JSON.stringify(input)), stdout: "pipe", stderr: "pipe"});
+  if (await child.exited !== 0) process.exit(90);
+}
+await emit("SessionStart");
+for (const [index, page] of ${JSON.stringify(pages)}.entries()) {
+  const identity = {tool_use_id: "page-" + index, tool_name: "Bash", session_id: page.session ?? "thread-1", turn_id: page.turn ?? "turn-1"};
+  await emit("PreToolUse", identity);
+  await emit("PostToolUse", {...identity, tool_response: {output: "private-output-prefix\\n" + page.text + "private-output-suffix"}});
+}
+await emit("Stop");
+`,
+  );
+  return host.run(request);
+}
+
+test("Codex host accounts for paged tool results", async () => {
+  if (!isolatedNativeHost) return;
+  const result = await runPagedCodex(pagedSkillPages.map((text) => ({ text })));
+  expect(result.complete).toBe(true);
+  expect(
+    result.observations?.find(
+      (item) => item.id === "sevro.host.skill-activations",
+    ),
+  ).toMatchObject({
+    completeness: "complete",
+    data: { method: "tool_result_body_match", observedSkills: ["probe"] },
+  });
+  expect(JSON.stringify(result.observations)).not.toContain(
+    "private-output-prefix",
+  );
+  expect(JSON.stringify(result.observations)).not.toContain(pagedSkillPages[0]);
+});
+
+test.each([
+  { name: "missing tail", pages: [{ text: pagedSkillPages[0] }] },
+  {
+    name: "duplicate page",
+    pages: [{ text: pagedSkillPages[0] }, { text: pagedSkillPages[0] }],
+  },
+  {
+    name: "other session",
+    pages: [
+      { text: pagedSkillPages[0] },
+      { text: pagedSkillPages[1], session: "child-1" },
+    ],
+  },
+  {
+    name: "other turn",
+    pages: [
+      { text: pagedSkillPages[0] },
+      { text: pagedSkillPages[1], turn: "turn-2" },
+    ],
+  },
+  {
+    name: "hole",
+    pages: [
+      { text: pagedSkillPages.join("").slice(0, 80) },
+      { text: pagedSkillPages.join("").slice(90) },
+    ],
+  },
+  {
+    name: "changed tail",
+    pages: [
+      { text: pagedSkillPages[0] },
+      {
+        text: pagedSkillPages[1].replace(
+          "second instruction",
+          "changed instruction",
+        ),
+      },
+    ],
+  },
+])("incomplete paged tool results stay unknown: $name", async ({ pages }) => {
+  if (!isolatedNativeHost) return;
+  const result = await runPagedCodex(pages);
+  expect(result.complete).toBe(true);
+  expect(
+    result.observations?.find(
+      (item) => item.id === "sevro.host.skill-activations",
+    ),
+  ).toMatchObject({
+    completeness: "partial",
+    data: { observedSkills: [], partialSkills: ["probe"] },
+  });
+});
+
+test.each([
+  { name: "reverse order", pages: [...pagedSkillPages].reverse() },
+  {
+    name: "overlap",
+    pages: [
+      pagedSkillPages.join("").slice(0, 140),
+      pagedSkillPages.join("").slice(100),
+    ],
+  },
+  {
+    name: "full body resolves fragments",
+    pages: [pagedSkillPages[0], pagedSkillPages.join(""), pagedSkillPages[1]],
+  },
+])("complete paged tool results tolerate $name", async ({ pages }) => {
+  if (!isolatedNativeHost) return;
+  const result = await runPagedCodex(pages.map((text) => ({ text })));
+  expect(
+    result.observations?.find(
+      (item) => item.id === "sevro.host.skill-activations",
+    ),
+  ).toMatchObject({
+    completeness: "complete",
+    data: { observedSkills: ["probe"], partialSkills: [] },
+  });
+});
+
+test("paged tool results with identical skill bodies remain ambiguous", async () => {
+  if (!isolatedNativeHost) return;
+  const result = await runPagedCodex(
+    pagedSkillPages.map((text) => ({ text })),
+    { aliases: ["other"] },
+  );
+  expect(
+    result.observations?.find(
+      (item) => item.id === "sevro.host.skill-activations",
+    ),
+  ).toMatchObject({
+    completeness: "partial",
+    data: { observedSkills: [], ambiguousSkills: ["other", "probe"] },
+  });
+});
+
+test("repeated page text cannot prove different body positions were exposed", async () => {
+  if (!isolatedNativeHost) return;
+  const repeated =
+    "Read this repeated instruction before any subsequent action.\n";
+  const result = await runPagedCodex([{ text: repeated }, { text: repeated }], {
+    body: repeated.repeat(3),
+  });
+  expect(
+    result.observations?.find(
+      (item) => item.id === "sevro.host.skill-activations",
+    ),
+  ).toMatchObject({
+    completeness: "partial",
+    data: { observedSkills: [], partialSkills: ["probe"] },
+  });
+});
+
+test.each([
+  "repeat\n",
+  "Read this repeated instruction before any subsequent action.\n",
+])("paged matching limits keep evidence unknown: %j", async (line) => {
+  if (!isolatedNativeHost) return;
+  const result = await runPagedCodex([{ text: line }], {
+    body: line.repeat(5000),
+  });
+  expect(
+    result.observations?.find(
+      (item) => item.id === "sevro.host.skill-activations",
+    ),
+  ).toMatchObject({
+    completeness: "partial",
+    data: { observedSkills: [] },
+  });
+});
+
 test("Codex state opt-in still refuses a configuration path that is a file", async () => {
   if (!isolatedNativeHost || !Bun.which("codex")) return;
   const { host, request } = await ordinaryCodexRequest();

@@ -373,6 +373,38 @@ test("invalid receipt tails preserve earlier positives while marking collection 
     { ...valid[0], invocations: [42] },
     { ...valid[0], ambiguousInvocations: null },
     { ...valid[0], partial: null },
+    { ...valid[0], bodyRanges: null },
+    { ...valid[0], bodyRanges: [null] },
+    {
+      ...valid[0],
+      bodyRanges: [{ invocation: "unknown", sha256: "unknown", ranges: [] }],
+    },
+    {
+      ...valid[0],
+      bodyRanges: [
+        { ...tracking.configuration.skills[0], body: undefined, ranges: null },
+      ],
+    },
+    ...[
+      null,
+      [],
+      [0],
+      [0, 1, 2],
+      ["0", 1],
+      [-1, 2],
+      [0.5, 2],
+      [2, 1],
+      [0, body.length + 1],
+    ].map((range) => ({
+      ...valid[0],
+      bodyRanges: [
+        {
+          ...tracking.configuration.skills[0],
+          body: undefined,
+          ranges: [range],
+        },
+      ],
+    })),
   ]) {
     await storeReceipts(tracking, [...valid, invalid]);
     const observation = await skillTrackingObservation(tracking, "s", true);
