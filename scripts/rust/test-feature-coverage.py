@@ -14,7 +14,8 @@ SPEC = importlib.util.spec_from_file_location("coverage_profiles", HELPER)
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 
-CARGO = '''[package]
+CARGO = '''[workspace]
+[package]
 name = "sevro"
 version = "0.0.0"
 edition = "2024"
