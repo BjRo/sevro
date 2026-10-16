@@ -129,6 +129,92 @@ test("hook receipts separate unique matches from identical skill bodies", () => 
   expect(receipt.partial).toBe(true);
 });
 
+function pageReceipt(skillBody: string, output: unknown) {
+  return skillHookReceipt(
+    {
+      hook_event_name: "PostToolUse",
+      session_id: "session-a",
+      turn_id: "turn-a",
+      tool_use_id: "tool-a",
+      tool_name: "mcp.read",
+      tool_response: output,
+    },
+    {
+      ...receiptConfiguration,
+      skills: [
+        { invocation: "fixture", sha256: "fixture-hash", body: skillBody },
+      ],
+    },
+  );
+}
+
+test("page receipts map nested fragments to exact body offsets without retaining output", () => {
+  const prefix = "Start here 🧭.\n\n";
+  const first =
+    "Read this first line completely.\nContinue with this instruction.\n";
+  const gap = "An instruction between the pages.\n";
+  const second =
+    "Read this independent instruction.\nOnly part of the last line";
+  const skillBody = prefix + first + gap + second + " is returned.\nEnd.\n";
+  const receipt = pageReceipt(skillBody, {
+    content: [first + "private suffix", { text: second }],
+  });
+  expect(receipt.invocations).toEqual([]);
+  expect(receipt.bodyRanges).toEqual([
+    {
+      invocation: "fixture",
+      sha256: "fixture-hash",
+      ranges: [
+        [prefix.length, prefix.length + first.length],
+        [
+          prefix.length + first.length + gap.length,
+          skillBody.indexOf(" is returned."),
+        ],
+      ],
+    },
+  ]);
+  expect(JSON.stringify(receipt)).not.toContain(first);
+  expect(JSON.stringify(receipt)).not.toContain("private suffix");
+});
+
+test("page matching extends an anchor into adjacent partial lines", () => {
+  const skillBody =
+    "Start of the preceding line.\nRead this anchored instruction.\nThe following line continues.\n";
+  const fragment =
+    "preceding line.\nRead this anchored instruction.\nThe following";
+  const start = skillBody.indexOf(fragment);
+  const receipt = pageReceipt(skillBody, fragment);
+  expect(receipt.bodyRanges?.[0]?.ranges).toEqual([
+    [start, start + fragment.length],
+  ]);
+});
+
+test("page receipts distinguish short, unanchored and repeated fragments", () => {
+  const line = "Read this repeated instruction before any subsequent action.\n";
+  expect(pageReceipt(line.repeat(3), line).bodyRanges).toEqual([
+    { invocation: "fixture", sha256: "fixture-hash", ranges: [] },
+  ]);
+  for (const output of ["short\n", "x".repeat(80), line.toUpperCase()]) {
+    expect(
+      pageReceipt("short\n" + line.repeat(3), output).bodyRanges,
+    ).toBeUndefined();
+  }
+  const boundary = "x".repeat(31) + "\n";
+  expect(
+    pageReceipt(boundary + "tail", boundary).bodyRanges?.[0]?.ranges,
+  ).toEqual([[0, 32]]);
+});
+
+test.each([
+  ["repeat\n", "skill page anchors exceed limit"],
+  [
+    "Read this repeated instruction before any subsequent action.\n",
+    "skill page matching exceeds limit",
+  ],
+])("page receipt matching bounds repeated anchors: %j", (line, message) => {
+  expect(() => pageReceipt(line.repeat(5000), line)).toThrow(message);
+});
+
 test("excessively nested hook responses cannot masquerade as complete evidence", () => {
   let nested: unknown = body;
   for (let depth = 0; depth < 18; depth++) nested = [nested];
