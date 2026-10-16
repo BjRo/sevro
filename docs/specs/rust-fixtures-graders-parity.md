@@ -58,6 +58,14 @@ artifact IDs, an 8 MiB artifact limit, and a 32 MiB aggregate byte limit. These
 source-derived bounds remain part of parity even where the focused tests above
 do not exercise every exact edge. Mounts must never overwrite an existing target.
 
+The authorized Rust size clarification keeps those limits inclusive: canonical
+source artifacts of exactly 8 MiB are accepted, and one additional byte is
+refused. Rust intentionally does not reproduce Bun 1.3.13's regular-expression
+failure on the canonical base64 generated from an 8 MiB source. The observed
+TypeScript rejection, maintainer decision, and public Rust boundary regression
+are retained in the [artifact evidence ledger](rust-tdd-preparation-artifacts.md#approved-individual-source-size).
+This exception does not remove the 8 MiB per-artifact or 32 MiB aggregate bounds.
+
 ## Generated and repository fixtures
 
 Sources: [declaration validation](../../tests/fixtures/declaration-validation.test.ts).
@@ -203,6 +211,27 @@ arrays; recursive subset arrays require each expected member to have a matching
 actual member. A sole `$regex` object is a string predicate. Schema validation is
 Draft 2020-12 with only inline references. Preserve absence versus explicit false,
 null, empty values, and unavailable observations.
+
+### Rust JSON pointer compatibility decision
+
+Accepted user decision, 2026-10-16: Rust JSON pointer grading follows
+[RFC 6901](https://www.rfc-editor.org/info/rfc6901/) for `sevro.json.pointer`
+and `sevro.output.jsonPath`. Tokens select actual JSON
+object members or array indexes. Inherited JavaScript properties and an array's
+synthetic `length` property do not resolve. Explicit JSON object members named
+`constructor` or `length` remain selectable. As required by RFC 6901 section 4,
+a referenced member name occurring more than once in the same object does not
+resolve; duplicate names unrelated to the selected token do not affect that
+lookup.
+
+This deliberately differs from the historical TypeScript implementation's
+inherited-property, array-length, and last-duplicate-member behavior. The authority
+is the user's answer, "Follow RFC 6901 (Recommended)", to the compatibility question about
+those two behaviors (provenance: user statement). The existing
+[built-in grader contract](../builtin-graders-v1.md) already specifies RFC 6901
+for `sevro.json.pointer` (provenance: repository fact). The Rust
+[implementation ledger](rust-tdd-graders.md) records the applicable evidence;
+it does not establish a separate policy.
 
 ## Shell grader semantics and isolation
 

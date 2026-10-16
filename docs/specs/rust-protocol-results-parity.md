@@ -186,6 +186,16 @@ of matched conditions or domain-specific benchmark interpretation.
 | I10 | Runner provenance                  | Default to exact installed package identity/version/build digest. Explicit checkout mode records matching Git checkout root, revision and dirty digest. Unrelated package roots and nested paths posing as the Git root refuse. Runner and evaluated-project provenance remain separate.                                                                                                         |
 | I11 | Workspace continuation fingerprint | Hash visible file bytes, mode, and symlink target text; ignore `.git`. Changing an external symlink referent's bytes has no effect; changing link target does. Accept 10,000 entries and return null at 10,001; oversized content (129 MiB fixture, 128 MiB bound) gives unavailable/null identity.                                                                                              |
 
+I06 records the existing TypeScript packaged-path identity profile. The
+authorized native profile instead binds the actual installed Rust executable
+and its separately shipped assets, as defined in
+[native build identity](../identity-v1.md). Standalone builds currently embed
+their runtime assets and have an empty external-asset list. A native npm bundle
+must retain the existing mandatory packaged roots through an explicit bundle
+profile and fail closed when its layout or required assets are missing. It
+must not discover a source checkout or silently downgrade a bundle to standalone.
+The profiles remain distinct; neither assigns new meaning to historical digests.
+
 I04's Rust-specific sorting requirement follows the JCS contract and inspected
 JavaScript canonicalizer. Preserve independent vectors at the Rust seam for
 UTF-16 ordering, ECMAScript number serialization (including negative zero),

@@ -28,7 +28,7 @@ numbers and unpaired Unicode surrogates. The final evaluation digest is:
 SHA-256(UTF-8("sevro.identity.v1\n") || UTF-8(JCS(dimensions)))
 ```
 
-The CLI derives `runnerBuildDigest` from sorted packaged file paths and their
+The TypeScript distribution derives `runnerBuildDigest` from sorted packaged file paths and their
 SHA-256 bytes under `src/`, `schemas/`, `docs/`, and `examples/`, plus `README.md` and
 `package.json`. For a Git project, `projectDigest` binds the revision and dirty
 patch digest without the checkout path. Without a revision it hashes a bounded
@@ -37,6 +37,34 @@ run-state storage are also excluded from untracked Git identity, so repeated
 project-local output does not change the project digest. Tracked source changes
 remain included, even under a selected storage directory. A caller may
 provide explicit 64-character digests for controlled development runs.
+
+Native Rust distributions bind the installed executable and separately shipped
+assessment assets. The current standalone build embeds its help, schemas,
+templates and adapter bridge in the executable; it has no separately shipped
+assessment assets. Its build digest is SHA-256 of the JCS bytes of:
+
+```json
+{
+  "format": "sevro.native-build.v1",
+  "distribution": "standalone",
+  "executableSha256": "<SHA-256 of the actual running executable bytes>",
+  "assets": []
+}
+```
+
+The executable's installation path does not enter that input. Relocating the
+same executable preserves its build identity; compiler, dependency, build-flag
+or platform changes that alter its bytes change the identity. No source-checkout
+path or nearby package directory supplies an installed binary's identity.
+Explicit digest overrides take precedence over this default computation.
+
+A future native npm bundle must use an explicitly compiled bundle profile,
+bind the executable plus its manifest and the existing mandatory packaged asset
+roots, and refuse missing layout or required assets. Copying a bundle binary out
+of its package must not downgrade it to standalone identity. This requirement
+does not reinterpret historical TypeScript build digests. Native checkout
+association requires a separate verified source receipt; hashing the executable
+alone does not establish that a supplied mutable checkout produced it.
 
 The prefix separates this digest from component digests and future identity
 versions. An exact-repeat comparison requires equal identities. An ablation may

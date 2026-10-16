@@ -93,18 +93,57 @@ implementation covers these public seams:
 
 - CLI help, version, and invalid-command output, with
   [CLI TDD evidence](rust-tdd-cli.md).
+- The packaged deterministic demo and its owned temporary inputs, with
+  [demo TDD evidence](rust-tdd-demo.md).
 - All three initializer templates and destination safety, with
   [initializer TDD evidence](rust-tdd-init.md).
 - Retained-result JSON and Markdown reports, published schema validation,
   evidence consistency, and measurement semantics, with
   [report TDD evidence](rust-tdd-report.md).
+- Dry evaluation preparation, canonical identities, and retained evidence, with
+  [dry-run TDD evidence](rust-tdd-run-dry.md).
+- Saved run settings and explicit CLI selection precedence, with
+  [run-options TDD evidence](rust-tdd-run-options.md).
+- Plain-text run summaries, failed-check details, and retained measurements, with
+  [console TDD evidence](rust-tdd-run-console.md).
+- Existing TypeScript adapters through an invocation-wide compatibility process,
+  with [adapter TDD evidence](rust-tdd-adapters.md).
+- Extension discovery, case resolution, and preparation, with
+  [extension TDD evidence](rust-tdd-extension.md).
+- Repository fixture preparation and mapped-worktree isolation, with
+  [fixture TDD evidence](rust-tdd-fixtures.md) and
+  [preparation-artifact boundary evidence](rust-tdd-preparation-artifacts.md).
+- Fixture setup deadline, descendant cleanup, and failed-workspace retention,
+  with [setup-deadline TDD evidence](rust-tdd-setup-deadline.md).
+- Project content snapshots and Git provenance, with
+  [provenance TDD evidence](rust-tdd-provenance.md).
+- Isolated native Codex execution and passive continuation, plus initial passive
+  Claude execution with explicit binary and credential selection, with
+  [native-host TDD evidence](rust-tdd-native-hosts.md).
+- Exact-output, JSON-document, JSON-path, and initial regular-expression grading, with
+  [grader TDD evidence](rust-tdd-graders.md).
+- Required-evidence assessment using retained artifacts and built-in observations,
+  with [required-evidence TDD evidence](rust-tdd-required-evidence.md).
+- Receipt bounds and partial evidence preservation after persistence failure,
+  with [receipt TDD evidence](rust-tdd-receipts.md).
+- Mixed trial outcomes and admission after host failure, with
+  [result TDD evidence](rust-tdd-results.md).
+- Cleanup of permission-locked workspaces and result-publication failures, with
+  [storage TDD evidence](rust-tdd-storage.md).
+
+Each implementation ledger identifies its tested boundary and remaining gaps.
+These initial evaluation slices do not establish complete lifecycle parity.
+The [core error refactor evidence](rust-refactor-run-error.md) records preserved
+CLI diagnostics and retained internal causes against the existing regressions.
+The [typed preparation handoffs](rust-refactor-preparation.md) remove repeated
+decoding while preserving validation order, identities, and filesystem checks.
 
 The [Rust quality contract](rust-quality.md) adds compiler coverage and installed
 binary checks on macOS and Ubuntu. Stable line and region gates accompany a
 pinned nightly gate for LLVM's supported branch outcomes; the contract records
 the compiler's measured construct limits. Existing TypeScript acceptance remains
 the reference baseline; full Rust feature parity is not established.
-The production evaluation lifecycle, native hosts, isolation, grading, persistence,
-recovery, extension execution, and installed replacement still require Rust
+The complete production evaluation lifecycle, native hosts, isolation, grading,
+recovery, extension evaluation, and installed replacement still require Rust
 implementation and acceptance evidence. The existing npm command continues to use
 the TypeScript implementation during this migration.

@@ -30,6 +30,9 @@ Use Bun 1.3.13, Git, Node 24, npm, and ripgrep (`rg`). Full suite isolation uses
 on macOS or `bubblewrap` and `socat` on Ubuntu. The macOS synthetic libc regression
 fixtures compile with `/usr/bin/cc`, supplied by Apple's Command Line Tools.
 Windows acceptance is unverified.
+Full TypeScript acceptance also requires rustup and the Rust/Cargo toolchain
+pinned by `rust-toolchain.toml`: host-adapter compatibility tests build and
+execute the current checkout's Rust candidate.
 From a fresh checkout:
 
 ```sh
@@ -73,7 +76,8 @@ source dispositions require review.
 
 Before committing, use `bun run check:typescript --fast` after installing the
 locked dependencies. This runs inventory, schema, formatting, lint, typing and
-documentation checks; it does not replace full acceptance. CI retains machine-readable coverage
+documentation checks without building Rust; it does not replace full acceptance.
+CI retains machine-readable coverage
 reports under `.quality/` and exposes the stable `TypeScript quality` status.
 The complete command's `static`, `docs`, `tests` and `package` phases run as
 concurrent CI jobs. CI divides the tests among four duration-balanced jobs and

@@ -9,11 +9,15 @@ license-file = "../../LICENSE"
 publish = false
 
 [dependencies]
+data-encoding.workspace = true
 jsonschema.workspace = true
+nix.workspace = true
+regress.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 serde_jcs.workspace = true
 sha2.workspace = true
+signal-hook.workspace = true
 toml.workspace = true
 url.workspace = true
 uuid.workspace = true
