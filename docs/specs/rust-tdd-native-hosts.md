@@ -712,6 +712,56 @@ controls, hooks, runtime policy, passive collectors, or live model behavior.
 Only deterministic binaries and synthetic credentials were used. Local macOS
 results remain distinct from Ubuntu and live Claude sandbox acceptance.
 
+## Retain Claude stderr on failed turns
+
+Two independently captured unchanged TypeScript CLI runs establish the stderr
+receipt boundary. The external artifact directory retains
+`baseline-claude-continuation-inline-initial-failure-stderr.json`, replayed with
+`observe_claude_continuation.py initial-failure-stderr`, and
+`baseline-claude-validation-failed-result-stderr.json`, replayed with
+`observe_claude_validation.py failed-result-stderr`. Both synthetic executables
+emit a valid `error_during_execution` result with `is_error: true`, followed by
+the exact stderr bytes `  synthetic Claude failure stderr\n\n`. Their private
+stderr artifact has SHA-256
+`6444d62871a699a300d949c07419f77cc5d2f48f15cc15ffd25f8ebccae51ffd`
+and mode `0600`; whitespace is preserved, and its body is absent from public
+stdout, stderr, and evidence summaries.
+
+Both TypeScript runs exit `2`, fail execution, skip grading, and leave the task
+unassessed. Measured usage remains complete at 1 input token, 2 output tokens,
+and cost `0.01`. They retain exactly `sevro.claude.events` and
+`sevro.claude.stderr`, with the actual raw response. The continuation case
+retains `waiting`, launches only the initial UUID-bound turn, and has no resume
+capture, phase artifacts, or continuation observation. The single-turn case
+retains `ready` and likewise has no continuation observation. Failed workspaces
+remain available for inspection, private external state is removed, and source
+credentials remain unchanged; the tests then remove their owned workspaces.
+
+The continuation failure's raw `waiting` response has SHA-256
+`80cfa3e7f28dde4df64436b652230aff28d7779116d1369c21ef2bbf37261d71`.
+Its event bytes include the actual generated session, so the test checks that
+session and hashes the exact expected stream. The single-turn result artifact
+has SHA-256 `442bd57dd36f923bc97cc48027f4c4d4fbefa40a95a41fe7e891c3b85c00af9f`;
+its raw response keeps the established `ready` hash.
+
+Red — `cargo test -p sevro --test run_native_claude --locked continuation::retains_stderr_when_initial_failure_prevents_resume -- --exact`:
+the public test compiled and passed its execution, no-resume, usage, and raw
+response checks, then failed with one retained artifact instead of the observed
+two. Green — the identical command passed after the initial-failure receipt
+retained its actual captured stderr.
+
+Only after that green, the independent single-turn oracle was captured and its
+test added. Red — `cargo test -p sevro --test run_native_claude --locked retains_private_stderr_from_failed_single_turn -- --exact`:
+the test compiled and likewise failed with one artifact instead of two after its
+status, usage, and raw-response checks passed. Green — the identical command
+passed after the single-turn receipt used the same stderr retention helper.
+
+The helper also preserves existing resumed-turn stderr retention. Empty stderr
+still produces no artifact. The process runner, output limits, isolation,
+invocation cancellation, core persistence, and capabilities are unchanged.
+These are synthetic macOS public CLI observations; no real credentials,
+authenticated model calls, or live Claude sandbox claims are involved.
+
 ## Current checks
 
 `cargo test -p sevro --test run_native_codex --test run_dry --test run_adapter --locked`
@@ -786,3 +836,11 @@ passed. These commands used the separate
 Scoped Rust formatting with `skip_children=true`, ledger Prettier checking, and
 `bun run check:docs` passed. The common process, isolation, transport, options,
 schemas, dependencies, and `run.rs` were not changed by this slice.
+
+After the failed-turn stderr repairs,
+`cargo test -p sevro --test run_native_claude --test run_native_codex --locked`
+passed all 62 native tests: 16 Claude and 46 Codex, using the same dedicated
+target directory. Both new exact commands have independent observed reds and
+greens. Strict scoped Clippy with the preceding native targets, owned-path
+`rustfmt --check --config skip_children=true`, ledger Prettier checking, and
+`bun run check:docs` passed. No common process or isolation changes were needed.

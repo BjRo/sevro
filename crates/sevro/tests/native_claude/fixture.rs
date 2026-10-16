@@ -56,6 +56,7 @@ pub(super) fn failed_run(fixture: &Fixture) -> Run {
             "SYNTHETIC_CLAUDE_LOGIN",
             "SYNTHETIC_CALLER_API_SENTINEL",
             "SYNTHETIC_CALLER_OAUTH_SENTINEL",
+            "synthetic Claude failure stderr",
         ] {
             assert!(!text.contains(secret));
         }

@@ -76,22 +76,21 @@ impl PreparedFixture {
     }
 }
 
-pub(super) fn prepare(
+pub(super) struct ResolvedFixture {
+    kind: PreparedKind,
+    sources: Option<sources::Sources>,
+    fixture_paths: Vec<String>,
+}
+
+pub(super) fn resolve(
     options: &Options,
     declaration: &FixtureDeclaration,
-    setup: Option<&FixtureSetup>,
-    artifact_declarations: &[ArtifactDeclaration],
-) -> RunResult<PreparedFixture> {
+) -> RunResult<ResolvedFixture> {
     let sources = sources::read(options)?;
     let kind = match declaration {
-        FixtureDeclaration::Inline { files } => {
-            if setup.is_some() {
-                return Err("fixture setup requires a Git fixture".into());
-            }
-            PreparedKind::Inline {
-                files: files.clone(),
-            }
-        }
+        FixtureDeclaration::Inline { files } => PreparedKind::Inline {
+            files: files.clone(),
+        },
         FixtureDeclaration::Repository { source_ref, files } => PreparedKind::Repository {
             source: repository::resolve(sources.as_ref(), source_ref)?,
             files: files.clone(),
@@ -104,6 +103,27 @@ pub(super) fn prepare(
             .map(|files| files.keys().cloned().collect())
             .unwrap_or_default(),
     };
+    Ok(ResolvedFixture {
+        kind,
+        sources,
+        fixture_paths,
+    })
+}
+
+pub(super) fn prepare(
+    options: &Options,
+    resolved: ResolvedFixture,
+    setup: Option<&FixtureSetup>,
+    artifact_declarations: &[ArtifactDeclaration],
+) -> RunResult<PreparedFixture> {
+    let ResolvedFixture {
+        kind,
+        sources,
+        fixture_paths,
+    } = resolved;
+    if setup.is_some() && matches!(kind, PreparedKind::Inline { .. }) {
+        return Err("fixture setup requires a Git fixture".into());
+    }
     let artifacts = artifacts::prepare(
         artifact_declarations,
         &fixture_paths,

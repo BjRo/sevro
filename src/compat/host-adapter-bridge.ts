@@ -84,7 +84,13 @@ function validatedResult(value: unknown) {
   const artifacts = encodedArtifacts(
     (value as { artifacts?: unknown }).artifacts,
   );
-  return { ...value, artifacts, toJSON: undefined };
+  const receipt = { ...value, artifacts, toJSON: undefined };
+  return { receipt, retainedEvidenceIssue: retainedEvidenceIssue(receipt) };
+}
+
+function retainedEvidenceIssue(receipt: object) {
+  const costUsd = (receipt as { costUsd?: unknown }).costUsd;
+  return Number.isNaN(costUsd) ? "nan_cost" : null;
 }
 
 function encodedArtifacts(value: unknown) {

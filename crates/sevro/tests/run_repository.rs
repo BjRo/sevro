@@ -13,6 +13,8 @@ mod overlay;
 mod preparation;
 #[path = "run_repository/preparation_edges.rs"]
 mod preparation_edges;
+#[path = "run_repository/preparation_mutation.rs"]
+mod preparation_mutation;
 
 struct RepositoryFixture {
     root: PathBuf,

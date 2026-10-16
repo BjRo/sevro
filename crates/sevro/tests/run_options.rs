@@ -1093,6 +1093,91 @@ fn claude_options_name_the_required_host_before_loading_other_routes() {
 }
 
 #[test]
+fn codex_options_require_a_codex_route_before_claude_execution() {
+    use std::os::unix::fs::PermissionsExt;
+    for (flag, value) in [
+        ("--codex-bin", "../native"),
+        ("--codex-auth-file", "../auth.json"),
+        ("--codex-timeout-ms", "1200000"),
+    ] {
+        let project = Project::new();
+        fs::create_dir(project.0.join("home")).unwrap();
+        fs::create_dir(project.0.join("tmp")).unwrap();
+        fs::write(
+            project.0.join("native"),
+            "#!/bin/sh\nprintf called > \"$0.called\"\nexit 97\n",
+        )
+        .unwrap();
+        fs::set_permissions(project.0.join("native"), fs::Permissions::from_mode(0o700)).unwrap();
+        write_json(
+            &project.0.join("credential.json"),
+            &json!({"claudeAiOauth":{
+                "accessToken":"SYNTHETIC_CLAUDE_TOKEN", "refreshToken":"SYNTHETIC_CLAUDE_REFRESH",
+                "expiresAt":4102444800000_u64, "scopes":["user:inference"], "subscriptionType":"pro"
+            }}),
+        );
+        let output = Command::new(env!("CARGO_BIN_EXE_sevro"))
+            .args([
+                "run",
+                "--json",
+                "--case-file",
+                "../case.json",
+                "--project-root",
+                "..",
+                "--config-root",
+                "..",
+                "--results-root",
+                "../results",
+                "--host",
+                "claude",
+                "--claude-bin",
+                "../native",
+                "--claude-credential-file",
+                "../credential.json",
+                "--model",
+                "synthetic",
+                "--effort",
+                "low",
+                flag,
+                value,
+            ])
+            .current_dir(project.0.join("elsewhere"))
+            .env_clear()
+            .env("HOME", project.0.join("home"))
+            .env("TMPDIR", project.0.join("tmp"))
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(64), "{flag}");
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert_eq!(stdout.lines().count(), 1);
+        let result: Value = serde_json::from_str(&stdout).unwrap();
+        assert_eq!(
+            result,
+            json!({
+                "format":"sevro.cli-result.v1", "runId":null,
+                "execution":{"status":"not_run"}, "grading":{"status":"not_requested"},
+                "task":{"verdict":"not_assessed"}, "exitCode":64, "evidencePath":null,
+                "cases":[], "diagnostic":{
+                    "code":"sevro.invocation.invalid",
+                    "message":"Codex options require a Codex host route"
+                }
+            }),
+            "{flag}"
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stderr)
+                .starts_with("sevro: Codex options require a Codex host route\n")
+        );
+        assert!(!project.0.join("native.called").exists());
+        assert!(!project.0.join("results").exists());
+        assert!(!project.0.join(".sevro").exists());
+        assert!(!project.0.join("elsewhere/.sevro").exists());
+        assert_eq!(fs::read_dir(project.0.join("home")).unwrap().count(), 0);
+        assert_eq!(fs::read_dir(project.0.join("tmp")).unwrap().count(), 0);
+    }
+}
+
+#[test]
 fn unsupported_host_takes_precedence_over_adapter_selection() {
     for with_adapter in [true, false] {
         let project = Project::new();

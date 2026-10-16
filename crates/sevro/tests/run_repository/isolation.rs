@@ -1,6 +1,7 @@
 use super::{git, write_json};
 use serde_json::{Value, json};
 use std::fs;
+use std::io::Read;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -122,7 +123,42 @@ impl MappedFixture {
 
 impl Drop for MappedFixture {
     fn drop(&mut self) {
+        if std::thread::panicking() {
+            self.report_native_failure();
+        }
         let _ = fs::remove_dir_all(&self.root);
+    }
+}
+
+impl MappedFixture {
+    fn report_native_failure(&self) {
+        eprintln!(
+            "mapped native fixture probe: present={}",
+            self.root.join("peer/probe.txt").exists()
+        );
+        let Ok(runs) = fs::read_dir(self.root.join("project/.sevro/results")) else {
+            eprintln!("mapped native fixture results directory unavailable");
+            return;
+        };
+        // Only inspect known synthetic receipts, never auth/config files or raw responses.
+        for run in runs.take(4).flatten() {
+            for artifact in ["codex.process", "codex.stderr"] {
+                let path = run.path().join(format!("trial-1-host-{artifact}.bin"));
+                let mut bytes = Vec::new();
+                let read =
+                    fs::File::open(path).and_then(|file| file.take(4097).read_to_end(&mut bytes));
+                match read {
+                    Ok(_) => eprintln!(
+                        "mapped native fixture {artifact} (first 4096 bytes, truncated={}): {:?}",
+                        bytes.len() > 4096,
+                        String::from_utf8_lossy(&bytes[..bytes.len().min(4096)])
+                    ),
+                    Err(error) => {
+                        eprintln!("mapped native fixture {artifact}: {}", error.kind());
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -175,7 +211,14 @@ fn protects_mapped_repository_linked_worktrees_from_native_commands() {
     fixture.prepare();
     let revision = git(&fixture.sources[0], &["rev-parse", "HEAD"]);
     let output = fixture.command().output().unwrap();
-    let probe = fs::read_to_string(fixture.root.join("peer/probe.txt")).unwrap();
+    let probe = fs::read_to_string(fixture.root.join("peer/probe.txt")).unwrap_or_else(|error| {
+        panic!(
+            "native source probe unavailable: {error}; CLI status: {}; stdout: {:?}; stderr: {:?}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout[..output.stdout.len().min(4096)]),
+            String::from_utf8_lossy(&output.stderr[..output.stderr.len().min(4096)])
+        )
+    });
     for source in &fixture.sources {
         assert_eq!(
             fs::read_to_string(source.join("README.md")).unwrap(),

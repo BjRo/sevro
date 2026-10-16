@@ -8,7 +8,47 @@ use std::collections::{BTreeMap, BTreeSet};
 pub(super) enum PreparedOutput {
     #[default]
     Output,
+    Json {
+        contains: Option<PreparedSubset>,
+    },
+    OutputContains(PreparedSubset),
     Regex(PreparedRegex),
+}
+
+pub(super) enum PreparedSubset {
+    Scalar(Value),
+    Array(Vec<PreparedSubset>),
+    Object(BTreeMap<String, PreparedSubset>),
+    Regex(regress::Regex),
+}
+
+pub(super) fn prepare_subset(expected: &Value) -> RunResult<PreparedSubset> {
+    match expected {
+        Value::Array(values) => values
+            .iter()
+            .map(prepare_subset)
+            .collect::<RunResult<Vec<_>>>()
+            .map(PreparedSubset::Array),
+        Value::Object(values) => {
+            if values.len() == 1
+                && let Some(pattern) = values.get("$regex")
+            {
+                let pattern = pattern.as_str().ok_or("invalid subset regex")?;
+                return regress::Regex::from_unicode(
+                    pattern.encode_utf16().map(u32::from),
+                    regress::Flags::default(),
+                )
+                .map(PreparedSubset::Regex)
+                .map_err(|error| RunError::with_source("invalid subset regex", error));
+            }
+            values
+                .iter()
+                .map(|(key, value)| Ok((key.clone(), prepare_subset(value)?)))
+                .collect::<RunResult<BTreeMap<_, _>>>()
+                .map(PreparedSubset::Object)
+        }
+        _ => Ok(PreparedSubset::Scalar(expected.clone())),
+    }
 }
 
 pub(super) struct PreparedRegex {
@@ -142,18 +182,40 @@ pub(super) struct Assessment {
 }
 
 fn output_failure(check: &Check, message: &str) -> Option<&'static str> {
-    match &check.prepared {
+    let contains = match &check.prepared {
         PreparedOutput::Regex(regex) => return regex.failure(message),
-        PreparedOutput::Output => {}
-    }
+        PreparedOutput::Json { contains } => {
+            if check.configuration.get("exactDocument") == Some(&Value::Bool(true))
+                && let Some(failure) = json_document_failure(message)
+            {
+                return Some(failure);
+            }
+            return json_pointer_failure(
+                message,
+                check
+                    .configuration
+                    .get("pointer")
+                    .and_then(Value::as_str)
+                    .unwrap_or(""),
+                check.configuration.get("equals"),
+                contains.as_ref(),
+            );
+        }
+        PreparedOutput::Output => None,
+        PreparedOutput::OutputContains(contains) => Some(contains),
+    };
     if check.configuration.get("validJson") == Some(&Value::Bool(true))
         && let Some(failure) = json_document_failure(message)
     {
         return Some(failure);
     }
     if let Some(pointer) = check.configuration.get("jsonPath").and_then(Value::as_str)
-        && let Some(failure) =
-            json_pointer_failure(message, pointer, check.configuration.get("expectJson"))
+        && let Some(failure) = json_pointer_failure(
+            message,
+            pointer,
+            check.configuration.get("expectJson"),
+            contains,
+        )
     {
         return Some(failure);
     }
@@ -171,6 +233,7 @@ fn json_pointer_failure(
     message: &str,
     pointer: &str,
     expected: Option<&Value>,
+    contains: Option<&PreparedSubset>,
 ) -> Option<&'static str> {
     let Some((document, _)) = json_document(message) else {
         return Some("output is not valid JSON");
@@ -188,9 +251,67 @@ fn json_pointer_failure(
         };
         selected = member;
     }
-    expected
-        .is_some_and(|expected| !json_equals(selected, expected))
-        .then_some("JSON value did not equal expectation")
+    if expected.is_some_and(|expected| !json_equals(selected, expected)) {
+        return Some("JSON value did not equal expectation");
+    }
+    contains
+        .filter(|expected| {
+            !array_members(selected).is_some_and(|members| {
+                members
+                    .into_iter()
+                    .any(|member| json_subset(member, expected))
+            })
+        })
+        .map(|_| "JSON array did not contain expected item")
+}
+
+fn json_subset(selected: &str, expected: &PreparedSubset) -> bool {
+    match expected {
+        PreparedSubset::Array(expected) => array_members(selected).is_some_and(|actual| {
+            expected
+                .iter()
+                .all(|part| actual.iter().any(|item| json_subset(item, part)))
+        }),
+        PreparedSubset::Object(expected) => object_members(selected).is_some_and(|actual| {
+            expected
+                .iter()
+                .all(|(key, part)| actual.get(key).is_some_and(|item| json_subset(item, part)))
+        }),
+        PreparedSubset::Scalar(expected) => json_equals(selected, expected),
+        PreparedSubset::Regex(pattern) => json_string_units(selected)
+            .is_some_and(|units| pattern.find_from_ucs2(&units, 0).next().is_some()),
+    }
+}
+
+fn json_string_units(selected: &str) -> Option<Vec<u16>> {
+    let mut characters = selected.strip_prefix('"')?.strip_suffix('"')?.chars();
+    let mut units = Vec::new();
+    while let Some(character) = characters.next() {
+        if character != '\\' {
+            units.extend_from_slice(character.encode_utf16(&mut [0; 2]));
+            continue;
+        }
+        let unit = match characters.next()? {
+            '"' => 34,
+            '\\' => 92,
+            '/' => 47,
+            'b' => 8,
+            'f' => 12,
+            'n' => 10,
+            'r' => 13,
+            't' => 9,
+            'u' => {
+                let mut unit = 0;
+                for _ in 0..4 {
+                    unit = unit * 16 + u16::try_from(characters.next()?.to_digit(16)?).ok()?;
+                }
+                unit
+            }
+            _ => return None,
+        };
+        units.push(unit);
+    }
+    Some(units)
 }
 
 fn json_equals(selected: &str, expected: &Value) -> bool {

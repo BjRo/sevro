@@ -40,6 +40,75 @@ fn rejects_foreign_follow_up_without_claiming_usage_or_complete_continuation() {
     fixture.assert_failed_state(&failure);
 }
 
+#[test]
+fn retains_stderr_when_initial_failure_prevents_resume() {
+    let fixture = continuation_fixture();
+    fixture.replace_native_source(
+        "subtype:\"success\", is_error:false",
+        "subtype:\"error_during_execution\", is_error:true",
+    );
+    fixture.append_native_source("\nawait new Promise(resolve => process.stderr.write(\"  synthetic Claude failure stderr\\n\\n\", resolve));\n");
+    let failure = failed_run(&fixture);
+    assert_eq!(
+        fs::read_to_string(fixture.root.join("binary/launches.txt")).unwrap(),
+        "initial\n"
+    );
+    assert!(!fixture.root.join("binary/resume-capture.json").exists());
+    let probe = read_json(&fixture.root.join("binary/initial-capture.json"));
+    let argv = probe["argv"].as_array().unwrap();
+    assert_eq!(argv[argv.len() - 2], "--session-id");
+    let session = argv.last().unwrap().as_str().unwrap();
+    assert_eq!(Uuid::parse_str(session).unwrap().get_version_num(), 4);
+    assert!(
+        !failure.trial["observations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["id"] == "sevro.claude.continuation")
+    );
+    assert_eq!(failure.trial["usage"]["inputTokens"].as_f64(), Some(1.0));
+    assert_eq!(failure.trial["usage"]["outputTokens"].as_f64(), Some(2.0));
+    assert_eq!(failure.trial["usage"]["costUsd"].as_f64(), Some(0.01));
+    assert_eq!(failure.trial["usage"]["complete"], true);
+    let raw = artifact_path(&failure.trial["rawResult"]["path"]);
+    assert_eq!(fs::read_to_string(&raw).unwrap(), "waiting");
+    assert_eq!(
+        failure.trial["rawResult"]["sha256"],
+        "80cfa3e7f28dde4df64436b652230aff28d7779116d1369c21ef2bbf37261d71"
+    );
+    assert_eq!(
+        fs::metadata(raw).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    let expected_events = format!(
+        "{{\"type\":\"result\",\"subtype\":\"error_during_execution\",\"is_error\":true,\"session_id\":\"{session}\",\"result\":\"waiting\",\"usage\":{{\"input_tokens\":1,\"output_tokens\":2}},\"total_cost_usd\":0.01}}\n"
+    );
+    let artifacts = failure.trial["artifactRefs"].as_array().unwrap();
+    assert_eq!(artifacts.len(), 2);
+    for (id, expected, hash) in [
+        (
+            "sevro.claude.events",
+            expected_events.clone(),
+            format!("{:x}", Sha256::digest(expected_events.as_bytes())),
+        ),
+        (
+            "sevro.claude.stderr",
+            "  synthetic Claude failure stderr\n\n".into(),
+            "6444d62871a699a300d949c07419f77cc5d2f48f15cc15ffd25f8ebccae51ffd".into(),
+        ),
+    ] {
+        let artifact = artifacts.iter().find(|item| item["id"] == id).unwrap();
+        let path = artifact_path(&artifact["path"]);
+        assert_eq!(fs::read_to_string(&path).unwrap(), expected);
+        assert_eq!(artifact["sha256"], hash);
+        assert_eq!(
+            fs::metadata(path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+    fixture.assert_failed_state(&failure);
+}
+
 fn continuation_fixture() -> Fixture {
     let fixture = Fixture::new();
     fs::write(fixture.root.join("project/case.json"), serde_json::to_vec(&json!({

@@ -484,3 +484,67 @@ Final scoped checks passed:
 Only `run/options.rs`, `tests/run_options.rs`, and this ledger changed in the
 cohort. Broad acceptance and the publication binding remain coordinator-owned;
 these observations do not replace the frozen checkpoint's separate evidence.
+
+## Codex-only switches on a Claude route
+
+This follow-up characterizes the existing route guard without changing product
+code. The compatibility rule in
+[`src/cli/invocation.ts`](../../src/cli/invocation.ts) names all three Codex-only
+switches; the `Codex timeout without a Codex host route` example in
+[`tests/cli/invocation-validation.test.ts`](../../tests/cli/invocation-validation.test.ts)
+establishes the public refusal. Fresh unchanged TypeScript CLI invocations then
+exercised each switch on an otherwise selected Claude route before its Rust
+assertion was added.
+
+Each invocation returned exit 64 and exactly
+`Codex options require a Codex host route`. The complete unassessed JSON result
+had `sevro.invocation.invalid`, null run/evidence paths and empty cases. No host
+was called and no results, default run state or private host state was allocated.
+The fixture used only owned native invocation markers, synthetic credentials,
+an isolated HOME and a temporary directory. The source hashes matched before
+and after each invocation. Exact commands, stdout/stderr and observations are
+retained alongside `manifest.json` and `probe.py` in:
+
+```text
+/private/var/folders/_b/yvzxqsys46l91yf5dtlk7q9w0000gn/T/sevro-codex-claude-options-baseline-p3d32que
+```
+
+The external script is `/tmp/sevro-codex-claude-options-baseline-20261016.py`.
+Its first probe in the separate `sevro-codex-claude-options-baseline-o_l98ba3`
+directory observed the expected CLI refusal but rejected Bun's ordinary
+`HOME/Library/Caches/bun` cache. That overbroad harness assertion was corrected
+to check for private host state, and a fresh fixture captured the three final
+observations. This was not a product failure or TDD red.
+
+The test grew one example at a time, each after its own TypeScript observation.
+Every Rust invocation used the dedicated target directory
+`CARGO_TARGET_DIR=/tmp/sevro-rust-options-codex-claude-20261016`:
+
+1. Initial-green characterization — `cargo test -p sevro --test run_options codex_options_require_a_codex_route_before_claude_execution --locked -- --exact`:
+   the `--codex-bin` example passed on its first execution with unchanged product
+   code.
+2. Initial-green characterization — `cargo test -p sevro --test run_options codex_options_require_a_codex_route_before_claude_execution --locked -- --exact`:
+   the subsequently added `--codex-auth-file` example passed, retaining the first
+   example.
+3. Initial-green characterization — `cargo test -p sevro --test run_options codex_options_require_a_codex_route_before_claude_execution --locked -- --exact`:
+   the final `--codex-timeout-ms` example passed, retaining both earlier examples.
+
+The test checks one JSON document, the complete refusal envelope and stderr
+diagnostic, the native marker, both possible default run locations, explicit
+results, and the owned private directories. It does not change the separate
+configuration-failure help hint. No red or product repair is claimed.
+
+`cargo test -p sevro --test run_options --locked` passed all 36 tests with
+0 failures, ignored tests or filtered tests. The scoped formatter invocation
+was blocked because `rustfmt` is absent from the tool's shell allowlist; no
+policy change or retry was attempted. The new argument list was formatted
+manually, and a formatter check remains unverified at this handoff.
+
+The following scoped checks passed after that manual formatting:
+
+- `cargo clippy -p sevro --bin sevro --test run_options --locked -- -D warnings`.
+- `bun node_modules/prettier/bin/prettier.cjs --check docs/specs/rust-tdd-run-options.md`.
+- `bun run check:docs`.
+
+Only `tests/run_options.rs` and this ledger changed. Product source, other
+owners' preparation files, dependencies and coverage policy remain unchanged.

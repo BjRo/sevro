@@ -17,6 +17,9 @@ import {
   runConfigurationSerializerGetterScenario,
   runSymbolConfigurationScenario,
   runPartialReceiptScenario,
+  runNanCostScenario,
+  runNullCostScenario,
+  runRejectedNanCostScenario,
   runCancellationScenario,
   runBinaryArtifactScenario,
   runArtifactLimitsScenario,
@@ -120,6 +123,18 @@ test("Rust CLI rejects symbol-keyed adapter configuration", async () => {
 
 test("Rust CLI retains failed adapter output and complete usage", async () => {
   await runPartialReceiptScenario(binary);
+});
+
+test("Rust CLI rejects NaN cost after retaining its successful trial", async () => {
+  await runNanCostScenario(binary);
+});
+
+test("Rust CLI preserves null cost with independently complete usage", async () => {
+  await runNullCostScenario(binary);
+});
+
+test("Rust CLI discards NaN cost when rejecting an oversized receipt", async () => {
+  await runRejectedNanCostScenario(binary);
 });
 
 test("Rust CLI cancels its adapter with partial output and awaited child cleanup", async () => {

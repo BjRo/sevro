@@ -1,4 +1,4 @@
-use super::events;
+use super::{events, retain_stderr};
 use crate::host::{Artifact, HostResult, Observation, ObservationCompleteness};
 use crate::native::{process::Output, workspace_fingerprint::fingerprint};
 use serde_json::{Value, json};
@@ -17,11 +17,13 @@ pub(super) fn run(
     let initial_bound = bound_result(&initial.stdout, &session);
     let initial_complete = events::summarize(&initial.stdout, succeeded(&initial)).complete;
     if !initial_complete || !initial_bound {
-        return Ok(receipt(
+        let mut result = receipt(
             initial.stdout,
             initial_complete && initial_bound,
             initial_bound,
-        ));
+        );
+        retain_stderr(&mut result, initial.stderr);
+        return Ok(result);
     }
     let unchanged = original
         .zip(fingerprint(workspace))
@@ -42,12 +44,7 @@ pub(super) fn run(
             bytes: resumed.stdout,
         },
     ]);
-    if !stderr.is_empty() {
-        result.artifacts.push(Artifact {
-            id: "sevro.claude.stderr".into(),
-            bytes: stderr,
-        });
-    }
+    retain_stderr(&mut result, stderr);
     result.observations.push(Observation {
         id: "sevro.claude.continuation".into(),
         completeness: if complete && unchanged.is_some() {

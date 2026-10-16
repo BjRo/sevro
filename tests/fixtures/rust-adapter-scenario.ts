@@ -14,7 +14,11 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertCliResult, assertRunEvidence } from "../../src/schema";
-import type { CliResultData } from "../../src/schema-types";
+import type {
+  CliResultData,
+  CliResultDataTrial,
+  RunEvidenceDataTrialEvidence,
+} from "../../src/schema-types";
 
 const repository = resolve(import.meta.dir, "../..");
 
@@ -84,6 +88,11 @@ async function startAdapter(
   root: string,
   module: string,
   env?: NodeJS.ProcessEnv,
+  checks: {
+    id: string;
+    grader: string;
+    configuration: { expectExact: string };
+  }[] = [],
 ) {
   const caseFile = join(root, "case.json");
   const results = join(root, "results");
@@ -93,7 +102,7 @@ async function startAdapter(
       id: "adapter-prompt-only",
       prompt: "Return ready.",
       fixture: { files: { "README.md": "adapter fixture\n" } },
-      checks: [],
+      checks,
       requiredEvidence: [],
     }),
   );
@@ -398,6 +407,257 @@ export async function runPartialReceiptScenario(binary: string) {
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+}
+
+export async function runNanCostScenario(binary: string) {
+  const root = await realpath(
+    await mkdtemp(join(tmpdir(), "sevro-rust-nan-cost-")),
+  );
+  const marker = join(root, "workspace.txt");
+  try {
+    const started = await startCostAdapter(binary, root, "Number.NaN");
+    const { code, stderr, result } = await adapterOutput(started.output);
+    assert.equal(code, 70, stderr);
+    assert.deepEqual(result, {
+      format: "sevro.cli-result.v1",
+      runId: null,
+      execution: { status: "not_run" },
+      grading: { status: "not_requested" },
+      task: { verdict: "not_assessed" },
+      exitCode: 70,
+      evidencePath: null,
+      cases: [],
+      diagnostic: {
+        code: "sevro.runner.error",
+        message: "invalid Sevro retained evidence",
+      },
+    });
+    await assertNanCostTrial(root);
+    const workspace = await readFile(marker, "utf8");
+    await assert.rejects(access(workspace), { code: "ENOENT" });
+  } finally {
+    const workspace = await readFile(marker, "utf8").catch(() => undefined);
+    if (workspace) await rm(workspace, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+async function startCostAdapter(
+  binary: string,
+  root: string,
+  cost: "Number.NaN" | "null",
+  message: "ready" | "oversized" = "ready",
+) {
+  const module = join(root, "adapter.ts");
+  await writeFile(
+    module,
+    `import { writeFile } from "node:fs/promises";
+    export default { id: "sevro.host.synthetic", model: "synthetic-v1", effort: "none",
+      async run({ workspace }) {
+        await writeFile(${JSON.stringify(join(root, "workspace.txt"))}, workspace);
+        return { finalMessage: ${message === "ready" ? '"ready"' : '"x".repeat(8*1024*1024+1)'}, complete: true,
+          inputTokens: 12, outputTokens: 3, costUsd: ${cost}, usageComplete: true };
+      } };`,
+  );
+  return startAdapter(binary, root, module, undefined, [
+    {
+      id: "exact",
+      grader: "sevro.output",
+      configuration: { expectExact: "ready" },
+    },
+  ]);
+}
+
+export async function runNullCostScenario(binary: string) {
+  const root = await realpath(
+    await mkdtemp(join(tmpdir(), "sevro-rust-null-cost-")),
+  );
+  try {
+    const started = await startCostAdapter(binary, root, "null");
+    const { code, stderr, result } = await adapterOutput(started.output);
+    assert.equal(code, 0, stderr);
+    assert.deepEqual(result.execution, { status: "completed" });
+    assert.deepEqual(result.grading, { status: "completed" });
+    assert.deepEqual(result.task, { verdict: "passed" });
+    assert(result.evidencePath);
+    const evidence: unknown = JSON.parse(
+      await readFile(result.evidencePath, "utf8"),
+    );
+    assertRunEvidence(evidence);
+    assert.deepEqual(evidence.result, result);
+    const trial = evidence.trials[0];
+    assert(trial);
+    assert.deepEqual(trial.usage, {
+      inputTokens: 12,
+      outputTokens: 3,
+      costUsd: null,
+      complete: true,
+    });
+    assert(trial.rawResult.path);
+    assert.equal(
+      await readFile(fileURLToPath(trial.rawResult.path), "utf8"),
+      "ready",
+    );
+    assert.equal(
+      trial.rawResult.sha256,
+      "b24d6d33736ecd5604a4b17bc9c6481039fac362bb7df044ef1c10a2bfd21db6",
+    );
+    assert.deepEqual(
+      await readResult(join(dirname(result.evidencePath), "result.json")),
+      result,
+    );
+    assert.deepEqual(
+      await readResult(join(root, "results/latest.json")),
+      result,
+    );
+    const workspace = await readFile(join(root, "workspace.txt"), "utf8");
+    await assert.rejects(access(workspace), { code: "ENOENT" });
+  } finally {
+    const workspace = await readFile(join(root, "workspace.txt"), "utf8").catch(
+      () => undefined,
+    );
+    if (workspace) await rm(workspace, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+export async function runRejectedNanCostScenario(binary: string) {
+  const root = await realpath(
+    await mkdtemp(join(tmpdir(), "sevro-rust-rejected-nan-cost-")),
+  );
+  try {
+    const started = await startCostAdapter(
+      binary,
+      root,
+      "Number.NaN",
+      "oversized",
+    );
+    const { code, stderr, result } = await adapterOutput(started.output);
+    assert.equal(code, 2, stderr);
+    await assertRejectedNanCost(result, root);
+    const workspace = await readFile(join(root, "workspace.txt"), "utf8");
+    assert.equal(
+      await readFile(join(workspace, "README.md"), "utf8"),
+      "adapter fixture\n",
+    );
+  } finally {
+    const workspace = await readFile(join(root, "workspace.txt"), "utf8").catch(
+      () => undefined,
+    );
+    if (workspace) await rm(workspace, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+async function assertRejectedNanCost(result: CliResultData, root: string) {
+  assert.deepEqual(result.diagnostic, {
+    code: "sevro.host.failed",
+    message: "host execution did not complete",
+  });
+  const selected = result.cases[0];
+  assert(selected);
+  const summary = selected.trials[0];
+  assert(summary);
+  for (const assessment of [result, selected, summary]) {
+    assert.deepEqual(assessment.execution, { status: "failed" });
+    assert.deepEqual(assessment.grading, { status: "not_requested" });
+    assert.deepEqual(assessment.task, { verdict: "not_assessed" });
+  }
+  assert.deepEqual(summary.checks, []);
+  assert(result.evidencePath);
+  const evidence: unknown = JSON.parse(
+    await readFile(result.evidencePath, "utf8"),
+  );
+  assertRunEvidence(evidence);
+  assert.deepEqual(evidence.result, result);
+  const trial = evidence.trials[0];
+  assert(trial);
+  assert.deepEqual(trial.usage, {
+    inputTokens: null,
+    outputTokens: null,
+    costUsd: null,
+    complete: false,
+  });
+  assert.equal(trial.observationCompleteness, "unavailable");
+  assert.deepEqual(trial.rawResult, {
+    source: "sevro.host.synthetic",
+    path: null,
+    sha256: null,
+  });
+  assert.deepEqual(trial.artifactRefs, []);
+  const run = dirname(result.evidencePath);
+  await assert.rejects(access(join(run, "trial-1-raw.txt")), {
+    code: "ENOENT",
+  });
+  assert(summary.artifactPath);
+  const retained: unknown = JSON.parse(
+    await readFile(summary.artifactPath, "utf8"),
+  );
+  assert.deepEqual(retained, {
+    format: "sevro.trial-evidence.v1",
+    caseId: "adapter-prompt-only",
+    trial: 1,
+    result: summary,
+    evidence: trial,
+  });
+  assert.deepEqual(await readResult(join(run, "result.json")), result);
+  assert.deepEqual(await readResult(join(root, "results/latest.json")), result);
+}
+
+async function assertNanCostTrial(root: string) {
+  const results = join(root, "results");
+  const runs = (await readdir(results)).filter((name) =>
+    /^[a-f0-9-]{36}$/.test(name),
+  );
+  assert.equal(runs.length, 1);
+  const name = runs[0];
+  assert(name);
+  const run = join(results, name);
+  const artifactPath = join(run, "trial-1.json");
+  const trial = JSON.parse(await readFile(artifactPath, "utf8")) as {
+    result: CliResultDataTrial;
+    evidence: RunEvidenceDataTrialEvidence;
+  };
+  assert.deepEqual(trial.result, {
+    trial: 1,
+    execution: { status: "completed" },
+    grading: { status: "completed" },
+    task: { verdict: "passed" },
+    checks: [
+      {
+        id: "exact",
+        grader: "sevro.output",
+        status: "passed",
+        detail: "ok",
+        evidenceRefs: ["sevro.observation.final-message"],
+      },
+    ],
+    domainOutcomes: [],
+    artifactPath,
+  });
+  assert.deepEqual(trial.evidence.usage, {
+    inputTokens: 12,
+    outputTokens: 3,
+    costUsd: null,
+    complete: true,
+  });
+  assert.equal(trial.evidence.observationCompleteness, "complete");
+  assert.equal(
+    trial.evidence.rawResult.sha256,
+    "b24d6d33736ecd5604a4b17bc9c6481039fac362bb7df044ef1c10a2bfd21db6",
+  );
+  assert(trial.evidence.rawResult.path);
+  assert.equal(
+    fileURLToPath(trial.evidence.rawResult.path),
+    join(run, "trial-1-raw.txt"),
+  );
+  assert.equal(await readFile(join(run, "trial-1-raw.txt"), "utf8"), "ready");
+  for (const path of [
+    join(run, "run.json"),
+    join(run, "result.json"),
+    join(results, "latest.json"),
+  ])
+    await assert.rejects(access(path), { code: "ENOENT" });
 }
 
 export async function runBinaryArtifactScenario(binary: string) {
@@ -1451,6 +1711,15 @@ if (import.meta.main) {
       break;
     case "partial-receipt":
       await runPartialReceiptScenario(binary);
+      break;
+    case "nan-cost":
+      await runNanCostScenario(binary);
+      break;
+    case "null-cost":
+      await runNullCostScenario(binary);
+      break;
+    case "rejected-nan-cost":
+      await runRejectedNanCostScenario(binary);
       break;
     case "binary-artifact":
       await runBinaryArtifactScenario(binary);

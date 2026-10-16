@@ -330,6 +330,62 @@ fn accepts_text_and_skill_blocks_before_successful_result() {
     assert_eq!(run.trial["usage"]["complete"], true);
 }
 
+#[test]
+fn retains_private_stderr_from_failed_single_turn() {
+    let fixture = Fixture::new();
+    fixture.replace_native_source(
+        "\"subtype\":\"success\",\"is_error\":false",
+        "\"subtype\":\"error_during_execution\",\"is_error\":true",
+    );
+    fixture.append_native_source("\nawait new Promise(resolve => process.stderr.write(\"  synthetic Claude failure stderr\\n\\n\", resolve));\n");
+    let failure = failed_run(&fixture);
+    assert_eq!(failure.trial["usage"]["inputTokens"].as_f64(), Some(1.0));
+    assert_eq!(failure.trial["usage"]["outputTokens"].as_f64(), Some(2.0));
+    assert_eq!(failure.trial["usage"]["costUsd"].as_f64(), Some(0.01));
+    assert_eq!(failure.trial["usage"]["complete"], true);
+    assert!(
+        !failure.trial["observations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["id"] == "sevro.claude.continuation")
+    );
+    let raw = artifact_path(&failure.trial["rawResult"]["path"]);
+    assert_eq!(fs::read_to_string(&raw).unwrap(), "ready");
+    assert_eq!(
+        failure.trial["rawResult"]["sha256"],
+        "b24d6d33736ecd5604a4b17bc9c6481039fac362bb7df044ef1c10a2bfd21db6"
+    );
+    assert_eq!(
+        fs::metadata(raw).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    let artifacts = failure.trial["artifactRefs"].as_array().unwrap();
+    assert_eq!(artifacts.len(), 2);
+    for (id, expected, hash) in [
+        (
+            "sevro.claude.events",
+            "{\"type\":\"result\",\"subtype\":\"error_during_execution\",\"is_error\":true,\"result\":\"ready\",\"usage\":{\"input_tokens\":1,\"output_tokens\":2},\"total_cost_usd\":0.01}\n",
+            "442bd57dd36f923bc97cc48027f4c4d4fbefa40a95a41fe7e891c3b85c00af9f",
+        ),
+        (
+            "sevro.claude.stderr",
+            "  synthetic Claude failure stderr\n\n",
+            "6444d62871a699a300d949c07419f77cc5d2f48f15cc15ffd25f8ebccae51ffd",
+        ),
+    ] {
+        let artifact = artifacts.iter().find(|item| item["id"] == id).unwrap();
+        let path = artifact_path(&artifact["path"]);
+        assert_eq!(fs::read_to_string(&path).unwrap(), expected);
+        assert_eq!(artifact["sha256"], hash);
+        assert_eq!(
+            fs::metadata(path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+    fixture.assert_failed_state(&failure);
+}
+
 fn assert_retained_response(trial: &Value, expected_events: &str, event_hash: &str) {
     let raw = artifact_path(&trial["rawResult"]["path"]);
     assert_eq!(fs::read_to_string(&raw).unwrap(), "ready");

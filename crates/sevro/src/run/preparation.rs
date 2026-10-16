@@ -155,6 +155,28 @@ impl PreparedCase {
                 );
                 continue;
             }
+            if check.grader == "sevro.json" {
+                for (key, value) in &check.configuration {
+                    match key.as_str() {
+                        "pointer" => validate_json_pointer(value)?,
+                        "equals" | "contains" => {}
+                        "exactDocument" => {
+                            if !value.is_boolean() {
+                                return Err("exactDocument must be boolean".into());
+                            }
+                        }
+                        _ => return Err(format!("unsupported check configuration: {key}").into()),
+                    }
+                }
+                check.prepared = super::graders::PreparedOutput::Json {
+                    contains: check
+                        .configuration
+                        .get("contains")
+                        .map(super::graders::prepare_subset)
+                        .transpose()?,
+                };
+                continue;
+            }
             if check.grader != "sevro.output" {
                 if path.is_some()
                     && !matches!(
@@ -177,7 +199,7 @@ impl PreparedCase {
             }
             for (key, value) in &check.configuration {
                 match key.as_str() {
-                    "expectJson" => {}
+                    "expectJson" | "containsJson" => {}
                     "expectExact" => {
                         if !value.is_string() {
                             return Err("expectExact must be a string".into());
@@ -189,15 +211,7 @@ impl PreparedCase {
                         }
                     }
                     "jsonPath" => {
-                        let pointer = value.as_str().ok_or("JSON pointer must be a string")?;
-                        if (!pointer.is_empty() && !pointer.starts_with('/'))
-                            || pointer
-                                .split('~')
-                                .skip(1)
-                                .any(|escape| !escape.starts_with('0') && !escape.starts_with('1'))
-                        {
-                            return Err("invalid JSON pointer".into());
-                        }
+                        validate_json_pointer(value)?;
                     }
                     _ => {
                         return Err(format!(
@@ -207,14 +221,33 @@ impl PreparedCase {
                     }
                 }
             }
-            if check.configuration.contains_key("expectJson")
+            if (check.configuration.contains_key("expectJson")
+                || check.configuration.contains_key("containsJson"))
                 && !check.configuration.contains_key("jsonPath")
             {
                 return Err("JSON expectations require a pointer".into());
             }
+            if let Some(contains) = check.configuration.get("containsJson") {
+                check.prepared = super::graders::PreparedOutput::OutputContains(
+                    super::graders::prepare_subset(contains)?,
+                );
+            }
         }
         Ok(case)
     }
+}
+
+fn validate_json_pointer(value: &Value) -> RunResult<()> {
+    let pointer = value.as_str().ok_or("JSON pointer must be a string")?;
+    if (!pointer.is_empty() && !pointer.starts_with('/'))
+        || pointer
+            .split('~')
+            .skip(1)
+            .any(|escape| !escape.starts_with('0') && !escape.starts_with('1'))
+    {
+        return Err("invalid JSON pointer".into());
+    }
+    Ok(())
 }
 
 fn invalid_case_file(path: &Path, issue: &str) -> String {

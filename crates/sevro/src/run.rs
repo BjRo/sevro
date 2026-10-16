@@ -56,7 +56,7 @@ pub(super) fn command_with_release(
             .map(|case| (case, None))
             .map_err(identity::PreparationFailure::from),
         CaseSource::Extension(selection) => {
-            extension_context::load(&options, selection, &host, cancellation.token())
+            extension_context::resolve(&options, selection, &host, cancellation.token())
                 .map(|(case, extension)| (case, Some(extension)))
         }
     };
@@ -66,9 +66,22 @@ pub(super) fn command_with_release(
             return failure_after_release(json, error.code, error.error.message(), release);
         }
     };
+    let resolved_fixture = match fixtures::resolve(&options, &case.fixture) {
+        Ok(fixture) => fixture,
+        Err(error) => return failure_after_release(json, 64, error.message(), release),
+    };
+    let extension = match extension
+        .map(|extension| extension.prepare(&options.condition))
+        .transpose()
+    {
+        Ok(extension) => extension,
+        Err(error) => {
+            return failure_after_release(json, error.code, error.error.message(), release);
+        }
+    };
     let fixture = match fixtures::prepare(
         &options,
-        &case.fixture,
+        resolved_fixture,
         extension
             .as_ref()
             .and_then(|extension| extension.fixture_setup.as_ref()),

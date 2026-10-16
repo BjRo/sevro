@@ -8,7 +8,9 @@ use super::{
     preparation::{Check, PreparedCase},
     storage,
 };
-use crate::host::{HostError, HostRequest, Observation, ObservationCompleteness};
+use crate::host::{
+    HostError, HostRequest, Observation, ObservationCompleteness, RetainedEvidenceIssue,
+};
 use jsonschema::Registry;
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -83,6 +85,7 @@ pub(super) fn run(
     let mut conditions = Vec::new();
     let mut failed = false;
     let mut failure = None;
+    let mut retained_evidence_issue = None;
     for trial in 1..=options.trials {
         if host.cancellation().is_cancelled() {
             break;
@@ -157,6 +160,7 @@ pub(super) fn run(
             );
         }
         failed |= receipt.failed;
+        retained_evidence_issue = retained_evidence_issue.or(receipt.retained_evidence_issue);
         if failed && failure.is_none() {
             failure = receipt.failure;
         }
@@ -262,6 +266,9 @@ pub(super) fn run(
         evidence["diagnostic"] = diagnostic;
     }
     validate(&result, &evidence)?;
+    if retained_evidence_issue.is_some() {
+        return Err("invalid Sevro retained evidence".into());
+    }
     storage::atomic_json(&evidence_path, &evidence)?;
     let result_file = run_directory.join("result.json");
     let publication = storage::atomic_json(&result_file, &result)
@@ -305,6 +312,7 @@ struct CandidateReceipt {
     final_message: Option<String>,
     complete: bool,
     failure: Option<HostError>,
+    retained_evidence_issue: Option<RetainedEvidenceIssue>,
 }
 
 impl CandidateReceipt {
@@ -363,6 +371,7 @@ fn candidate_receipt(
         final_message: None,
         complete: false,
         failure: None,
+        retained_evidence_issue: None,
     };
     if options.dry || receipt.cancelled {
         return Ok(receipt);
@@ -401,6 +410,7 @@ fn candidate_receipt(
         return Ok(receipt);
     }
     receipt.actual_condition = result.actual_condition.unwrap_or_else(|| "unknown".into());
+    receipt.retained_evidence_issue = result.retained_evidence_issue;
     receipt.failed = result.execution_failed && !receipt.cancelled;
     receipt.failure = result
         .failure_message

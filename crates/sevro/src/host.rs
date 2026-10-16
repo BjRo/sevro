@@ -47,6 +47,14 @@ pub(crate) struct HostResult {
     pub failure_message: Option<String>,
     #[serde(skip)]
     pub process_failure: Option<ProcessFailure>,
+    #[serde(skip)]
+    pub retained_evidence_issue: Option<RetainedEvidenceIssue>,
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum RetainedEvidenceIssue {
+    NanCost,
 }
 
 pub(crate) struct ProcessFailure {

@@ -63,6 +63,14 @@ impl Fixture {
         fs::write(path, serde_json::to_vec(&case).unwrap()).unwrap();
     }
 
+    fn json_configuration(&self, configuration: Value) {
+        self.output_configuration(configuration);
+        let path = self.root.join("case.json");
+        let mut case = read_json(&path);
+        case["checks"][0]["grader"] = json!("sevro.json");
+        fs::write(path, serde_json::to_vec(&case).unwrap()).unwrap();
+    }
+
     fn regex_configuration(&self, configuration: Value) {
         let mut case: Value =
             serde_json::from_slice(include_bytes!("../../../examples/basic/graded.json")).unwrap();
@@ -942,6 +950,441 @@ fn json_path_selects_a_member_despite_unrelated_duplicate_names() {
         *result
     );
     assert!(!workspace_path(&evidence["trials"][0]).exists());
+}
+
+#[test]
+fn standalone_json_compares_a_selected_value() {
+    let mut fixture = Fixture::new();
+    fixture.json_configuration(
+        json!({"pointer":"/items/0","equals":{"name":"alpha","tags":["a","b"]}}),
+    );
+    fixture.observation(Some("```json\n{\"items\":[{\"name\":\"alpha\",\"tags\":[\"a\",\"b\"]},{\"name\":\"beta\"}]}\n```"), true);
+    let evidence = assert_assessed_result(
+        &fixture.invoke(),
+        0,
+        "completed",
+        "passed",
+        json!({"id":"json","grader":"sevro.json","status":"passed","detail":"ok","evidenceRefs":["sevro.observation.final-message"]}),
+    );
+    assert_eq!(raw_bytes(&evidence), "```json\n{\"items\":[{\"name\":\"alpha\",\"tags\":[\"a\",\"b\"]},{\"name\":\"beta\"}]}\n```".as_bytes());
+    assert_eq!(
+        evidence["trials"][0]["rawResult"]["sha256"],
+        "a242412788ecc0aa5f1e9c7a7446e7fb47977ed5c255cbeb1547afc0742246aa"
+    );
+    let result = &evidence["result"];
+    let run_directory = Path::new(result["evidencePath"].as_str().unwrap())
+        .parent()
+        .unwrap();
+    assert_eq!(read_json(&run_directory.join("result.json")), *result);
+    assert_eq!(
+        read_json(&fixture.root.join("results/latest.json")),
+        *result
+    );
+    assert!(!workspace_path(&evidence["trials"][0]).exists());
+}
+
+#[test]
+fn standalone_json_exact_document_rejects_surrounding_prose() {
+    let mut fixture = Fixture::new();
+    fixture.json_configuration(json!({"exactDocument":true}));
+    fixture.observation(Some("before\n```json\n{\"ok\":true}\n```"), true);
+    let evidence = assert_assessed_result(
+        &fixture.invoke(),
+        1,
+        "completed",
+        "failed",
+        json!({"id":"json","grader":"sevro.json","status":"failed","detail":"output is not exactly one JSON document","evidenceRefs":["sevro.observation.final-message"]}),
+    );
+    assert_eq!(
+        raw_bytes(&evidence),
+        "before\n```json\n{\"ok\":true}\n```".as_bytes()
+    );
+    assert_eq!(
+        evidence["trials"][0]["rawResult"]["sha256"],
+        "8061952ca69f07c497ee57b4ac9c1180beac1815df825afc5673cd775b2a5136"
+    );
+    let result = &evidence["result"];
+    let run_directory = Path::new(result["evidencePath"].as_str().unwrap())
+        .parent()
+        .unwrap();
+    assert_eq!(read_json(&run_directory.join("result.json")), *result);
+    assert_eq!(
+        read_json(&fixture.root.join("results/latest.json")),
+        *result
+    );
+    remove_retained_workspace(&evidence);
+}
+
+#[test]
+fn standalone_json_contains_recursive_object_and_array_subsets() {
+    let mut fixture = Fixture::new();
+    fixture.json_configuration(json!({"contains":{"tags":["red","blue"],"meta":{"ready":true}}}));
+    fixture.observation(Some("before\n```json\n[{\"tags\":[\"blue\",\"extra\",\"red\"],\"meta\":{\"ready\":true,\"extra\":1},\"extra\":null}]\n```"), true);
+    let evidence = assert_assessed_result(
+        &fixture.invoke(),
+        0,
+        "completed",
+        "passed",
+        json!({"id":"json","grader":"sevro.json","status":"passed","detail":"ok","evidenceRefs":["sevro.observation.final-message"]}),
+    );
+    assert_eq!(raw_bytes(&evidence), "before\n```json\n[{\"tags\":[\"blue\",\"extra\",\"red\"],\"meta\":{\"ready\":true,\"extra\":1},\"extra\":null}]\n```".as_bytes());
+    assert_eq!(
+        evidence["trials"][0]["rawResult"]["sha256"],
+        "c9a71bafd9a1ac0487fb49e71d3706fb5b8248e5bfe1f56c49012c69fd3ed822"
+    );
+    let result = &evidence["result"];
+    let run_directory = Path::new(result["evidencePath"].as_str().unwrap())
+        .parent()
+        .unwrap();
+    assert_eq!(read_json(&run_directory.join("result.json")), *result);
+    assert_eq!(
+        read_json(&fixture.root.join("results/latest.json")),
+        *result
+    );
+    assert!(!workspace_path(&evidence["trials"][0]).exists());
+}
+
+#[test]
+fn output_contains_json_matches_a_selected_array_member() {
+    let mut fixture = Fixture::new();
+    fixture.output_configuration(json!({"jsonPath":"/items","containsJson":{"name":"ready"}}));
+    fixture.observation(
+        Some(r#"{"items":[{"name":"wait"},{"name":"ready","extra":true}]}"#),
+        true,
+    );
+    let evidence = assert_assessed_result(
+        &fixture.invoke(),
+        0,
+        "completed",
+        "passed",
+        json!({"id":"json","grader":"sevro.output","status":"passed","detail":"ok","evidenceRefs":["sevro.observation.final-message"]}),
+    );
+    assert_eq!(
+        raw_bytes(&evidence),
+        r#"{"items":[{"name":"wait"},{"name":"ready","extra":true}]}"#.as_bytes()
+    );
+    assert_eq!(
+        evidence["trials"][0]["rawResult"]["sha256"],
+        "db9b3f7d0cf99a514dc291725fd88f72c279b9f8b612c3a7beffb743b2c77f85"
+    );
+    let result = &evidence["result"];
+    let run_directory = Path::new(result["evidencePath"].as_str().unwrap())
+        .parent()
+        .unwrap();
+    assert_eq!(read_json(&run_directory.join("result.json")), *result);
+    assert_eq!(
+        read_json(&fixture.root.join("results/latest.json")),
+        *result
+    );
+    assert!(!workspace_path(&evidence["trials"][0]).exists());
+}
+
+#[test]
+fn standalone_json_containment_requires_every_nested_array_part() {
+    let mut fixture = Fixture::new();
+    fixture.json_configuration(json!({"contains":{"tags":["red","blue"]}}));
+    fixture.observation(Some(r#"[{"tags":["red"]}]"#), true);
+    let evidence = assert_assessed_result(
+        &fixture.invoke(),
+        1,
+        "completed",
+        "failed",
+        json!({"id":"json","grader":"sevro.json","status":"failed","detail":"JSON array did not contain expected item","evidenceRefs":["sevro.observation.final-message"]}),
+    );
+    assert_eq!(raw_bytes(&evidence), r#"[{"tags":["red"]}]"#.as_bytes());
+    assert_eq!(
+        evidence["trials"][0]["rawResult"]["sha256"],
+        "63ab4b86009791e7f1ecd22d5f1bfa3dda83dacd5d91e8405d3f8814cc53b16d"
+    );
+    let result = &evidence["result"];
+    let run_directory = Path::new(result["evidencePath"].as_str().unwrap())
+        .parent()
+        .unwrap();
+    assert_eq!(read_json(&run_directory.join("result.json")), *result);
+    assert_eq!(
+        read_json(&fixture.root.join("results/latest.json")),
+        *result
+    );
+    remove_retained_workspace(&evidence);
+}
+
+#[test]
+fn standalone_json_contains_precompiled_string_regex_subsets() {
+    let mut fixture = Fixture::new();
+    fixture.json_configuration(json!({"contains":{"name":{"$regex":"^a"}}}));
+    fixture.observation(Some(r#"[{"name":"alpha","extra":1}]"#), true);
+    let evidence = assert_assessed_result(
+        &fixture.invoke(),
+        0,
+        "completed",
+        "passed",
+        json!({"id":"json","grader":"sevro.json","status":"passed","detail":"ok","evidenceRefs":["sevro.observation.final-message"]}),
+    );
+    assert_eq!(
+        raw_bytes(&evidence),
+        r#"[{"name":"alpha","extra":1}]"#.as_bytes()
+    );
+    assert_eq!(
+        evidence["trials"][0]["rawResult"]["sha256"],
+        "49bd231d6315d11035d4083ba2c6dcf7daec1132cdb51043934d84f2c67c6b41"
+    );
+    let result = &evidence["result"];
+    let run_directory = Path::new(result["evidencePath"].as_str().unwrap())
+        .parent()
+        .unwrap();
+    assert_eq!(read_json(&run_directory.join("result.json")), *result);
+    assert_eq!(
+        read_json(&fixture.root.join("results/latest.json")),
+        *result
+    );
+    assert!(!workspace_path(&evidence["trials"][0]).exists());
+}
+
+#[test]
+fn standalone_json_rejects_invalid_nested_regex_before_execution() {
+    let mut fixture = Fixture::new();
+    fixture.json_configuration(json!({"contains":{"nested":[{"$regex":"("}]}}));
+    fixture.observation(Some("ready"), true);
+    fs::write(&fixture.adapter, "import {writeFile} from 'node:fs/promises'; export default {id:'sevro.host.synthetic',model:'synthetic-v1',effort:'none',async run(){await writeFile(new URL('./candidate-called',import.meta.url),'called');return {finalMessage:'ready',complete:true};}};\n").unwrap();
+    let output = fixture.invoke();
+    assert_eq!(
+        output.status.code(),
+        Some(64),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        result,
+        json!({
+            "format":"sevro.cli-result.v1","runId":null,
+            "execution":{"status":"not_run"},"grading":{"status":"not_requested"},
+            "task":{"verdict":"not_assessed"},"exitCode":64,"evidencePath":null,"cases":[],
+            "diagnostic":{"code":"sevro.invocation.invalid","message":"invalid subset regex"}
+        })
+    );
+    assert!(String::from_utf8_lossy(&output.stderr).contains("sevro: invalid subset regex"));
+    assert!(!fixture.root.join("candidate-called").exists());
+    assert!(!fixture.root.join("results").exists());
+}
+
+#[test]
+fn standalone_json_subset_regex_preserves_lone_utf16_surrogates() {
+    let mut fixture = Fixture::new();
+    fixture.json_configuration(json!({"contains":{"$regex":"^.$"}}));
+    fixture.observation(Some(r#"["\ud800"]"#), true);
+    let evidence = assert_assessed_result(
+        &fixture.invoke(),
+        0,
+        "completed",
+        "passed",
+        json!({"id":"json","grader":"sevro.json","status":"passed","detail":"ok","evidenceRefs":["sevro.observation.final-message"]}),
+    );
+    assert_eq!(raw_bytes(&evidence), r#"["\ud800"]"#.as_bytes());
+    assert_eq!(
+        evidence["trials"][0]["rawResult"]["sha256"],
+        "69119aac5ce42bc93c1667db0454297ffaa342c431efa2dfdf48af101c035106"
+    );
+    let result = &evidence["result"];
+    let run_directory = Path::new(result["evidencePath"].as_str().unwrap())
+        .parent()
+        .unwrap();
+    assert_eq!(read_json(&run_directory.join("result.json")), *result);
+    assert_eq!(
+        read_json(&fixture.root.join("results/latest.json")),
+        *result
+    );
+    assert!(!workspace_path(&evidence["trials"][0]).exists());
+}
+
+#[test]
+fn standalone_json_subset_regex_does_not_add_multiline() {
+    let mut fixture = Fixture::new();
+    fixture.json_configuration(json!({"contains":{"$regex":"^ready$"}}));
+    fixture.observation(Some(r#"["before\nready\nafter"]"#), true);
+    let evidence = assert_assessed_result(
+        &fixture.invoke(),
+        1,
+        "completed",
+        "failed",
+        json!({"id":"json","grader":"sevro.json","status":"failed","detail":"JSON array did not contain expected item","evidenceRefs":["sevro.observation.final-message"]}),
+    );
+    assert_eq!(
+        raw_bytes(&evidence),
+        r#"["before\nready\nafter"]"#.as_bytes()
+    );
+    assert_eq!(
+        evidence["trials"][0]["rawResult"]["sha256"],
+        "80dbbbdafe45cd957415e3b2b4bb131cb38daa466d3af03e3c12601fa3e39fb4"
+    );
+    let result = &evidence["result"];
+    let run_directory = Path::new(result["evidencePath"].as_str().unwrap())
+        .parent()
+        .unwrap();
+    assert_eq!(read_json(&run_directory.join("result.json")), *result);
+    assert_eq!(
+        read_json(&fixture.root.join("results/latest.json")),
+        *result
+    );
+    remove_retained_workspace(&evidence);
+}
+
+#[test]
+fn output_contains_json_requires_pointer_before_subset_compilation() {
+    let mut fixture = Fixture::new();
+    fixture.output_configuration(json!({"containsJson":{"$regex":"("}}));
+    fixture.observation(Some("ready"), true);
+    fs::write(&fixture.adapter, "import {writeFile} from 'node:fs/promises'; export default {id:'sevro.host.synthetic',model:'synthetic-v1',effort:'none',async run(){await writeFile(new URL('./candidate-called',import.meta.url),'called');return {finalMessage:'ready',complete:true};}};\n").unwrap();
+    let output = fixture.invoke();
+    assert_eq!(
+        output.status.code(),
+        Some(64),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        result,
+        json!({
+            "format":"sevro.cli-result.v1","runId":null,
+            "execution":{"status":"not_run"},"grading":{"status":"not_requested"},
+            "task":{"verdict":"not_assessed"},"exitCode":64,"evidencePath":null,"cases":[],
+            "diagnostic":{"code":"sevro.invocation.invalid","message":"JSON expectations require a pointer"}
+        })
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("sevro: JSON expectations require a pointer")
+    );
+    assert!(!fixture.root.join("candidate-called").exists());
+    assert!(!fixture.root.join("results").exists());
+}
+
+#[test]
+fn standalone_json_containment_keeps_missing_output_unavailable() {
+    let mut fixture = Fixture::new();
+    fixture.json_configuration(json!({"contains":{"name":"ready"}}));
+    fixture.observation(None, true);
+    let evidence = assert_assessed_result(
+        &fixture.invoke(),
+        4,
+        "unavailable",
+        "not_assessed",
+        json!({"id":"json","grader":"sevro.json","status":"unavailable","detail":"output observation unavailable","evidenceRefs":[]}),
+    );
+    assert!(evidence["trials"][0]["rawResult"]["path"].is_null());
+    assert!(evidence["trials"][0]["rawResult"]["sha256"].is_null());
+    let result = &evidence["result"];
+    let run_directory = Path::new(result["evidencePath"].as_str().unwrap())
+        .parent()
+        .unwrap();
+    assert_eq!(read_json(&run_directory.join("result.json")), *result);
+    assert_eq!(
+        read_json(&fixture.root.join("results/latest.json")),
+        *result
+    );
+    assert_eq!(
+        evidence["trials"][0]["observationCompleteness"],
+        "unavailable"
+    );
+    remove_retained_workspace(&evidence);
+}
+
+#[test]
+fn output_contains_json_keeps_matching_partial_output_unavailable() {
+    let mut fixture = Fixture::new();
+    fixture.output_configuration(json!({"jsonPath":"/items","containsJson":{"name":"ready"}}));
+    fixture.observation(Some(r#"{"items":[{"name":"ready"}]}"#), false);
+    let evidence = assert_assessed_result(
+        &fixture.invoke(),
+        4,
+        "unavailable",
+        "not_assessed",
+        json!({"id":"json","grader":"sevro.output","status":"unavailable","detail":"output observation unavailable","evidenceRefs":["sevro.observation.final-message"]}),
+    );
+    assert_eq!(
+        raw_bytes(&evidence),
+        r#"{"items":[{"name":"ready"}]}"#.as_bytes()
+    );
+    assert_eq!(
+        evidence["trials"][0]["rawResult"]["sha256"],
+        "ce5b820bc625b3e939fb987d5e74630d8bbfe26fb39772e8339c616fb077d816"
+    );
+    let result = &evidence["result"];
+    let run_directory = Path::new(result["evidencePath"].as_str().unwrap())
+        .parent()
+        .unwrap();
+    assert_eq!(read_json(&run_directory.join("result.json")), *result);
+    assert_eq!(
+        read_json(&fixture.root.join("results/latest.json")),
+        *result
+    );
+    assert_eq!(evidence["trials"][0]["observationCompleteness"], "partial");
+    remove_retained_workspace(&evidence);
+}
+
+#[test]
+fn output_json_equality_failure_precedes_containment_and_exact_text() {
+    let mut fixture = Fixture::new();
+    fixture.output_configuration(json!({"jsonPath":"/items","expectJson":[{"name":"ready"}],"containsJson":{"name":"done"},"expectExact":"not JSON"}));
+    fixture.observation(Some(r#"{"items":[{"name":"wait"}]}"#), true);
+    let evidence = assert_assessed_result(
+        &fixture.invoke(),
+        1,
+        "completed",
+        "failed",
+        json!({"id":"json","grader":"sevro.output","status":"failed","detail":"JSON value did not equal expectation","evidenceRefs":["sevro.observation.final-message"]}),
+    );
+    assert_eq!(
+        raw_bytes(&evidence),
+        r#"{"items":[{"name":"wait"}]}"#.as_bytes()
+    );
+    assert_eq!(
+        evidence["trials"][0]["rawResult"]["sha256"],
+        "cfa9bed4852a24b59a355fb95f6df8721a18678aeb751c3f14327dd936ce60b8"
+    );
+    let result = &evidence["result"];
+    let run_directory = Path::new(result["evidencePath"].as_str().unwrap())
+        .parent()
+        .unwrap();
+    assert_eq!(read_json(&run_directory.join("result.json")), *result);
+    assert_eq!(
+        read_json(&fixture.root.join("results/latest.json")),
+        *result
+    );
+    remove_retained_workspace(&evidence);
+}
+
+#[test]
+fn output_json_containment_failure_precedes_exact_text_after_equality() {
+    let mut fixture = Fixture::new();
+    fixture.output_configuration(json!({"jsonPath":"/items","expectJson":[{"name":"wait"}],"containsJson":{"name":"done"},"expectExact":"not JSON"}));
+    fixture.observation(Some(r#"{"items":[{"name":"wait"}]}"#), true);
+    let evidence = assert_assessed_result(
+        &fixture.invoke(),
+        1,
+        "completed",
+        "failed",
+        json!({"id":"json","grader":"sevro.output","status":"failed","detail":"JSON array did not contain expected item","evidenceRefs":["sevro.observation.final-message"]}),
+    );
+    assert_eq!(
+        raw_bytes(&evidence),
+        r#"{"items":[{"name":"wait"}]}"#.as_bytes()
+    );
+    assert_eq!(
+        evidence["trials"][0]["rawResult"]["sha256"],
+        "cfa9bed4852a24b59a355fb95f6df8721a18678aeb751c3f14327dd936ce60b8"
+    );
+    let result = &evidence["result"];
+    let run_directory = Path::new(result["evidencePath"].as_str().unwrap())
+        .parent()
+        .unwrap();
+    assert_eq!(read_json(&run_directory.join("result.json")), *result);
+    assert_eq!(
+        read_json(&fixture.root.join("results/latest.json")),
+        *result
+    );
+    remove_retained_workspace(&evidence);
 }
 
 #[test]

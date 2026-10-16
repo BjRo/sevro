@@ -490,11 +490,98 @@ passed scoped Rustfmt checks.
 Combined candidate acceptance and coverage remain the coordinator's
 checkpoint responsibility.
 
+## Standalone JSON and recursive containment
+
+This cohort follows the [built-in grader contract](../builtin-graders-v1.md),
+the existing JSON and recursive-containment integration assertions in
+`tests/output-grader.test.ts` and `tests/output-grader-boundaries.test.ts`,
+and the accepted [RFC pointer decision](rust-fixtures-graders-parity.md#rust-json-pointer-compatibility-decision).
+Each behavior was independently observed through the unchanged TypeScript CLI
+with a real deterministic adapter before its Rust case. The first example
+selects `/items/0` from one JSON fence and compares
+`{"name":"alpha","tags":["a","b"]}`. It passes with completed execution and
+grading, exit 0, detail `ok`, and the final-message evidence reference.
+
+All tests use the existing isolated fixture roots and Cargo target from the
+equality cohort. They assert public result status and exact detail, raw bytes
+and independent digests where present, run/trial/result/latest consistency,
+and retained or cleaned owned workspaces. Preflight tests assert the exact
+structured refusal and absence of candidate-call and results paths.
+
+- Red — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders standalone_json_compares_a_selected_value -- --exact`:
+  The unchanged product refused the supported grader with exit 64 instead of the TypeScript passed exit 0.
+- Green — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders standalone_json_compares_a_selected_value -- --exact`:
+  one test passed. The selected JSON value passes with exit 0 after recovery from an actual fence.
+- Red — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders standalone_json_exact_document_rejects_surrounding_prose -- --exact`:
+  The product refused exactDocument with exit 64 instead of assessing the prose-wrapped fence as failed with exit 1.
+- Green — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders standalone_json_exact_document_rejects_surrounding_prose -- --exact`:
+  one test passed. Surrounding prose yields completed grading, a failed task and exit 1.
+- Red — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders standalone_json_contains_recursive_object_and_array_subsets -- --exact`:
+  The product refused contains with exit 64 instead of passing the recursive subset with exit 0.
+- Green — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders standalone_json_contains_recursive_object_and_array_subsets -- --exact`:
+  one test passed. Recursive object and array subsets pass with exit 0 after recovering one fence with prose.
+- Red — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders output_contains_json_matches_a_selected_array_member -- --exact`:
+  The product refused containsJson with exit 64 instead of passing the selected array member with exit 0.
+- Green — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders output_contains_json_matches_a_selected_array_member -- --exact`:
+  one test passed. Selected-array containment passes with exit 0 despite extra member fields.
+- Initial green — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders standalone_json_containment_requires_every_nested_array_part -- --exact`:
+  one test passed. A missing nested blue tag yields completed grading and exit 1, retaining the exact containment detail and response.
+- Red — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders standalone_json_contains_precompiled_string_regex_subsets -- --exact`:
+  The product assessed the valid regex subset as failed with exit 1 instead of passing with exit 0.
+- Green — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders standalone_json_contains_precompiled_string_regex_subsets -- --exact`:
+  one test passed. Typed subset matching now passes with exit 0. A subsequent refactor to avoid indexing the pattern map also passed the identical command.
+- Initial green — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders standalone_json_rejects_invalid_nested_regex_before_execution -- --exact`:
+  one test passed. A nested malformed regex refuses with exit 64 and invalid subset regex before candidate execution or result allocation.
+- Red — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders standalone_json_subset_regex_preserves_lone_utf16_surrogates -- --exact`:
+  String deserialization made the accepted escaped lone-surrogate regex case fail with exit 1 instead of passing with exit 0.
+- Green — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders standalone_json_subset_regex_preserves_lone_utf16_surrogates -- --exact`:
+  one test passed. Decoding a validated JSON string into UTF-16 units preserves the accepted lone surrogate and passing regex observation.
+- Initial green — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders standalone_json_subset_regex_does_not_add_multiline -- --exact`:
+  one test passed. Anchored subset regex does not acquire standalone regex's implicit multiline flag.
+- Initial green — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders output_contains_json_requires_pointer_before_subset_compilation -- --exact`:
+  one test passed. A missing output jsonPath refuses with exit 64 before compiling an invalid nested subset regex.
+- Initial green — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders standalone_json_containment_keeps_missing_output_unavailable -- --exact`:
+  one test passed. Missing output keeps containment unavailable/not_assessed with exit 4 and no fabricated raw bytes or final-message reference.
+- Initial green — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders output_contains_json_keeps_matching_partial_output_unavailable -- --exact`:
+  one test passed. Matching partial output remains unavailable/not_assessed with exit 4, retained partial bytes and the final-message reference.
+- Initial green — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders output_json_equality_failure_precedes_containment_and_exact_text -- --exact`:
+  one test passed. Simultaneous equality, containment and exact-text failures retain the equality detail first.
+- Initial green — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders output_json_containment_failure_precedes_exact_text_after_equality -- --exact`:
+  one test passed. After equality passes, containment failure detail precedes simultaneous exact-text failure.
+
+The subset is compiled before execution into typed scalar, object, array and
+regex variants. Its compiled state is skipped during declaration serialization,
+preserving the evaluator-owned identity input. Regex subsets reuse the pinned
+engine with no flags; they do not inherit standalone regex's mandatory
+multiline mode. Matching decodes only an already-validated raw JSON string into
+UTF-16 units, retaining escaped unpaired surrogates without requiring a Rust
+Unicode scalar string. Pattern preparation returns typed errors and does not
+defer compilation to candidate assessment.
+
+Ordinary object subset matching compares parsed JSON members; nested arrays
+require each expected part to match some actual member. Selected arrays need
+at least one matching member. JSON equality precedes containment, and both
+precede exact text. Raw document selection and referenced-member uniqueness
+remain the existing RFC path. This cohort does not redefine unrelated
+JavaScript inherited-property behavior in containment or claim those
+source-only cases as resolved parity. Existing configuration representation
+limits remain; no dependency, helper module, schema grader or other family was
+added.
+
+After this cohort, `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq
+cargo test --locked -p sevro --test run_graders` passed all 107 tests: 93 prior
+controls and 14 new JSON/containment controls. Six new tests had observed
+red/green repairs; eight were initial-green characterizations. Scoped
+`cargo clippy --locked -p sevro --bin sevro --test run_graders -- -D warnings`
+and owned-file Rustfmt checks passed with the same target. Combined candidate
+acceptance and coverage remain the coordinator's checkpoint responsibility.
+
 ## Remaining boundaries
 
 This ledger covers `sevro.output` with `expectExact`, `validJson`, ordinary
-`jsonPath` selection with `expectJson` equality, and the
-standalone `sevro.regex` controls above. JSON object and array selection follows
+`jsonPath` selection with `expectJson` equality and `containsJson` containment,
+standalone `sevro.json`, and the standalone `sevro.regex` controls above.
+JSON object and array selection follows
 the accepted RFC 6901 decision, including referenced-member uniqueness. Other
 deterministic checks, custom graders, domain outcomes, semantic grading and
 complete aggregation parity remain separate work. The

@@ -1,8 +1,9 @@
 # Rust receipt bounds and partial persistence
 
 These slices exercise actual adapter receipts through the public
-`sevro run --json` command. The tests live in
-[`run_receipts.rs`](../../crates/sevro/tests/run_receipts.rs) and preserve the
+`sevro run --json` command. The direct receipt tests live in
+[`run_receipts.rs`](../../crates/sevro/tests/run_receipts.rs); the bridge-validity
+scenarios use the shared Cargo/Bun adapter fixture described below. They preserve the
 [result parity contract](rust-protocol-results-parity.md). Independent
 TypeScript CLI baselines were captured before their Rust tests. Each later
 test and implementation began only after the preceding slice was green.
@@ -126,13 +127,14 @@ observations live under `sevro-records-public-baselines-bxuf4fse`, in the
 `artifact-write` and `reserved-check-id` directories. The external capture
 script is `/tmp/sevro-records-public-baselines.py`.
 
-For these two newer artifact cases, only the exact focused green commands
-above have been observed after the changes. Affected full regressions, strict
-Clippy, workspace formatting, and documentation checks remain pending the
-coordinator's frozen-candidate gate. The earlier validation results apply only
-to the original two slices and do not validate these newer changes.
+At the initial handoff for these two artifact cases, only the exact focused
+green commands above had been observed after the changes. Affected full
+regressions, strict Clippy, workspace formatting, and documentation checks were
+pending the coordinator's frozen-candidate gate. The earlier validation results
+applied only to the original two slices. The later NaN cohort checks below also
+exercise all four direct receipt cases.
 
-## Deferred non-finite usage observation
+## NaN cost across the adapter bridge
 
 The same read-only capture separately observed that `costUsd: Number.NaN`
 from a real adapter returns 70 with `invalid Sevro retained evidence` in the
@@ -140,5 +142,67 @@ unchanged TypeScript CLI. Its raw response and trial document already exist;
 the serialized trial cost is null, the passed workspace has been cleaned,
 and no run/result/latest document is published. A JSON bridge can lose the
 distinction between non-finite cost and an honestly unknown null cost. This
-captured `nan-cost` case remains deferred: these slices add no test, transport
-change, or product claim for that behavior.
+captured `nan-cost` case supplied the independent oracle for the next slice.
+
+The shared public adapter scenario now checks the exact exit-70 result, literal
+`ready` bytes and SHA-256, the passed exact-output trial, null serialized cost
+with complete usage, successful workspace cleanup, and absence of run/result/latest
+publication. Cargo and the existing Bun adapter suite invoke the same scenario.
+
+- Red — `cargo test -p sevro --test run_adapter nan_cost_fails_after_retaining_trial --locked -- --exact`:
+  the actual Rust CLI returned 0 instead of the TypeScript oracle's 70.
+- Green — `cargo test -p sevro --test run_adapter nan_cost_fails_after_retaining_trial --locked -- --exact`:
+  one test passed after the private bridge response preserved a typed NaN-cost
+  validity marker outside the adapter's JSON receipt. Both commands used
+  `CARGO_TARGET_DIR=/tmp/sevro-rust-nan-cost-target`.
+
+The bridge derives the marker from the same captured receipt object that it
+serializes, without rereading an adapter getter. Adapter payload fields cannot
+supply the marker. The core carries it only after existing whole-receipt
+acceptance; it fails final run validation after normal trial persistence and
+cleanup. Public schemas, capabilities, transport, and usage completeness remain
+unchanged. Other non-finite numeric cases are not claimed by this slice.
+
+The independent ordinary-null capture at
+`sevro-nan-null-baseline-u6ymcwhi/baseline-report.json` returned 0 with a passed
+exact-output assessment and full run/result/latest publication. Its usage stayed
+`{inputTokens:12, outputTokens:3, costUsd:null, complete:true}` and its successful
+workspace was cleaned. The external command and output are retained beside that
+report; `/tmp/sevro-nan-null-baseline.py` is the capture script.
+
+- Initial green — `cargo test -p sevro --test run_adapter null_cost_preserves_independently_complete_usage --locked -- --exact`:
+  one test passed on its first execution. It is a characterization, not a claimed
+  red/green repair. No product change was required for the null-cost control.
+
+The rejected-receipt capture at
+`sevro-nan-rejected-baseline-7ab98nmi/baseline-report.json` returned 2 for an
+8 MiB plus one byte response with NaN cost. Its host-failure result and retained
+trial had unavailable output, empty checks, no raw bytes, and wholly unavailable
+usage. Run/result/latest publication succeeded and the actual failed workspace
+remained. `/tmp/sevro-nan-rejected-baseline.py` retains the independent capture
+recipe.
+
+- Initial green — `cargo test -p sevro --test run_adapter oversized_receipt_discards_nan_cost_before_run_validation --locked -- --exact`:
+  one test passed on its first execution. The private validity marker does not
+  escape whole-receipt rejection or replace the original host-failure outcome.
+  No product change was required for this control.
+
+Final validation for the NaN cohort passed:
+
+- `cargo test -p sevro --test run_adapter --test run_receipts --test run_results --test run_console --test run_required_evidence --locked`:
+  all 55 tests passed using the dedicated target directory above.
+- `bun test tests/rust-adapter-cli.test.ts`: all 37 shared adapter scenarios
+  passed after the wrapper built the current candidate in its existing default
+  target directory. That directory was reserved for this check.
+- `cargo clippy --workspace --all-targets --locked -- -D warnings` and
+  `cargo fmt --all -- --check` passed.
+- Scoped ESLint for the bridge, shared fixture, and Bun test registration,
+  plus `bun node_modules/typescript/bin/tsc --noEmit`, passed.
+- Scoped Prettier and `bun run check:docs` passed.
+
+The first static-check pass found excess complexity in the changed bridge
+function and a missing non-null path assertion in the new fixture. A small
+helper extraction and the explicit assertion repaired those findings; the
+affected tests and static checks passed afterward. Neither finding is counted
+as a behavioral red. Candidate-wide coverage, independent review, and hosted
+platform acceptance remain separate coordinator checks.

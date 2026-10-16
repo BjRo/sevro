@@ -82,6 +82,21 @@ fn retains_failed_adapter_receipt_and_usage() {
 }
 
 #[test]
+fn nan_cost_fails_after_retaining_trial() {
+    scenario("nan-cost");
+}
+
+#[test]
+fn null_cost_preserves_independently_complete_usage() {
+    scenario("null-cost");
+}
+
+#[test]
+fn oversized_receipt_discards_nan_cost_before_run_validation() {
+    scenario("rejected-nan-cost");
+}
+
+#[test]
 fn cancels_adapter_and_retains_partial_receipt() {
     scenario("cancellation");
 }

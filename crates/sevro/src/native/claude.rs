@@ -77,6 +77,7 @@ impl ClaudeHost {
             id: "sevro.claude.events".into(),
             bytes: output.stdout,
         });
+        retain_stderr(&mut result, output.stderr);
         Ok(result)
     }
 
@@ -135,6 +136,15 @@ impl ClaudeHost {
             },
             Flavor::Claude,
         )
+    }
+}
+
+fn retain_stderr(result: &mut HostResult, stderr: Vec<u8>) {
+    if !stderr.is_empty() {
+        result.artifacts.push(Artifact {
+            id: "sevro.claude.stderr".into(),
+            bytes: stderr,
+        });
     }
 }
 

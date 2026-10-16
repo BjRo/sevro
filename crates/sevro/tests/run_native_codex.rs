@@ -1,5 +1,6 @@
 use serde_json::{Value, json};
 use std::fs;
+use std::io::Read;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -117,7 +118,48 @@ impl Fixture {
 
 impl Drop for Fixture {
     fn drop(&mut self) {
+        if std::thread::panicking() {
+            report_native_failure(&self.root);
+        }
         let _ = fs::remove_dir_all(&self.root);
+    }
+}
+
+fn report_native_failure(root: &Path) {
+    // Only inspect known synthetic receipts, never auth/config files or raw responses.
+    for marker in [
+        "native-state-paths",
+        "initial-argv",
+        "resume-argv",
+        "launches",
+        "descendant",
+        "model-started",
+        "launched",
+    ] {
+        eprintln!(
+            "native fixture marker {marker}: present={}",
+            root.join("binary").join(marker).exists()
+        );
+    }
+    let Ok(runs) = fs::read_dir(root.join("project/.sevro/results")) else {
+        eprintln!("native fixture results directory unavailable");
+        return;
+    };
+    for run in runs.take(4).flatten() {
+        for artifact in ["codex.process", "codex.stderr"] {
+            let path = run.path().join(format!("trial-1-host-{artifact}.bin"));
+            let mut bytes = Vec::new();
+            let read =
+                fs::File::open(path).and_then(|file| file.take(4097).read_to_end(&mut bytes));
+            match read {
+                Ok(_) => eprintln!(
+                    "native fixture {artifact} (first 4096 bytes, truncated={}): {:?}",
+                    bytes.len() > 4096,
+                    String::from_utf8_lossy(&bytes[..bytes.len().min(4096)])
+                ),
+                Err(error) => eprintln!("native fixture {artifact}: {}", error.kind()),
+            }
+        }
     }
 }
 
