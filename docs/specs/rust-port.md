@@ -31,15 +31,25 @@ Missing evidence must never become a successful assessment.
 
 ## Behaviour inventory
 
-The specification is being derived from all committed integration suites before
-product implementation. Domain documents will map named test scenarios to their
-public effects, expected results, negative controls, and platform constraints:
+Five domain references map the baseline integration suites to public effects,
+independent expected results, negative controls, and platform constraints:
 
-- CLI commands, settings, evaluation lifecycle, and concurrent admission.
-- Runtime configuration, isolation, native hosts, observation and continuation.
-- Extension negotiation, schemas, result states, reports, and identities.
-- Fixture construction, setup, graders, retention, and ownership recovery.
-- Installation, release provenance, documentation, guides, and quality gates.
+- [CLI and evaluation engine](rust-cli-engine-parity.md): commands, settings,
+  lifecycle, concurrent admission, cancellation, and user workflows.
+- [Runtime and native hosts](rust-runtime-hosts-parity.md): configuration,
+  isolation, credentials, observations, sessions, continuation, and hooks.
+- [Protocol and results](rust-protocol-results-parity.md): extension negotiation,
+  schemas, result states, reports, canonical identities, and provenance.
+- [Fixtures and graders](rust-fixtures-graders-parity.md): construction, setup,
+  all graders, advisory review, retention, and ownership recovery.
+- [Delivery and tooling](rust-delivery-parity.md): installation, release
+  provenance, documentation, guides, properties, and quality gates.
+
+All 109 baseline `tests/**/*.test.ts` files have a reference in these documents.
+Each reference preserves parameterized test families and their source matrices;
+declaration counts are not executed-test counts. Cross-cutting suites appear in
+more than one domain. Relevant public contracts and source-derived constraints
+supplement the tests where their examples are narrower than the contract.
 
 Coverage of a test file means its assertions have been inventoried. It does not
 mean the Rust implementation passes those assertions. Implementation evidence
@@ -78,6 +88,10 @@ are separate maintainer actions.
 
 ## Current state
 
-The isolated worktree and behaviour-inventory assignments exist. The production
-Rust implementation and Rust acceptance results are not yet present. Existing
-TypeScript acceptance remains the reference baseline.
+The behaviour inventory is complete by source-file accounting. Rust implementation
+has started with the CLI, reporting, and initialization seams; full feature parity
+is not established. Existing TypeScript acceptance remains the reference baseline.
+The production evaluation lifecycle, native hosts, isolation, grading, persistence,
+recovery, extension execution, and installed replacement still require Rust
+implementation and acceptance evidence. The existing npm command continues to use
+the TypeScript implementation during this migration.

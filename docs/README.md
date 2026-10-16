@@ -34,8 +34,10 @@ It belongs to this repository, not an npm installation.
 [Current contracts](contracts.md) define interfaces. The
 [guide specification](specs/repository-guide.md) defines the repository assistant.
 [Historical validation](evidence.md) records observations, not current guarantees.
-There is no accepted Rust migration decision here;
-[issue #2](https://github.com/BjRo/sevro/issues/2) tracks research.
+[Issue #2](https://github.com/BjRo/sevro/issues/2) records Rust feasibility
+research. The [Rust port acceptance specification](specs/rust-port.md) tracks
+the implementation in progress and its feature-parity requirements; it does
+not establish that the replacement is complete.
 
 Read [documentation quality](documentation-quality.md),
 [the usability study protocol](usability-study.md),

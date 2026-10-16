@@ -1,5 +1,7 @@
 node_modules/
 .quality/
+/target/
+/.coverage/
 dist/
 *.tgz
 sevro-results/
