@@ -127,9 +127,24 @@ async function startAdapter(
 
 async function adapterOutput(output: Promise<[string, string, number]>) {
   const [stdout, stderr, code] = await output;
-  const result: unknown = JSON.parse(stdout);
-  assertCliResult(result);
-  return { code, stderr, result };
+  try {
+    const result: unknown = JSON.parse(stdout);
+    assertCliResult(result);
+    return { code, stderr, result };
+  } catch (cause) {
+    throw new Error(
+      `invalid public CLI output\n${adapterDiagnostics(code, stdout, stderr)}`,
+      { cause },
+    );
+  }
+}
+
+function adapterDiagnostics(code: number, stdout: string, stderr: string) {
+  return [
+    `exitCode=${code}`,
+    `stdout (${stdout.length} characters, first 8192): ${JSON.stringify(stdout.slice(0, 8192))}`,
+    `stderr (${stderr.length} characters, first 8192): ${JSON.stringify(stderr.slice(0, 8192))}`,
+  ].join("\n");
 }
 
 async function invokeAdapter(binary: string, root: string, module: string) {
@@ -518,10 +533,19 @@ async function cancellationAdapter(root: string) {
   return module;
 }
 
-async function awaitAdapterReady(root: string) {
+async function awaitAdapterReady(
+  root: string,
+  started: Awaited<ReturnType<typeof startAdapter>>,
+) {
   const marker = join(root, "ready.json");
   const deadline = Date.now() + 6000;
   while (!(await Bun.file(marker).exists())) {
+    if (started.child.exitCode !== null || started.child.signalCode !== null) {
+      const [stdout, stderr, code] = await started.output;
+      throw new Error(
+        `CLI exited before the adapter run callback; signal=${started.child.signalCode ?? "none"}\n${adapterDiagnostics(code, stdout, stderr)}`,
+      );
+    }
     assert(
       Date.now() < deadline,
       "adapter did not reach its public run callback",
@@ -581,7 +605,7 @@ export async function runCancellationScenario(
       await cancellationAdapter(root),
     );
     try {
-      const ready = await awaitAdapterReady(root);
+      const ready = await awaitAdapterReady(root, started);
       assert.equal(
         ready.signalProvided,
         true,
