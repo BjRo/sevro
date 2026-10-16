@@ -77,7 +77,7 @@ interface ExecutionContext {
   request: Request;
   state: CodexState;
   timeoutMs: number;
-  hooks?: HookMounts;
+  hooks: HookMounts;
   skillTracking: SkillTracking;
   diagnostics?: HostDiagnostics;
 }
@@ -473,7 +473,7 @@ function routeArgs(context: ExecutionContext): string[] {
     "-c",
     'approval_policy="never"',
     "-c",
-    `features.hooks=${Boolean(context.hooks)}`,
+    "features.hooks=true",
   ];
 }
 function initialTurnArgs(context: ExecutionContext): string[] {
@@ -488,7 +488,7 @@ function initialTurnArgs(context: ExecutionContext): string[] {
       ? []
       : ["--ephemeral"]),
     "--ignore-rules",
-    ...(context.hooks ? ["--dangerously-bypass-hook-trust"] : []),
+    "--dangerously-bypass-hook-trust",
     "-C",
     context.request.workspace,
     ...routeArgs(context),
@@ -507,7 +507,7 @@ function followUpTurnArgs(
     "--strict-config",
     "--skip-git-repo-check",
     "--ignore-rules",
-    ...(context.hooks ? ["--dangerously-bypass-hook-trust"] : []),
+    "--dangerously-bypass-hook-trust",
     ...routeArgs(context),
     threadId,
     "-",
@@ -645,11 +645,11 @@ class CodexTurnExecution {
         "-c",
         `default_permissions=${JSON.stringify(state.profileId)}`,
         "-c",
-        `features.hooks=${Boolean(this.context.hooks)}`,
+        "features.hooks=true",
       ],
       env: state.env,
       permissionProfile: state.profileId,
-      vettedHooks: Boolean(this.context.hooks),
+      vettedHooks: true,
       request: {
         repoDir: request.workspace,
         prompt: request.prompt,
@@ -762,7 +762,7 @@ async function codexObservations(context: ExecutionContext, turns: TurnResult) {
 
 async function codexHookObservations(context: ExecutionContext) {
   if (!context.request.runtimePolicy) return [];
-  return context.hooks ? [await runtimeHookObservation(context.hooks)] : [];
+  return [await runtimeHookObservation(context.hooks)];
 }
 function codexArtifacts(turns: TurnResult) {
   return [

@@ -251,6 +251,45 @@ for (const name of ["SessionStart", "PreToolUse", "PostToolUse", "Stop"]) {
   );
 });
 
+test("Codex state opt-in still refuses a configuration path that is a file", async () => {
+  if (!isolatedNativeHost || !Bun.which("codex")) return;
+  const { host, request } = await ordinaryCodexRequest();
+  await writeFile(join(request.workspace, ".codex"), "not a directory");
+  expect(
+    host.run({
+      ...request,
+      runtimePolicy: {
+        format: "sevro.runtime.v1",
+        environment: {},
+        readOnlyRoots: [],
+        codexState: true,
+      },
+    }),
+  ).rejects.toThrow("fixture Codex configuration must be a physical directory");
+});
+
+test("Codex continuation stays partial when the workspace fingerprint cannot be read", async () => {
+  if (!isolatedNativeHost || !Bun.which("codex")) return;
+  const { host, request } = await ordinaryCodexRequest();
+  const path = join(request.workspace, "unreadable.txt");
+  await writeFile(path, "private content");
+  await chmod(path, 0);
+  try {
+    const result = await host.run({ ...request, followUpPrompt: "Continue." });
+    expect(result.complete).toBe(true);
+    expect(
+      result.observations?.find(
+        (item) => item.id === "sevro.codex.continuation",
+      ),
+    ).toMatchObject({
+      completeness: "partial",
+      data: { preFollowUpWorktreeUnchanged: null },
+    });
+  } finally {
+    await chmod(path, 0o600);
+  }
+});
+
 test("failed app-server execution cannot yield a complete owner-dispatch receipt", async () => {
   if (!isolatedNativeHost || !Bun.which("codex")) return;
   const selected = await ordinaryCodexRequest();

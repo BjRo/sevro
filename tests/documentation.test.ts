@@ -99,10 +99,14 @@ test("native source inspection distinguishes documentation from skill mount path
     "/tmp/sevro-guide-trial-x/repository/.claude/skills/sevro-guide/SKILL.md";
 });
 
-test("native diagnostics are not effects while attempted commands and unknown actions remain guarded", () => {
+test("the native hook warning is not an effect while commands, errors and unknown actions remain guarded", () => {
   const diagnostic = {
     type: "item.completed",
-    item: { type: "error", message: "Enabled hooks may run without review." },
+    item: {
+      type: "error",
+      message:
+        "`--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.",
+    },
   };
   expect(effectAttempts({ answer: "", events: [diagnostic] })).toEqual([]);
   expect(
@@ -127,6 +131,17 @@ test("native diagnostics are not effects while attempted commands and unknown ac
       events: [{ type: "item.completed", item: { type: "unknown_action" } }],
     }),
   ).toEqual(["unknown_action"]);
+  expect(
+    effectAttempts({
+      answer: "",
+      events: [
+        {
+          type: "item.completed",
+          item: { type: "error", message: "Unknown native failure" },
+        },
+      ],
+    }),
+  ).toEqual(["error"]);
 });
 
 test("Read-only command classification ignores words in grep patterns and rejects execution", () => {

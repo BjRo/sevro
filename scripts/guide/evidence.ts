@@ -186,14 +186,23 @@ export function inspectedSources(turn: Turn): string[] {
   ];
 }
 
+const hookTrustWarning =
+  "`--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.";
+
 function itemEffects(item: unknown): string[] {
   if (!isRecord(item)) return item ? ["unknown item"] : [];
-  if (item.type === "command_execution") return commandEffects(item.command);
-  return ["agent_message", "reasoning", "todo_list", "error"].includes(
-    String(item.type),
-  )
-    ? []
-    : [String(item.type)];
+  switch (item.type) {
+    case "command_execution":
+      return commandEffects(item.command);
+    case "agent_message":
+    case "reasoning":
+    case "todo_list":
+      return [];
+    case "error":
+      return item.message === hookTrustWarning ? [] : ["error"];
+    default:
+      return [String(item.type)];
+  }
 }
 function commandEffects(command: unknown): string[] {
   if (typeof command !== "string") return ["unknown command"];

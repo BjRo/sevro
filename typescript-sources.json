@@ -82,7 +82,6 @@
     "src/hosts/codex-configuration.ts",
     "src/hosts/codex-events.ts",
     "src/hosts/codex-exec-controls.ts",
-    "src/hosts/codex-executor-command.ts",
     "src/hosts/codex-invocation.ts",
     "src/hosts/codex-marketplace.ts",
     "src/hosts/codex-native-calls.ts",

@@ -195,6 +195,52 @@ async function submittedProgram(input: string, ordinal: number) {
 }
 
 test.each([
+  "await service.exec_command({});",
+  "await tools.reader.exec_command({});",
+  "let result = await tools.get_goal({});",
+  "const result;",
+  "for (const item of []) text(item);",
+  "const results = await Promise.all([]); for (item of results) text(item);",
+  "const results = await Promise.all([]); for (let item of results) text(item);",
+  "const results = await Promise.all([]); for (const item = 1 of results) text(item);",
+  "const results = await Promise.all([]); for (const item of results) { text(item); }",
+])(
+  "Code Mode cannot establish complete control evidence from unsupported bindings: %s",
+  async (input) => {
+    const observed = await submittedProgram(input, 0);
+    expect(observed.completeness).toBe("partial");
+    expect(observed.data.acceptedAgentCount).toBeNull();
+  },
+);
+
+test.each([
+  { callId: 42, output: [] },
+  { callId: "retained", output: { private: "unstructured result" } },
+  { callId: "retained", output: "{}" },
+])(
+  "Code Mode requires a bound structured completion before its control evidence is complete: %j",
+  async ({ callId, output }) => {
+    const root = await home();
+    await session(
+      root,
+      lines([
+        {
+          type: "custom_tool_call",
+          name: "exec",
+          call_id: callId,
+          input: "await tools.get_goal({});",
+        },
+        { type: "custom_tool_call_output", call_id: callId, output },
+      ]),
+    );
+    const observed = await codexNativeCallObservation(root, "thread-1");
+    expect(defined(observed.data.execCalls?.[0]).completeness).toBe("partial");
+    expect(codexNativeControls(observed).completeness).toBe("partial");
+    expect(JSON.stringify(observed)).not.toContain("unstructured result");
+  },
+);
+
+test.each([
   {
     label: "foreign namespace",
     namespace: "other",
