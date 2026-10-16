@@ -30,6 +30,346 @@ const receipt={
 fs.writeFileSync(path.join(process.env.PROJECT_ROOT,"setup-bin-receipt.json"),JSON.stringify(receipt));'
 "#;
 
+const REPOSITORY_SETUP: &str = r#"set -eu
+[ "$(command -v fixture-probe)" = "$WORKSPACE/.git/fixture-bin/fixture-probe" ]
+node -e 'const fs=require("node:fs"), cp=require("node:child_process"), path=require("node:path");
+const directory=path.join(process.cwd(),".git/fixture-bin"), target=path.join(directory,"fixture-probe");
+const git=(...args)=>cp.execFileSync("git",args,{encoding:"utf8"}).trim();
+fs.writeFileSync(path.join(process.env.PROJECT_ROOT,"receipt.json"),JSON.stringify({
+firstPathEntry:path.relative(process.cwd(),process.env.PATH.split(path.delimiter)[0]),
+toolContents:fs.readFileSync(target,"utf8"), toolMode:fs.lstatSync(target).mode&0o777,
+regular:fs.lstatSync(target).isFile(), symlink:fs.lstatSync(target).isSymbolicLink(),
+directoryMode:fs.lstatSync(directory).mode&0o777,
+output:cp.execFileSync("fixture-probe",[],{encoding:"utf8"}),
+head:git("rev-parse","HEAD"), branch:git("rev-parse","--abbrev-ref","HEAD"),
+remotes:git("remote"), status:git("status","--porcelain=v1"),
+readme:fs.readFileSync("README.md","utf8")}));'
+"#;
+
+#[test]
+fn installs_repository_executables_before_setup_without_copying_source_metadata() {
+    let fixture = RepositoryFixture::new();
+    git(
+        &fixture.source,
+        &[
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "--amend",
+            "--quiet",
+            "-m",
+            "Initialize",
+        ],
+    );
+    let source_tool = fixture.source.join(".git/fixture-bin/fixture-probe");
+    fs::create_dir(source_tool.parent().unwrap()).unwrap();
+    let source_contents = "#!/bin/sh\nprintf 'source tool must not run\\n'\n";
+    fs::write(&source_tool, source_contents).unwrap();
+    fs::set_permissions(&source_tool, fs::Permissions::from_mode(0o700)).unwrap();
+    let decoy = fixture.root.join("decoy-bin");
+    fs::create_dir(&decoy).unwrap();
+    let decoy_contents = "#!/bin/sh\nprintf 'caller tool must not run\\n'\n";
+    fs::write(decoy.join("fixture-probe"), decoy_contents).unwrap();
+    fs::set_permissions(
+        decoy.join("fixture-probe"),
+        fs::Permissions::from_mode(0o755),
+    )
+    .unwrap();
+    let tool = "#!/bin/sh\nprintf 'repository tool\\n'\n";
+    fixture.setup_extension_with_fixture(
+        REPOSITORY_SETUP,
+        json!({
+            "kind":"repository", "sourceRef":"fixture-repo", "bin":{"fixture-probe":tool}
+        }),
+    );
+    let extension = fs::read(fixture.root.join("setup-extension.mjs")).unwrap();
+    let inherited = std::env::var_os("PATH").unwrap();
+    let path = std::env::join_paths(
+        std::iter::once(decoy.clone()).chain(std::env::split_paths(&inherited)),
+    )
+    .unwrap();
+    let output = fixture
+        .command(&[
+            "--extension-command-file",
+            "setup-command.json",
+            "--extension-source-file",
+            "setup-extension.mjs",
+            "--case-id",
+            "repository-setup",
+            "--results-root",
+            "results",
+        ])
+        .env("PATH", path)
+        .output()
+        .unwrap();
+    let evidence = dry_evidence(&output);
+    assert_eq!(
+        evidence["evaluationIdentity"]["dimensions"]["fixtureDigest"],
+        "c043be5566fcf0dabc54dc84dc27842d081f055dd6f1fd8b17a7f290ce18f78a"
+    );
+    assert_eq!(
+        evidence["configuration"]["redacted"]["fixtureSetupDigest"],
+        "a34e09c69aeb96f8cacca6480dbfbfb5ea65a406500bdd008491b87f41456912"
+    );
+    let receipt: Value =
+        serde_json::from_slice(&fs::read(fixture.root.join("receipt.json")).unwrap()).unwrap();
+    assert_eq!(
+        receipt,
+        json!({
+            "firstPathEntry":".git/fixture-bin", "toolContents":tool,
+            "toolMode":493, "regular":true, "symlink":false, "directoryMode":448,
+            "output":"repository tool\n", "head":"afe4c3288517f0e9274c733e59c1349e7c984594",
+            "branch":"HEAD", "remotes":"", "status":"", "readme":"repository fixture\n"
+        })
+    );
+    let workspace = evidence["trials"][0]["observations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["id"] == "sevro.observation.workspaces")
+        .unwrap();
+    assert!(!Path::new(workspace["data"]["candidate"].as_str().unwrap()).exists());
+    assert!(!fixture.root.join("native-invocations").exists());
+    assert_eq!(
+        fs::read(fixture.root.join("setup-extension.mjs")).unwrap(),
+        extension
+    );
+    assert_eq!(
+        fs::read_to_string(decoy.join("fixture-probe")).unwrap(),
+        decoy_contents
+    );
+    assert_eq!(fs::read_to_string(&source_tool).unwrap(), source_contents);
+    assert_eq!(
+        fs::metadata(&source_tool).unwrap().permissions().mode() & 0o777,
+        0o700
+    );
+    assert_eq!(
+        fs::read_to_string(fixture.source.join("README.md")).unwrap(),
+        "repository fixture\n"
+    );
+    assert_eq!(git(&fixture.source, &["status", "--porcelain=v1"]), "");
+    assert_eq!(
+        git(&fixture.source, &["symbolic-ref", "--short", "HEAD"]),
+        "main"
+    );
+    assert_eq!(
+        git(&fixture.source, &["rev-parse", "HEAD"]),
+        "afe4c3288517f0e9274c733e59c1349e7c984594"
+    );
+}
+
+#[test]
+fn refuses_null_repository_executables_before_run_admission() {
+    let fixture = RepositoryFixture::new();
+    let case = json!({"id":"repository-bin-control", "prompt":"Return ready.",
+        "fixture":{"sourceRef":"fixture-repo", "bin":null}, "checks":[], "requiredEvidence":[]});
+    super::write_json(&fixture.root.join("case.json"), &case);
+    let before = fs::read(fixture.root.join("case.json")).unwrap();
+    let output = fixture
+        .command(&["--case-file", "case.json", "--results-root", "results"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(64),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let message = format!(
+        "resolved case file is unreadable or invalid at {}: invalid resolved case file: fixture: invalid fixture binaries; correct the fixture declaration; supply --case-file with readable JSON and correct the named field",
+        fixture.root.join("case.json").display()
+    );
+    assert_eq!(
+        serde_json::from_slice::<Value>(&output.stdout).unwrap(),
+        super::boundaries::failure(64, &message)
+    );
+    assert!(!fixture.root.join("results").exists());
+    assert!(!fixture.root.join("native-invocations").exists());
+    assert_eq!(fs::read(fixture.root.join("case.json")).unwrap(), before);
+    assert_eq!(git(&fixture.source, &["status", "--porcelain=v1"]), "");
+    assert_eq!(
+        fs::read_to_string(fixture.source.join("README.md")).unwrap(),
+        "repository fixture\n"
+    );
+}
+
+#[test]
+fn names_malformed_repository_executable_maps_before_run_admission() {
+    for bin in [json!([]), json!({"probe":42})] {
+        let fixture = RepositoryFixture::new();
+        let case = json!({"id":"repository-bin-control", "prompt":"Return ready.",
+            "fixture":{"sourceRef":"fixture-repo", "bin":bin}, "checks":[], "requiredEvidence":[]});
+        super::write_json(&fixture.root.join("case.json"), &case);
+        let before = fs::read(fixture.root.join("case.json")).unwrap();
+        let output = fixture
+            .command(&["--case-file", "case.json", "--results-root", "results"])
+            .output()
+            .unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(64),
+            "{}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        let message = format!(
+            "resolved case file is unreadable or invalid at {}: invalid resolved case file: fixture: invalid fixture binaries; correct the fixture declaration; supply --case-file with readable JSON and correct the named field",
+            fixture.root.join("case.json").display()
+        );
+        assert_eq!(
+            serde_json::from_slice::<Value>(&output.stdout).unwrap(),
+            super::boundaries::failure(64, &message)
+        );
+        assert!(!fixture.root.join("results").exists());
+        assert!(!fixture.root.join("native-invocations").exists());
+        assert_eq!(fs::read(fixture.root.join("case.json")).unwrap(), before);
+        assert_eq!(git(&fixture.source, &["status", "--porcelain=v1"]), "");
+        assert_eq!(
+            fs::read_to_string(fixture.source.join("README.md")).unwrap(),
+            "repository fixture\n"
+        );
+    }
+}
+
+#[test]
+fn distinguishes_omitted_and_empty_repository_executables_in_identity() {
+    for (bin, digest) in [
+        (
+            None,
+            "c251594c3b1e6f1efd85323db61c518d9753d0fe82016b5aba7136878f4903ef",
+        ),
+        (
+            Some(json!({})),
+            "9db42e8d180122b62f66ef7d13880e95f484256a8f66a29c9e7cbe5b50f32af1",
+        ),
+    ] {
+        let fixture = RepositoryFixture::new();
+        git(
+            &fixture.source,
+            &[
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "--amend",
+                "--quiet",
+                "-m",
+                "Initialize",
+            ],
+        );
+        let mut declaration = json!({"sourceRef":"fixture-repo"});
+        if let Some(bin) = bin {
+            declaration["bin"] = bin;
+        }
+        super::write_json(
+            &fixture.root.join("case.json"),
+            &json!({"id":"repository-bin-control", "prompt":"Return ready.",
+            "fixture":declaration, "checks":[], "requiredEvidence":[]}),
+        );
+        let before = fs::read(fixture.root.join("case.json")).unwrap();
+        let output = fixture
+            .command(&["--case-file", "case.json", "--results-root", "results"])
+            .output()
+            .unwrap();
+        let evidence = dry_evidence(&output);
+        assert_eq!(
+            evidence["evaluationIdentity"]["dimensions"]["fixtureDigest"],
+            digest
+        );
+        let workspace = evidence["trials"][0]["observations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["id"] == "sevro.observation.workspaces")
+            .unwrap();
+        assert!(!Path::new(workspace["data"]["candidate"].as_str().unwrap()).exists());
+        assert!(!fixture.root.join("native-invocations").exists());
+        assert_eq!(fs::read(fixture.root.join("case.json")).unwrap(), before);
+        assert_eq!(git(&fixture.source, &["status", "--porcelain=v1"]), "");
+        assert_eq!(
+            git(&fixture.source, &["rev-parse", "HEAD"]),
+            "afe4c3288517f0e9274c733e59c1349e7c984594"
+        );
+        assert_eq!(
+            fs::read_to_string(fixture.source.join("README.md")).unwrap(),
+            "repository fixture\n"
+        );
+    }
+}
+
+#[test]
+fn bounds_direct_repository_executables_before_run_admission() {
+    for count in [64, 65] {
+        let fixture = RepositoryFixture::new();
+        git(
+            &fixture.source,
+            &[
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "--amend",
+                "--quiet",
+                "-m",
+                "Initialize",
+            ],
+        );
+        let bin = Value::Object(
+            (0..count)
+                .map(|index| (format!("tool-{index:03}"), json!("#!/bin/sh\nexit 0\n")))
+                .collect(),
+        );
+        super::write_json(
+            &fixture.root.join("case.json"),
+            &json!({"id":"repository-bin-control", "prompt":"Return ready.",
+            "fixture":{"sourceRef":"fixture-repo", "bin":bin}, "checks":[], "requiredEvidence":[]}),
+        );
+        let before = fs::read(fixture.root.join("case.json")).unwrap();
+        let output = fixture
+            .command(&["--case-file", "case.json", "--results-root", "results"])
+            .output()
+            .unwrap();
+        if count == 64 {
+            let evidence = dry_evidence(&output);
+            assert_eq!(
+                evidence["evaluationIdentity"]["dimensions"]["fixtureDigest"],
+                "c0cb8ad378ce98addfbaf4933672e1451c16c7f6aa92335f786fe7b352a654d5"
+            );
+            let workspace = evidence["trials"][0]["observations"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|item| item["id"] == "sevro.observation.workspaces")
+                .unwrap();
+            assert!(!Path::new(workspace["data"]["candidate"].as_str().unwrap()).exists());
+        } else {
+            assert_eq!(
+                output.status.code(),
+                Some(64),
+                "{}",
+                String::from_utf8_lossy(&output.stdout)
+            );
+            let message = format!(
+                "resolved case file is unreadable or invalid at {}: invalid resolved case file: fixture: invalid fixture binaries; correct the fixture declaration; supply --case-file with readable JSON and correct the named field",
+                fixture.root.join("case.json").display()
+            );
+            assert_eq!(
+                serde_json::from_slice::<Value>(&output.stdout).unwrap(),
+                super::boundaries::failure(64, &message)
+            );
+            assert!(!fixture.root.join("results").exists());
+        }
+        assert!(!fixture.root.join("native-invocations").exists());
+        assert_eq!(fs::read(fixture.root.join("case.json")).unwrap(), before);
+        assert_eq!(git(&fixture.source, &["status", "--porcelain=v1"]), "");
+        assert_eq!(
+            git(&fixture.source, &["rev-parse", "HEAD"]),
+            "afe4c3288517f0e9274c733e59c1349e7c984594"
+        );
+        assert_eq!(
+            fs::read_to_string(fixture.source.join("README.md")).unwrap(),
+            "repository fixture\n"
+        );
+    }
+}
+
 fn invoke_bin(fixture: &RepositoryFixture, bin: Value, setup: &str) -> Output {
     fixture.setup_extension_with_fixture(
         setup,

@@ -40,6 +40,7 @@ struct FixtureInput {
     source_ref: Option<String>,
     staged: Option<Vec<String>>,
     hooks: Option<BTreeMap<String, String>>,
+    bin: Option<BTreeMap<String, String>>,
 }
 
 #[derive(Deserialize)]
@@ -54,6 +55,7 @@ pub(super) enum FixtureDeclaration {
         files: Option<BTreeMap<String, String>>,
         staged: Option<Vec<String>>,
         hooks: Option<BTreeMap<String, String>>,
+        bin: Option<BTreeMap<String, String>>,
     },
 }
 
@@ -90,6 +92,7 @@ impl TryFrom<FixtureInput> for FixtureDeclaration {
                 files: input.files,
                 staged: input.staged,
                 hooks: input.hooks,
+                bin: input.bin,
             });
         }
         if input.kind.as_deref().is_some_and(|kind| kind != "inline") {
@@ -138,11 +141,13 @@ impl PreparedCase {
                 files,
                 staged,
                 hooks,
+                bin,
                 ..
             } => super::fixtures::validate_repository_fixture(
                 files.as_ref(),
                 staged.as_deref().unwrap_or_default(),
                 hooks.as_ref(),
+                bin.as_ref(),
             ),
             _ => Ok(()),
         };
@@ -345,6 +350,17 @@ fn direct_case_issue(value: &Value) -> Option<String> {
         })
     {
         return Some("fixture: invalid fixture hooks; correct the fixture declaration".into());
+    }
+    if value
+        .pointer("/fixture/sourceRef")
+        .and_then(Value::as_str)
+        .is_some_and(|source| !source.is_empty())
+        && value.pointer("/fixture/bin").is_some_and(|bin| {
+            bin.as_object()
+                .is_none_or(|entries| entries.values().any(|content| !content.is_string()))
+        })
+    {
+        return Some("fixture: invalid fixture binaries; correct the fixture declaration".into());
     }
     if value.pointer("/fixture/kind").and_then(Value::as_str) == Some("generated")
         && ["files", "staged", "commitFiles"]

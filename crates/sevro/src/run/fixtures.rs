@@ -36,6 +36,7 @@ enum PreparedKind {
         files: Option<BTreeMap<String, String>>,
         staged: Option<Vec<String>>,
         hooks: Option<BTreeMap<String, String>>,
+        bin: Option<BTreeMap<String, String>>,
     },
 }
 
@@ -56,6 +57,7 @@ impl PreparedFixture {
                 files,
                 staged,
                 hooks,
+                bin,
             } => {
                 let mut identity = json!({
                     "kind":"repository","sourceRef":source.reference,
@@ -69,6 +71,9 @@ impl PreparedFixture {
                 }
                 if let Some(hooks) = hooks {
                     identity["hooks"] = json!(hooks);
+                }
+                if let Some(bin) = bin {
+                    identity["bin"] = json!(bin);
                 }
                 identity
             }
@@ -115,11 +120,13 @@ pub(super) fn resolve(
             files,
             staged,
             hooks,
+            bin,
         } => PreparedKind::Repository {
             source: repository::resolve(sources.as_ref(), source_ref)?,
             files: files.clone(),
             staged: staged.clone(),
             hooks: hooks.clone(),
+            bin: bin.clone(),
         },
     };
     let fixture_paths = match declaration {
@@ -169,9 +176,13 @@ pub(super) fn validate_repository_fixture(
     files: Option<&BTreeMap<String, String>>,
     staged: &[String],
     hooks: Option<&BTreeMap<String, String>>,
+    bin: Option<&BTreeMap<String, String>>,
 ) -> RunResult<()> {
     if let Some(hooks) = hooks {
         tools::validate_hooks(hooks)?;
+    }
+    if let Some(bin) = bin {
+        tools::validate_bin(bin)?;
     }
     repository::validate_overlay(files, staged)
 }
@@ -198,6 +209,7 @@ pub(super) fn materialize(
                 files,
                 staged,
                 hooks,
+                bin,
             } => {
                 repository::clone(source, &workspace)?;
                 if let Some(files) = files {
@@ -207,6 +219,7 @@ pub(super) fn materialize(
                         &workspace,
                     )?;
                 }
+                tools::install_bin(bin.as_ref(), &workspace)?;
                 if let Some(hooks) = hooks {
                     tools::install(
                         hooks,

@@ -137,18 +137,7 @@ impl GeneratedFixture {
         {
             add(workspace, staged.iter().map(String::as_str))?;
         }
-        if let Some(bin) = &self.bin
-            && !bin.is_empty()
-        {
-            let directory = workspace.join(".git/fixture-bin");
-            storage::private_directory(&directory)?;
-            super::tools::install(
-                bin,
-                &directory,
-                "fixture binary directory is invalid",
-                "fixture binary target is invalid",
-            )?;
-        }
+        super::tools::install_bin(self.bin.as_ref(), workspace)?;
         if let Some(hooks) = &self.hooks {
             super::tools::install(
                 hooks,

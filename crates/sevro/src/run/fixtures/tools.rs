@@ -1,4 +1,4 @@
-use super::super::RunResult;
+use super::super::{RunResult, storage};
 use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
 use std::io::{ErrorKind, Write};
@@ -45,6 +45,23 @@ fn validate(
         return Err(message.into());
     }
     Ok(())
+}
+
+pub(super) fn install_bin(
+    declarations: Option<&BTreeMap<String, String>>,
+    workspace: &Path,
+) -> RunResult<()> {
+    let Some(declarations) = declarations.filter(|entries| !entries.is_empty()) else {
+        return Ok(());
+    };
+    let directory = workspace.join(".git/fixture-bin");
+    storage::private_directory(&directory)?;
+    install(
+        declarations,
+        &directory,
+        "fixture binary directory is invalid",
+        "fixture binary target is invalid",
+    )
 }
 
 pub(super) fn bin_directory(workspace: &Path) -> RunResult<Option<PathBuf>> {

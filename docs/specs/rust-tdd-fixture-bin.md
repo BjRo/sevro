@@ -1,13 +1,14 @@
 # Rust fixture binary slices
 
-This ledger records fixture binaries supplied by a real extension's generated
-fixture and consumed by negotiated setup during a public dry run. The
+This ledger records fixture binaries supplied by generated and repository
+fixtures, including a real extension and negotiated setup during a public dry run. The
 [extension contract](../extension-protocol-v1.md),
 [TypeScript binary implementation](../../src/fixtures/bin.ts),
 [shared tool validator and installer](../../src/fixtures/tools.ts), and
 [setup environment](../../src/fixtures/setup.ts) supply the independent behavior.
-Repository binary declarations and candidate-host PATH behavior remain separate
-slices. This cohort does not change direct-case preparation parsing.
+Candidate-host PATH behavior remains a separate slice. The initial generated
+cohort left direct-case preparation parsing unchanged; the later repository
+cohort records its declaration changes below.
 
 ## Independent oracle and command environment
 
@@ -164,7 +165,7 @@ Bubblewrap private `/var/tmp` mount and a recursion marker. macOS uses the owned
 fixture TMPDIR. Cleanup cannot enumerate or remove shared reservations. Local
 macOS results do not establish the nested Linux execution; CI must verify it.
 
-## Final checks
+## Generated cohort checks
 
 The affected regression passed all 120 tests: 1 inline dry, 21 extension,
 28 generated, and 70 repository tests, including all six bin controls and the
@@ -186,5 +187,147 @@ and `bun run check:docs` passed. The existing Rust port index links this ledger
 and the separately owned source-map and state-root ledgers.
 
 Combined publication, compiler coverage, and Linux acceptance remain owned by
-the coordinator. The direct-case preparation file remains unchanged at SHA-256
+the coordinator. That cohort left the direct-case preparation file unchanged at SHA-256
 `bf8227466e3bc7c978a955a11d47e944563c931b08043865bd8c33d3304dcc5d`.
+
+## Repository executable installation
+
+The next bounded cohort starts after the Git HEAD grader was committed as
+`db21006306c205cef702012ac79e5512bdae597e`. Its public authority also includes
+the repository declarations and metadata-preservation rules in
+[the development CLI contract](../development-cli.md) and
+[the TypeScript repository fixture](../../src/fixtures/repository.ts).
+The existing TypeScript test
+`repository overlays preserve source, index state, and metadata boundaries`
+in [repository-fixture.test.ts](../../tests/repository-fixture.test.ts) asserts
+declared binaries and the candidate's fixture directory.
+
+Independent actual CLI capture:
+
+```sh
+python3 /Users/bjro/.codex/artifacts/sevro-repository-bin-next-20261016/oracle.py
+```
+
+The evidence root is
+`/Users/bjro/.codex/artifacts/sevro-repository-bin-next-20261016`.
+Its `typescript/` directory retains the literal argv, extension responses,
+setup script, streams, evidence, and summary. The extension resolves a
+repository source with a declared `fixture-probe`. Both source Git metadata
+and the inherited caller PATH contain different executable bytes. Setup observes
+the declared executable and records:
+
+- Exact output `repository tool\n` and contents
+  `#!/bin/sh\nprintf 'repository tool\\n'\n`.
+- First PATH entry `.git/fixture-bin`, regular nonsymlink executable mode `0755`,
+  and binary directory mode `0700`.
+- Detached HEAD `afe4c3288517f0e9274c733e59c1349e7c984594`, no remotes, clean
+  status, and README bytes `repository fixture\n`.
+- Fixture digest
+  `c043be5566fcf0dabc54dc84dc27842d081f055dd6f1fd8b17a7f290ce18f78a`
+  and setup digest
+  `a34e09c69aeb96f8cacca6480dbfbfb5ea65a406500bdd008491b87f41456912`.
+
+The public result is 0/not_run/not_requested/not_assessed. The original source
+keeps its HEAD, `main` branch, clean status, README, and distinct `0700`
+metadata executable. The caller executable and extension remain unchanged,
+the native host is not invoked, and the successful workspace is removed.
+
+- Red — `cargo test --offline --locked -p sevro --test run_repository fixture_bin::installs_repository_executables_before_setup_without_copying_source_metadata -- --exact`:
+  the compiled test returned CLI 64 instead of 0, with `invalid case file:
+unknown field bin` and the supported-field list. Product code was unchanged.
+- Green — `cargo test --offline --locked -p sevro --test run_repository fixture_bin::installs_repository_executables_before_setup_without_copying_source_metadata -- --exact`:
+  1 passed, 70 filtered out. All literal receipt, digest, preservation and
+  cleanup assertions passed. Logs: `first-red.log` and `first-green.log` in
+  this cohort's evidence root.
+
+The repair carries the optional typed map through the repository declaration,
+semantic validation, resolved fixture and identity. Repository installation
+runs after cloning and overlay/staging, before declared hooks and setup.
+Generated and repository fixtures share the existing nonempty-bin installer;
+regular-target checks, explicit modes, canonical directory validation and all
+shared declaration bounds remain intact. There is no host-request, native
+state, result-recording, or filesystem-policy change in this cohort.
+
+## Direct repository declaration controls
+
+Each following TypeScript capture was made before its corresponding Rust test:
+
+```sh
+python3 /Users/bjro/.codex/artifacts/sevro-repository-bin-next-20261016/control-oracle.py null
+python3 /Users/bjro/.codex/artifacts/sevro-repository-bin-next-20261016/control-oracle.py array
+python3 /Users/bjro/.codex/artifacts/sevro-repository-bin-next-20261016/control-oracle.py nonstring
+python3 /Users/bjro/.codex/artifacts/sevro-repository-bin-next-20261016/control-oracle.py omitted
+python3 /Users/bjro/.codex/artifacts/sevro-repository-bin-next-20261016/control-oracle.py empty
+python3 /Users/bjro/.codex/artifacts/sevro-repository-bin-next-20261016/control-oracle.py count64
+python3 /Users/bjro/.codex/artifacts/sevro-repository-bin-next-20261016/control-oracle.py count65
+```
+
+Named `controls/<scenario>/` directories retain the exact commands, input,
+streams and summary. Invalid declarations return the complete 64 pre-run
+envelope, a diagnostic naming the selected case file and `invalid fixture
+binaries`, no result allocation or host invocation, and unchanged caller bytes.
+
+- Red — `cargo test --offline --locked -p sevro --test run_repository fixture_bin::refuses_null_repository_executables_before_run_admission -- --exact`:
+  Rust erased explicit `bin: null` as an absent optional map and returned 0
+  with retained dry evidence, instead of the actual TypeScript refusal.
+- Green — `cargo test --offline --locked -p sevro --test run_repository fixture_bin::refuses_null_repository_executables_before_run_admission -- --exact`:
+  1 passed, 71 filtered out after validating direct repository bin shape before
+  deserialization. Logs: `null-red.log` and `null-green.log`.
+
+The remaining three tests passed on their first runs. They are characterizations,
+not additional claimed behavioral reds; no product changes followed the null fix:
+
+- `cargo test --offline --locked -p sevro --test run_repository fixture_bin::names_malformed_repository_executable_maps_before_run_admission -- --exact`:
+  array maps and nonstring contents receive the same exact named diagnostic,
+  preserve input/source bytes, and allocate no result storage.
+  Log: `shape-initial-green.log`.
+- `cargo test --offline --locked -p sevro --test run_repository fixture_bin::distinguishes_omitted_and_empty_repository_executables_in_identity -- --exact`:
+  both valid dry selections succeed and clean their workspaces. Omitted bin has
+  fixture digest `c251594c3b1e6f1efd85323db61c518d9753d0fe82016b5aba7136878f4903ef`;
+  explicit `{}` has
+  `9db42e8d180122b62f66ef7d13880e95f484256a8f66a29c9e7cbe5b50f32af1`.
+  Log: `identity-initial-green.log`.
+- `cargo test --offline --locked -p sevro --test run_repository fixture_bin::bounds_direct_repository_executables_before_run_admission -- --exact`:
+  64 direct-case tools succeed with fixture digest
+  `c0cb8ad378ce98addfbaf4933672e1451c16c7f6aa92335f786fe7b352a654d5`;
+  the 65th receives the exact 64 semantic refusal before admission. This
+  complements the earlier extension schema's 70 refusal for the 65th tool.
+  Log: `count-initial-green.log`.
+
+## Repository cohort checks
+
+The affected regression passed all 125 tests: 75 repository, 28 generated,
+21 extension, and 1 inline dry. That includes all five new repository-bin
+tests, the earlier generated-bin controls, and the actual two-minute setup
+deadline. No tests failed, were ignored, or were filtered:
+
+```sh
+cargo test --offline --locked -p sevro --test run_repository --test run_extension --test run_generated --test run_dry -- --test-threads=1
+cargo clippy --workspace --all-targets --offline --locked -- -D warnings
+```
+
+Both commands passed in the dedicated fixture-bin target. Their complete output
+is retained as `affected-regression.log` and `strict-clippy-completion.log` in
+the repository cohort evidence root. The three previously committed Git HEAD
+controls also passed unchanged, each selected separately to avoid running the
+other owner's in-progress verdict tests:
+
+```sh
+cargo test --offline --locked -p sevro --test run_git_head git_head_advance_preserves_the_base_and_passes_changed_and_ancestry -- --exact
+cargo test --offline --locked -p sevro --test run_git_head git_head_rewind_changes_head_but_fails_ancestry_with_retained_evidence -- --exact
+cargo test --offline --locked -p sevro --test run_git_head git_head_unchanged_passes_with_runner_owned_base -- --exact
+```
+
+Those exact commands and results are retained in `git-head-regression.log`.
+The read-only `cargo fmt --all -- --check` reported no differences in owned
+files; its remaining differences were in separately owned
+`adapters/transport.rs` and `tests/run_git_head.rs`, left to their owners.
+Owned formatting was applied from rustfmt's read-only diff.
+`git diff --check`,
+`bunx prettier --check docs/specs/rust-tdd-fixture-bin.md`, and
+`bun run check:docs` passed.
+
+The source and test files are held for coordinator acceptance and publication.
+These are scoped results, not a claim of complete workspace or Linux acceptance.
+Native candidate PATH and the programmatic fixture-input handoff remain
+separately coordinated work.
