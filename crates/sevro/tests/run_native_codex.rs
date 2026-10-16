@@ -90,6 +90,7 @@ impl Fixture {
             .current_dir(self.root.join("project"))
             .env("TMPDIR", self.root.join("temporary"))
             .env("SEVRO_NATIVE_PRIVATE_SENTINEL", "must-not-reach-native")
+            .env("SEVRO_DEBUG_NATIVE_DIAGNOSTICS", "1")
             .args([
                 "run",
                 "--json",
@@ -145,7 +146,17 @@ fn report_native_failure(root: &Path) {
         eprintln!("native fixture results directory unavailable");
         return;
     };
-    for run in runs.take(4).flatten() {
+    for run in runs
+        .flatten()
+        .filter(|entry| {
+            entry.file_type().is_ok_and(|kind| kind.is_dir())
+                && entry
+                    .file_name()
+                    .to_str()
+                    .is_some_and(|name| Uuid::parse_str(name).is_ok())
+        })
+        .take(4)
+    {
         for artifact in ["codex.process", "codex.stderr"] {
             let path = run.path().join(format!("trial-1-host-{artifact}.bin"));
             let mut bytes = Vec::new();

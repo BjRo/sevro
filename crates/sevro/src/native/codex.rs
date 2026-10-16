@@ -5,6 +5,7 @@ mod profile;
 mod session;
 mod state;
 
+use super::process::diagnostic_stage;
 use crate::cancellation::Cancellation;
 use crate::host::{Artifact, HostRequest, HostResult, ProcessFailure};
 use serde_json::json;
@@ -42,9 +43,10 @@ impl CodexHost {
         if request.condition != "passive" {
             return Err("Codex enforcement instrumentation is unavailable".into());
         }
-        let state = State::prepare(&self.options, request.workspace)?;
+        let state = State::prepare(&self.options, request.workspace)
+            .inspect_err(|_| diagnostic_stage("prepare"))?;
         let executed = self.execute_prepared(request, &state, cancellation);
-        state.close()?;
+        state.close().inspect_err(|_| diagnostic_stage("close"))?;
         executed
     }
 
@@ -54,17 +56,23 @@ impl CodexHost {
         state: &State,
         cancellation: &Cancellation,
     ) -> Result<HostResult, String> {
-        if let Some(failure) = self.preflight(request, state, cancellation)? {
+        if let Some(failure) = self
+            .preflight(request, state, cancellation)
+            .inspect_err(|_| diagnostic_stage("preflight"))?
+        {
             return Ok(failure);
         }
         let original = request
             .follow_up_prompt
             .and_then(|_| continuation::fingerprint(request.workspace));
-        let output = self.turn(request, state, request.prompt, None, cancellation)?;
+        let output = self
+            .turn(request, state, request.prompt, None, cancellation)
+            .inspect_err(|_| diagnostic_stage("initial-process"))?;
         if output.reason != "exit" {
             return failed_process(output, "execution", self.options.timeout_ms);
         }
-        let mut summary = events::summarize(&output.stdout, output.status.success())?;
+        let mut summary = events::summarize(&output.stdout, output.status.success())
+            .inspect_err(|_| diagnostic_stage("initial-events"))?;
         let mut artifacts = vec![Artifact {
             id: "sevro.codex.events".into(),
             bytes: output.stdout,
@@ -77,19 +85,23 @@ impl CodexHost {
                 &summary.thread_id,
                 original,
             ));
-            let follow_up = self.turn(
-                request,
-                state,
-                prompt,
-                Some(&summary.thread_id),
-                cancellation,
-            )?;
+            let follow_up = self
+                .turn(
+                    request,
+                    state,
+                    prompt,
+                    Some(&summary.thread_id),
+                    cancellation,
+                )
+                .inspect_err(|_| diagnostic_stage("resumed-process"))?;
             if follow_up.reason != "exit" {
                 return failed_process(follow_up, "execution", self.options.timeout_ms);
             }
             let follow_up_summary =
-                events::summarize(&follow_up.stdout, follow_up.status.success())?;
+                events::summarize(&follow_up.stdout, follow_up.status.success())
+                    .inspect_err(|_| diagnostic_stage("resumed-events"))?;
             if follow_up_summary.thread_id != summary.thread_id {
+                diagnostic_stage("resumed-thread");
                 return Err("Codex follow-up turn did not complete in the original thread".into());
             }
             summary.final_message = follow_up_summary.final_message;

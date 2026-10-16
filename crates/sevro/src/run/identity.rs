@@ -232,6 +232,9 @@ fn resolved_settings(
 }
 
 fn refuse_pending_configuration(options: &Options) -> RunResult<()> {
+    if !matches!(options.candidate, Candidate::Codex { .. }) {
+        return Ok(());
+    }
     let path = options.config_root.join(".codex/config.toml");
     match fs::symlink_metadata(&path) {
         Ok(_) => Err(format!(

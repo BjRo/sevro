@@ -90,6 +90,7 @@ impl MappedFixture {
         command
             .current_dir(self.root.join("project"))
             .env("TMPDIR", self.root.join("tmp"))
+            .env("SEVRO_DEBUG_NATIVE_DIAGNOSTICS", "1")
             .env_remove("CODEX_HOME")
             .env_remove("CLAUDE_CONFIG_DIR")
             .args([
@@ -141,7 +142,17 @@ impl MappedFixture {
             return;
         };
         // Only inspect known synthetic receipts, never auth/config files or raw responses.
-        for run in runs.take(4).flatten() {
+        for run in runs
+            .flatten()
+            .filter(|entry| {
+                entry.file_type().is_ok_and(|kind| kind.is_dir())
+                    && entry
+                        .file_name()
+                        .to_str()
+                        .is_some_and(|name| Uuid::parse_str(name).is_ok())
+            })
+            .take(4)
+        {
             for artifact in ["codex.process", "codex.stderr"] {
                 let path = run.path().join(format!("trial-1-host-{artifact}.bin"));
                 let mut bytes = Vec::new();

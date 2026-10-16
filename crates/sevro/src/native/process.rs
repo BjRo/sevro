@@ -81,6 +81,22 @@ impl Flavor {
     }
 }
 
+// Temporary, explicitly opted-in CI diagnosis; remove after the Ubuntu failure is identified.
+#[cfg(debug_assertions)]
+fn diagnostic_enabled() -> bool {
+    std::env::var_os("SEVRO_DEBUG_NATIVE_DIAGNOSTICS").as_deref() == Some(std::ffi::OsStr::new("1"))
+}
+
+#[cfg(debug_assertions)]
+pub(super) fn diagnostic_stage(stage: &'static str) {
+    if diagnostic_enabled() {
+        let _ = writeln!(std::io::stderr(), "sevro native diagnostic stage={stage}");
+    }
+}
+
+#[cfg(not(debug_assertions))]
+pub(super) fn diagnostic_stage(_stage: &'static str) {}
+
 pub(super) fn run(request: Request<'_>, flavor: Flavor) -> Result<Output, String> {
     let Request {
         binary,
@@ -109,6 +125,17 @@ pub(super) fn run(request: Request<'_>, flavor: Flavor) -> Result<Output, String
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
+        .inspect_err(|_error| {
+            #[cfg(debug_assertions)]
+            if matches!(flavor, Flavor::Codex) && diagnostic_enabled() {
+                let _ = writeln!(
+                    std::io::stderr(),
+                    "sevro native diagnostic stage=spawn kind={:?} raw_os_error={:?}",
+                    _error.kind(),
+                    _error.raw_os_error()
+                );
+            }
+        })
         .map_err(|_| format!("{host} process could not start"))?;
     let mut process = OwnedProcess {
         child,
