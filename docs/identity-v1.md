@@ -58,13 +58,43 @@ or platform changes that alter its bytes change the identity. No source-checkout
 path or nearby package directory supplies an installed binary's identity.
 Explicit digest overrides take precedence over this default computation.
 
-A future native npm bundle must use an explicitly compiled bundle profile,
-bind the executable plus its manifest and the existing mandatory packaged asset
-roots, and refuse missing layout or required assets. Copying a bundle binary out
-of its package must not downgrade it to standalone identity. This requirement
-does not reinterpret historical TypeScript build digests. Native checkout
-association requires a separate verified source receipt; hashing the executable
-alone does not establish that a supplied mutable checkout produced it.
+The optional Rust `native-bundle` feature explicitly compiles the bundle profile.
+Its executable must be installed at `<bundle>/bin/sevro`, beside the root manifest
+`<bundle>/sevro-native-bundle.json`. The manifest has exactly these fields:
+
+```json
+{
+  "format": "sevro.native-bundle.v1",
+  "executable": "bin/sevro",
+  "assets": ["<sorted package-relative file paths>"]
+}
+```
+
+`assets` lists every ordinary file in `docs/`, `examples/`, `schemas/`, and `src/`,
+plus `package.json`, `README.md`, `LICENSE`, and `CONTRIBUTING.md`. Paths are sorted
+by UTF-16 code units and unique. They use `/` separators, have no empty, `.` or
+`..` components, backslashes or NUL bytes, and stay within those mandatory roots.
+The roots, manifest, and their contents must be ordinary directories/files;
+symbolic links and non-file assets refuse. The inventory must match the installed
+files exactly. Required sentinels are `docs/installing.md`,
+`examples/basic/{graded.json,prompt-only.json,host.ts}`,
+`schemas/{run-evidence-v1.schema.json,report-v1.schema.json}`, and `src/cli.ts`.
+`package.json` must name `@bjoernrochel/sevro` and match the executable's version.
+The manifest plus assets are bounded to 4,096 files and 64 MiB in total.
+
+The bundle uses the same `sevro.native-build.v1` envelope with
+`"distribution": "bundle"`, the actual executable digest, and an `assets` array
+of `{ "path": "...", "sha256": "..." }` entries sorted by UTF-16 path order.
+That array includes the manifest's actual bytes as well as all listed assets.
+Relocation preserves the digest; changing any bound bytes changes it. Automatic
+identity refuses missing layout, an invalid manifest, or missing assets. Copying
+the executable out of its bundle cannot downgrade it to standalone identity or
+discover a nearby source checkout. Explicit digest overrides still take priority.
+
+This opt-in profile does not change npm installation or reinterpret historical
+TypeScript or standalone build digests. Native checkout association requires a
+separate verified source receipt; hashing the executable alone does not establish
+that a supplied mutable checkout produced it.
 
 The prefix separates this digest from component digests and future identity
 versions. An exact-repeat comparison requires equal identities. An ablation may

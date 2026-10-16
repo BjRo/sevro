@@ -1,4 +1,4 @@
-use super::state::State;
+use super::{runtime::EmptyRuntime, state::State};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
@@ -31,12 +31,19 @@ pub(super) fn configuration(
                     .ok_or("Codex temporary path is not UTF-8")?
             ))?
         ),
+    ];
+    if state.runtime.is_some() {
+        for (name, value) in EmptyRuntime::ENVIRONMENT {
+            lines.push(format!("{} = {}", quoted(name)?, quoted(value)?));
+        }
+    }
+    lines.extend([
         format!("[permissions.{}]", state.profile_id),
         "extends = \":workspace\"".into(),
         format!("[permissions.{}.filesystem]", state.profile_id),
         "\":root\" = \"deny\"".into(),
         "\":minimal\" = \"read\"".into(),
-    ];
+    ]);
     #[cfg(target_os = "macos")]
     {
         lines.extend([

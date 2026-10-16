@@ -1,6 +1,6 @@
 pub(super) use super::super::isolation::write_private;
 use super::super::isolation::{namespace_directory, private_directory, protected_roots};
-use super::{CodexOptions, profile};
+use super::{CodexOptions, profile, runtime::EmptyRuntime};
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::fs;
@@ -16,6 +16,7 @@ pub(super) struct State {
     pub command_temp: PathBuf,
     pub profile_id: String,
     pub environment: BTreeMap<OsString, OsString>,
+    pub runtime: Option<EmptyRuntime>,
 }
 
 impl State {
@@ -44,6 +45,7 @@ impl State {
             namespace,
             profile_id: format!("sevro_{}", Uuid::new_v4().simple()),
             environment: BTreeMap::new(),
+            runtime: None,
         };
         state.prepare_contents(options, &workspace)?;
         Ok(state)
@@ -52,6 +54,12 @@ impl State {
     fn prepare_contents(&mut self, options: &CodexOptions, workspace: &Path) -> Result<(), String> {
         for name in ["codex-home", "home", "tmp", "command-home", "command-tmp"] {
             private_directory(&self.root.join(name))?;
+        }
+        if let Some(policy) = &options.runtime_policy {
+            let runtime = EmptyRuntime::prepare(policy, &self.root)?;
+            self.command_home = runtime.home.clone();
+            self.command_temp = runtime.temp.clone();
+            self.runtime = Some(runtime);
         }
         copy_auth(&options.auth_file, &self.codex_home.join("auth.json"))?;
         let roots = protected_roots(
@@ -82,6 +90,11 @@ impl State {
             ("NO_COLOR", "1".into()),
         ] {
             self.environment.insert(name.into(), value);
+        }
+        if self.runtime.is_some() {
+            for (name, value) in EmptyRuntime::ENVIRONMENT {
+                self.environment.insert(name.into(), value.into());
+            }
         }
         Ok(())
     }

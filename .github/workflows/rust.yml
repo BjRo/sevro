@@ -75,8 +75,14 @@ jobs:
         run: cargo build --workspace --all-targets --locked
       - name: Check Rust lint
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Build and lint the installed bundle profile
+        run: |
+          cargo build -p sevro --features native-bundle --test installed_bundle --locked
+          cargo clippy -p sevro --features native-bundle --test installed_bundle --locked -- -D warnings
       - name: Run Rust tests
         run: cargo test --workspace --all-targets --locked --no-fail-fast 2>&1 | tee .coverage/tests.log
+      - name: Run installed bundle tests
+        run: cargo test -p sevro --features native-bundle --test installed_bundle --locked --no-fail-fast 2>&1 | tee .coverage/bundle-tests.log
       - name: Run Rust documentation tests
         run: cargo test --workspace --doc --locked 2>&1 | tee .coverage/doctests.log
       - name: Install and run outside the checkout
@@ -98,23 +104,11 @@ jobs:
           mkdir -p .coverage/bin
           cp "$SEVRO_INSTALL_ROOT/bin/sevro" .coverage/bin/sevro
           shasum -a 256 .coverage/bin/sevro > .coverage/binary.sha256
-      - name: Collect compiler coverage
+      - name: Verify real compiler feature controls
+        run: python3 scripts/rust/test-feature-coverage.py --toolchain 1.99.0 --output-dir .coverage/feature-controls 2>&1 | tee .coverage/feature-controls.log
+      - name: Collect and enforce both compiler profiles
         id: coverage
-        run: |
-          cargo llvm-cov clean --workspace
-          cargo llvm-cov --workspace --all-targets --locked --no-fail-fast --no-report 2>&1 | tee .coverage/coverage-tests.log
-      - name: Export exact compiler counters
-        if: always() && (steps.coverage.outcome == 'success' || steps.coverage.outcome == 'failure')
-        run: cargo llvm-cov report --json --ignore-filename-regex '(^|/)tests/' --output-path .coverage/coverage.json
-      - name: Export LCOV
-        if: always() && (steps.coverage.outcome == 'success' || steps.coverage.outcome == 'failure')
-        run: cargo llvm-cov report --lcov --ignore-filename-regex '(^|/)tests/' --output-path .coverage/lcov.info
-      - name: Export browsable coverage
-        if: always() && (steps.coverage.outcome == 'success' || steps.coverage.outcome == 'failure')
-        run: cargo llvm-cov report --html --ignore-filename-regex '(^|/)tests/' --output-dir .coverage/html
-      - name: Enforce line and region coverage
-        if: always() && (steps.coverage.outcome == 'success' || steps.coverage.outcome == 'failure')
-        run: cargo llvm-cov report --ignore-filename-regex '(^|/)tests/' --fail-under-lines 95 --fail-under-regions 95 2>&1 | tee .coverage/coverage-summary.txt
+        run: python3 scripts/rust/coverage-profiles.py --output-dir .coverage/profiles --target-dir target/llvm-cov-profiles 2>&1 | tee .coverage/coverage-tests.log
       - name: Retain candidate evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -122,8 +116,6 @@ jobs:
           name: rust-quality-${{ github.event.pull_request.head.sha || github.sha }}-${{ matrix.os }}-${{ github.run_attempt }}
           path: |
             .coverage/
-            target/llvm-cov-target/**/*.profraw
-            target/llvm-cov-target/**/*.profdata
             Cargo.lock
             rust-toolchain.toml
           include-hidden-files: true
@@ -193,23 +185,11 @@ jobs:
           python3 --version > .coverage/branches/python.txt
       - name: Verify raw counters and real compiler controls
         run: python3 scripts/rust/test-branch-coverage.py --toolchain "$SEVRO_BRANCH_TOOLCHAIN" --output-dir .coverage/branches/controls 2>&1 | tee .coverage/branches/controls.log
-      - name: Collect compiler branch coverage
+      - name: Verify real compiler feature controls
+        run: python3 scripts/rust/test-feature-coverage.py --toolchain "$SEVRO_BRANCH_TOOLCHAIN" --branch --output-dir .coverage/branches/feature-controls 2>&1 | tee .coverage/branches/feature-controls.log
+      - name: Collect and enforce both compiler branch profiles
         id: branch-coverage
-        run: |
-          cargo +"$SEVRO_BRANCH_TOOLCHAIN" llvm-cov clean --workspace
-          cargo +"$SEVRO_BRANCH_TOOLCHAIN" llvm-cov --branch --workspace --all-targets --locked --no-fail-fast --no-report 2>&1 | tee .coverage/branches/tests.log
-      - name: Export raw branch counters
-        if: always() && (steps.branch-coverage.outcome == 'success' || steps.branch-coverage.outcome == 'failure')
-        run: cargo +"$SEVRO_BRANCH_TOOLCHAIN" llvm-cov report --json --ignore-filename-regex '(^|/)tests/' --output-path .coverage/branches/coverage.json
-      - name: Export branch LCOV
-        if: always() && (steps.branch-coverage.outcome == 'success' || steps.branch-coverage.outcome == 'failure')
-        run: cargo +"$SEVRO_BRANCH_TOOLCHAIN" llvm-cov report --lcov --ignore-filename-regex '(^|/)tests/' --output-path .coverage/branches/lcov.info
-      - name: Export browsable branch coverage
-        if: always() && (steps.branch-coverage.outcome == 'success' || steps.branch-coverage.outcome == 'failure')
-        run: cargo +"$SEVRO_BRANCH_TOOLCHAIN" llvm-cov report --html --ignore-filename-regex '(^|/)tests/' --output-dir .coverage/branches/html
-      - name: Enforce LLVM supported branch outcomes
-        if: always() && (steps.branch-coverage.outcome == 'success' || steps.branch-coverage.outcome == 'failure')
-        run: jq --exit-status --slurp --from-file scripts/rust/branch-coverage.jq .coverage/branches/coverage.json | tee .coverage/branches/enforcement.json
+        run: python3 scripts/rust/coverage-profiles.py --toolchain "$SEVRO_BRANCH_TOOLCHAIN" --branch --output-dir .coverage/branches/profiles --target-dir target/llvm-cov-branches 2>&1 | tee .coverage/branches/tests.log
       - name: Retain branch evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -217,8 +197,6 @@ jobs:
           name: rust-branches-${{ github.event.pull_request.head.sha || github.sha }}-${{ matrix.os }}-${{ github.run_attempt }}
           path: |
             .coverage/branches/
-            target/llvm-cov-branches/**/*.profraw
-            target/llvm-cov-branches/**/*.profdata
             Cargo.lock
             rust-toolchain.toml
           include-hidden-files: true

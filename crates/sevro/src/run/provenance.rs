@@ -7,6 +7,8 @@ use std::io::Read;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
+#[cfg(feature = "native-bundle")]
+mod bundle;
 mod git;
 
 const MAX_SNAPSHOT_BYTES: u64 = 64 * 1024 * 1024;
@@ -43,7 +45,7 @@ impl ProvenanceFailure {
 pub(super) fn resolve(request: Request<'_>) -> Result<Provenance, ProvenanceFailure> {
     let runner_digest = match request.runner_digest {
         Some(digest) => digest.to_owned(),
-        None => standalone_build_digest().map_err(ProvenanceFailure::derivation)?,
+        None => native_build_digest().map_err(ProvenanceFailure::derivation)?,
     };
     let project = project_provenance(request.project_root, request.excluded_roots)
         .map_err(ProvenanceFailure::derivation)?;
@@ -69,9 +71,9 @@ pub(super) fn resolve(request: Request<'_>) -> Result<Provenance, ProvenanceFail
     })
 }
 
-fn standalone_build_digest() -> RunResult<String> {
+fn native_build_digest() -> RunResult<String> {
     let executable = std::env::current_exe()?;
-    let mut file = fs::File::open(executable)?;
+    let mut file = fs::File::open(&executable)?;
     let mut digest = Sha256::new();
     let mut buffer = [0; 64 * 1024];
     loop {
@@ -81,9 +83,15 @@ fn standalone_build_digest() -> RunResult<String> {
         }
         digest.update(&buffer[..count]);
     }
+    let executable_sha256 = format!("{:x}", digest.finalize());
+    #[cfg(feature = "native-bundle")]
+    {
+        bundle::build_digest(&executable, executable_sha256)
+    }
+    #[cfg(not(feature = "native-bundle"))]
     hash_json(&json!({
         "format":"sevro.native-build.v1","distribution":"standalone",
-        "executableSha256":format!("{:x}",digest.finalize()),"assets":[]
+        "executableSha256":executable_sha256,"assets":[]
     }))
 }
 

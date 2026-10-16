@@ -1,17 +1,20 @@
 use super::super::super::{RunError, RunResult, preparation::fixture_path, storage};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, OpenOptions};
 use std::io::{ErrorKind, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
-pub(in crate::run::fixtures) fn validate(files: &BTreeMap<String, String>) -> RunResult<()> {
-    if files.len() > 1024 {
+pub(in crate::run::fixtures) fn validate(
+    files: Option<&BTreeMap<String, String>>,
+    staged: &[String],
+) -> RunResult<()> {
+    if files.map_or(0, BTreeMap::len) > 1024 {
         return Err("repository fixture exceeds the file limit".into());
     }
     let mut paths: Vec<String> = Vec::new();
     let mut bytes = 0usize;
-    for (path, content) in files {
+    for (path, content) in files.into_iter().flatten() {
         fixture_path(path)?;
         if path
             .split('/')
@@ -35,11 +38,25 @@ pub(in crate::run::fixtures) fn validate(files: &BTreeMap<String, String>) -> Ru
         }
         paths.push(normalized);
     }
+    for path in staged {
+        bytes = bytes.saturating_add(path.len());
+    }
+    if bytes > 32 * 1024 * 1024 {
+        return Err("repository fixture exceeds the size limit".into());
+    }
+    let mut staged_paths = BTreeSet::new();
+    if staged.iter().any(|path| {
+        !staged_paths.insert(path.to_lowercase())
+            || files.is_none_or(|files| !files.contains_key(path))
+    }) {
+        return Err("invalid repository fixture staging".into());
+    }
     Ok(())
 }
 
 pub(in crate::run::fixtures) fn apply(
     files: &BTreeMap<String, String>,
+    staged: &[String],
     workspace: &Path,
 ) -> RunResult<()> {
     for (path, content) in files {
@@ -57,6 +74,11 @@ pub(in crate::run::fixtures) fn apply(
                     error,
                 )
             })?;
+    }
+    if !staged.is_empty() {
+        let mut arguments = vec!["-c", "core.hooksPath=/dev/null", "add", "--"];
+        arguments.extend(staged.iter().map(String::as_str));
+        super::git(workspace, &arguments)?;
     }
     Ok(())
 }

@@ -2,6 +2,7 @@ mod continuation;
 mod events;
 mod process;
 mod profile;
+mod runtime;
 mod session;
 mod state;
 
@@ -24,6 +25,7 @@ pub(crate) struct CodexOptions {
     pub results_root: PathBuf,
     pub protected_roots: Vec<PathBuf>,
     pub timeout_ms: u64,
+    pub runtime_policy: Option<serde_json::Value>,
 }
 
 pub(crate) struct CodexHost {
@@ -44,7 +46,7 @@ impl CodexHost {
             return Err("Codex enforcement instrumentation is unavailable".into());
         }
         let state = State::prepare(&self.options, request.workspace)
-            .inspect_err(|_| diagnostic_stage("prepare"))?;
+            .inspect_err(|error| diagnostic_preparation(error))?;
         let executed = self.execute_prepared(request, &state, cancellation);
         state.close().inspect_err(|_| diagnostic_stage("close"))?;
         executed
@@ -72,12 +74,16 @@ impl CodexHost {
             return failed_process(output, "execution", self.options.timeout_ms);
         }
         let mut summary = events::summarize(&output.stdout, output.status.success())
-            .inspect_err(|_| diagnostic_stage("initial-events"))?;
+            .inspect_err(|_| diagnostic_events("initial-events", output.status))?;
         let mut artifacts = vec![Artifact {
             id: "sevro.codex.events".into(),
             bytes: output.stdout,
         }];
-        let mut observations = Vec::new();
+        let mut observations: Vec<_> = state
+            .runtime
+            .iter()
+            .map(runtime::EmptyRuntime::observation)
+            .collect();
         if let Some(prompt) = request.follow_up_prompt {
             observations.push(continuation::observation(
                 request.workspace,
@@ -99,7 +105,7 @@ impl CodexHost {
             }
             let follow_up_summary =
                 events::summarize(&follow_up.stdout, follow_up.status.success())
-                    .inspect_err(|_| diagnostic_stage("resumed-events"))?;
+                    .inspect_err(|_| diagnostic_events("resumed-events", follow_up.status))?;
             if follow_up_summary.thread_id != summary.thread_id {
                 diagnostic_stage("resumed-thread");
                 return Err("Codex follow-up turn did not complete in the original thread".into());
@@ -220,6 +226,61 @@ impl CodexHost {
             return failed_process(output, phase, 60000).map(Some);
         }
         Ok(None)
+    }
+}
+
+// Temporary CI diagnosis: map only known messages to static labels, never print the error.
+fn diagnostic_preparation(_error: &str) {
+    #[cfg(debug_assertions)]
+    diagnostic_stage(match _error {
+        "native temporary directory is unavailable" => "prepare-temporary-root",
+        "native namespace is unavailable" => "prepare-namespace-metadata",
+        "native state namespace must be an owned private directory" => {
+            "prepare-namespace-ownership"
+        }
+        "native runtime namespace overlaps the fixture workspace" => "prepare-namespace-overlap",
+        "native private directory could not be created" => "prepare-private-directory",
+        "native private file could not be written" => "prepare-private-file",
+        "Codex workspace is unavailable" => "prepare-workspace",
+        "Codex workspace has no private parent" => "prepare-workspace-parent",
+        "fixture .git configuration is unsupported or not isolated"
+        | "fixture .codex configuration is unsupported or not isolated" => "prepare-fixture-config",
+        "Codex fixture metadata is unreadable" => "prepare-fixture-metadata",
+        "Codex auth file is unreadable or oversized" => "prepare-auth",
+        "Codex auth metadata is unreadable" => "prepare-auth-metadata",
+        "native user information is unavailable" => "prepare-user",
+        "evaluation protected roots must be absolute" => "prepare-protected-absolute",
+        "evaluation protected root is unreadable" => "prepare-protected-canonicalization",
+        "running Sevro executable is unavailable" => "prepare-current-executable",
+        "protected path has no parent" => "prepare-protected-parent",
+        "protected repository worktrees are unavailable" => "prepare-git-worktrees",
+        "protected repository paths are invalid" => "prepare-git-paths",
+        "protected repository worktree is unreadable" => "prepare-git-canonicalization",
+        "Codex sandbox helper could not be prepared" => "prepare-sandbox-helper",
+        "Codex executable has no parent" => "prepare-executable-parent",
+        "Codex executable is unavailable" => "prepare-executable",
+        "Codex executable directory is unavailable" => "prepare-executable-directory",
+        "Codex executable resides inside a protected root" => "prepare-executable-protected",
+        "Codex temporary path is not UTF-8"
+        | "Codex executable path is not UTF-8"
+        | "Codex profile path is not UTF-8" => "prepare-profile-path",
+        "Codex profile value contains a control character" => "prepare-profile-control-character",
+        _ => "prepare-unknown",
+    });
+}
+
+fn diagnostic_events(_stage: &'static str, _status: std::process::ExitStatus) {
+    #[cfg(debug_assertions)]
+    if std::env::var_os("SEVRO_DEBUG_NATIVE_DIAGNOSTICS").as_deref()
+        == Some(std::ffi::OsStr::new("1"))
+    {
+        use std::io::Write;
+        let _ = writeln!(
+            std::io::stderr(),
+            "sevro native diagnostic stage={_stage} code={:?} signal={:?}",
+            _status.code(),
+            _status.signal()
+        );
     }
 }
 

@@ -38,18 +38,36 @@ struct FixtureInput {
     kind: Option<String>,
     files: Option<BTreeMap<String, String>>,
     source_ref: Option<String>,
+    staged: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
-#[serde(try_from = "FixtureInput")]
+#[serde(try_from = "Value")]
 pub(super) enum FixtureDeclaration {
+    Generated(super::fixtures::GeneratedFixture),
     Inline {
         files: BTreeMap<String, String>,
     },
     Repository {
         source_ref: String,
         files: Option<BTreeMap<String, String>>,
+        staged: Option<Vec<String>>,
     },
+}
+
+impl TryFrom<Value> for FixtureDeclaration {
+    type Error = RunError;
+
+    fn try_from(value: Value) -> RunResult<Self> {
+        if value.get("kind").and_then(Value::as_str) == Some("generated") {
+            return serde_json::from_value(value)
+                .map(Self::Generated)
+                .map_err(|error| RunError::with_source("invalid generated fixture", error));
+        }
+        let input: FixtureInput = serde_json::from_value(value)
+            .map_err(|error| RunError::with_source(error.to_string(), error))?;
+        Self::try_from(input)
+    }
 }
 
 impl TryFrom<FixtureInput> for FixtureDeclaration {
@@ -68,6 +86,7 @@ impl TryFrom<FixtureInput> for FixtureDeclaration {
             return Ok(Self::Repository {
                 source_ref,
                 files: input.files,
+                staged: input.staged,
             });
         }
         if input.kind.as_deref().is_some_and(|kind| kind != "inline") {
@@ -110,19 +129,24 @@ impl PreparedCase {
     fn from_value_at(value: Value, path: Option<&Path>) -> RunResult<Self> {
         let mut case: Self = serde_json::from_value(value)
             .map_err(|error| RunError::with_source(format!("invalid case file: {error}"), error))?;
-        if let FixtureDeclaration::Repository {
-            files: Some(files), ..
-        } = &case.fixture
-        {
-            super::fixtures::validate_repository_overlay(files).map_err(|error| {
-                let issue = format!("fixture: {error}; correct the fixture declaration");
-                let message = match path {
-                    Some(path) => invalid_case_file(path, &issue),
-                    None => format!("invalid resolved case file: {issue}"),
-                };
-                RunError::with_source(message, error)
-            })?;
-        }
+        let validation = match &case.fixture {
+            FixtureDeclaration::Generated(fixture) => fixture.validate(),
+            FixtureDeclaration::Repository { files, staged, .. } => {
+                super::fixtures::validate_repository_overlay(
+                    files.as_ref(),
+                    staged.as_deref().unwrap_or_default(),
+                )
+            }
+            _ => Ok(()),
+        };
+        validation.map_err(|error| {
+            let issue = format!("fixture: {error}; correct the fixture declaration");
+            let message = match path {
+                Some(path) => invalid_case_file(path, &issue),
+                None => format!("invalid resolved case file: {issue}"),
+            };
+            RunError::with_source(message, error)
+        })?;
         if case.id.is_empty() || case.prompt.is_empty() {
             return Err("case id and prompt must be nonempty strings".into());
         }
@@ -288,9 +312,18 @@ fn direct_case_issue(value: &Value) -> Option<String> {
     {
         return Some("fixture.kind: omit for inline/repository fixtures, or use generated".into());
     }
+    if value.pointer("/fixture/kind").and_then(Value::as_str) == Some("generated")
+        && ["files", "staged", "commitFiles"]
+            .iter()
+            .any(|field| value["fixture"].get(field).is_some_and(Value::is_null))
+    {
+        return Some("fixture: invalid generated fixture; correct the fixture declaration".into());
+    }
     if value
         .pointer("/fixture/sourceRef")
         .is_some_and(Value::is_null)
+        || (value.pointer("/fixture/sourceRef").is_some()
+            && value.pointer("/fixture/staged").is_some_and(Value::is_null))
     {
         return Some("fixture: invalid repository fixture; correct the fixture declaration".into());
     }

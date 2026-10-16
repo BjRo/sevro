@@ -1,3 +1,5 @@
+mod ownership;
+
 use super::{
     RunError, RunResult,
     fixtures::{self, PreparedFixture},
@@ -16,7 +18,6 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
-use uuid::Uuid;
 
 #[derive(Serialize)]
 struct Status {
@@ -74,10 +75,27 @@ pub(super) fn run(
     identity: &PreparedIdentity<'_>,
     host: &HostContext,
 ) -> RunResult<Completion> {
-    let run_id = Uuid::new_v4().to_string();
-    storage::private_directory(&options.results_root)?;
-    let run_directory = options.results_root.join(&run_id);
-    storage::new_directory(&run_directory)?;
+    let digest = identity.identity["digest"]
+        .as_str()
+        .ok_or("invalid evaluation identity for run ownership")?;
+    let mut owner = ownership::RunOwner::start(&options.results_root, digest)?;
+    let result = run_owned(options, case, fixture, identity, host, &mut owner);
+    if result.is_err() {
+        owner.diagnose_failure();
+    }
+    result
+}
+
+fn run_owned(
+    options: &Options,
+    case: &PreparedCase,
+    fixture: &PreparedFixture,
+    identity: &PreparedIdentity<'_>,
+    host: &HostContext,
+    owner: &mut ownership::RunOwner,
+) -> RunResult<Completion> {
+    let run_id = owner.run_id().to_owned();
+    let run_directory = owner.directory().to_owned();
     let evidence_path = run_directory.join("run.json");
     let fixture_artifacts = fixture.retain_artifacts(&run_directory)?;
     let mut trials = Vec::new();
@@ -148,6 +166,7 @@ pub(super) fn run(
                 "format":"sevro.trial-evidence.v1","caseId":case.id,"trial":trial,"result":summary,"evidence":evidence
             }),
         )?;
+        let checkpoint = owner.complete_trial(trial, &summary.artifact_path);
         if !receipt.failed
             && !receipt.cancelled
             && summary.assessment.grading.status != "unavailable"
@@ -159,6 +178,7 @@ pub(super) fn run(
                 workspace.display()
             );
         }
+        checkpoint?;
         failed |= receipt.failed;
         retained_evidence_issue = retained_evidence_issue.or(receipt.retained_evidence_issue);
         if failed && failure.is_none() {
@@ -270,6 +290,7 @@ pub(super) fn run(
         return Err("invalid Sevro retained evidence".into());
     }
     storage::atomic_json(&evidence_path, &evidence)?;
+    owner.finish(interruption.is_some())?;
     let result_file = run_directory.join("result.json");
     let publication = storage::atomic_json(&result_file, &result)
         .and_then(|()| storage::atomic_json(&options.results_root.join("latest.json"), &result))

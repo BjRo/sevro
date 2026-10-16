@@ -27,6 +27,9 @@ cargo fmt --all -- --check
 cargo build --workspace --all-targets --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --all-targets --locked
+cargo build -p sevro --features native-bundle --test installed_bundle --locked
+cargo clippy -p sevro --features native-bundle --test installed_bundle --locked -- -D warnings
+cargo test -p sevro --features native-bundle --test installed_bundle --locked
 cargo test --workspace --doc --locked
 ```
 
@@ -47,12 +50,8 @@ defines the report and threshold flags.
 ```sh
 cargo install cargo-llvm-cov --version 0.9.1 --locked
 mkdir -p .coverage
-cargo llvm-cov clean --workspace
-cargo llvm-cov --workspace --all-targets --locked --no-report
-cargo llvm-cov report --json --ignore-filename-regex '(^|/)tests/' --output-path .coverage/coverage.json
-cargo llvm-cov report --lcov --ignore-filename-regex '(^|/)tests/' --output-path .coverage/lcov.info
-cargo llvm-cov report --html --ignore-filename-regex '(^|/)tests/' --output-dir .coverage/html
-cargo llvm-cov report --ignore-filename-regex '(^|/)tests/' --fail-under-lines 95 --fail-under-regions 95
+python3 scripts/rust/test-feature-coverage.py --toolchain 1.99.0 --output-dir .coverage/feature-controls
+python3 scripts/rust/coverage-profiles.py --output-dir .coverage/profiles --target-dir target/llvm-cov-profiles
 ```
 
 The two thresholds apply independently to LLVM line and region counts across
@@ -65,13 +64,52 @@ Platform-specific code follows compiler target configuration; shared reachable
 code must remain measured on each platform. Zero-execution production is not
 made covered by importing or calling it only for measurement.
 
-Start with a clean coverage directory through the tool's clean command. A report
+The collector requires new output and target directories, then runs the tool's
+clean command. A report
 must come from this candidate's tests and profiles; no previous commit or other
 platform may supply missing counters. Failed tests or profile/report errors
 fail the gate even if another report can be rendered. Reports are generated
 before threshold enforcement so a low-coverage failure retains useful evidence.
 The ordinary test command separately executes documentation tests; the stable
 coverage run does not measure them.
+
+The default `--workspace --all-targets --locked --no-fail-fast --no-report` cohort
+remains mandatory. A second cohort uses `-p sevro --features native-bundle
+--test installed_bundle --locked --no-fail-fast --no-report`. Only the new
+installed-bundle target has `required-features`; existing tests are neither
+feature-gated nor skipped. The collector saves each `debug/sevro` executable as
+`debug/retained-coverage/<profile>/sevro` before another feature build overwrites
+the ordinary path. The pinned tool discovers both saved executable mappings.
+Separate `default-%p-%m.profraw` and `native-bundle-%p-%m.profraw` names identify
+the required raw cohorts. LLVM owns merging and every reported counter.
+
+An explicit orchestration guard requires successful statuses for both test
+commands, nonempty raw cohorts, and unchanged saved executable hashes. LLVM does
+not provide that completeness guarantee itself. JSON, LCOV, HTML, and threshold
+commands must expose identical object sets in their verbose invocations. Extra
+objects are not injected through `LLVM_COV_FLAGS`: the pinned tool does not pass
+that variable to its internal threshold export. Combined reports retain the
+authored/reported source inventory, including the bundle source, with the same
+production filters and 95% gates. Unmapped source files still require review;
+the inventory is not an exemption list.
+
+Both cohorts are attempted even when the first test command fails. Reports and
+available mappings/profiles remain diagnostic evidence, and the overall command
+fails for any missing cohort, input, mapping, test failure, or threshold failure.
+The output retains command/status receipts, mapping hashes, raw counters, and
+content-addressed copies of every final report object for later inspection.
+
+[The feature control](../../scripts/rust/test-feature-coverage.py) uses the same
+collector with a real small compiler fixture. Default-only coverage is 9/10
+lines; adding the bundle produces 14/15 lines; executing the remaining default
+outcome produces 15/15. The first two line gates fail and the last passes. On the
+pinned nightly, the corresponding supported branch counts are 1/2, 3/4, and 4/4.
+Both profiles' authored files remain in the combined inventory, and removing a
+raw cohort or saved executable fails the explicit completeness guard. These
+controls also invoke the public collector with a genuinely failing default test
+after every source outcome executes: the bundle cohort still runs, the counters
+reach 100%, and the failed test status still refuses acceptance. Controls run on
+both CI platforms and do not supply Sevro production coverage.
 
 ## Compiler branch outcomes
 
@@ -89,17 +127,15 @@ the compiler coverage tool already installed above:
 ```sh
 rustup toolchain install nightly-2026-10-15 --profile minimal --component llvm-tools-preview
 python3 scripts/rust/test-branch-coverage.py --toolchain nightly-2026-10-15 --output-dir .coverage/branches/controls
-export CARGO_LLVM_COV_TARGET_DIR="$PWD/target/llvm-cov-branches"
-cargo +nightly-2026-10-15 llvm-cov clean --workspace
-cargo +nightly-2026-10-15 llvm-cov --branch --workspace --all-targets --locked --no-report
-cargo +nightly-2026-10-15 llvm-cov report --json --ignore-filename-regex '(^|/)tests/' --output-path .coverage/branches/coverage.json
-jq --exit-status --slurp --from-file scripts/rust/branch-coverage.jq .coverage/branches/coverage.json
+python3 scripts/rust/test-feature-coverage.py --toolchain nightly-2026-10-15 --branch --output-dir .coverage/branches/feature-controls
+python3 scripts/rust/coverage-profiles.py --toolchain nightly-2026-10-15 --branch --output-dir .coverage/branches/profiles --target-dir target/llvm-cov-branches
 ```
 
 The control command requires a new output directory. Use a fresh directory for
-each diagnostic run so earlier reports remain separate. Unset
-`CARGO_LLVM_COV_TARGET_DIR` before returning to stable coverage commands. CI
-gives stable and nightly their own jobs and output directories.
+each diagnostic run so earlier reports remain separate. CI gives stable and
+nightly their own jobs and output directories. The nightly collector adds
+`--branch` to both required test cohorts; its combined report passes the unchanged
+jq branch gate as well as the tool's line/region checks.
 
 The pinned tool exports branch counters but supplies no branch threshold flag.
 [The jq gate](../../scripts/rust/branch-coverage.jq) checks the compiler's raw
@@ -161,6 +197,14 @@ installed npm workflows, package assets, adapters, templates, grading, reporting
 and provenance remain separate required parity checks in the
 [delivery specification](rust-delivery-parity.md#installed-package-behavior).
 
+The opt-in `native-bundle` profile additionally runs the shipped graded example
+through its shipped adapter from a fresh external bundle. Tests bind retained
+runner identity to an independent executable-and-assets receipt, verify
+relocation and changed assets, and refuse missing or unsafe layout without
+replacing prior results. The [installation ledger](rust-tdd-installation.md)
+records this bounded public seam. It does not establish npm cutover, publication,
+or every installed workflow required by the delivery specification.
+
 ## Continuous integration evidence
 
 [The Rust workflow](../../.github/workflows/rust.yml) runs every PR candidate,
@@ -177,6 +221,8 @@ SHA, platform, and workflow attempt. Retained evidence includes the source
 archive and SHA, Cargo lockfile, toolchain file and reported versions, workflow
 run and attempt, platform/architecture, test logs, installed executable/checksum,
 JSON counters, LCOV, HTML, coverage summary, and LLVM profiles when available.
+The profile collector retains both test statuses, exact report object mappings,
+their checksums and executable bytes, and the combined authored-source inventory.
 Artifacts upload even after failure; their presence alone does not mean checks
 passed. A checkout or tool-installation failure may leave only partial evidence.
 

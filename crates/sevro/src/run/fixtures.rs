@@ -1,9 +1,11 @@
 mod artifacts;
+mod generated;
 mod repository;
 mod setup;
 mod sources;
 
 pub(super) use artifacts::ArtifactDeclaration;
+pub(super) use generated::GeneratedFixture;
 pub(super) use setup::{FixtureSetup, FixtureSetupInput};
 
 use super::{RunResult, options::Options, preparation::FixtureDeclaration, storage};
@@ -24,33 +26,43 @@ pub(super) struct PreparedFixture {
 }
 
 enum PreparedKind {
+    Generated(GeneratedFixture),
     Inline {
         files: BTreeMap<String, String>,
     },
     Repository {
         source: RepositorySource,
         files: Option<BTreeMap<String, String>>,
+        staged: Option<Vec<String>>,
     },
 }
 
 impl PreparedFixture {
     pub(super) fn protected_roots(&self) -> Vec<PathBuf> {
         match &self.kind {
-            PreparedKind::Inline { .. } => Vec::new(),
+            PreparedKind::Inline { .. } | PreparedKind::Generated(_) => Vec::new(),
             PreparedKind::Repository { source, .. } => source.protected_roots(),
         }
     }
 
     pub(super) fn identity(&self) -> Value {
         let mut identity = match &self.kind {
+            PreparedKind::Generated(fixture) => json!(fixture),
             PreparedKind::Inline { files } => json!({"files":files,"artifacts":[]}),
-            PreparedKind::Repository { source, files } => {
+            PreparedKind::Repository {
+                source,
+                files,
+                staged,
+            } => {
                 let mut identity = json!({
                     "kind":"repository","sourceRef":source.reference,
                     "revision":source.revision,"artifacts":[]
                 });
                 if let Some(files) = files {
                     identity["files"] = json!(files);
+                }
+                if let Some(staged) = staged {
+                    identity["staged"] = json!(staged);
                 }
                 identity
             }
@@ -88,15 +100,22 @@ pub(super) fn resolve(
 ) -> RunResult<ResolvedFixture> {
     let sources = sources::read(options)?;
     let kind = match declaration {
+        FixtureDeclaration::Generated(fixture) => PreparedKind::Generated(fixture.clone()),
         FixtureDeclaration::Inline { files } => PreparedKind::Inline {
             files: files.clone(),
         },
-        FixtureDeclaration::Repository { source_ref, files } => PreparedKind::Repository {
+        FixtureDeclaration::Repository {
+            source_ref,
+            files,
+            staged,
+        } => PreparedKind::Repository {
             source: repository::resolve(sources.as_ref(), source_ref)?,
             files: files.clone(),
+            staged: staged.clone(),
         },
     };
     let fixture_paths = match declaration {
+        FixtureDeclaration::Generated(fixture) => fixture.paths(),
         FixtureDeclaration::Inline { files } => files.keys().cloned().collect::<Vec<_>>(),
         FixtureDeclaration::Repository { files, .. } => files
             .as_ref()
@@ -127,7 +146,7 @@ pub(super) fn prepare(
     let artifacts = artifacts::prepare(
         artifact_declarations,
         &fixture_paths,
-        matches!(kind, PreparedKind::Repository { .. }),
+        !matches!(kind, PreparedKind::Inline { .. }),
         sources.as_ref(),
     )?;
     Ok(PreparedFixture {
@@ -138,8 +157,11 @@ pub(super) fn prepare(
     })
 }
 
-pub(super) fn validate_repository_overlay(files: &BTreeMap<String, String>) -> RunResult<()> {
-    repository::validate_overlay(files)
+pub(super) fn validate_repository_overlay(
+    files: Option<&BTreeMap<String, String>>,
+    staged: &[String],
+) -> RunResult<()> {
+    repository::validate_overlay(files, staged)
 }
 
 pub(super) struct Materialized {
@@ -157,11 +179,20 @@ pub(super) fn materialize(
             return Ok(true);
         }
         match &fixture.kind {
+            PreparedKind::Generated(fixture) => fixture.materialize(&workspace)?,
             PreparedKind::Inline { files } => write_inline_files(files, &workspace)?,
-            PreparedKind::Repository { source, files } => {
+            PreparedKind::Repository {
+                source,
+                files,
+                staged,
+            } => {
                 repository::clone(source, &workspace)?;
                 if let Some(files) = files {
-                    repository::apply_overlay(files, &workspace)?;
+                    repository::apply_overlay(
+                        files,
+                        staged.as_deref().unwrap_or_default(),
+                        &workspace,
+                    )?;
                 }
             }
         }

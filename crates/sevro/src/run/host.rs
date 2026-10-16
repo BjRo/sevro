@@ -148,6 +148,7 @@ impl HostContext {
                 results_root: options.results_root.clone(),
                 protected_roots,
                 timeout_ms: *timeout_ms,
+                runtime_policy: runtime.policy.clone(),
             }))),
             Candidate::Claude {
                 binary,

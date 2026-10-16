@@ -15,6 +15,9 @@ mod path_metadata;
 #[path = "native_codex/continuation.rs"]
 mod continuation;
 
+#[path = "native_codex/runtime.rs"]
+mod runtime;
+
 struct Fixture {
     root: PathBuf,
 }

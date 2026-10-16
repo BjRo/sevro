@@ -72,6 +72,289 @@ git show HEAD:README.md | cmp - "$PROJECT_ROOT/sources/example/README.md"
 }
 
 #[test]
+fn stages_only_declared_repository_overlay_paths_before_setup() {
+    let fixture = RepositoryFixture::new();
+    assert_eq!(git(&fixture.source, &["status", "--porcelain=v1"]), "");
+    let source_index = fs::read(fixture.source.join(".git/index")).unwrap();
+    let source_reference = fs::read(fixture.source.join(".git/refs/heads/main")).unwrap();
+    fixture.setup_extension_with_fixture(
+        r#"set -eu
+printf 'overlay fixture\n' | cmp - README.md
+printf 'untracked\n' | cmp - notes.txt
+git show HEAD:README.md | cmp - "$PROJECT_ROOT/sources/example/README.md"
+git show :README.md | cmp - README.md
+[ "$(git diff --cached --name-only)" = README.md ]
+[ "$(git status --porcelain=v1)" = "M  README.md
+?? notes.txt" ]
+[ "$(git rev-parse HEAD)" = f4d351b20b90e67f9e9092777856c0135110b023 ]
+[ -z "$(git remote)" ]
+[ "$WORKSPACE" = "$PWD" ]
+printf 'staged overlay verified\n' > "$PROJECT_ROOT/setup-receipt.txt"
+"#,
+        json!({"kind":"repository","sourceRef":"fixture-repo","files":{
+            "README.md":"overlay fixture\n","notes.txt":"untracked\n"
+        },"staged":["README.md"]}),
+    );
+    let output = fixture.invoke_source(&[
+        "--extension-command-file",
+        "setup-command.json",
+        "--extension-source-file",
+        "setup-extension.mjs",
+        "--case-id",
+        "repository-setup",
+    ]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(result["execution"], json!({"status":"not_run"}));
+    assert_eq!(result["grading"], json!({"status":"not_requested"}));
+    assert_eq!(result["task"], json!({"verdict":"not_assessed"}));
+    let evidence: Value =
+        serde_json::from_slice(&fs::read(result["evidencePath"].as_str().unwrap()).unwrap())
+            .unwrap();
+    assert_eq!(evidence["result"], result);
+    assert_eq!(
+        evidence["evaluationIdentity"]["dimensions"]["fixtureDigest"],
+        "83766ddec51223bf5ed90edc7d85eb4e75a11eaefaf184efa7fe9e3909b5432d"
+    );
+    assert_eq!(
+        evidence["configuration"]["redacted"]["fixtureSetupDigest"],
+        "8a5f024beadc50f1e19844df760cf8c329a53e3e0761028874de836b50850c40"
+    );
+    assert_eq!(
+        fs::read(fixture.root.join("setup-receipt.txt")).unwrap(),
+        b"staged overlay verified\n"
+    );
+    let workspace = evidence["trials"][0]["observations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["id"] == "sevro.observation.workspaces")
+        .unwrap()["data"]["candidate"]
+        .as_str()
+        .unwrap();
+    assert!(!std::path::Path::new(workspace).exists());
+    assert!(!fixture.root.join("native-invocations").exists());
+    assert_eq!(
+        fs::read(fixture.source.join("README.md")).unwrap(),
+        b"repository fixture\n"
+    );
+    assert!(!fixture.source.join("notes.txt").exists());
+    assert_eq!(git(&fixture.source, &["status", "--porcelain=v1"]), "");
+    assert_eq!(
+        git(&fixture.source, &["rev-parse", "HEAD"]),
+        "f4d351b20b90e67f9e9092777856c0135110b023"
+    );
+    assert_eq!(
+        fs::read(fixture.source.join(".git/index")).unwrap(),
+        source_index
+    );
+    assert_eq!(
+        fs::read(fixture.source.join(".git/refs/heads/main")).unwrap(),
+        source_reference
+    );
+}
+
+#[test]
+fn refuses_staging_a_repository_path_outside_the_declared_overlay() {
+    let fixture = RepositoryFixture::new();
+    fixture.extension(
+        json!({"kind":"repository","sourceRef":"fixture-repo","files":{
+            "notes.txt":"untracked\n"
+        },"staged":["README.md"]}),
+        json!({"artifacts":[],"requestedInstrumentation":[],"extensionData":{}}),
+        json!([]),
+    );
+    let output = fixture.invoke_source(&[
+        "--extension-command-file",
+        "setup-command.json",
+        "--extension-source-file",
+        "setup-extension.mjs",
+        "--case-id",
+        "repository-setup",
+    ]);
+    assert_eq!(
+        output.status.code(),
+        Some(64),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        result,
+        failure(
+            64,
+            "invalid resolved case file: fixture: invalid repository fixture staging; correct the fixture declaration"
+        )
+    );
+    assert!(!fixture.root.join(".sevro").exists());
+    assert!(!fixture.root.join("native-invocations").exists());
+    assert_eq!(
+        fs::read(fixture.source.join("README.md")).unwrap(),
+        b"repository fixture\n"
+    );
+    assert!(!fixture.source.join("notes.txt").exists());
+    assert_eq!(git(&fixture.source, &["status", "--porcelain=v1"]), "");
+    assert_eq!(
+        git(&fixture.source, &["rev-parse", "HEAD"]),
+        "f4d351b20b90e67f9e9092777856c0135110b023"
+    );
+}
+
+#[test]
+fn refuses_duplicate_repository_staging_paths() {
+    let fixture = RepositoryFixture::new();
+    let case_file = fixture.root.join("case.json");
+    write_json(
+        &case_file,
+        &json!({
+            "id":"repository-staging","prompt":"Return ready.",
+            "fixture":{"sourceRef":"fixture-repo","files":{"README.md":"overlay fixture\n"},
+                "staged":["README.md","README.md"]},
+            "checks":[],"requiredEvidence":[]
+        }),
+    );
+    let output = fixture.invoke();
+    assert_eq!(
+        output.status.code(),
+        Some(64),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        result,
+        failure(
+            64,
+            &format!(
+                "resolved case file is unreadable or invalid at {}: invalid resolved case file: fixture: invalid repository fixture staging; correct the fixture declaration; supply --case-file with readable JSON and correct the named field",
+                case_file.display()
+            )
+        )
+    );
+    assert!(!fixture.root.join(".sevro").exists());
+    assert!(!fixture.root.join("native-invocations").exists());
+    assert_eq!(
+        fs::read(fixture.source.join("README.md")).unwrap(),
+        b"repository fixture\n"
+    );
+    assert_eq!(git(&fixture.source, &["status", "--porcelain=v1"]), "");
+}
+
+#[test]
+fn refuses_a_present_null_repository_staging_declaration() {
+    let fixture = RepositoryFixture::new();
+    let case_file = fixture.root.join("case.json");
+    write_json(
+        &case_file,
+        &json!({
+            "id":"repository-staging","prompt":"Return ready.",
+            "fixture":{"sourceRef":"fixture-repo","files":{"README.md":"overlay fixture\n"},
+                "staged":null},
+            "checks":[],"requiredEvidence":[]
+        }),
+    );
+    let output = fixture.invoke();
+    assert_eq!(
+        output.status.code(),
+        Some(64),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        result,
+        failure(
+            64,
+            &format!(
+                "resolved case file is unreadable or invalid at {}: invalid resolved case file: fixture: invalid repository fixture; correct the fixture declaration; supply --case-file with readable JSON and correct the named field",
+                case_file.display()
+            )
+        )
+    );
+    assert!(!fixture.root.join(".sevro").exists());
+    assert!(!fixture.root.join("native-invocations").exists());
+    assert_eq!(
+        fs::read(fixture.source.join("README.md")).unwrap(),
+        b"repository fixture\n"
+    );
+    assert_eq!(git(&fixture.source, &["status", "--porcelain=v1"]), "");
+}
+
+#[test]
+fn counts_staged_utf8_path_bytes_toward_the_repository_overlay_limit() {
+    for (content_bytes, expected_exit) in [(33_554_408, 0), (33_554_409, 64)] {
+        let fixture = RepositoryFixture::new();
+        let case_file = fixture.root.join("case.json");
+        write_json(
+            &case_file,
+            &json!({
+                "id":"repository-staging-bound","prompt":"Return ready.",
+                "fixture":{"sourceRef":"fixture-repo","files":{
+                    "données.txt":"x".repeat(content_bytes)
+                },"staged":["données.txt"]},
+                "checks":[],"requiredEvidence":[]
+            }),
+        );
+        let output = fixture.invoke();
+        assert_eq!(
+            output.status.code(),
+            Some(expected_exit),
+            "{content_bytes}: {}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+        if expected_exit == 0 {
+            assert_eq!(result["execution"], json!({"status":"not_run"}));
+            assert_eq!(result["grading"], json!({"status":"not_requested"}));
+            assert_eq!(result["task"], json!({"verdict":"not_assessed"}));
+            let evidence: Value = serde_json::from_slice(
+                &fs::read(result["evidencePath"].as_str().unwrap()).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(evidence["result"], result);
+            assert_eq!(
+                evidence["evaluationIdentity"]["dimensions"]["fixtureDigest"],
+                "9ea657ac1fa467650a1b47d466b5414db650270bdb2393be0bd0520528ec5292"
+            );
+            let workspace = evidence["trials"][0]["observations"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|item| item["id"] == "sevro.observation.workspaces")
+                .unwrap()["data"]["candidate"]
+                .as_str()
+                .unwrap();
+            assert!(!std::path::Path::new(workspace).exists());
+        } else {
+            assert_eq!(
+                result,
+                failure(
+                    64,
+                    &format!(
+                        "resolved case file is unreadable or invalid at {}: invalid resolved case file: fixture: repository fixture exceeds the size limit; correct the fixture declaration; supply --case-file with readable JSON and correct the named field",
+                        case_file.display()
+                    )
+                )
+            );
+            assert!(!fixture.root.join(".sevro").exists());
+        }
+        assert!(!fixture.root.join("native-invocations").exists());
+        assert_eq!(
+            fs::read(fixture.source.join("README.md")).unwrap(),
+            b"repository fixture\n"
+        );
+        assert!(!fixture.source.join("données.txt").exists());
+        assert_eq!(git(&fixture.source, &["status", "--porcelain=v1"]), "");
+    }
+}
+
+#[test]
 fn accepts_repository_overlay_at_the_exact_utf8_byte_limit() {
     let fixture = RepositoryFixture::new();
     write_json(
