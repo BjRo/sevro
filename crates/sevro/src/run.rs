@@ -1,3 +1,4 @@
+mod codex_configuration;
 mod error;
 mod extension_context;
 mod fixtures;
@@ -37,11 +38,15 @@ pub(super) fn command_with_release(
         Ok(runtime) => runtime,
         Err(error) => return failure_after_release(json, 64, error.message(), release),
     };
+    let agent_limit = match codex_configuration::load(&options) {
+        Ok(limit) => limit,
+        Err(error) => return failure_after_release(json, 64, error.message(), release),
+    };
     let cancellation = match crate::cancellation::CommandCancellation::register() {
         Ok(cancellation) => cancellation,
         Err(message) => return failure_after_release(json, 70, &message, release),
     };
-    let mut host = match host::HostContext::open(&options, cancellation.token()) {
+    let mut host = match host::HostContext::open(&options, agent_limit, cancellation.token()) {
         Ok(host) => host,
         Err(error) => {
             if let Some(signal) = cancellation.token().signal() {

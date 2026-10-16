@@ -12,7 +12,6 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
-use std::fs;
 
 #[derive(Serialize)]
 pub(super) struct Route<'a> {
@@ -98,7 +97,6 @@ pub(super) fn prepare<'a>(
     extension: Option<&ExtensionContext>,
     runtime: &RuntimeSelection,
 ) -> Result<PreparedIdentity<'a>, PreparationFailure> {
-    refuse_pending_configuration(options)?;
     let provenance = provenance::resolve(provenance::Request {
         project_root: &options.project_root,
         excluded_roots: std::slice::from_ref(&options.results_root),
@@ -225,29 +223,10 @@ fn resolved_settings(
         "jobs":options.jobs,"dry":options.dry,"projectRoot":options.project_root,"configRoot":options.config_root,
         "resultsRoot":options.results_root,"runStateRoot":options.results_root,"runtimeConfigFile":runtime.path,
         "candidate":{"host":route.host,"model":route.model,"effort":route.effort,"executable":host.executable,"timeoutMs":host.timeout_ms()},
-        "semantic":null,"advisory":null,"codexEntrypoint":matches!(options.candidate, Candidate::Codex { .. }).then_some("exec"),"agentConcurrencyLimit":null,
+        "semantic":null,"advisory":null,"codexEntrypoint":matches!(options.candidate, Candidate::Codex { .. }).then_some("exec"),"agentConcurrencyLimit":host.agent_limit,
         "shellIsolation":false,"retainHostDiagnostics":false,"claudeProjectSettings":false,
         "shellCheckDefaults":{"expectedExitCode":0,"timeoutMs":30000}
     })
-}
-
-fn refuse_pending_configuration(options: &Options) -> RunResult<()> {
-    if !matches!(options.candidate, Candidate::Codex { .. }) {
-        return Ok(());
-    }
-    let path = options.config_root.join(".codex/config.toml");
-    match fs::symlink_metadata(&path) {
-        Ok(_) => Err(format!(
-            "configuration loading is not yet implemented in Rust: {}",
-            path.display()
-        )
-        .into()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(RunError::with_source(
-            format!("Cannot read Codex configuration: {}", path.display()),
-            error,
-        )),
-    }
 }
 
 pub(super) fn hash_json(value: &impl Serialize) -> RunResult<String> {

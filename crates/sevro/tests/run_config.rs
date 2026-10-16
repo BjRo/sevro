@@ -4,6 +4,12 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use uuid::Uuid;
 
+#[path = "run_config/native_codex.rs"]
+mod native_codex;
+
+#[path = "run_config/validation.rs"]
+mod validation;
+
 const UNSELECTED_CODEX_CONFIGURATION: &str = "[agents\nPRIVATE_UNRELATED_CONFIG_MARKER\n";
 
 struct Fixture {

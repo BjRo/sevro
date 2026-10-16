@@ -12,6 +12,7 @@ use crate::host::{Artifact, HostRequest, HostResult, ProcessFailure};
 use serde_json::json;
 use state::State;
 use std::ffi::OsString;
+use std::num::NonZeroU64;
 use std::os::unix::process::ExitStatusExt;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -26,6 +27,7 @@ pub(crate) struct CodexOptions {
     pub protected_roots: Vec<PathBuf>,
     pub timeout_ms: u64,
     pub runtime_policy: Option<serde_json::Value>,
+    pub agent_limit: Option<NonZeroU64>,
 }
 
 pub(crate) struct CodexHost {

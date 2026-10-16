@@ -70,7 +70,8 @@ impl State {
             &self.namespace,
         )?;
         let reads = self.executable_roots(&options.binary, &roots)?;
-        let configuration = profile::configuration(self, workspace, &roots, &reads)?;
+        let configuration =
+            profile::configuration(self, workspace, &roots, &reads, options.agent_limit)?;
         write_private(
             &self.codex_home.join("config.toml"),
             configuration.as_bytes(),

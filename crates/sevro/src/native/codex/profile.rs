@@ -1,5 +1,6 @@
 use super::{runtime::EmptyRuntime, state::State};
 use std::collections::BTreeSet;
+use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
 
 pub(super) fn configuration(
@@ -7,6 +8,7 @@ pub(super) fn configuration(
     workspace: &Path,
     protected: &[PathBuf],
     executable_roots: &[PathBuf],
+    agent_limit: Option<NonZeroU64>,
 ) -> Result<String, String> {
     let mut lines = vec![
         format!("default_permissions = \"{}\"", state.profile_id),
@@ -81,6 +83,13 @@ pub(super) fn configuration(
         format!("[projects.{}]", path(workspace)?),
         "trust_level = \"untrusted\"".into(),
     ]);
+    if let Some(limit) = agent_limit {
+        lines.extend([
+            String::new(),
+            "[agents]".into(),
+            format!("max_concurrent_threads_per_session = {limit}"),
+        ]);
+    }
     Ok(lines.join("\n") + "\n")
 }
 

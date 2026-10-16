@@ -9,6 +9,7 @@ use crate::cancellation::Cancellation;
 use crate::host::{HostError, HostRequest, HostResult};
 use crate::native::{ClaudeHost, ClaudeOptions, CodexHost, CodexOptions, NativeHost};
 use serde_json::{Value, json};
+use std::num::NonZeroU64;
 use std::path::PathBuf;
 
 pub(super) struct HostContext {
@@ -18,6 +19,7 @@ pub(super) struct HostContext {
     pub configuration: Option<Value>,
     pub executable: Option<PathBuf>,
     pub capabilities: Vec<String>,
+    pub agent_limit: Option<NonZeroU64>,
     session: Option<AdapterSession>,
     native: Option<NativeHost>,
     timeout_ms: Option<u64>,
@@ -25,7 +27,11 @@ pub(super) struct HostContext {
 }
 
 impl HostContext {
-    pub fn open(options: &Options, cancellation: Cancellation) -> RunResult<Self> {
+    pub fn open(
+        options: &Options,
+        agent_limit: Option<NonZeroU64>,
+        cancellation: Cancellation,
+    ) -> RunResult<Self> {
         match &options.candidate {
             Candidate::Codex {
                 binary,
@@ -38,9 +44,10 @@ impl HostContext {
                 model: model.clone(),
                 effort: effort.clone(),
                 configuration: Some(
-                    json!({"sevro.codex.agent-concurrency-limit":null,"sevro.host.executable":binary}),
+                    json!({"sevro.codex.agent-concurrency-limit":agent_limit,"sevro.host.executable":binary}),
                 ),
                 executable: Some(binary.clone()),
+                agent_limit,
                 capabilities: [
                     "sevro.host.continuation",
                     "sevro.host.runtime",
@@ -72,6 +79,7 @@ impl HostContext {
                 model: model.clone(),
                 effort: effort.clone(),
                 configuration: Some(json!({"sevro.host.executable":binary})),
+                agent_limit: None,
                 executable: Some(binary.clone()),
                 capabilities: vec![
                     "sevro.host.continuation".into(),
@@ -90,6 +98,7 @@ impl HostContext {
                     model: metadata.model.clone(),
                     effort: metadata.effort.clone(),
                     configuration: metadata.configuration.clone(),
+                    agent_limit: None,
                     executable: None,
                     capabilities: vec![],
                     session: Some(session),
@@ -149,6 +158,7 @@ impl HostContext {
                 protected_roots,
                 timeout_ms: *timeout_ms,
                 runtime_policy: runtime.policy.clone(),
+                agent_limit: self.agent_limit,
             }))),
             Candidate::Claude {
                 binary,
