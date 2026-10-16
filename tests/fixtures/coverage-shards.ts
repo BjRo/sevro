@@ -9,6 +9,7 @@ import { dirname, join } from "node:path";
 import { copySnapshot } from "../../scripts/coverage/prepare";
 import { sourceInventory } from "../../scripts/typescript-inventory";
 import { aggregateCoverage } from "../../scripts/coverage/aggregate";
+import { object } from "../../scripts/coverage/records";
 
 const hostModules = [
   "src/hosts/linux-sandbox.ts",
@@ -39,6 +40,10 @@ export function coverageShardCandidate(repo: string, root: string) {
   for (const name of ["src", "tests", "examples", "bunfig.toml"])
     rmSync(join(project, name), { recursive: true, force: true });
   for (const name of hostModules) writeSource(project, name, "export {};\n");
+  cpSync(
+    join(repo, "src/value-guards.ts"),
+    join(project, "src/value-guards.ts"),
+  );
   writeSource(
     project,
     "src/pick.ts",
@@ -56,13 +61,24 @@ export function coverageShardCandidate(repo: string, root: string) {
       project,
       file,
       'import { test, expect } from "bun:test"; import { pick } from "../src/pick";\n' +
-        `test("branch ${index}", () => { expect(pick(${index % 2 === 0})).toBe(${index % 2 === 0 ? 1 : 0}); });\n`,
+        'import { isRecord, isUnknownArray, isStringArray, isOptionalNonblankString } from "../src/value-guards";\n' +
+        `test("branch ${index}", () => { expect(pick(${index % 2 === 0})).toBe(${index % 2 === 0 ? 1 : 0});\n` +
+        "expect(isRecord({})).toBe(true); expect(isRecord(null)).toBe(false); expect(isRecord([])).toBe(false);\n" +
+        "expect(isUnknownArray([])).toBe(true); expect(isUnknownArray({})).toBe(false);\n" +
+        'expect(isStringArray(["ready"])).toBe(true); expect(isStringArray([1])).toBe(false); expect(isStringArray(null)).toBe(false);\n' +
+        'expect(isOptionalNonblankString(undefined)).toBe(true); expect(isOptionalNonblankString("ready")).toBe(true); expect(isOptionalNonblankString(" ")).toBe(false); expect(isOptionalNonblankString(1)).toBe(false); });\n',
     );
   writeFileSync(
     join(project, "typescript-sources.json"),
     JSON.stringify({
-      production: ["src/cli.ts", "src/pick.ts", ...hostModules],
+      production: [
+        "src/cli.ts",
+        "src/pick.ts",
+        "src/value-guards.ts",
+        ...hostModules,
+      ],
       generated: inventory.generated,
+      thirdParty: inventory.thirdParty,
       declarations: [],
       tooling: inventory.tooling,
       tests,
@@ -93,6 +109,20 @@ async function executeShard(project: string, index: number) {
 
 export async function exerciseCoverageShards(project: string) {
   await Promise.all([1, 2, 3, 4].map((index) => executeShard(project, index)));
+  const pickBranches = [1, 2, 3, 4].map((index) => {
+    const value: unknown = JSON.parse(
+      readFileSync(
+        join(
+          project,
+          ".quality/shards",
+          String(index),
+          "coverage-portable.json",
+        ),
+        "utf8",
+      ),
+    );
+    return object(object(object(value)["src/pick.ts"]).b);
+  });
   const runs = [1, 2, 3, 4].map((index) => {
     const value: unknown = JSON.parse(
       readFileSync(
@@ -106,5 +136,5 @@ export async function exerciseCoverageShards(project: string) {
   const combined: unknown = JSON.parse(
     readFileSync(join(project, ".quality/coverage/run.json"), "utf8"),
   );
-  return { runs, combined };
+  return { runs, pickBranches, combined };
 }
