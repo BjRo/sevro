@@ -55,6 +55,7 @@ jobs:
           command -v rg
           /usr/bin/cc --version
       - name: Install deterministic native host prerequisites
+        id: native-prerequisites
         run: bun scripts/setup-ci-codex.ts
       - name: Install the declared Rust toolchain
         run: rustup show active-toolchain
@@ -111,6 +112,9 @@ jobs:
       - name: Collect and enforce both compiler profiles
         id: coverage
         run: python3 scripts/rust/coverage-profiles.py --output-dir .coverage/profiles --target-dir target/llvm-cov-profiles 2>&1 | tee .coverage/coverage-tests.log
+      - name: Diagnose Linux private temporary policy
+        if: always() && runner.os == 'Linux' && steps.native-prerequisites.outcome == 'success'
+        run: python3 scripts/rust/diagnose-linux-temp-policy.py --output .coverage/private-temp-policy
       - name: Retain candidate evidence
         if: always()
         uses: actions/upload-artifact@v4
