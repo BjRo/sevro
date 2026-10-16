@@ -3,7 +3,9 @@ use crate::cancellation::Cancellation;
 use serde_json::{Value, json};
 use signal_hook::consts::SIGINT;
 use std::fs::{self, DirBuilder, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader, Write};
+use std::net::Shutdown;
+use std::os::fd::OwnedFd;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
@@ -22,6 +24,51 @@ pub(super) struct Transport {
     directory: PathBuf,
     child: Option<Child>,
     stream: BufReader<UnixStream>,
+    stderr: StderrForwarder,
+}
+
+struct StderrForwarder {
+    writer: UnixStream,
+    reader: Option<thread::JoinHandle<io::Result<u64>>>,
+}
+
+impl StderrForwarder {
+    fn start() -> Result<(Self, Stdio), String> {
+        let (mut reader, writer) = UnixStream::pair().map_err(|error| error.to_string())?;
+        let child = writer.try_clone().map_err(|error| error.to_string())?;
+        let reader = thread::Builder::new()
+            .name("sevro-adapter-stderr".into())
+            .spawn(move || io::copy(&mut reader, &mut io::stderr()))
+            .map_err(|error| format!("cannot forward adapter stderr: {error}"))?;
+        Ok((
+            Self {
+                writer,
+                reader: Some(reader),
+            },
+            Stdio::from(OwnedFd::from(child)),
+        ))
+    }
+
+    fn finish(&mut self) -> Result<(), String> {
+        if let Some(reader) = self.reader.take() {
+            // End this private stream after reaping the bridge, even when an
+            // adapter descendant still holds the inherited writing endpoint.
+            // The reader drains queued bytes before EOF; memory stays bounded.
+            let shutdown = self.writer.shutdown(Shutdown::Write);
+            reader
+                .join()
+                .map_err(|_| "adapter stderr forwarding thread failed")?
+                .map_err(|error| format!("cannot forward adapter stderr: {error}"))?;
+            shutdown.map_err(|error| format!("cannot close adapter stderr: {error}"))?;
+        }
+        Ok(())
+    }
+}
+
+impl Drop for StderrForwarder {
+    fn drop(&mut self) {
+        let _ = self.finish();
+    }
 }
 
 impl Transport {
@@ -56,12 +103,13 @@ impl Transport {
         listener
             .set_nonblocking(true)
             .map_err(|error| error.to_string())?;
+        let (stderr, child_stderr) = StderrForwarder::start()?;
         let mut child = Command::new("bun")
             .arg(bridge)
             .arg(socket)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::inherit())
+            .stderr(child_stderr)
             .spawn()
             .map_err(|error| format!("cannot start TypeScript adapter bridge: {error}"))?;
         let stream = match Self::connect(&listener, &mut child) {
@@ -76,6 +124,7 @@ impl Transport {
             directory,
             child: Some(child),
             stream: BufReader::new(stream),
+            stderr,
         })
     }
 
@@ -175,8 +224,11 @@ impl Transport {
     pub fn shutdown(&mut self) -> Result<Option<AdapterExit>, String> {
         if let Some(mut child) = self.child.take() {
             let response = self.exchange(&json!({"method":"shutdown"}));
-            let status = child.wait().map_err(|error| error.to_string())?;
+            let status = child.wait().map_err(|error| error.to_string());
+            let diagnostics = self.stderr.finish();
+            let status = status?;
             response?;
+            diagnostics?;
             return status
                 .code()
                 .map(|code| Some(AdapterExit { code }))

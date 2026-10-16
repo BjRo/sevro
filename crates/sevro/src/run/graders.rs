@@ -152,7 +152,8 @@ fn output_failure(check: &Check, message: &str) -> Option<&'static str> {
         return Some(failure);
     }
     if let Some(pointer) = check.configuration.get("jsonPath").and_then(Value::as_str)
-        && let Some(failure) = json_pointer_failure(message, pointer)
+        && let Some(failure) =
+            json_pointer_failure(message, pointer, check.configuration.get("expectJson"))
     {
         return Some(failure);
     }
@@ -166,7 +167,11 @@ fn output_failure(check: &Check, message: &str) -> Option<&'static str> {
     None
 }
 
-fn json_pointer_failure(message: &str, pointer: &str) -> Option<&'static str> {
+fn json_pointer_failure(
+    message: &str,
+    pointer: &str,
+    expected: Option<&Value>,
+) -> Option<&'static str> {
     let Some((document, _)) = json_document(message) else {
         return Some("output is not valid JSON");
     };
@@ -183,7 +188,87 @@ fn json_pointer_failure(message: &str, pointer: &str) -> Option<&'static str> {
         };
         selected = member;
     }
-    None
+    expected
+        .is_some_and(|expected| !json_equals(selected, expected))
+        .then_some("JSON value did not equal expectation")
+}
+
+fn json_equals(selected: &str, expected: &Value) -> bool {
+    let mut pending = vec![(selected, expected)];
+    while let Some((selected, expected)) = pending.pop() {
+        let equal = match expected {
+            Value::Null => selected == "null",
+            Value::Bool(expected) => selected == if *expected { "true" } else { "false" },
+            Value::String(expected) => {
+                serde_json::from_str::<String>(selected).ok().as_ref() == Some(expected)
+            }
+            Value::Number(expected) => expected.as_f64().is_some_and(|expected| {
+                selected
+                    .parse::<f64>()
+                    .is_ok_and(|actual| actual.to_bits() == expected.to_bits())
+            }),
+            Value::Array(expected) => {
+                let Some(actual) = array_members(selected) else {
+                    return false;
+                };
+                if actual.len() != expected.len() {
+                    return false;
+                }
+                pending.extend(actual.into_iter().zip(expected));
+                true
+            }
+            Value::Object(expected) => {
+                let Some(actual) = object_members(selected) else {
+                    return false;
+                };
+                if actual.len() != expected.len() {
+                    return false;
+                }
+                for (key, expected) in expected {
+                    let Some(actual) = actual.get(key) else {
+                        return false;
+                    };
+                    pending.push((*actual, expected));
+                }
+                true
+            }
+        };
+        if !equal {
+            return false;
+        }
+    }
+    true
+}
+
+fn array_members(document: &str) -> Option<Vec<&str>> {
+    let mut remaining = document.strip_prefix('[')?.trim_start();
+    let mut members = Vec::new();
+    while !remaining.starts_with(']') {
+        let (value, rest) = raw_prefix(remaining)?;
+        members.push(value);
+        let Some(rest) = rest.trim_start().strip_prefix(',') else {
+            break;
+        };
+        remaining = rest.trim_start();
+    }
+    Some(members)
+}
+
+fn object_members(document: &str) -> Option<BTreeMap<String, &str>> {
+    let mut remaining = document.strip_prefix('{')?.trim_start();
+    let mut members = BTreeMap::new();
+    while !remaining.starts_with('}') {
+        let (key, rest) = raw_prefix(remaining)?;
+        let key = serde_json::from_str::<String>(key).ok()?;
+        let rest = rest.trim_start().strip_prefix(':')?.trim_start();
+        let (value, rest) = raw_prefix(rest)?;
+        members.insert(key, value);
+        let Some(rest) = rest.trim_start().strip_prefix(',') else {
+            break;
+        };
+        remaining = rest.trim_start();
+    }
+    Some(members)
 }
 
 fn raw_prefix(text: &str) -> Option<(&str, &str)> {

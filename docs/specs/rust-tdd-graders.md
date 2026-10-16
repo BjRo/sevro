@@ -395,10 +395,105 @@ member controls. `cargo clippy --locked -p sevro --bin sevro --test run_graders
 duplicate rejection had the observed red/green repair above. Combined candidate
 acceptance and coverage remain the coordinator's checkpoint responsibility.
 
+## Selected JSON equality
+
+The first equality slice uses the retained unchanged TypeScript public CLI
+observation for `jsonPath: "/status"` with `expectJson: "ready"` and actual
+response `{"status":"ready"}`. Its expected outcome is completed execution and
+grading, passed task, exit 0, detail `ok`, and the actual final-message evidence
+reference. Grader fixtures use process/counter-specific input and result roots;
+candidate workspaces have unique UUID names. Test cleanup removes only those
+owned paths. This cohort uses the separate Cargo target directory
+`/tmp/sevro-json-equality-target.wIdMAq` so native-host compilation can proceed
+independently.
+
+- Red — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders json_expectation_passes_a_selected_string -- --exact`:
+  the unchanged product returned exit 64 with `output check configuration is not yet supported in Rust: expectJson`, rather than passed exit 0.
+- Green — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders json_expectation_passes_a_selected_string -- --exact`:
+  one test passed after enabling selected-string equality through the existing
+  raw document and pointer selection path.
+- Initial green — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders json_expectation_rejects_a_different_string -- --exact`:
+  one test passed; a different selected string fails with exit 1 and
+  `JSON value did not equal expectation` while retaining its response evidence.
+- Red — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders json_expectation_requires_a_pointer_before_execution -- --exact`:
+  the declaration without `jsonPath` incorrectly ran the candidate and passed
+  with exit 0 instead of the TypeScript preflight exit 64.
+- Green — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders json_expectation_requires_a_pointer_before_execution -- --exact`:
+  one test passed after requiring a declared pointer before candidate admission.
+- Red — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders json_expectation_compares_numeric_values_instead_of_number_spelling -- --exact`:
+  the string-only comparator failed `1.0` against expected numeric `1`, giving
+  exit 1 instead of the independent TypeScript passed exit 0.
+- Green — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders json_expectation_compares_numeric_values_instead_of_number_spelling -- --exact`:
+  one test passed after comparing JavaScript numeric values while preserving
+  the sign of zero.
+- Red — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders json_expectation_compares_ordered_arrays_of_json_values -- --exact`:
+  the scalar comparator failed the expected array of false, null, a number and
+  a string with exit 1 instead of the TypeScript passed exit 0.
+- Green — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders json_expectation_compares_ordered_arrays_of_json_values -- --exact`:
+  one test passed after comparing borrowed array members through an iterative
+  worklist, including their JSON primitive values.
+- Red — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders json_expectation_compares_objects_without_property_order -- --exact`:
+  an equivalent object with reordered properties and a nested array failed
+  with exit 1 instead of the independent TypeScript passed exit 0.
+
+- Green — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders json_expectation_compares_objects_without_property_order -- --exact`:
+  one test passed after comparing borrowed object members, independent of
+  property order, through the same iterative worklist.
+- Initial green — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders json_expectation_distinguishes_negative_zero -- --exact`:
+  one test passed. Selected -0 does not equal expected 0, matching the retained actual TypeScript oracle.
+- Initial green — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders json_expectation_does_not_replace_a_lone_surrogate -- --exact`:
+  one test passed. Escaped lone surrogate remains valid JSON but fails equality with U+FFFD; raw response is unchanged.
+- Initial green — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders json_expectation_treats_large_exponents_as_equality_mismatches -- --exact`:
+  one test passed. Accepted 1e400 output fails equality with finite expected 1 without becoming invalid JSON.
+- Initial green — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders json_expectation_preserves_array_order_and_element_types -- --exact`:
+  one test passed. Reordered mixed array fails equality with retained original bytes.
+- Initial green — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders json_expectation_rejects_extra_object_properties -- --exact`:
+  one test passed. An extra own member makes object equality fail with exact completed-assessment evidence.
+- Initial green — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders json_expectation_distinguishes_explicit_null_from_no_expectation -- --exact`:
+  one test passed. A declared null expectation at the root rejects false; null is not interpreted as an absent option.
+- Initial green — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders json_expectation_compares_parsed_object_values_after_unique_selection -- --exact`:
+  one test passed. After selecting unique item, whole-object equality retains JSON.parse last-member normalization inside that value; RFC selected-name ambiguity remains rejected by existing controls.
+- Initial green — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders json_expectation_selects_through_130_raw_array_levels -- --exact`:
+  one test passed. Equality selects through 130 raw array levels without narrowing accepted document depth.
+- Initial green — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders json_expectation_failure_precedes_exact_output_failure -- --exact`:
+  one test passed. When equality and exact text both fail, equality detail is the first failure.
+- Initial green — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders json_expectation_keeps_matching_partial_output_unavailable -- --exact`:
+  one test passed. Matching partial JSON remains unavailable/not_assessed with exit 4, actual partial bytes and the evidence reference.
+
+All sixteen new controls use a real deterministic adapter and the public CLI.
+The executed controls assert literal status, detail, raw-response SHA-256,
+final-message references, consistent run/trial/result/latest records, and
+appropriate retained or cleaned workspaces. The missing-pointer control
+asserts exact preflight output and absent candidate-call/results paths.
+Independent unchanged TypeScript CLI observations precede each new behavior;
+the accepted RFC decision continues to govern pointer traversal.
+
+Equality uses borrowed raw values and an iterative worklist instead of
+deserializing the candidate document into a recursive typed value. Numeric
+comparison preserves JavaScript number-value equality and signed zero. Lone
+surrogate values and overflowing numeric syntax remain valid JSON even when
+they cannot equal the configured expectation. Object comparison uses own
+decoded keys and the last parsed value for duplicate names inside the selected
+value, matching JSON.parse; this does not change RFC pointer traversal, which
+still rejects a duplicate referenced name. Existing configuration strings and
+numbers retain the port's current UTF-8 and finite-value representation limits.
+No new dependency was introduced.
+
+After the equality cohort, `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq
+cargo test --locked -p sevro --test run_graders` passed all 93 tests: the
+previous 77 controls and 16 new equality controls. Five new tests had observed
+red/green repairs; eleven were initial-green characterizations. This focused
+run preserves the existing regex, RFC pointer and JSON-document controls.
+`cargo clippy --locked -p sevro --bin sevro --test run_graders -- -D warnings`
+passed with the same isolated target directory, and the three owned Rust files
+passed scoped Rustfmt checks.
+Combined candidate acceptance and coverage remain the coordinator's
+checkpoint responsibility.
+
 ## Remaining boundaries
 
 This ledger covers `sevro.output` with `expectExact`, `validJson`, ordinary
-`jsonPath` selection without equality or containment assertions, and the
+`jsonPath` selection with `expectJson` equality, and the
 standalone `sevro.regex` controls above. JSON object and array selection follows
 the accepted RFC 6901 decision, including referenced-member uniqueness. Other
 deterministic checks, custom graders, domain outcomes, semantic grading and

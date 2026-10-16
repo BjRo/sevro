@@ -7,6 +7,16 @@ fn executes_existing_typescript_adapter() {
 }
 
 #[test]
+fn preserves_adapter_diagnostics_without_changing_parent_stderr() {
+    scenario("stderr-descriptor");
+}
+
+#[test]
+fn finishes_adapter_diagnostics_while_a_descendant_retains_stderr() {
+    scenario("stderr-descendant");
+}
+
+#[test]
 fn rejects_forged_final_message() {
     scenario("forged-message");
 }

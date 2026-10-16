@@ -9,7 +9,7 @@ pub fn command(arguments: &[String]) -> i32 {
         return failure(json, 64, "demo accepts only --json; run sevro demo --help");
     }
     let prepared = DemoInputs::prepare();
-    let inputs = match prepared {
+    let mut inputs = match prepared {
         Ok(inputs) => inputs,
         Err(error) => {
             let error = PreparationFailure {
@@ -38,7 +38,7 @@ pub fn command(arguments: &[String]) -> i32 {
         run_arguments.push(option.to_owned());
         run_arguments.push(path.to_string_lossy().into_owned());
     }
-    crate::run::command(&run_arguments)
+    crate::run::command_with_release(&run_arguments, || inputs.release())
 }
 
 fn failure(json: bool, code: i32, message: &str) -> i32 {
@@ -95,13 +95,17 @@ impl std::error::Error for PreparationFailure {
 
 struct DemoInputs {
     root: PathBuf,
+    release_attempted: bool,
 }
 
 impl DemoInputs {
     fn prepare() -> io::Result<Self> {
         let root = std::env::temp_dir().join(format!("sevro-demo-{}", uuid::Uuid::new_v4()));
         DirBuilder::new().mode(0o700).create(&root)?;
-        let inputs = Self { root };
+        let inputs = Self {
+            root,
+            release_attempted: false,
+        };
         DirBuilder::new()
             .mode(0o700)
             .create(inputs.root.join("project"))?;
@@ -114,6 +118,16 @@ impl DemoInputs {
             include_bytes!("../../../examples/basic/host.ts"),
         )?;
         Ok(inputs)
+    }
+
+    fn release(&mut self) -> io::Result<()> {
+        if std::mem::replace(&mut self.release_attempted, true) {
+            return Ok(());
+        }
+        match fs::remove_dir_all(&self.root) {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+            result => result,
+        }
     }
 }
 
@@ -128,6 +142,6 @@ fn write_asset(path: &Path, bytes: &[u8]) -> io::Result<()> {
 
 impl Drop for DemoInputs {
     fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
+        let _ = self.release();
     }
 }

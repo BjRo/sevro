@@ -585,6 +585,133 @@ are separated from public assertions, and these Claude tests serialize their
 native-namespace comparisons. No additional host capability was introduced.
 macOS supplied the measured evidence; Ubuntu acceptance remains unmeasured.
 
+## Claude event and credential boundary characterizations
+
+Six unchanged TypeScript public CLI runs supplied the next bounded family.
+The external `sevro-rust-native-preparation-20261016` directory retains
+`baseline-claude-validation-{invalid-usage,malformed-assistant,missing-credential,oversized-credential,protected-executable-symlink,valid-assistant}.json`.
+Each artifact records the literal CLI command, source hashes, public result,
+evidence, retained bytes and modes, launch capture, and cleanup. The capture
+script is `observe_claude_validation.py <mode>`; it refuses to overwrite an
+existing observation. These runs use only deterministic executables and synthetic
+credentials, with no hosted model or network activity.
+
+The source oracles are `tests/claude-events.test.ts` (invalid usage, malformed
+assistant envelopes, and ordinary text), `src/hosts/claude-events.ts` (valid Skill
+input), `tests/claude-credential.test.ts` and
+`tests/hosts/claude-runtime-boundaries.test.ts` (explicit credential and protected
+executable boundaries). Each source example was exercised through the public
+TypeScript CLI before the corresponding Rust test was added.
+
+| Input                                                                       | Observed public outcome                                       | Retained evidence                                                                      |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `input_tokens: "wrong"` in an otherwise valid result                        | Exit `0`, completed execution/grading, task passed            | Raw `ready` and exact events; both token totals unknown, cost `0.01`, usage incomplete |
+| Assistant `message.content: [null]` before a valid result                   | Exit `2`, failed execution, no grading or task assessment     | Raw `ready` and exact events; all usage unknown and incomplete                         |
+| Missing selected credential with synthetic ambient API and OAuth values     | Exit `2` before executable launch; no authentication fallback | No response or event artifact; all usage unknown and incomplete                        |
+| Selected credential containing 1 MiB + 1 byte                               | Exit `2` before executable launch                             | No response or event artifact; all usage unknown and incomplete                        |
+| Executable symlink whose real target is in the protected project            | Exit `2` before executable launch                             | No response or event artifact; target and link preserved                               |
+| Valid assistant text and `Skill` tool-use blocks before a successful result | Exit `0`, completed execution/grading, task passed            | Final raw `ready`, exact events, complete usage 1/2/cost `0.01`                        |
+
+The respective retained event hashes are
+`0d613a6dfa4f00aa362a02156548d4b4c93136f53dee7c56a1dff4904c703f31`
+(invalid usage),
+`d9cf2906a3b635d0cf7b609c54b6d8d58bb26aae336c3d277f26c27d18d99147`
+(malformed assistant), and
+`8eea44a20823e540b15ddcd1c0182a80056dc71e9e97e0489f0dba55481c6c8f`
+(valid assistant). Retained raw responses keep the established `ready` hash;
+raw and event files remain mode `0600`. The private assistant commentary remains
+in its event artifact and does not enter the final response or public summary.
+Each failed run retains its workspace for inspection; test teardown then removes
+the owned workspace. Successful workspaces and all external private state are
+removed. Selected credential contents, including the oversized file, remain
+unchanged; a missing selected credential remains absent.
+
+Each case was added after the previous case passed. All six exact commands were
+initially green with production code unchanged:
+
+- `cargo test -p sevro --test run_native_claude --locked preserves_response_and_cost_when_token_usage_is_invalid -- --exact`
+- `cargo test -p sevro --test run_native_claude --locked retains_ready_response_but_rejects_malformed_assistant_content -- --exact`
+- `cargo test -p sevro --test run_native_claude --locked rejects_missing_selected_credential_despite_ambient_authentication -- --exact`
+- `cargo test -p sevro --test run_native_claude --locked rejects_credential_larger_than_one_mib_before_launch -- --exact`
+- `cargo test -p sevro --test run_native_claude --locked rejects_executable_symlink_into_protected_project -- --exact`
+- `cargo test -p sevro --test run_native_claude --locked accepts_text_and_skill_blocks_before_successful_result -- --exact`
+
+These characterize existing behavior; they are not red/green implementation
+claims. The last case validates acceptance of the existing stream grammar,
+without claiming passive skill collection or adding a capability. The fixture
+continues forwarding `LLVM_PROFILE_FILE` to the instrumented Sevro child while
+retaining the native command's strict environment. This cohort changes only
+Claude tests, their helper, and this ledger. Local macOS evidence does not prove
+Ubuntu acceptance or enforcement by a live Claude sandbox.
+
+## Passive Claude session continuation
+
+The unchanged TypeScript CLI supplied two additional inline-fixture oracles:
+`baseline-claude-continuation-inline-pass.json` and
+`baseline-claude-continuation-inline-foreign-follow-up.json` in the external
+`sevro-rust-native-preparation-20261016` directory. Their capture script is
+`observe_claude_continuation.py <pass|foreign-follow-up>`. Each records the exact
+command, TypeScript source hashes, both launch captures, public evidence, private
+artifact bytes/modes/hashes, and cleanup. The inputs adapt the existing
+`tests/cli/claude-continuation.test.ts` integration scenario to the already
+supported inline fixture; no generated-fixture support was added.
+
+The case declares an initial `Return waiting.` prompt and a
+`Resume the same task and return ready.` follow-up, with exact output grading for
+`ready`. It requires `sevro.claude.events`, `sevro.claude.initial-events`,
+`sevro.claude.follow-up-events`, and `sevro.claude.continuation` evidence. The
+synthetic executable validates `--session-id` on the first invocation and
+`--resume` on the second, with the same valid UUID. An initial `.git/session-proof`
+file is read by the resumed process to establish reuse of workspace, settings,
+credential hash, model, effort, and private environment. Both actual launches
+are retained in order. This synchronization needs no timing assumption.
+
+The positive TypeScript run exits `0`, completes execution/grading, and passes
+the task. Its first result is `waiting`; only the second `ready` response is
+graded and retained as the raw response. Usage sums to 4 input tokens, 6 output
+tokens, and cost `0.03`, complete. It retains the exact combined event stream and
+both phase streams as three mode-`0600` artifacts. The continuation observation
+has source `sevro.host.claude`, method `same_session_resume`, the actual session
+UUID, completeness `complete`, and measured
+`preFollowUpWorktreeUnchanged: true`. Successful workspace and private state are
+removed, while the synthetic source credential stays unchanged. Artifact hashes
+vary with the generated UUID: the test checks exact event bytes for the captured
+session and independently hashes those expected bytes.
+
+Red — `cargo test -p sevro --test run_native_claude --locked continuation::resumes_original_session_and_grades_second_response -- --exact`:
+the public test compiled, then failed with expected exit `0`, actual exit `2`,
+`sevro.host.failed`, and grading `not_requested`. Production still refused
+Claude follow-up at this point.
+
+Green — the identical command passed one test after implementing the bounded
+two-turn workflow. Both turns reuse one prepared private state and the existing
+owned-process runner/cancellation context. Session binding requires exactly one
+matching result per turn. Combined output retains the existing 8 MiB stdout and
+64 KiB stderr bounds. The existing Codex workspace fingerprint was moved
+unchanged to a shared native module; the continuation observation derives its
+value from two actual measurements. Core receipt/persistence types did not
+change. Only the generic and Claude continuation capabilities were added to
+Claude metadata; typed shutdown behavior was preserved.
+
+The negative TypeScript oracle launches both calls with the same requested
+session, but the resumed result names a foreign UUID. It exits `2`, fails
+execution, skips grading, and leaves the task unassessed. Raw `ready` and all
+three actual event artifacts remain available, but token totals and cost are
+unknown and usage is incomplete. Continuation evidence is `partial`, with the
+original requested UUID and the measured unchanged-worktree value. The failed
+workspace remains inspectable; external private state is removed. The durable
+test owns removal of the failed workspace afterward.
+
+`cargo test -p sevro --test run_native_claude --locked continuation::rejects_foreign_follow_up_without_claiming_usage_or_complete_continuation -- --exact`
+passed on its first run after the positive implementation. This negative control
+is an initial-green characterization, not a separate red/green repair.
+
+These two cases establish a passive follow-up workflow and one essential session
+binding refusal. They do not establish the entire Claude failure matrix, native
+controls, hooks, runtime policy, passive collectors, or live model behavior.
+Only deterministic binaries and synthetic credentials were used. Local macOS
+results remain distinct from Ubuntu and live Claude sandbox acceptance.
+
 ## Current checks
 
 `cargo test -p sevro --test run_native_codex --test run_dry --test run_adapter --locked`
@@ -641,3 +768,21 @@ passed. Scoped Rust formatting, the ledger's Prettier check, and
 `bun run check:docs` passed. Native product behavior remained unchanged throughout
 the five-control cohort. Broader repository acceptance remains the coordinator's
 separate candidate-bound gate.
+
+After the six event and credential boundary characterizations,
+`cargo test -p sevro --test run_native_claude --test run_native_codex --locked`
+passed all 58 native tests: 12 Claude and 46 Codex.
+`cargo clippy -p sevro --lib --test run_native_claude --test run_native_codex --locked -- -D warnings`
+passed. The two owned Rust test files passed scoped `rustfmt --check`; this
+ledger's Prettier check and `bun run check:docs` passed. No production repair,
+shared runtime change, dependency change, or additional capability was needed.
+
+After passive Claude continuation and its foreign-session control,
+`cargo test -p sevro --test run_native_claude --test run_native_codex --locked`
+passed all 60 native tests: the previous 58 plus two continuation cases.
+`cargo clippy -p sevro --lib --test run_native_claude --test run_native_codex --locked -- -D warnings`
+passed. These commands used the separate
+`CARGO_TARGET_DIR=/Users/bjro/.codex/artifacts/sevro-rust-native-preparation-20261016/target-claude-continuation`.
+Scoped Rust formatting with `skip_children=true`, ledger Prettier checking, and
+`bun run check:docs` passed. The common process, isolation, transport, options,
+schemas, dependencies, and `run.rs` were not changed by this slice.

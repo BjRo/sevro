@@ -2,6 +2,8 @@ import { beforeAll, test } from "bun:test";
 import { join, resolve } from "node:path";
 import {
   runAdapterScenario,
+  runStderrDescriptorScenario,
+  runStderrDescendantScenario,
   runForgedMessageScenario,
   runRawMessageScenario,
   runNonfiniteConfigurationScenario,
@@ -58,6 +60,14 @@ beforeAll(async () => {
 
 test("Rust CLI executes an existing TypeScript adapter and retains its result", async () => {
   await runAdapterScenario(binary);
+});
+
+test("Rust CLI preserves adapter diagnostics and caller-owned stderr flags", async () => {
+  await runStderrDescriptorScenario(binary);
+});
+
+test("Rust CLI finishes adapter diagnostics while a descendant retains stderr", async () => {
+  await runStderrDescendantScenario(binary);
 });
 
 test("Rust CLI rejects a final message forged by JSON serialization", async () => {

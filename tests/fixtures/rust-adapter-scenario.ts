@@ -169,6 +169,89 @@ export async function runAdapterScenario(binary: string) {
   }
 }
 
+export async function runStderrDescriptorScenario(binary: string) {
+  await runStderrScenario(binary, false);
+}
+
+export async function runStderrDescendantScenario(binary: string) {
+  await runStderrScenario(binary, true);
+}
+
+async function runStderrScenario(binary: string, descendant: boolean) {
+  const root = await realpath(
+    await mkdtemp(join(tmpdir(), "sevro-rust-adapter-")),
+  );
+  const diagnostic = "adapter stderr: Καλημέρα 😀\u0000done\n";
+  try {
+    await writeFile(
+      join(root, "adapter.ts"),
+      `await Bun.write(${JSON.stringify(join(root, "ready"))}, "ready");
+      while (!(await Bun.file(${JSON.stringify(join(root, "release"))}).exists())) await Bun.sleep(10);
+      ${
+        descendant
+          ? `const child = Bun.spawn(["sh", "-c", "sleep 30"], { stdin: "ignore", stdout: "ignore", stderr: "inherit" });
+      child.unref(); await Bun.write(${JSON.stringify(join(root, "descendant"))}, String(child.pid));`
+          : ""
+      }
+      process.stderr.write(${JSON.stringify(diagnostic)});
+      export default { id: "sevro.host.synthetic", model: "synthetic-v1", effort: "none",
+        run() { return { finalMessage: "ready", complete: true }; } };`,
+    );
+    const child = Bun.spawn(
+      [
+        "python3",
+        join(repository, "tests/fixtures/rust-adapter-stderr.py"),
+        binary,
+        root,
+      ],
+      { stdout: "pipe", stderr: "pipe" },
+    );
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+    assert.equal(code, 0, stderr);
+    const observation = JSON.parse(stdout) as {
+      beforeFlags: number;
+      duringFlags: number;
+      ready: boolean;
+      descendantAliveAtExit: boolean;
+      code: number;
+      stdout: string;
+      stderr: string;
+    };
+    assert.equal(observation.ready, true, observation.stderr);
+    assert.equal(observation.descendantAliveAtExit, descendant);
+    assert.equal(
+      observation.duringFlags,
+      observation.beforeFlags,
+      "adapter loading must preserve the caller-owned stderr descriptor flags",
+    );
+    const result = await adapterOutput(
+      Promise.resolve([
+        observation.stdout,
+        observation.stderr,
+        observation.code,
+      ]),
+    );
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(result.stderr.split(diagnostic).length, 2);
+    const settings = result.stderr
+      .split("\n")
+      .find((line) => line.startsWith("sevro: effective settings "));
+    assert(settings, result.stderr);
+    const resolved = JSON.parse(
+      settings.slice("sevro: effective settings ".length),
+    ) as { format: string; trials: number };
+    assert.equal(resolved.format, "sevro.resolved-run-settings.v1");
+    assert.equal(resolved.trials, 1);
+    await assertRetained(result.result, join(root, "results"));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
 export async function runForgedMessageScenario(binary: string) {
   const root = await realpath(
     await mkdtemp(join(tmpdir(), "sevro-rust-adapter-")),
@@ -1285,6 +1368,12 @@ if (import.meta.main) {
     "the Cargo integration wrapper must supply its candidate binary",
   );
   switch (process.argv[3]) {
+    case "stderr-descriptor":
+      await runStderrDescriptorScenario(binary);
+      break;
+    case "stderr-descendant":
+      await runStderrDescendantScenario(binary);
+      break;
     case "forged-message":
       await runForgedMessageScenario(binary);
       break;

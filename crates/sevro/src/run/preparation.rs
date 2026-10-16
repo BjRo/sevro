@@ -177,6 +177,7 @@ impl PreparedCase {
             }
             for (key, value) in &check.configuration {
                 match key.as_str() {
+                    "expectJson" => {}
                     "expectExact" => {
                         if !value.is_string() {
                             return Err("expectExact must be a string".into());
@@ -205,6 +206,11 @@ impl PreparedCase {
                         .into());
                     }
                 }
+            }
+            if check.configuration.contains_key("expectJson")
+                && !check.configuration.contains_key("jsonPath")
+            {
+                return Err("JSON expectations require a pointer".into());
             }
         }
         Ok(case)

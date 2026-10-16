@@ -1,3 +1,4 @@
+mod continuation;
 mod events;
 mod settings;
 mod state;
@@ -33,10 +34,8 @@ impl ClaudeHost {
         request: &HostRequest<'_>,
         cancellation: &Cancellation,
     ) -> Result<HostResult, String> {
-        if request.condition != "passive" || request.follow_up_prompt.is_some() {
-            return Err(
-                "this Claude host does not support the requested condition or continuation".into(),
-            );
+        if request.condition != "passive" {
+            return Err("Claude enforcement instrumentation is unavailable".into());
         }
         require_sandbox()?;
         let state = state::State::prepare(&self.options, request.workspace)?;
@@ -51,9 +50,47 @@ impl ClaudeHost {
         cancellation: &Cancellation,
         state: &state::State,
     ) -> Result<HostResult, String> {
-        let arguments: Vec<OsString> = [
+        if let Some(follow_up) = request.follow_up_prompt {
+            return continuation::run(
+                request.workspace,
+                request.prompt,
+                follow_up,
+                |prompt, option, session| {
+                    self.turn(
+                        request.workspace,
+                        prompt,
+                        cancellation,
+                        state,
+                        Some((option, session)),
+                    )
+                },
+            );
+        }
+        let output = self.turn(request.workspace, request.prompt, cancellation, state, None)?;
+        let mut result = events::summarize(
+            &output.stdout,
+            output.status.success() && output.reason == "exit",
+        );
+        result.actual_condition = Some("passive".into());
+        result.execution_failed = !result.complete;
+        result.artifacts.push(Artifact {
+            id: "sevro.claude.events".into(),
+            bytes: output.stdout,
+        });
+        Ok(result)
+    }
+
+    fn turn(
+        &self,
+        workspace: &Path,
+        prompt: &str,
+        cancellation: &Cancellation,
+        state: &state::State,
+        session: Option<(&str, &str)>,
+    ) -> Result<process::Output, String> {
+        let mut arguments: Vec<OsString> = [
             "-p",
-            request.prompt,
+            prompt,
             "--output-format",
             "stream-json",
             "--verbose",
@@ -83,29 +120,21 @@ impl ClaudeHost {
             .map(OsString::from),
         )
         .collect();
-        let output = process::run(
+        if let Some((option, id)) = session {
+            arguments.extend([option.into(), id.into()]);
+        }
+        process::run(
             Request {
                 binary: &self.options.binary,
                 arguments: &arguments,
-                cwd: request.workspace,
+                cwd: workspace,
                 environment: &state.environment,
                 input: None,
                 timeout: Duration::from_millis(600_000),
                 cancellation,
             },
             Flavor::Claude,
-        )?;
-        let mut result = events::summarize(
-            &output.stdout,
-            output.status.success() && output.reason == "exit",
-        );
-        result.actual_condition = Some("passive".into());
-        result.execution_failed = !result.complete;
-        result.artifacts.push(Artifact {
-            id: "sevro.claude.events".into(),
-            bytes: output.stdout,
-        });
-        Ok(result)
+        )
     }
 }
 

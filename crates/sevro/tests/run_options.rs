@@ -1018,6 +1018,131 @@ fn selected_codex_binary_uses_path_and_honors_an_explicit_override() {
 }
 
 #[test]
+fn claude_options_name_the_required_host_before_loading_other_routes() {
+    use std::os::unix::fs::PermissionsExt;
+    for (route, flag, value) in [
+        ("adapter", "--claude-bin", "../native"),
+        ("adapter", "--claude-credential-file", "../auth.json"),
+        ("codex", "--claude-bin", "../native"),
+        ("codex", "--claude-credential-file", "../auth.json"),
+    ] {
+        let project = Project::new();
+        fs::write(
+            project.0.join("adapter.ts"),
+            "import {writeFileSync} from 'node:fs';\nwriteFileSync(new URL('adapter-imported',import.meta.url),'imported');\nexport default {id:'sevro.host.refusal',model:'synthetic',effort:'none',async run(){return {finalMessage:'ready',complete:true}}};\n",
+        )
+        .unwrap();
+        fs::write(
+            project.0.join("native"),
+            "#!/bin/sh\nprintf called > \"$0.called\"\nexit 97\n",
+        )
+        .unwrap();
+        fs::set_permissions(project.0.join("native"), fs::Permissions::from_mode(0o700)).unwrap();
+        let mut arguments = vec![
+            "--case-file",
+            "../case.json",
+            "--project-root",
+            "..",
+            "--results-root",
+            "../results",
+        ];
+        if route == "adapter" {
+            arguments.extend(["--adapter-module", "../adapter.ts"]);
+        } else {
+            arguments.extend([
+                "--host",
+                "codex",
+                "--codex-bin",
+                "../native",
+                "--codex-auth-file",
+                "../auth.json",
+                "--model",
+                "synthetic",
+                "--effort",
+                "low",
+            ]);
+        }
+        arguments.extend([flag, value]);
+        let output = project.run(&arguments);
+        assert_eq!(output.status.code(), Some(64), "{route}: {flag}");
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert_eq!(stdout.lines().count(), 1);
+        let result: Value = serde_json::from_str(&stdout).unwrap();
+        assert_eq!(
+            result,
+            json!({
+                "format":"sevro.cli-result.v1", "runId":null,
+                "execution":{"status":"not_run"}, "grading":{"status":"not_requested"},
+                "task":{"verdict":"not_assessed"}, "exitCode":64, "evidencePath":null,
+                "cases":[], "diagnostic":{
+                    "code":"sevro.invocation.invalid",
+                    "message":"Claude options require --host claude"
+                }
+            }),
+            "{route}: {flag}"
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stderr)
+                .starts_with("sevro: Claude options require --host claude\n")
+        );
+        assert!(!project.0.join("adapter-imported").exists());
+        assert!(!project.0.join("native.called").exists());
+        assert!(!project.0.join("results").exists());
+        assert!(!project.0.join(".sevro").exists());
+    }
+}
+
+#[test]
+fn unsupported_host_takes_precedence_over_adapter_selection() {
+    for with_adapter in [true, false] {
+        let project = Project::new();
+        fs::write(
+            project.0.join("adapter.ts"),
+            "import {writeFileSync} from 'node:fs';\nwriteFileSync(new URL('adapter-imported',import.meta.url),'imported');\nexport default {id:'sevro.host.refusal',model:'synthetic',effort:'none',async run(){return {finalMessage:'ready',complete:true}}};\n",
+        )
+        .unwrap();
+        let mut arguments = vec![
+            "--case-file",
+            "../case.json",
+            "--project-root",
+            "..",
+            "--results-root",
+            "../results",
+            "--host",
+            "unsupported",
+        ];
+        if with_adapter {
+            arguments.extend(["--adapter-module", "../adapter.ts"]);
+        }
+        let output = project.run(&arguments);
+        assert_eq!(output.status.code(), Some(64));
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert_eq!(stdout.lines().count(), 1);
+        let result: Value = serde_json::from_str(&stdout).unwrap();
+        assert_eq!(
+            result,
+            json!({
+                "format":"sevro.cli-result.v1", "runId":null,
+                "execution":{"status":"not_run"}, "grading":{"status":"not_requested"},
+                "task":{"verdict":"not_assessed"}, "exitCode":64, "evidencePath":null,
+                "cases":[], "diagnostic":{
+                    "code":"sevro.invocation.invalid",
+                    "message":"unsupported --host; use codex or claude"
+                }
+            }),
+            "adapter selected: {with_adapter}"
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stderr)
+                .starts_with("sevro: unsupported --host; use codex or claude\n")
+        );
+        assert!(!project.0.join("adapter-imported").exists());
+        assert!(!project.0.join("results").exists());
+        assert!(!project.0.join(".sevro").exists());
+    }
+}
+
+#[test]
 fn incompatible_input_selections_are_refused_before_run_allocation() {
     let invalid_hex = "g".repeat(64);
     for (extra, diagnostic) in [

@@ -1,6 +1,6 @@
 use serde_json::{Value, json};
 use std::fs;
-use std::os::unix::fs::symlink;
+use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -13,7 +13,7 @@ impl DemoDirectory {
         let root = fs::canonicalize(root).unwrap();
         fs::create_dir(root.join("caller")).unwrap();
         fs::create_dir(root.join("temporary")).unwrap();
-        fs::copy(env!("CARGO_BIN_EXE_sevro"), root.join("sevro")).unwrap();
+        copy_executable(Path::new(env!("CARGO_BIN_EXE_sevro")), &root.join("sevro"));
         Self(root)
     }
 
@@ -30,12 +30,49 @@ impl DemoDirectory {
 
 impl Drop for DemoDirectory {
     fn drop(&mut self) {
+        if let Ok(entries) = fs::read_dir(self.0.join("temporary")) {
+            for entry in entries.flatten() {
+                if entry.file_type().is_ok_and(|kind| kind.is_dir())
+                    && entry
+                        .file_name()
+                        .to_string_lossy()
+                        .starts_with("sevro-demo-")
+                {
+                    let _ = fs::set_permissions(entry.path(), fs::Permissions::from_mode(0o700));
+                }
+            }
+        }
         let _ = fs::remove_dir_all(&self.0);
     }
 }
 
 fn read_json(path: impl AsRef<Path>) -> Value {
     serde_json::from_slice(&fs::read(path).unwrap()).unwrap()
+}
+
+fn copy_executable(source: &Path, destination: &Path) {
+    // Keep writable executable descriptors in the child so concurrent test
+    // spawns cannot inherit them and cause Linux ETXTBSY failures.
+    let output = Command::new("/bin/cp")
+        .arg(source)
+        .arg(destination)
+        .output()
+        .unwrap_or_else(|error| {
+            panic!(
+                "could not copy executable fixture {} to {}: {error}",
+                source.display(),
+                destination.display()
+            )
+        });
+    assert!(
+        output.status.success(),
+        "copying executable fixture {} to {} failed with {}:\nstdout: {}\nstderr: {}",
+        source.display(),
+        destination.display(),
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 #[test]
@@ -296,5 +333,95 @@ fn demo_removes_its_inputs_when_run_storage_preparation_fails() {
                 .file_name()
                 .to_string_lossy()
                 .starts_with("sevro-demo-"))
+    );
+}
+
+#[test]
+fn demo_reports_cleanup_failure_once_without_replacing_completed_evidence() {
+    let directory = DemoDirectory::new();
+    let existing_path = std::env::var_os("PATH").unwrap();
+    let real_bun = std::env::split_paths(&existing_path)
+        .map(|entry| entry.join("bun"))
+        .find(|candidate| candidate.is_file())
+        .map(fs::canonicalize)
+        .unwrap()
+        .unwrap();
+    let wrappers = directory.0.join("wrappers");
+    fs::create_dir(&wrappers).unwrap();
+    let marker = directory.0.join("permission-change.txt");
+    let quoted = |path: &Path| format!("'{}'", path.to_str().unwrap().replace('\'', "'\"'\"'"));
+    let wrapper_source = directory.0.join("bun-wrapper-source");
+    fs::write(
+        &wrapper_source,
+        format!(
+            "#!/bin/sh\nset -eu\nset -- \"$@\"\nselected=''\nfor candidate in \"$TMPDIR\"/sevro-demo-*; do\n  [ -d \"$candidate\" ] || continue\n  [ -z \"$selected\" ] || exit 91\n  [ -d \"$candidate/project\" ] || exit 92\n  [ -f \"$candidate/graded.json\" ] || exit 93\n  [ -f \"$candidate/host.ts\" ] || exit 94\n  selected=$candidate\ndone\n[ -n \"$selected\" ] || exit 95\n/bin/chmod 500 \"$selected\"\nprintf '%s\\n' \"$selected\" > {}\nexec {} \"$@\"\n",
+            quoted(&marker),
+            quoted(&real_bun)
+        ),
+    )
+    .unwrap();
+    copy_executable(&wrapper_source, &wrappers.join("bun"));
+    fs::set_permissions(wrappers.join("bun"), fs::Permissions::from_mode(0o700)).unwrap();
+    let path = std::env::join_paths(
+        std::iter::once(wrappers).chain(std::env::split_paths(&existing_path)),
+    )
+    .unwrap();
+    let output = Command::new(directory.0.join("sevro"))
+        .args(["demo", "--json"])
+        .current_dir(directory.0.join("caller"))
+        .env("TMPDIR", directory.0.join("temporary"))
+        .env("PATH", path)
+        .output()
+        .unwrap();
+
+    let container = PathBuf::from(fs::read_to_string(marker).unwrap().trim());
+    assert_eq!(container.parent().unwrap(), directory.0.join("temporary"));
+    assert_eq!(
+        fs::metadata(&container).unwrap().permissions().mode() & 0o777,
+        0o500
+    );
+    let denied = fs::write(container.join("permission-probe"), "must not be writable")
+        .expect_err("the permission fixture requires actual non-root write denial");
+    assert_eq!(denied.kind(), std::io::ErrorKind::PermissionDenied);
+    let retained = read_json(directory.0.join("caller/.sevro/results/latest.json"));
+    assert_eq!(retained["exitCode"], 0);
+    assert_eq!(retained["task"]["verdict"], "passed");
+    let evidence_path = Path::new(retained["evidencePath"].as_str().unwrap());
+    let evidence = read_json(evidence_path);
+    assert_eq!(evidence["result"], retained);
+    assert_eq!(
+        read_json(evidence_path.with_file_name("result.json")),
+        retained
+    );
+    assert_eq!(
+        evidence["configuration"]["resolved"]["projectRoot"],
+        container.join("project").to_str().unwrap()
+    );
+    let raw_path = url::Url::parse(evidence["trials"][0]["rawResult"]["path"].as_str().unwrap())
+        .unwrap()
+        .to_file_path()
+        .unwrap();
+    assert_eq!(fs::read_to_string(raw_path).unwrap(), "ready");
+    assert_eq!(
+        output.status.code(),
+        Some(70),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout).lines().count(), 1);
+    let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(result["format"], "sevro.cli-result.v1");
+    assert!(result["runId"].is_null());
+    assert_eq!(result["execution"]["status"], "not_run");
+    assert_eq!(result["grading"]["status"], "not_requested");
+    assert_eq!(result["task"]["verdict"], "not_assessed");
+    assert_eq!(result["exitCode"], 70);
+    assert!(result["evidencePath"].is_null());
+    assert_eq!(result["cases"], json!([]));
+    assert_eq!(result["diagnostic"]["code"], "sevro.runner.error");
+    assert!(!result["diagnostic"]["message"].as_str().unwrap().is_empty());
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains(result["diagnostic"]["message"].as_str().unwrap())
     );
 }

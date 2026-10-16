@@ -7,18 +7,18 @@ use std::process::Command;
 use std::sync::{Mutex, MutexGuard};
 use uuid::Uuid;
 
-pub(super) struct FailedRun {
+pub(super) struct Run {
     pub(super) trial: Value,
     workspace: PathBuf,
 }
 
-impl Drop for FailedRun {
+impl Drop for Run {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.workspace);
     }
 }
 
-pub(super) fn failed_run(fixture: &Fixture) -> FailedRun {
+pub(super) fn failed_run(fixture: &Fixture) -> Run {
     let output = fixture.command().output().unwrap();
     let result: Value = serde_json::from_slice(&output.stdout).unwrap();
     let evidence = read_json(Path::new(result["evidencePath"].as_str().unwrap()));
@@ -32,7 +32,7 @@ pub(super) fn failed_run(fixture: &Fixture) -> FailedRun {
         .as_str()
         .unwrap()
         .into();
-    let failure = FailedRun { trial, workspace };
+    let failure = Run { trial, workspace };
     assert_eq!(output.status.code(), Some(2), "{result}");
     assert_eq!(result["execution"], json!({"status":"failed"}));
     assert_eq!(result["grading"], json!({"status":"not_requested"}));
@@ -61,6 +61,62 @@ pub(super) fn failed_run(fixture: &Fixture) -> FailedRun {
         }
     }
     failure
+}
+
+pub(super) fn completed_run(fixture: &Fixture) -> Run {
+    let output = fixture.command().output().unwrap();
+    let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let evidence = read_json(Path::new(result["evidencePath"].as_str().unwrap()));
+    let trial = evidence["trials"][0].clone();
+    let workspace = trial["observations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|observation| observation["id"] == "sevro.observation.workspaces")
+        .unwrap()["data"]["candidate"]
+        .as_str()
+        .unwrap()
+        .into();
+    let run = Run { trial, workspace };
+    assert_eq!(output.status.code(), Some(0), "{result}");
+    assert_eq!(result["execution"], json!({"status":"completed"}));
+    assert_eq!(result["grading"], json!({"status":"completed"}));
+    assert_eq!(result["task"], json!({"verdict":"passed"}));
+    assert_eq!(
+        result["cases"][0]["trials"][0]["checks"][0]["status"],
+        "passed"
+    );
+    assert!(!run.workspace.exists());
+    let probe = read_json(&fixture.root.join("binary/capture.json"));
+    for (name, value) in probe["checks"].as_object().unwrap() {
+        assert_eq!(value, true, "native fixture check: {name}");
+    }
+    for path in probe["privatePaths"].as_object().unwrap().values() {
+        assert!(
+            !Path::new(path.as_str().unwrap()).exists(),
+            "private state survived: {path}"
+        );
+    }
+    assert_eq!(
+        fs::read_to_string(fixture.root.join("project/credential.json")).unwrap(),
+        "{\"test\":\"SYNTHETIC_CLAUDE_LOGIN\"}"
+    );
+    fixture.assert_private_state_removed();
+    for text in [
+        String::from_utf8_lossy(&output.stdout).into_owned(),
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+        evidence.to_string(),
+    ] {
+        for secret in [
+            "SYNTHETIC_CLAUDE_LOGIN",
+            "SYNTHETIC_CALLER_API_SENTINEL",
+            "SYNTHETIC_CALLER_OAUTH_SENTINEL",
+            "private commentary",
+        ] {
+            assert!(!text.contains(secret));
+        }
+    }
+    run
 }
 
 pub(super) fn assert_no_response(trial: &Value) {
@@ -156,7 +212,14 @@ impl Fixture {
         fs::write(binary, script).unwrap();
     }
 
-    pub(super) fn assert_failed_state(&self, failure: &FailedRun) {
+    pub(super) fn replace_native_source(&self, from: &str, to: &str) {
+        let binary = self.root.join("binary/claude-wrapper");
+        let script = fs::read_to_string(&binary).unwrap();
+        assert_eq!(script.matches(from).count(), 1);
+        fs::write(binary, script.replace(from, to)).unwrap();
+    }
+
+    pub(super) fn assert_failed_state(&self, failure: &Run) {
         let probe = read_json(&self.root.join("binary/capture.json"));
         for (name, value) in probe["checks"].as_object().unwrap() {
             assert_eq!(value, true, "native fixture check: {name}");

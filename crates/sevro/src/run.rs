@@ -21,26 +21,34 @@ use serde_json::{Value, json};
 type RunResult<T> = Result<T, RunError>;
 
 pub fn command(arguments: &[String]) -> i32 {
+    command_with_release(arguments, || Ok(()))
+}
+
+pub(super) fn command_with_release(
+    arguments: &[String],
+    release: impl FnOnce() -> std::io::Result<()>,
+) -> i32 {
     let json = options::json_requested(arguments);
     let options = match Options::parse(arguments) {
         Ok(options) => options,
-        Err(error) => return failure(json, 64, error.message()),
+        Err(error) => return failure_after_release(json, 64, error.message(), release),
     };
     let runtime = match runtime_config::load(&options) {
         Ok(runtime) => runtime,
-        Err(error) => return failure(json, 64, error.message()),
+        Err(error) => return failure_after_release(json, 64, error.message(), release),
     };
     let cancellation = match crate::cancellation::CommandCancellation::register() {
         Ok(cancellation) => cancellation,
-        Err(message) => return failure(json, 70, &message),
+        Err(message) => return failure_after_release(json, 70, &message, release),
     };
     let mut host = match host::HostContext::open(&options, cancellation.token()) {
         Ok(host) => host,
         Err(error) => {
             if let Some(signal) = cancellation.token().signal() {
+                warn_release_failure(release);
                 return 128 + signal;
             }
-            return failure(json, 64, error.message());
+            return failure_after_release(json, 64, error.message(), release);
         }
     };
     let loaded = match &options.case_source {
@@ -54,7 +62,9 @@ pub fn command(arguments: &[String]) -> i32 {
     };
     let (case, extension) = match loaded {
         Ok(loaded) => loaded,
-        Err(error) => return failure(json, error.code, error.error.message()),
+        Err(error) => {
+            return failure_after_release(json, error.code, error.error.message(), release);
+        }
     };
     let fixture = match fixtures::prepare(
         &options,
@@ -67,7 +77,7 @@ pub fn command(arguments: &[String]) -> i32 {
             .map_or(&[], |extension| extension.artifacts.as_slice()),
     ) {
         Ok(fixture) => fixture,
-        Err(error) => return failure(json, 64, error.message()),
+        Err(error) => return failure_after_release(json, 64, error.message(), release),
     };
     host.prepare_execution(&options, &fixture, &runtime);
     let identity = match identity::prepare(
@@ -79,7 +89,9 @@ pub fn command(arguments: &[String]) -> i32 {
         &runtime,
     ) {
         Ok(identity) => identity,
-        Err(error) => return failure(json, error.code, error.error.message()),
+        Err(error) => {
+            return failure_after_release(json, error.code, error.error.message(), release);
+        }
     };
     eprintln!("sevro: effective settings {}", identity.resolved);
     let result = records::run(&options, &case, &fixture, &identity, &host);
@@ -87,6 +99,12 @@ pub fn command(arguments: &[String]) -> i32 {
     let shutdown = host.shutdown();
     match result.and_then(|result| shutdown.map(|adapter_exit| (result, adapter_exit))) {
         Ok((completion, adapter_exit)) => {
+            if let Err(error) = release_inputs(release) {
+                if completion.exit_code == 0 {
+                    return failure(json, 70, error.message());
+                }
+                eprintln!("sevro: demo cleanup failed: {error}");
+            }
             if let Some(message) = completion.result["diagnostic"]["message"].as_str() {
                 eprintln!("sevro: {message}");
             }
@@ -97,8 +115,33 @@ pub fn command(arguments: &[String]) -> i32 {
                 completion.exit_code
             }
         }
-        Err(error) => failure(json, 70, error.message()),
+        Err(error) => failure_after_release(json, 70, error.message(), release),
     }
+}
+
+fn release_inputs(release: impl FnOnce() -> std::io::Result<()>) -> RunResult<()> {
+    release().map_err(|source| {
+        RunError::with_source(
+            format!("demo temporary project could not be removed: {source}"),
+            source,
+        )
+    })
+}
+
+fn warn_release_failure(release: impl FnOnce() -> std::io::Result<()>) {
+    if let Err(error) = release_inputs(release) {
+        eprintln!("sevro: demo cleanup failed: {error}");
+    }
+}
+
+fn failure_after_release(
+    json: bool,
+    code: i32,
+    message: &str,
+    release: impl FnOnce() -> std::io::Result<()>,
+) -> i32 {
+    warn_release_failure(release);
+    failure(json, code, message)
 }
 
 fn display(result: &Value, json: bool, completion: Option<&records::Completion>) {

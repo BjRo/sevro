@@ -73,7 +73,10 @@ impl HostContext {
                 effort: effort.clone(),
                 configuration: Some(json!({"sevro.host.executable":binary})),
                 executable: Some(binary.clone()),
-                capabilities: vec![],
+                capabilities: vec![
+                    "sevro.host.continuation".into(),
+                    "sevro.claude.continuation".into(),
+                ],
                 session: None,
                 native: None,
                 timeout_ms: Some(600_000),

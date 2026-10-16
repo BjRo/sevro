@@ -282,8 +282,11 @@ fn integer(values: &Values, key: &str, default: &str) -> RunResult<u64> {
 
 fn candidate(values: &Values) -> RunResult<Candidate> {
     if let Some(module) = selected(values, "adapter-module") {
-        if values.contains_key("host") {
-            return Err("--host and --adapter-module are exclusive".into());
+        if let Some(host) = selected(values, "host") {
+            return Err(match host {
+                "codex" | "claude" => "--host and --adapter-module are exclusive".into(),
+                _ => "unsupported --host; use codex or claude".into(),
+            });
         }
         if values.contains_key("model") || values.contains_key("effort") {
             return Err("--model and --effort require a built-in host".into());
@@ -298,7 +301,7 @@ fn candidate(values: &Values) -> RunResult<Candidate> {
             .iter()
             .any(|key| values.contains_key(*key))
         {
-            return Err("Claude options require a Claude host route".into());
+            return Err("Claude options require --host claude".into());
         }
         return Ok(Candidate::Adapter {
             module: canonical_path(Path::new(module))?,
@@ -323,14 +326,14 @@ fn candidate(values: &Values) -> RunResult<Candidate> {
                 effort: required(values, "effort")?.into(),
             });
         }
-        Some(_) => return Err("this Rust dry-run slice currently requires --host codex".into()),
+        Some(_) => return Err("unsupported --host; use codex or claude".into()),
         None => return Err("missing --adapter-module or --host".into()),
     }
     if ["claude-bin", "claude-credential-file"]
         .iter()
         .any(|key| values.contains_key(*key))
     {
-        return Err("Claude options require a Claude host route".into());
+        return Err("Claude options require --host claude".into());
     }
     let binary = match selected(values, "codex-bin") {
         Some(path) => canonical_path(Path::new(path))?,

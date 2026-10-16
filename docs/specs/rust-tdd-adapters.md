@@ -725,6 +725,108 @@ Validation for the closed configuration finding:
 These are scoped repair checks. Whole-candidate acceptance, instrumented coverage
 and independent repair verification remain the coordinator's checkpoints.
 
+## Slice 19: preserve the caller's stderr descriptor
+
+Ubuntu CI at `faff8bae429a9b84f1b7dc4869c2d3b5e2f2cd62` exposed exit 101
+with empty stdout across varying adapter scenarios. Both the
+[Rust job](https://github.com/BjRo/sevro/actions/runs/38950746546/job/117141566824)
+and the [TypeScript shard](https://github.com/BjRo/sevro/actions/runs/38950746556/job/117141253127)
+captured stderr ending partway through `sevro: effective settings`, usually at
+the `trials` key. The diagnostic fixture preserved the original parse error,
+child exit code, and bounded stream contents; these failures were not ordinary
+host-result refusals.
+
+A separate actual CLI observation on macOS retained the caller's pipe writer
+and read its flags before launch and while the real adapter import waited at a
+readiness marker. The original Rust route changed flags from 1 to 5, adding
+`O_NONBLOCK`, before the adapter wrote anything. The TypeScript route kept flags
+at 1 at that same point. Bun had inherited the Rust process's stderr file
+description, so its nonblocking setup affected the runner's diagnostic writes.
+The evidence, argv, adapter modules, and streams are retained under
+`/Users/bjro/.codex/artifacts/sevro-adapter-stderr-20261016/`; this observation
+does not claim that TypeScript leaves descriptor flags unchanged after its own
+later diagnostic writes.
+
+The durable public scenario uses Python 3 solely as the caller owning the pipe.
+It reads flags without changing them, releases the adapter import, and checks
+exit 0, the exact Unicode/NUL adapter diagnostic once, a complete settings JSON
+line, and the existing retained-result/evidence assertions. Its independent
+TypeScript oracle passed:
+`bun tests/fixtures/rust-adapter-scenario.ts /Users/bjro/.codex/artifacts/sevro-adapter-stderr-20261016/typescript-cli stderr-descriptor`.
+The executable wrapper directly invokes the existing `src/cli.ts` with Bun.
+
+The Cargo commands below used the pinned toolchain and the dedicated
+`CARGO_TARGET_DIR=/Users/bjro/.codex/artifacts/sevro-adapter-stderr-20261016/target`.
+
+Red — `cargo test --offline --locked -p sevro --test run_adapter preserves_adapter_diagnostics_without_changing_parent_stderr -- --exact`:
+the unchanged production transport failed the public descriptor assertion,
+`5 !== 1`. The adapter itself completed; this was a deterministic descriptor
+regression, independent of Ubuntu's nondeterministic write timing.
+
+The transport now gives the bridge a private Unix stream for stderr and forwards
+its bytes with bounded-buffer `io::copy`. The writer presented to Bun no longer
+shares the caller's file description. The forwarding task holds a `Stderr`
+handle, acquiring its lock for writes rather than while waiting for input.
+Forwarding failures remain errors. After reaping the bridge, the parent shuts
+down the private writer endpoint and joins the reader. Already queued bytes drain
+before EOF, even if a descendant still holds a duplicate writer. This replaced
+the initially considered read timeout with explicit stream shutdown; it does
+not add or claim a new bound for the existing bridge request/exit waits.
+Spawn/connect failures retain their original failure and release the private
+forwarder; the child and reader handles are consumed once.
+
+Green — `cargo test --offline --locked -p sevro --test run_adapter preserves_adapter_diagnostics_without_changing_parent_stderr -- --exact`:
+1 test passed with the exact diagnostic bytes, complete settings, and retained
+result. An intervening compile error from formatting an unresolved `Result`
+was corrected before this green; it is not additional behavioral red evidence.
+
+## Slice 20: finish diagnostics with a descendant-held writer
+
+A second real adapter starts an unreferenced 30-second child that inherits its
+stderr. The caller confirms that child is still alive when the CLI completes,
+then kills only its own process group before reading EOF. This cleanup ordering
+also permits the TypeScript baseline, whose direct child naturally keeps the
+caller's pipe open. The first oracle attempt instead waited for pipe EOF before
+cleaning up that child and failed its helper deadline; correcting that fixture
+ordering was not a production behavior change.
+
+Independent oracle —
+`bun tests/fixtures/rust-adapter-scenario.ts /Users/bjro/.codex/artifacts/sevro-adapter-stderr-20261016/typescript-cli stderr-descendant`:
+passed after the fixture cleanup correction, preserving the diagnostic and
+result while the descendant remained alive at CLI exit.
+
+Initial green — `cargo test --offline --locked -p sevro --test run_adapter finishes_adapter_diagnostics_while_a_descendant_retains_stderr -- --exact`:
+1 test passed in 0.69 seconds. The 10-second child-completion deadline was not
+reached, despite the descendant retaining stderr for its 30-second sleep.
+This characterization required no further product change. Both scenarios have
+matching wrappers in the existing TypeScript acceptance suite. The contributor
+guide now explicitly identifies Python 3 as a normal adapter-test prerequisite.
+
+Scoped validation for the stderr repair:
+
+- `cargo test --offline --locked -p sevro --test run_adapter -- --test-threads=1`:
+  all 34 public adapter scenarios passed.
+- `./node_modules/.bin/eslint tests/fixtures/rust-adapter-scenario.ts tests/rust-adapter-cli.test.ts --max-warnings 0`:
+  passed.
+- `./node_modules/.bin/tsc --noEmit`: passed.
+- `cargo clippy --workspace --all-targets --offline --locked -- -D warnings`:
+  passed in the same dedicated target.
+- `./node_modules/.bin/prettier --check tests/fixtures/rust-adapter-scenario.ts tests/rust-adapter-cli.test.ts docs/specs/rust-tdd-adapters.md CONTRIBUTING.md`:
+  passed.
+- `bun run check:docs`: passed.
+- The direct scoped `rustfmt` invocation was blocked by the shell allowlist;
+  no alternate execution path or permission change was attempted. Rust
+  formatting remains part of the coordinator's whole-candidate gate.
+
+The new Bun wrappers were not separately executed locally because their existing
+build helper explicitly uses the default target, held by another contributor.
+The Cargo suite executed the same actual fixture functions against the dedicated
+candidate. TypeScript wrapper execution remains part of published acceptance.
+
+The exact updated Ubuntu CI candidate remains required to establish the repair
+there. Existing bridge request/exit deadlines and noncooperative-adapter behavior
+remain outside this bounded stderr fix.
+
 ## Remaining parity slices
 
 The first slice does not establish full adapter parity. Required later public

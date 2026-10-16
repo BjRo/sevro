@@ -1,10 +1,12 @@
+#[path = "native_claude/continuation.rs"]
+mod continuation;
 #[path = "native_claude/fixture.rs"]
 mod fixture;
 
-use fixture::{Fixture, artifact_path, assert_no_response, failed_run, read_json};
+use fixture::{Fixture, artifact_path, assert_no_response, completed_run, failed_run, read_json};
 use serde_json::{Value, json};
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::Path;
 use std::process::Command;
 
@@ -210,6 +212,122 @@ setInterval(() => {{}}, 1000);
         state.trim().is_empty() || state.trim().starts_with('Z'),
         "owned descendant survived stderr overflow: {state}"
     );
+}
+
+#[test]
+fn preserves_response_and_cost_when_token_usage_is_invalid() {
+    let fixture = Fixture::new();
+    fixture.replace_native_source(
+        "\"usage\":{\"input_tokens\":1,\"output_tokens\":2}",
+        "\"usage\":{\"input_tokens\":\"wrong\",\"output_tokens\":2}",
+    );
+    let run = completed_run(&fixture);
+    assert_retained_response(
+        &run.trial,
+        "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"ready\",\"usage\":{\"input_tokens\":\"wrong\",\"output_tokens\":2},\"total_cost_usd\":0.01}\n",
+        "0d613a6dfa4f00aa362a02156548d4b4c93136f53dee7c56a1dff4904c703f31",
+    );
+    assert_eq!(
+        run.trial["usage"],
+        json!({"inputTokens":null,"outputTokens":null,"costUsd":0.01,"complete":false})
+    );
+}
+
+#[test]
+fn retains_ready_response_but_rejects_malformed_assistant_content() {
+    let fixture = Fixture::new();
+    fixture.replace_native_source(
+        "process.stdout.write(",
+        concat!(
+            "process.stdout.write('{\"type\":\"assistant\",\"message\":{\"content\":[null]}}\\n');\n",
+            "process.stdout.write("
+        ),
+    );
+    let failure = failed_run(&fixture);
+    assert_retained_response(
+        &failure.trial,
+        concat!(
+            "{\"type\":\"assistant\",\"message\":{\"content\":[null]}}\n",
+            "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"ready\",\"usage\":{\"input_tokens\":1,\"output_tokens\":2},\"total_cost_usd\":0.01}\n"
+        ),
+        "d9cf2906a3b635d0cf7b609c54b6d8d58bb26aae336c3d277f26c27d18d99147",
+    );
+    assert_eq!(
+        failure.trial["usage"],
+        json!({"inputTokens":null,"outputTokens":null,"costUsd":null,"complete":false})
+    );
+    fixture.assert_failed_state(&failure);
+}
+
+#[test]
+fn rejects_missing_selected_credential_despite_ambient_authentication() {
+    let fixture = Fixture::new();
+    let credential = fixture.root.join("project/credential.json");
+    fs::remove_file(&credential).unwrap();
+    let failure = failed_run(&fixture);
+    assert_no_response(&failure.trial);
+    assert!(!fixture.root.join("binary/capture.json").exists());
+    assert!(!credential.exists());
+    fixture.assert_private_state_removed();
+}
+
+#[test]
+fn rejects_credential_larger_than_one_mib_before_launch() {
+    let fixture = Fixture::new();
+    let credential = fixture.root.join("project/credential.json");
+    let oversized = vec![b'x'; 1024 * 1024 + 1];
+    fs::write(&credential, &oversized).unwrap();
+    let failure = failed_run(&fixture);
+    assert_no_response(&failure.trial);
+    assert!(!fixture.root.join("binary/capture.json").exists());
+    assert_eq!(fs::read(&credential).unwrap(), oversized);
+    fixture.assert_private_state_removed();
+}
+
+#[test]
+fn rejects_executable_symlink_into_protected_project() {
+    let fixture = Fixture::new();
+    let binary = fixture.root.join("binary/claude-wrapper");
+    let protected = fixture.root.join("project/claude-wrapper");
+    let original = fs::read(&binary).unwrap();
+    fs::rename(&binary, &protected).unwrap();
+    symlink(&protected, &binary).unwrap();
+    let failure = failed_run(&fixture);
+    assert_no_response(&failure.trial);
+    assert!(!fixture.root.join("binary/capture.json").exists());
+    assert_eq!(fs::read_link(&binary).unwrap(), protected);
+    assert_eq!(fs::read(&protected).unwrap(), original);
+    assert_eq!(
+        fs::read_to_string(fixture.root.join("project/credential.json")).unwrap(),
+        "{\"test\":\"SYNTHETIC_CLAUDE_LOGIN\"}"
+    );
+    fixture.assert_private_state_removed();
+}
+
+#[test]
+fn accepts_text_and_skill_blocks_before_successful_result() {
+    let fixture = Fixture::new();
+    let assistant = "{\"type\":\"assistant\",\"sessionId\":\"session-one\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"private commentary\"},{\"type\":\"tool_use\",\"id\":\"skill-one\",\"name\":\"Skill\",\"input\":{\"skill\":\"example:read\"}}]}}\n";
+    fixture.replace_native_source(
+        "process.stdout.write(",
+        &format!(
+            "process.stdout.write({});\nprocess.stdout.write(",
+            serde_json::to_string(assistant).unwrap()
+        ),
+    );
+    let run = completed_run(&fixture);
+    assert_retained_response(
+        &run.trial,
+        &format!(
+            "{assistant}{}",
+            "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"ready\",\"usage\":{\"input_tokens\":1,\"output_tokens\":2},\"total_cost_usd\":0.01}\n"
+        ),
+        "8eea44a20823e540b15ddcd1c0182a80056dc71e9e97e0489f0dba55481c6c8f",
+    );
+    assert_eq!(run.trial["usage"]["inputTokens"].as_f64(), Some(1.0));
+    assert_eq!(run.trial["usage"]["outputTokens"].as_f64(), Some(2.0));
+    assert_eq!(run.trial["usage"]["costUsd"].as_f64(), Some(0.01));
+    assert_eq!(run.trial["usage"]["complete"], true);
 }
 
 fn assert_retained_response(trial: &Value, expected_events: &str, event_hash: &str) {

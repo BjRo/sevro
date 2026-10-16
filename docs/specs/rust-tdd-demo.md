@@ -98,7 +98,7 @@ TypeScript source changed in this demo slice.
      to verify removal of the actual project, case and adapter paths. The
      existing caller file remains unchanged and no replacement storage exists.
 
-## Validation and remaining boundary
+## Initial validation and follow-up boundaries
 
 The five cases above were run sequentially through the compiled public CLI.
 Final focused checks passed:
@@ -120,20 +120,123 @@ native adapter implementation.
 Storage-failure diagnostic wording is not byte-for-byte identical. The observed
 TypeScript message was `EEXIST: file already exists, mkdir '<results-root>'`;
 Rust reports `cannot create directory <results-root>: File exists (os error 17)`.
-Rust's existing run failure hint also names supported run options, while
-TypeScript's runner-failure hint names writable results/run-state roots. The
+At that initial boundary Rust's run failure hint named supported run options,
+while TypeScript's runner-failure hint named writable results/run-state roots. The
 independent Rust observation is retained at
 `/private/var/folders/_b/yvzxqsys46l91yf5dtlk7q9w0000gn/T/sevro-demo-preparation-baseline-Ls8Sih/observation.json`.
 The coordinator accepted the cleanup control's outcome/code/filesystem boundary
 and held the shared run presentation source; this slice does not claim wording
 parity for that existing run error.
-The shared runner-failure hint mismatch is deferred to a separate public
-run-presentation TDD slice, not accepted as final parity. It is distinct from
-the documented operating-system error wording difference.
+The separate [storage presentation slice](rust-tdd-storage.md) subsequently
+repaired the runner-failure hint. That change is distinct from both the documented
+operating-system error wording difference and the cleanup-order repair below.
 
-Cleanup failure before result publication remains unverified. The current demo
-guard releases the owned directory after the run command returns, while
-TypeScript releases before displaying the result. No race or private cleanup
-hook was introduced to manufacture that failure. Tests establish completed
-process cleanup on success and on the deterministic preparation failure above,
-not cleanup-error precedence or signal behavior during demo preparation.
+## Cleanup failure before display
+
+The initial demo guard ran after the run command displayed its result and
+discarded cleanup errors. A later public CLI slice demonstrates and repairs
+that behavior without changing the packaged case or adapter.
+
+The oracle is `CLI finalization preserves one result and the earlier failure
+(%j)` in [the TypeScript CLI tests](../../tests/cli/defaults.test.ts), together
+with [main's release ordering](../../src/cli/command.ts) and
+[demo's idempotent cleanup](../../src/cli/demo.ts). The TypeScript test supplies
+a throwing release callback: successful assessment becomes exit 70, while
+existing task failure or invalid configuration keeps exit 1 or 64. Source
+ordering establishes that run evidence, `result.json`, and `latest.json` are
+already retained before cleanup. They remain completed and passed when cleanup
+alone prevents successful public completion.
+
+The Rust fault mechanism deliberately differs from that TypeScript callback.
+The test invokes the real compiled `demo --json` with a PATH-selected Bun
+wrapper. Before invoking the actual Bun executable with unchanged arguments,
+the wrapper validates that exactly one demo container exists under its owned
+`TMPDIR`, with the case, adapter and project already present, and changes that
+outer container to mode `0500`. The original adapter still executes through the
+real bridge. No product injection option, replacement cleanup routine, polling
+race, or synthetic result is used. TypeScript imports its adapter in-process,
+so this is not claimed as a matched external TypeScript fault capture.
+
+Before checking the CLI exit, the regression verifies the wrapper's recorded
+path, the real container mode, actual `PermissionDenied` on an attempted write,
+the retained passing result/evidence/latest equality, and raw `ready` bytes.
+This makes non-root permission enforcement and completed execution prerequisites
+of the behavioral assertion. The fixture's drop guard restores permissions on
+only its own demo containers before removing its owned temporary tree, including
+when the intended red assertion panics.
+
+- Red — `cargo test -p sevro --test demo --locked demo_reports_cleanup_failure_once_without_replacing_completed_evidence -- --exact`:
+  all fault and retained-evidence controls passed; public exit was 0 instead of
+  70 because cleanup failure was ignored after successful display.
+- Green — `cargo test -p sevro --test demo --locked demo_reports_cleanup_failure_once_without_replacing_completed_evidence -- --exact`:
+  1 passed after the coordinator handed off the narrow run-command release
+  boundary. Demo now releases once before display. A cleanup error following
+  successful assessment becomes a typed `RunError` with its original I/O cause
+  and one exit-70 unassessed JSON result. Retained passing evidence is untouched.
+  Ordinary `run` uses a no-op release callback. Earlier nonzero results retain
+  their precedence and emit a cleanup warning if release also fails.
+
+Final focused checks for this follow-up passed:
+
+- `cargo test -p sevro --test demo --locked -- --test-threads=1`: 6 passed,
+  0 failed, 0 ignored, 0 filtered out.
+- `cargo test -p sevro --test run_adapter --locked executes_existing_typescript_adapter -- --exact`:
+  1 passed, exercising the unchanged normal-run route.
+- `cargo clippy -p sevro --lib --test demo --test run_adapter --locked -- -D warnings`.
+- `rustfmt --edition 2024 --config skip_children=true --check crates/sevro/src/demo.rs crates/sevro/src/run.rs crates/sevro/tests/demo.rs`.
+- `bunx prettier --write docs/specs/rust-tdd-demo.md` and `bun run check:docs`.
+
+This follow-up owns only `demo.rs`, the narrow `run.rs` handoff, the public demo
+tests, and this ledger. It adds no dependency and changes no TypeScript source.
+The new permission-denial observation was made on non-root macOS; no matching
+TypeScript filesystem-fault capture or new signal-during-demo-preparation
+observation is claimed. The broader source acceptance and compiler coverage
+gates remain coordinator-owned.
+
+## Executable fixture copying under parallel tests
+
+The published Ubuntu branch-coverage job for
+`faff8bae429a9b84f1b7dc4869c2d3b5e2f2cd62`
+[failed two of the five demo tests](https://github.com/BjRo/sevro/actions/runs/38950746546/job/117141566772)
+before Sevro started. Both `Command::output` calls returned
+`ExecutableFileBusy` (`Text file busy`, OS error 26), at the published
+`tests/demo.rs` lines 27 and 215. The other three tests passed. Each test copied
+the executable into its own UUID directory; this was a fixture failure, not a
+product-behavior red.
+
+The concrete diagnosis is an inference from the fixture and the documented
+[Rust Unix executable-copy/spawn race](https://github.com/rust-lang/rust/issues/114554).
+A thread copying an executable opens its destination for writing. A concurrent
+process spawn can inherit that descriptor until the child executes, so closing
+the copying thread's descriptor does not ensure that the executable has no
+writer. Distinct destination names do not prevent this inheritance. The CI
+compiler's Unix copy/spawn implementation permits this ordering; the log does
+not trace the actual writer process. No traced descriptor or local Linux
+reproduction is claimed.
+
+The fixture now runs `/bin/cp` with explicit source and destination arguments,
+waits for its completion, and reports copy startup or exit failures with path
+and process diagnostics. Only that child opens the executable destination for
+writing. The test process stages the cleanup test's Bun wrapper as a separate,
+non-executed file, then uses the same child-copy helper before setting executable
+permissions. That wrapper was absent from the published five-test failure; its
+materialization had the same avoidable descriptor exposure in the new sixth
+test. UUID isolation, actual adapter execution, permission restoration and the
+cleanup assertions remain unchanged. No retry or test serialization was added.
+
+- Before repair — `cargo test -p sevro --test demo --locked`: all 6 tests passed
+  with default parallelism on macOS. This did not reproduce or clear the Ubuntu
+  failure.
+- After fixture repair — `cargo test -p sevro --test demo --locked`: all 6 tests
+  passed with default parallelism on macOS, including the cleanup-failure case.
+  This is local fixture verification, not a claimed Linux green.
+
+Only `tests/demo.rs` and this ledger changed in the fixture repair. The product
+cleanup implementation in `src/demo.rs` and `src/run.rs` remained byte-identical.
+Published Linux validation remains coordinator-owned.
+
+Scoped fixture checks passed:
+
+- `cargo clippy -p sevro --lib --test demo --locked -- -D warnings`.
+- `rustfmt --edition 2024 --config skip_children=true --check crates/sevro/tests/demo.rs`.
+- `bunx prettier --write docs/specs/rust-tdd-demo.md` and `bun run check:docs`.

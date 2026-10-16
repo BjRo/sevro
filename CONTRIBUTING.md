@@ -99,6 +99,9 @@ Rust behavior through red/green integration slices using the
 [parity specification](docs/specs/rust-delivery-parity.md) and the applicable
 public contracts.
 
+Adapter compatibility regressions require Python 3 to observe caller-owned
+stderr descriptors and clean up their synthetic subprocesses.
+
 From the repository root with rustup installed:
 
 ```sh

@@ -402,3 +402,85 @@ directory during resolution. The threshold conversion failure is unreachable
 after its finite positive range check; a canonical manifest without a parent
 cannot pass the regular-file check. These are stated limits of the deterministic
 public evidence, rather than claimed passing cases.
+
+## Host-specific option diagnostics and unsupported-host precedence
+
+This later bounded cohort preserves the accepted native-route refusals without
+adding routes or changing execution. The independent sources are
+[`src/cli/invocation.ts`](../../src/cli/invocation.ts) and the exact
+`CLI refuses invalid --%s=%s before input loading or host execution` family in
+[`tests/cli/case-validation.test.ts`](../../tests/cli/case-validation.test.ts).
+The latter includes unsupported hosts and the Claude-only compatibility rule.
+Its Claude case uses the cache option; the binary and credential variants below
+were independently exercised before writing their Rust test.
+
+Six unchanged TypeScript CLI invocations ran sequentially with an owned project,
+synthetic credential files, an owned empty HOME, a native invocation marker and
+an adapter import marker. All returned a single complete unassessed result with
+exit 64, `sevro.invocation.invalid`, null run/evidence paths and empty cases.
+None imported the adapter, called a host or allocated the results directory.
+
+| Selections                              | Exact diagnostic                          |
+| --------------------------------------- | ----------------------------------------- |
+| Adapter plus `--claude-bin`             | `Claude options require --host claude`    |
+| Adapter plus `--claude-credential-file` | `Claude options require --host claude`    |
+| Codex plus `--claude-bin`               | `Claude options require --host claude`    |
+| Codex plus `--claude-credential-file`   | `Claude options require --host claude`    |
+| Unsupported host with an adapter        | `unsupported --host; use codex or claude` |
+| Unsupported host without an adapter     | `unsupported --host; use codex or claude` |
+
+The commands, environment, exact stdout/stderr, source hashes and marker checks
+are retained in six scenario JSON files alongside `manifest.json` and the probe:
+
+```text
+/private/var/folders/_b/yvzxqsys46l91yf5dtlk7q9w0000gn/T/sevro-options-route-baseline-9f5sy3xz
+```
+
+The script is `/tmp/sevro-options-route-baseline-20261016-edges.py`. The five
+recorded TypeScript source/test hashes matched before and after every invocation.
+No repository files changed during baseline capture.
+
+Red — `cargo test -p sevro --test run_options claude_options_name_the_required_host_before_loading_other_routes --locked -- --exact`:
+exited 101 on the adapter-plus-binary input. The result otherwise had the correct
+classification, but its diagnostic said `Claude options require a Claude host
+route` instead of naming `--host claude`.
+
+Green — `cargo test -p sevro --test run_options claude_options_name_the_required_host_before_loading_other_routes --locked -- --exact`:
+one test passed across all four binary/credential and adapter/Codex combinations
+after changing only the two existing Claude-option diagnostic strings. The
+other combinations are retained controls within this slice, not separately
+claimed red/green observations.
+
+Only after that green, the next test covered unsupported-host precedence.
+
+Red — `cargo test -p sevro --test run_options unsupported_host_takes_precedence_over_adapter_selection --locked -- --exact`:
+exited 101 because the adapter-selected input reported `--host and
+--adapter-module are exclusive` instead of identifying the unsupported host.
+
+Green — `cargo test -p sevro --test run_options unsupported_host_takes_precedence_over_adapter_selection --locked -- --exact`:
+one test passed with and without the adapter. Supported native hosts still
+conflict with an explicit adapter; unsupported host names get their own
+diagnostic. The standalone unsupported-host branch now uses the same diagnostic
+instead of the obsolete Codex-only slice message. No guards were removed.
+
+Both tests compare the full unassessed envelope, require one JSON document,
+check the stderr diagnostic and verify that no adapter import or run allocation
+occurred. The Claude-option test also verifies no native invocation. Case
+preparation, host transports, credentials, shutdown and exit precedence are
+outside the product change.
+
+After scoped formatting, `cargo test -p sevro --test run_options --locked`
+passed all 35 tests with no failures, ignored tests or filtered tests, including
+the existing valid-host exclusivity and saved-route override controls.
+
+Final scoped checks passed:
+
+- `rustfmt --edition 2024 --check --config skip_children=true crates/sevro/src/run/options.rs crates/sevro/tests/run_options.rs`.
+- `cargo clippy -p sevro --bin sevro --test run_options --locked -- -D warnings`.
+- `bun node_modules/prettier/bin/prettier.cjs --check docs/specs/rust-tdd-run-options.md`,
+  after formatting the new ledger table.
+- `bun run check:docs`.
+
+Only `run/options.rs`, `tests/run_options.rs`, and this ledger changed in the
+cohort. Broad acceptance and the publication binding remain coordinator-owned;
+these observations do not replace the frozen checkpoint's separate evidence.
