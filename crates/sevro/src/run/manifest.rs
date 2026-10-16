@@ -131,6 +131,7 @@ fn read(path: &Path) -> RunResult<(Values, PathBuf)> {
             | "project-root"
             | "config-root"
             | "results-root"
+            | "run-state-root"
             | "runtime-config-file"
             | "runner-build-digest"
             | "project-digest"

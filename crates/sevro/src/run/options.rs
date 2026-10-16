@@ -12,6 +12,7 @@ pub(super) struct Options {
     pub project_root: PathBuf,
     pub config_root: PathBuf,
     pub results_root: PathBuf,
+    pub run_state_root: PathBuf,
     pub candidate: Candidate,
     pub dry: bool,
     pub runner_digest: Option<String>,
@@ -73,6 +74,7 @@ pub(super) const PATH_SETTINGS: &[&str] = &[
     "project-root",
     "config-root",
     "results-root",
+    "run-state-root",
     "runtime-config-file",
 ];
 
@@ -122,6 +124,10 @@ impl Options {
                 .map(PathBuf::from)
                 .unwrap_or_else(|| project_root.join(".sevro/results")),
         )?;
+        let run_state_root = match selected(&values, "run-state-root") {
+            Some(path) => canonical_path(Path::new(path))?,
+            None => results_root.clone(),
+        };
         let condition = selected(&values, "condition").unwrap_or("passive");
         if !["passive", "enforced"].contains(&condition) {
             return Err("invalid --condition; use passive or enforced".into());
@@ -153,6 +159,7 @@ impl Options {
             project_root,
             config_root,
             results_root,
+            run_state_root,
             candidate,
             dry,
             runner_digest: selected(&values, "runner-build-digest")
@@ -218,6 +225,7 @@ fn parse_values(arguments: &[String]) -> RunResult<Values> {
             "project-root",
             "config-root",
             "results-root",
+            "run-state-root",
             "runner-build-digest",
             "project-digest",
             "condition",

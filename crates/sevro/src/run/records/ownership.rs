@@ -68,6 +68,7 @@ struct CompletedTrial {
 }
 
 pub(super) struct RunOwner {
+    results_directory: PathBuf,
     claim_path: PathBuf,
     checkpoint_path: PathBuf,
     claim: Claim,
@@ -88,7 +89,7 @@ impl Drop for UnadmittedDirectory {
 }
 
 impl RunOwner {
-    pub fn start(root: &Path, digest: &str) -> RunResult<Self> {
+    pub fn start(results_root: &Path, state_root: &Path, digest: &str) -> RunResult<Self> {
         if digest.len() != 64
             || !digest
                 .bytes()
@@ -96,15 +97,26 @@ impl RunOwner {
         {
             return Err("invalid evaluation identity for run ownership".into());
         }
-        storage::private_directory(root)?;
+        storage::private_directory(results_root)?;
         let run_id = Uuid::new_v4().to_string();
-        let directory = root.join(&run_id);
+        let directory = results_root.join(&run_id);
         storage::new_directory(&directory)?;
         let mut allocation = UnadmittedDirectory {
             path: directory.clone(),
             published: false,
         };
-        let claim_path = root.join("owners").join(format!("{digest}.json"));
+        storage::private_directory(state_root)?;
+        let state_directory = state_root.join(&run_id);
+        let mut state_allocation = if state_directory != directory {
+            storage::new_directory(&state_directory)?;
+            Some(UnadmittedDirectory {
+                path: state_directory.clone(),
+                published: false,
+            })
+        } else {
+            None
+        };
+        let claim_path = state_root.join("owners").join(format!("{digest}.json"));
         let admitted = locked(&claim_path, |transaction| {
             if let Some(prior) = read_claim(&claim_path)? {
                 if prior.evaluation_digest != digest {
@@ -132,15 +144,16 @@ impl RunOwner {
                 attempt_id: run_id.clone(),
                 status: Status::Active,
                 owner: process_identity(std::process::id())?,
-                active_run_path: root.join("active").join(format!("{run_id}.json")),
-                evidence_directory: directory.clone(),
+                active_run_path: state_root.join("active").join(format!("{run_id}.json")),
+                evidence_directory: state_directory.clone(),
                 artifact_path: directory.join("run.json"),
                 started_at: timestamp(transaction)?,
                 finalized_at: None,
             };
             let owner = Self {
+                results_directory: directory.clone(),
                 claim_path: claim_path.clone(),
-                checkpoint_path: directory.join("checkpoint.json"),
+                checkpoint_path: state_directory.join("checkpoint.json"),
                 claim,
                 completed: vec![],
             };
@@ -148,9 +161,16 @@ impl RunOwner {
             // JSON replacement is outside SQLite's rollback domain. Once the
             // claim is published, retain its evidence even if COMMIT fails.
             allocation.published = true;
+            if let Some(state) = &mut state_allocation {
+                state.published = true;
+            }
             Ok(owner)
         });
         if admitted.is_err() && !allocation.published {
+            if let Some(state) = &mut state_allocation {
+                fs::remove_dir_all(&state.path)?;
+                state.published = true;
+            }
             fs::remove_dir_all(&allocation.path)?;
             allocation.published = true;
         }
@@ -162,7 +182,7 @@ impl RunOwner {
     }
 
     pub fn directory(&self) -> &Path {
-        &self.claim.evidence_directory
+        &self.results_directory
     }
 
     pub fn complete_trial(&mut self, trial: u64, artifact_path: &Path) -> RunResult<()> {

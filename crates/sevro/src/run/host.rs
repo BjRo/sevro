@@ -128,6 +128,7 @@ impl HostContext {
         }
         let mut protected_roots = fixture.protected_roots();
         protected_roots.push(options.config_root.clone());
+        protected_roots.push(options.run_state_root.clone());
         protected_roots.extend(runtime.path.iter().cloned());
         protected_roots.extend(options.run_manifest_file.iter().cloned());
         protected_roots.extend(options.case_source_root.iter().cloned());

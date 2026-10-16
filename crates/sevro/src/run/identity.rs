@@ -99,7 +99,7 @@ pub(super) fn prepare<'a>(
 ) -> Result<PreparedIdentity<'a>, PreparationFailure> {
     let provenance = provenance::resolve(provenance::Request {
         project_root: &options.project_root,
-        excluded_roots: std::slice::from_ref(&options.results_root),
+        excluded_roots: &[options.results_root.clone(), options.run_state_root.clone()],
         runner_digest: options.runner_digest.as_deref(),
         project_digest: options.project_digest.as_deref(),
     })?;
@@ -221,7 +221,7 @@ fn resolved_settings(
         "advisoryAdapterModule":null,"advisoryExcludedPaths":[],"toolchainBinDir":null,"claudeUvCacheDir":null,
         "protectedRoots":[],"condition":options.condition,"trials":options.trials,"threshold":options.threshold,
         "jobs":options.jobs,"dry":options.dry,"projectRoot":options.project_root,"configRoot":options.config_root,
-        "resultsRoot":options.results_root,"runStateRoot":options.results_root,"runtimeConfigFile":runtime.path,
+        "resultsRoot":options.results_root,"runStateRoot":options.run_state_root,"runtimeConfigFile":runtime.path,
         "candidate":{"host":route.host,"model":route.model,"effort":route.effort,"executable":host.executable,"timeoutMs":host.timeout_ms()},
         "semantic":null,"advisory":null,"codexEntrypoint":matches!(options.candidate, Candidate::Codex { .. }).then_some("exec"),"agentConcurrencyLimit":host.agent_limit,
         "shellIsolation":false,"retainHostDiagnostics":false,"claudeProjectSettings":false,

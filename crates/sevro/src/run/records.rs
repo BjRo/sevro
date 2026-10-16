@@ -80,7 +80,8 @@ pub(super) fn run(
     let digest = identity.identity["digest"]
         .as_str()
         .ok_or("invalid evaluation identity for run ownership")?;
-    let mut owner = ownership::RunOwner::start(&options.results_root, digest)?;
+    let mut owner =
+        ownership::RunOwner::start(&options.results_root, &options.run_state_root, digest)?;
     let result = run_owned(options, case, fixture, identity, host, &mut owner);
     if result.is_err() {
         owner.diagnose_failure();
