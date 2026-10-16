@@ -104,11 +104,3 @@ export async function readNativeSession(path: string): Promise<string | null> {
   if (bytes.byteLength > MAX_SESSION_BYTES) return null;
   return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
 }
-
-export async function readNativeSessionText(
-  path: string,
-): Promise<string | null> {
-  if ((await stat(path)).size > MAX_SESSION_BYTES) return null;
-  const text = await readFile(path, "utf8");
-  return Buffer.byteLength(text) > MAX_SESSION_BYTES ? null : text;
-}

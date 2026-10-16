@@ -264,14 +264,6 @@ export async function claudeRepositoryInvocationObservation(input: {
   } catch {
     /* Unavailable or malformed native evidence stays partial. */
   }
-  const observed = input.tools.data.calls
-    .filter((call) => call.name === "Skill")
-    .map((call) => call.skill);
-  const observedSkills = repositoryObservedSkills(
-    receipt,
-    input.invocation.skillName,
-    observed,
-  );
   return {
     id: "sevro.claude.repository-invocation" as const,
     completeness:
@@ -282,23 +274,8 @@ export async function claudeRepositoryInvocationObservation(input: {
       method: "native_repository_command",
       ...receipt,
       skill: input.invocation.skillName,
-      primarySkill: observedSkills[0] ?? null,
-      observedSkills,
     },
   };
-}
-
-function repositoryObservedSkills(
-  receipt: Receipt,
-  skillName: string,
-  observed: string[],
-): string[] {
-  return [
-    ...new Set([
-      ...(receipt.accepted === true ? [skillName] : []),
-      ...observed,
-    ]),
-  ];
 }
 
 function repositorySessionId(stream: string): string | null {

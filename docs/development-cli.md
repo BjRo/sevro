@@ -309,9 +309,10 @@ Without that option, the host does not advertise
 `sevro.claude.repository-invocation` and refuses explicit repository dispatch
 before launching Claude. This avoids recording an unknown command as a usable
 repository-skill route.
-The host reads only bounded Skill metadata from completed child Agent sessions
-in its temporary private configuration, then removes those session files. A
-missing or inconsistent graph leaves `sevro.claude.nested-skills` partial.
+The host collects successful `Skill` calls through the existing structured
+stream as [skill activation evidence](native-hosts.md#skill-activation-evidence).
+It uses the same collector for parent and nested actors. Missing or unmatched
+results remain partial; separate transcript-based skill detectors are retired.
 
 A case's `followUpPrompt` starts a UUID-bound session and resumes that same
 session after a complete successful initial result. Both results must name

@@ -23,7 +23,7 @@ import {
   type HookMounts,
 } from "../runtime/hooks";
 import { runtimeObservations } from "../runtime/state";
-import { isOptionalNonblankString, isRecord } from "../value-guards";
+import { isOptionalNonblankString } from "../value-guards";
 import { runCodexAppServer } from "./codex-app-server";
 import { summarizeCodexEvents, type CodexEventSummary } from "./codex-events";
 import { verifyCodexInvocation } from "./codex-invocation";
@@ -31,10 +31,8 @@ import { installCodexPlugins } from "./codex-marketplace";
 import {
   codexNativeCallObservation,
   codexNativeSessionLastOrdinal,
-  codexNativeSkillReadRecovery,
 } from "./codex-native-calls";
 import { runCodexProcess, CodexProcessFailure } from "./codex-process";
-import { codexSkillReadObservation } from "./codex-skill-reads";
 import {
   codexHookMounts,
   prepareCodexState,
@@ -59,7 +57,6 @@ import {
   type HostDiagnostics,
 } from "../host-diagnostics";
 export type { CodexHostOptions } from "./codex-state";
-const MAX_EVENT_BYTES = 8 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 10 * 60_000;
 const MAX_TIMEOUT_MS = 30 * 60_000;
 
@@ -80,7 +77,6 @@ interface ExecutionContext {
   request: Request;
   state: CodexState;
   timeoutMs: number;
-  installedPluginRoots: string[];
   hooks?: HookMounts;
   skillTracking: SkillTracking;
   diagnostics?: HostDiagnostics;
@@ -92,7 +88,6 @@ interface TurnResult {
   followUpSummary: CodexEventSummary | null;
   appServer: AppServerResult | null;
   continuation: Observation | undefined;
-  observedEvents: string;
 }
 
 function validCodexPaths(options: CodexHostOptions): boolean {
@@ -150,8 +145,6 @@ function codexCapabilities(
     "sevro.codex.repository-invocation",
     "sevro.codex.native-calls",
     "sevro.host.native-controls",
-    "sevro.codex.initial-skill-reads",
-    "sevro.codex.follow-up-skill-reads",
   ];
 }
 function codexConfiguration(
@@ -280,7 +273,6 @@ async function executeCodexRequest(
       request,
       state,
       timeoutMs,
-      installedPluginRoots,
       hooks,
       skillTracking,
       diagnostics,
@@ -609,18 +601,6 @@ async function initialSummary(
     ? appServerSummary(appServer, request.workspace)
     : summarizeCodexEvents(execution.out, execution.code);
 }
-function combinedEvents(
-  execution: ProcessResult,
-  followUp: ProcessResult | null,
-): string {
-  const out = followUp
-    ? `${execution.out.trimEnd()}\n${followUp.out.trimStart()}`
-    : execution.out;
-  if (Buffer.byteLength(out, "utf8") > MAX_EVENT_BYTES)
-    throw new Error("Codex combined event stream exceeds the size limit");
-  return out;
-}
-
 class CodexTurnExecution {
   private appServerContinuation?: Observation;
   constructor(private context: ExecutionContext) {}
@@ -646,7 +626,6 @@ class CodexTurnExecution {
       summary,
       appServer,
       ...follow,
-      observedEvents: combinedEvents(execution, follow.followUp),
     };
   }
 
@@ -727,64 +706,8 @@ class CodexTurnExecution {
   }
 }
 
-type SkillReads = Awaited<ReturnType<typeof codexSkillReadObservation>>;
-async function phaseSkillReads(
-  context: ExecutionContext,
-  turns: TurnResult,
-  recovered: Awaited<ReturnType<typeof codexNativeSkillReadRecovery>>,
-) {
-  const streams = phaseReadStreams(turns);
-  if (!streams) return { initial: null, followUp: null };
-  const initial = {
-    ...(await codexSkillReadObservation(
-      streams.initial,
-      context.request.workspace,
-      context.installedPluginRoots,
-      recovered,
-    )),
-    id: "sevro.codex.initial-skill-reads",
-  };
-  const followUp = {
-    ...(await codexSkillReadObservation(
-      streams.followUp,
-      context.request.workspace,
-      context.installedPluginRoots,
-      recovered,
-    )),
-    id: "sevro.codex.follow-up-skill-reads",
-  };
-  return { initial, followUp };
-}
-
-function phaseReadStreams(turns: TurnResult) {
-  if (turns.followUp)
-    return { initial: turns.execution.out, followUp: turns.followUp.out };
-  if (!completedAppServer(turns.appServer)) return null;
-  const lines = turns.execution.out.trimEnd().split("\n");
-  const boundaries = lines.flatMap((line, index) =>
-    isFeedbackBoundary(line, turns.summary.threadId) ? [index] : [],
-  );
-  const [boundary] = boundaries;
-  if (boundaries.length !== 1 || boundary === undefined) return null;
-  return {
-    initial: lines.slice(0, boundary).join("\n"),
-    followUp: lines.slice(boundary + 1).join("\n"),
-  };
-}
-function completedAppServer(result: AppServerResult | null): boolean {
-  return result !== null && result.code === 0;
-}
-function isFeedbackBoundary(line: string, threadId: string): boolean {
-  const event: unknown = JSON.parse(line);
-  return (
-    isRecord(event) &&
-    event.type === "sevro.codex.feedback-boundary" &&
-    event.threadId === threadId
-  );
-}
 function explicitInvocationReceipt(
   selected: Request["explicitSkillInvocation"],
-  reads: SkillReads,
   completed: boolean,
 ) {
   if (!selected) return null;
@@ -794,22 +717,7 @@ function explicitInvocationReceipt(
     data: {
       method: "explicit_invocation",
       primarySkill: selected.skillName,
-      observedSkills: [
-        selected.skillName,
-        ...reads.data.observedSkills.filter(
-          (skill) => skill !== selected.skillName,
-        ),
-      ],
     },
-  };
-}
-function nativeSkillContext(context: ExecutionContext) {
-  return {
-    workspace: context.request.workspace,
-    installedPluginRoots: context.installedPluginRoots,
-    ...(context.request.followUpPrompt
-      ? { followUpPrompt: context.request.followUpPrompt }
-      : {}),
   };
 }
 function appServerObservation(result: AppServerResult | null): Observation[] {
@@ -824,25 +732,13 @@ function appServerObservation(result: AppServerResult | null): Observation[] {
     : [];
 }
 async function codexObservations(context: ExecutionContext, turns: TurnResult) {
-  const recovered = await codexNativeSkillReadRecovery(
-    context.state.codexHome,
-    turns.summary.threadId,
-  );
-  const reads = await codexSkillReadObservation(
-    turns.observedEvents,
-    context.request.workspace,
-    context.installedPluginRoots,
-    recovered,
-  );
-  const phases = await phaseSkillReads(context, turns, recovered);
   const native = await codexNativeCallObservation(
     context.state.codexHome,
     turns.summary.threadId,
-    nativeSkillContext(context),
+    { followUpPrompt: context.request.followUpPrompt },
   );
   const explicit = explicitInvocationReceipt(
     context.request.explicitSkillInvocation,
-    reads,
     turns.summary.complete,
   );
   return [
@@ -852,9 +748,6 @@ async function codexObservations(context: ExecutionContext, turns: TurnResult) {
       context.request.runtimeRole,
     ),
     ...appServerObservation(turns.appServer),
-    reads,
-    ...(phases.initial ? [phases.initial] : []),
-    ...(phases.followUp ? [phases.followUp] : []),
     native,
     codexNativeControls(native),
     ...(turns.continuation ? [turns.continuation] : []),

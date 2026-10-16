@@ -1,7 +1,17 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdtemp,
+  mkdir,
+  readFile,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   prepareSkillTracking,
   skillTrackingObservation,
@@ -475,4 +485,98 @@ test("catalog discovery skips empty documents and unrelated entries but flags re
   expect(redirected.skills.map((skill) => skill.invocation)).toEqual([
     "fixture",
   ]);
+});
+
+async function directHook(configurationPath: string | null, input: Uint8Array) {
+  const args = [
+    process.execPath,
+    fileURLToPath(
+      new URL("../src/hosts/skill-hook-handler.ts", import.meta.url),
+    ),
+  ];
+  if (configurationPath !== null) args.push(configurationPath);
+  const child = Bun.spawn(args, {
+    stdin: input,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+    child.exited,
+  ]);
+  expect({ stdout, stderr, code }).toEqual({ stdout: "", stderr: "", code: 0 });
+}
+
+test("the hook executable appends private receipts without producing tool output", async () => {
+  const { root, tracking } = await fixture();
+  const configuration = join(root, "direct.json");
+  await writeFile(configuration, JSON.stringify(tracking.configuration));
+  for (const event of ["SessionStart", "Stop"]) {
+    await directHook(
+      configuration,
+      Buffer.from(JSON.stringify({ hook_event_name: event, session_id: "s" })),
+    );
+  }
+  const path = join(tracking.configuration.receipts, "events.jsonl");
+  expect((await readFile(path, "utf8")).trim().split("\n")).toHaveLength(2);
+  expect((await stat(path)).mode & 0o777).toBe(0o600);
+  expect(
+    (await skillTrackingObservation(tracking, "s", true)).completeness,
+  ).toBe("complete");
+});
+
+test("hook transport errors and input or receipt limits remain silent and incomplete", async () => {
+  const { root, tracking } = await fixture();
+  const configuration = join(root, "direct.json");
+  await writeFile(configuration, JSON.stringify(tracking.configuration));
+  const partial = join(tracking.configuration.receipts, "partial");
+  for (const input of [
+    Buffer.from("{"),
+    Buffer.alloc(8 * 1024 * 1024 + 1, 32),
+  ]) {
+    await rm(partial, { force: true });
+    await directHook(configuration, input);
+    expect(await Bun.file(partial).exists()).toBe(true);
+  }
+  await rm(partial);
+  const events = join(tracking.configuration.receipts, "events.jsonl");
+  const size = 4 * 1024 * 1024 + 1;
+  await writeFile(events, Buffer.alloc(size));
+  await directHook(
+    configuration,
+    Buffer.from(JSON.stringify({ hook_event_name: "Stop", session_id: "s" })),
+  );
+  expect(await readFile(partial, "utf8")).toBe("limit\n");
+  expect((await stat(events)).size).toBe(size);
+  expect(
+    (await skillTrackingObservation(tracking, "s", true)).completeness,
+  ).toBe("partial");
+  await directHook(null, Buffer.from("{}"));
+});
+
+test("the total catalog budget and unreadable documents preserve partial discovery", async () => {
+  const { root, directory } = await fixture();
+  const blocked = join(directory, "blocked/SKILL.md");
+  await mkdir(join(directory, "blocked"));
+  await writeFile(blocked, "Blocked instructions.");
+  await chmod(blocked, 0);
+  try {
+    const catalog = await skillHookCatalog([{ directory, boundary: root }]);
+    expect(catalog.catalogComplete).toBe(false);
+    expect(catalog.skills.map((skill) => skill.invocation)).toEqual([
+      "fixture",
+    ]);
+  } finally {
+    await chmod(blocked, 0o600);
+  }
+  await rm(join(directory, "blocked"), { recursive: true });
+  for (let index = 0; index < 9; index++) {
+    const path = join(directory, `bulk-${index}`);
+    await mkdir(path);
+    await writeFile(join(path, "SKILL.md"), Buffer.alloc(1024 * 1024, 65));
+  }
+  const catalog = await skillHookCatalog([{ directory, boundary: root }]);
+  expect(catalog.catalogComplete).toBe(false);
+  expect(catalog.skills).toHaveLength(8);
 });

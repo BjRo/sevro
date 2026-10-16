@@ -22,9 +22,11 @@ its own option parser, host selection, scheduler, or grading framework.
 Use `--case-id` to select a case and `--adapter-module` for an explicit
 deterministic Sevro adapter. Native routes use Sevro's ordinary host options.
 
-The extension uses complete native selection and continuation observations.
+The extension uses complete `sevro.host.skill-activations` observations for
+automatic selection on both hosts and native continuation observations.
 Raw events remain necessary for source-content inspection and effect policy.
-Claude direct skill-file reads supplement its Skill-call metadata. The
+Explicit cases verify dispatch receipts separately; direct Claude file reads
+do not count as `Skill` activation. The
 follow-up case reuses Sevro's output grader for its initial answer because
 built-in engine output checks otherwise assess the final answer.
 

@@ -448,8 +448,6 @@ for (const entry of [{ type: "system", subtype: "init", session_id: "session-one
       accepted: true,
       reason: "native command and complete mounted body matched",
       skill: "probe",
-      primarySkill: "probe",
-      observedSkills: ["probe"],
     },
   });
   await writeFile(join(workspace, "unverified.flag"), "\n");

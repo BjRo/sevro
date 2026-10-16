@@ -52,9 +52,10 @@ and follow-ups.
 
 Both bundled adapters advertise `sevro.host.skill-activations`. Its observation
 retains qualified `observedSkills`, bounded call identities, and explicit
-`complete` or `partial` collection status. It supplements the existing explicit
-dispatch, nested-skill and Codex mounted-file read receipts; those receipts keep
-their existing meaning.
+`complete` or `partial` collection status. This is the sole activation collector
+for each host. It replaces Codex's command-pattern and native output-recovery
+detectors and Claude's separate nested-skill collector. Consumers must require
+this observation; the retired observation IDs are no longer emitted.
 
 Codex installs passive runner-owned hooks in its private home for each request.
 The `tool_result_body_match` method compares returned tool content against a
@@ -79,7 +80,9 @@ stream without enabling additional command hooks. It pairs each call with a
 successful result under the same session, parent actor and tool-use ID.
 Failed calls remain failed; unmatched attempts and malformed or conflicting
 records remain partial. Native explicit command expansion can load a skill
-without a `Skill` call, so explicit-dispatch receipts remain independent.
+without a `Skill` call. Explicit-dispatch receipts describe dispatch only;
+they do not add entries to the activation observation. A direct Claude `Read`
+also falls outside the `Skill` seam and is not inferred from its file path.
 
 The collectors retain no tool arguments, outputs or skill bodies in the new
 observation. Codex catalogs at most 128 skills, each at most 1 MiB, with an

@@ -122,48 +122,6 @@ function contentText(value: unknown): string {
     .map((item) => (typeof item.text === "string" ? item.text : ""))
     .join("\n");
 }
-function toolResult(turn: Turn, id: unknown): boolean {
-  if (!id) return false;
-  return turn.events
-    .flatMap(blocks)
-    .some(
-      (block) =>
-        block.type === "tool_result" &&
-        block.tool_use_id === id &&
-        block.is_error !== true,
-    );
-}
-
-// Claude's native Skill-call observation does not include direct Read results.
-export function usedGuide(turn: Turn, guideText: string): boolean {
-  return turn.events.flatMap(blocks).some((block) => {
-    if (block.type !== "tool_use" || !toolResult(turn, block.id)) return false;
-    const input = isRecord(block.input) ? block.input : {};
-    if (block.name === "Skill") return input.skill === "sevro-guide";
-    return mountedGuideRead(block, input, toolText(turn, block.id), guideText);
-  });
-}
-function mountedGuideRead(
-  block: GuideEvent,
-  input: GuideEvent,
-  text: string,
-  guideText: string,
-) {
-  if (block.name !== "Read" || typeof input.file_path !== "string")
-    return false;
-  if (!guideText) return false;
-  if (
-    !/\/(?:\.agents|\.claude)\/skills\/sevro-guide\/SKILL\.md$/.test(
-      input.file_path,
-    )
-  )
-    return false;
-  return text
-    .replace(/\r\n/g, "\n")
-    .replace(/^\s*\d+(?:→|\t)/gm, "")
-    .includes(guideText);
-}
-
 function commandSources(item: GuideEvent): string[] {
   if (!completedRead(item)) return [];
   const result = commandText(item);
@@ -231,7 +189,9 @@ export function inspectedSources(turn: Turn): string[] {
 function itemEffects(item: unknown): string[] {
   if (!isRecord(item)) return item ? ["unknown item"] : [];
   if (item.type === "command_execution") return commandEffects(item.command);
-  return ["agent_message", "reasoning", "todo_list"].includes(String(item.type))
+  return ["agent_message", "reasoning", "todo_list", "error"].includes(
+    String(item.type),
+  )
     ? []
     : [String(item.type)];
 }
