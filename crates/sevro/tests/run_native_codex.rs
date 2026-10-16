@@ -155,7 +155,25 @@ fn report_native_failure(root: &Path) {
     for phase in ["initial", "resume"] {
         let path = root.join("binary").join(format!("{phase}-sandbox-status"));
         match native_probe_status(&path) {
-            Some(code) => eprintln!("native fixture {phase} sandbox status: {code}"),
+            Some(code) => {
+                eprintln!("native fixture {phase} sandbox status: {code}");
+                if code != 0 {
+                    let path = root.join("binary").join(format!("{phase}-sandbox-stderr"));
+                    let mut bytes = Vec::new();
+                    match fs::File::open(path)
+                        .and_then(|file| file.take(4097).read_to_end(&mut bytes))
+                    {
+                        Ok(_) => eprintln!(
+                            "native fixture {phase} sandbox stderr (first 4096 bytes, truncated={}): {:?}",
+                            bytes.len() > 4096,
+                            String::from_utf8_lossy(&bytes[..bytes.len().min(4096)])
+                        ),
+                        Err(error) => {
+                            eprintln!("native fixture {phase} sandbox stderr: {}", error.kind());
+                        }
+                    }
+                }
+            }
             None => eprintln!("native fixture {phase} sandbox status: unavailable"),
         }
     }
