@@ -34,6 +34,8 @@ import {writeFile} from 'node:fs/promises';
 export default {
   id:'sevro.host.synthetic',model:'synthetic-v1',effort:'none',
   async run({workspace}) {
+    await writeFile(workspace+'/.sevro-git-head-test-owner',new URL('.',import.meta.url).href);
+    await writeFile(new URL('./workspace',import.meta.url),workspace);
     const head=execFileSync('git',['rev-parse','HEAD'],{cwd:workspace,encoding:'utf8'}).trim();
     await writeFile(new URL('./observed-head',import.meta.url),head);
     return {finalMessage:'ready',complete:true};
@@ -59,11 +61,41 @@ import {writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 export default {id:'sevro.host.synthetic',model:'synthetic-v1',effort:'none',async run({workspace}) {
  const git=(...args)=>execFileSync('git',args,{cwd:workspace,encoding:'utf8',env:{...process.env,GIT_AUTHOR_NAME:'Sevro Fixture',GIT_AUTHOR_EMAIL:'fixture@sevro.invalid',GIT_COMMITTER_NAME:'Sevro Fixture',GIT_COMMITTER_EMAIL:'fixture@sevro.invalid',GIT_AUTHOR_DATE:'2000-01-01T00:00:00+00:00',GIT_COMMITTER_DATE:'2000-01-01T00:00:00+00:00'}});
+ await writeFile(workspace+'/.sevro-git-head-test-owner',new URL('.',import.meta.url).href);
+ await writeFile(new URL('./workspace',import.meta.url),workspace);
  ACTION
  await writeFile(new URL('./observed-head',import.meta.url),git('rev-parse','HEAD').trim());
  return {finalMessage:'ready',complete:true};
 }};
 "#.replace("ACTION", action)).unwrap();
+    }
+
+    fn workspace_parent(&self) -> std::io::Result<PathBuf> {
+        let temporary = if cfg!(target_os = "linux") {
+            PathBuf::from("/var/tmp")
+        } else {
+            self.0.join("temporary")
+        };
+        Ok(fs::canonicalize(temporary)?.join("sevro-workspaces-private"))
+    }
+
+    fn assert_workspace(&self, workspace: &Path) {
+        assert_eq!(
+            workspace.parent(),
+            Some(self.workspace_parent().unwrap().as_path())
+        );
+        assert!(
+            workspace
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with("case-")
+        );
+        assert_eq!(
+            fs::read_to_string(self.0.join("workspace")).unwrap(),
+            workspace.to_str().unwrap()
+        );
     }
 
     fn invoke(&self) -> Output {
@@ -94,6 +126,25 @@ export default {id:'sevro.host.synthetic',model:'synthetic-v1',effort:'none',asy
 
 impl Drop for Fixture {
     fn drop(&mut self) {
+        if let Ok(recorded) = fs::read_to_string(self.0.join("workspace")) {
+            let workspace = Path::new(&recorded);
+            let owner = url::Url::from_directory_path(&self.0).unwrap();
+            if self
+                .workspace_parent()
+                .is_ok_and(|parent| workspace.parent() == Some(parent.as_path()))
+                && workspace
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with("case-"))
+                && fs::symlink_metadata(workspace).is_ok_and(|metadata| metadata.is_dir())
+                && fs::read_to_string(workspace.join(".sevro-git-head-test-owner"))
+                    .ok()
+                    .as_deref()
+                    == Some(owner.as_str())
+            {
+                let _ = fs::remove_dir_all(workspace);
+            }
+        }
         let _ = fs::remove_dir_all(&self.0);
     }
 }
@@ -175,7 +226,7 @@ fn assert_transition(fixture: &Fixture, exit: i32, current: &str, ancestor: bool
             .as_str()
             .unwrap(),
     );
-    assert!(workspace.starts_with(fixture.0.join("temporary")));
+    fixture.assert_workspace(workspace);
     assert_eq!(workspace.exists(), exit != 0);
     evidence
 }
@@ -291,7 +342,7 @@ fn git_head_and_output_checks_preserve_declaration_order() {
             .as_str()
             .unwrap(),
     );
-    assert!(workspace.starts_with(fixture.0.join("temporary")));
+    fixture.assert_workspace(workspace);
     assert!(!workspace.exists());
 }
 
@@ -368,7 +419,7 @@ fn git_head_failure_remains_failed_when_output_is_unavailable() {
             .as_str()
             .unwrap(),
     );
-    assert!(workspace.starts_with(fixture.0.join("temporary")));
+    fixture.assert_workspace(workspace);
     assert_eq!(
         fs::read_to_string(workspace.join("README.md")).unwrap(),
         "second\n"
@@ -448,6 +499,6 @@ fn git_head_unchanged_passes_with_runner_owned_base() {
             .as_str()
             .unwrap(),
     );
-    assert!(workspace.starts_with(fixture.0.join("temporary")));
+    fixture.assert_workspace(workspace);
     assert!(!workspace.exists());
 }

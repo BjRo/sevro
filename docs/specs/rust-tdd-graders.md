@@ -847,8 +847,9 @@ coverage, review and exact-head macOS/Ubuntu acceptance responsibility.
 ## Git HEAD mixed checks and failure boundaries
 
 The next bounded cohort uses the same real two-commit generated fixture and
-TypeScript adapter through the public CLI. Every fixture owns a unique input,
-result and temporary workspace root; cleanup removes only that fixture root.
+TypeScript adapter through the public CLI. Every fixture owns a unique input
+and result root. Its actual workspace is a direct child of the platform's
+managed workspace namespace, as clarified by the Ubuntu repair below.
 Independent TypeScript captures are reproduced with
 `python3 /tmp/sevro-git-head-boundary-baseline.py <mode>` and retain the exact
 command, declarations, adapter, stdout, stderr, exit, result/evidence and
@@ -900,6 +901,39 @@ ownership prevent a current combined Cargo run at this handoff. Owned Rustfmt,
 ledger Prettier and documentation checks pass. The coordinator will freeze
 these three files over the committed base and run affected acceptance before
 publication; the two actual focused greens do not substitute for that gate.
+
+### Ubuntu managed-workspace fixture repair
+
+Exact published `5c26676` Ubuntu stable job `117205400130` failed all three
+then-committed Git HEAD controls at the test's `workspace.starts_with` assertion,
+after their exit, verdict, revision, check and retained-evidence assertions had
+passed. Ubuntu nightly reported the same failure. This was a test fixture
+assumption, not evidence of a Git grading or deterministic revision mismatch.
+The canonical TypeScript `src/fixtures/workspace-state.ts` and Rust
+`crates/sevro/src/run/fixtures.rs` deliberately allocate Linux workspaces under
+canonical `/var/tmp/sevro-workspaces-private`; other supported platforms use
+the canonical temporary directory. The test had incorrectly required every
+platform's workspace to be inside its custom `TMPDIR`.
+
+The repair changes only this test fixture and ledger. All five current controls
+now assert that the evidence workspace is an exact direct `case-` child of the
+contracted platform namespace and matches the actual adapter's workspace
+receipt. Success still requires runner cleanup; failed grading still requires
+retained fixture bytes and complete run/trial/result/latest evidence. Each
+adapter also writes a unique fixture-owner marker without changing Git history.
+The fixture's teardown removes a retained workspace only when its parent,
+direct child name, real directory metadata and owner marker match that fixture;
+it never scans or deletes the shared namespace or another test's workspace.
+This also fixes the earlier teardown omission for retained Linux workspaces
+outside the fixture's input root.
+
+`CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_git_head`
+passed all five tests locally on macOS after the repair, including unchanged
+literal revision and evidence assertions. The Ubuntu CI failures are the
+actual platform failure evidence; this local green is not represented as a
+Linux reproduction. Exact-candidate Ubuntu verification remains the
+coordinator's CI responsibility. The malformed-Git patch stays external and
+unexecuted, and needs this updated workspace fixture when resumed.
 
 ## Remaining boundaries
 
