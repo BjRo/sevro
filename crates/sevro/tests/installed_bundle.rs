@@ -1,3 +1,4 @@
+use jsonschema::Registry;
 use serde_json::{Value, json};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -121,6 +122,30 @@ print(hashlib.sha256(json.dumps(profile,sort_keys=True,ensure_ascii=False,separa
             String::from_utf8_lossy(&output.stderr)
         );
         String::from_utf8(output.stdout).unwrap().trim().to_owned()
+    }
+
+    fn validate_documents(&self, documents: &[(&str, &Value)]) {
+        let mut registry = Registry::new();
+        for name in ["cli-result", "run-evidence", "report"] {
+            let path = self.bundle.join(format!("schemas/{name}-v1.schema.json"));
+            let schema: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+            registry = registry
+                .add(format!("urn:sevro:schema:{name}:v1"), schema)
+                .unwrap();
+        }
+        let registry = registry.prepare().unwrap();
+        for (name, document) in documents {
+            let schema = json!({"$ref":format!("urn:sevro:schema:{name}:v1")});
+            let validator = jsonschema::draft202012::options()
+                .with_registry(&registry)
+                .build(&schema)
+                .unwrap();
+            let errors: Vec<_> = validator
+                .iter_errors(document)
+                .map(|error| error.to_string())
+                .collect();
+            assert!(errors.is_empty(), "invalid installed {name}: {errors:?}");
+        }
     }
 }
 
@@ -300,6 +325,128 @@ fn installed_bundle_reports_real_graded_and_prompt_only_results() {
     }
     assert_eq!(fs::read(&graded_path).unwrap(), graded.stdout);
     assert_eq!(fs::read(&prompt_path).unwrap(), prompt.stdout);
+}
+
+#[test]
+fn installed_bundle_response_template_preserves_pass_fail_dry_and_latest() {
+    let installed = InstalledBundle::new();
+    let binary = installed.bundle.join("bin/sevro");
+    let consumer = installed.root.join("project");
+    let output = Command::new(&binary)
+        .args(["init", "--template", "response", "--directory", "response"])
+        .current_dir(&consumer)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let project = consumer.join("response");
+    assert!(!project.join(".git").exists());
+    let manifest = fs::read(project.join("run.json")).unwrap();
+    let adapter = fs::read(project.join("adapter.ts")).unwrap();
+    let digest = installed.expected_digest();
+    let mut failed_workspace = None;
+    let latest_path = project.join(".sevro/results/latest.json");
+    for (mode, exit_code, verdict) in [
+        ("pass", 0, "passed"),
+        ("fail", 1, "failed"),
+        ("dry", 0, "not_assessed"),
+    ] {
+        let mut command = Command::new(&binary);
+        command
+            .args(["run", "--json", "--run-manifest-file", "run.json"])
+            .current_dir(&project)
+            .env("TMPDIR", installed.root.join("temporary"))
+            .env(
+                "SEVRO_TEMPLATE_FAIL",
+                if mode == "fail" { "1" } else { "0" },
+            );
+        if mode == "dry" {
+            command.arg("--dry");
+        }
+        let output = command.output().unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(exit_code),
+            "{mode}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(result["task"]["verdict"], verdict);
+        assert_eq!(result["exitCode"], exit_code);
+        assert_eq!(
+            result["execution"]["status"],
+            if mode == "dry" {
+                "not_run"
+            } else {
+                "completed"
+            }
+        );
+        assert_eq!(
+            result["grading"]["status"],
+            if mode == "dry" {
+                "not_requested"
+            } else {
+                "completed"
+            }
+        );
+        assert_eq!(result["cases"].as_array().unwrap().len(), 1);
+        assert_eq!(result["cases"][0]["caseId"], "response-check");
+        let evidence_path = Path::new(result["evidencePath"].as_str().unwrap());
+        assert!(evidence_path.starts_with(project.join(".sevro/results")));
+        let evidence: Value = serde_json::from_slice(&fs::read(evidence_path).unwrap()).unwrap();
+        installed.validate_documents(&[("cli-result", &result), ("run-evidence", &evidence)]);
+        assert_eq!(evidence["result"], result);
+        assert_eq!(evidence["runner"]["buildDigest"], digest);
+        assert_eq!(evidence["trials"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            evidence["trials"][0]["candidateDurationMs"].is_null(),
+            mode == "dry"
+        );
+        let latest: Value = serde_json::from_slice(&fs::read(&latest_path).unwrap()).unwrap();
+        assert_eq!(latest, result);
+        let workspace = evidence["trials"][0]["observations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|observation| observation["id"] == "sevro.observation.workspaces")
+            .unwrap()["data"]["candidate"]
+            .as_str()
+            .unwrap();
+        let workspace = PathBuf::from(workspace);
+        assert_eq!(workspace.exists(), mode == "fail", "{mode}: {workspace:?}");
+        if mode == "fail" {
+            failed_workspace = Some(workspace);
+        }
+    }
+    let latest = fs::read(&latest_path).unwrap();
+    let output = Command::new(&binary)
+        .args(["report", "--latest", "--json"])
+        .current_dir(&project)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    installed.validate_documents(&[("report", &report)]);
+    assert_eq!(
+        report["summary"],
+        json!({"cases":1,"passed":0,"failed":0,"notAssessed":1})
+    );
+    assert_eq!(report["rows"].as_array().unwrap().len(), 1);
+    assert_eq!(report["rows"][0]["caseId"], "response-check");
+    assert_eq!(report["rows"][0]["task"], "not_assessed");
+    assert_eq!(report["rows"][0]["candidateDurationMs"], Value::Null);
+    assert_eq!(report["rows"][0]["runnerBuildDigest"], digest);
+    assert_eq!(fs::read(&latest_path).unwrap(), latest);
+    assert_eq!(fs::read(project.join("run.json")).unwrap(), manifest);
+    assert_eq!(fs::read(project.join("adapter.ts")).unwrap(), adapter);
+    fs::remove_dir_all(failed_workspace.unwrap()).unwrap();
 }
 
 #[test]

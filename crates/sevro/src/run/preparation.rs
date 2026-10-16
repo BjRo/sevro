@@ -313,6 +313,15 @@ fn direct_case_issue(value: &Value) -> Option<String> {
         return Some("fixture.kind: omit for inline/repository fixtures, or use generated".into());
     }
     if value.pointer("/fixture/kind").and_then(Value::as_str) == Some("generated")
+        && value.pointer("/fixture/hooks").is_some_and(|hooks| {
+            hooks
+                .as_object()
+                .is_none_or(|entries| entries.values().any(|content| !content.is_string()))
+        })
+    {
+        return Some("fixture: invalid fixture hooks; correct the fixture declaration".into());
+    }
+    if value.pointer("/fixture/kind").and_then(Value::as_str) == Some("generated")
         && ["files", "staged", "commitFiles"]
             .iter()
             .any(|field| value["fixture"].get(field).is_some_and(Value::is_null))

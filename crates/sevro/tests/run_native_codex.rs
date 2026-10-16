@@ -18,6 +18,10 @@ mod continuation;
 #[path = "native_codex/runtime.rs"]
 mod runtime;
 
+#[cfg(target_os = "linux")]
+#[path = "native_codex/temporary_metadata.rs"]
+mod temporary_metadata;
+
 struct Fixture {
     root: PathBuf,
 }

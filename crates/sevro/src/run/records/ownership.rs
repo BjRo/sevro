@@ -170,6 +170,7 @@ impl RunOwner {
             trial,
             artifact_path: artifact_path.to_owned(),
         });
+        self.completed.sort_by_key(|entry| entry.trial);
         self.checkpoint(Status::Active)
     }
 

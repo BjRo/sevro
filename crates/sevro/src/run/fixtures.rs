@@ -3,6 +3,7 @@ mod generated;
 mod repository;
 mod setup;
 mod sources;
+mod tools;
 
 pub(super) use artifacts::ArtifactDeclaration;
 pub(super) use generated::GeneratedFixture;

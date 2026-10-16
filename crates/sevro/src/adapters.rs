@@ -6,7 +6,6 @@ use crate::host::{HostError, HostRequest, HostResult};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::path::Path;
-use std::sync::Mutex;
 use transport::{CancellationPhase, Transport};
 
 #[derive(Deserialize)]
@@ -24,7 +23,7 @@ pub(crate) struct Metadata {
 
 pub(crate) struct AdapterSession {
     metadata: Metadata,
-    transport: Mutex<Transport>,
+    transport: Transport,
 }
 
 pub(crate) struct AdapterExit {
@@ -33,7 +32,7 @@ pub(crate) struct AdapterExit {
 
 impl AdapterSession {
     pub fn load(module: &Path, cancellation: &Cancellation) -> Result<Self, String> {
-        let mut transport = Transport::start()?;
+        let transport = Transport::start()?;
         let metadata: Metadata = serde_json::from_value(transport.exchange_cancelable(
             &json!({"method":"load", "module":module}),
             cancellation,
@@ -47,7 +46,7 @@ impl AdapterSession {
         }
         Ok(Self {
             metadata,
-            transport: Mutex::new(transport),
+            transport,
         })
     }
 
@@ -60,22 +59,15 @@ impl AdapterSession {
         request: &HostRequest<'_>,
         cancellation: &Cancellation,
     ) -> Result<HostResult, HostError> {
-        let result = self
-            .transport
-            .lock()
-            .map_err(|error| error.to_string())?
-            .exchange_cancelable(
-                &json!({"method":"run", "request":request}),
-                cancellation,
-                CancellationPhase::Execution,
-            )?;
+        let result = self.transport.exchange_cancelable(
+            &json!({"method":"run", "request":request}),
+            cancellation,
+            CancellationPhase::Execution,
+        )?;
         receipt::decode(result)
     }
 
-    pub fn shutdown(self) -> Result<Option<AdapterExit>, String> {
-        self.transport
-            .into_inner()
-            .map_err(|error| error.to_string())?
-            .shutdown()
+    pub fn shutdown(mut self) -> Result<Option<AdapterExit>, String> {
+        self.transport.shutdown()
     }
 }

@@ -18,6 +18,8 @@ pub(in crate::run) struct GeneratedFixture {
     staged: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     commit_files: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hooks: Option<BTreeMap<String, String>>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -31,6 +33,9 @@ impl GeneratedFixture {
     pub(in crate::run) fn validate(&self) -> RunResult<()> {
         if self.commits.len() > 128 {
             return Err("invalid generated fixture".into());
+        }
+        if let Some(hooks) = &self.hooks {
+            super::tools::validate_hooks(hooks)?;
         }
         let mut files = 0;
         let mut bytes = 0;
@@ -126,6 +131,14 @@ impl GeneratedFixture {
             && !staged.is_empty()
         {
             add(workspace, staged.iter().map(String::as_str))?;
+        }
+        if let Some(hooks) = &self.hooks {
+            super::tools::install(
+                hooks,
+                &workspace.join(".git/hooks"),
+                "fixture Git hooks directory is invalid",
+                "fixture Git hook target is invalid",
+            )?;
         }
         Ok(())
     }

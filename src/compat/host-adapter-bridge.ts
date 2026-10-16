@@ -5,12 +5,13 @@ import { pathToFileURL } from "node:url";
 import type { HostAdapter } from "../evaluation/types";
 
 type Request =
-  | { method: "load"; module: string }
-  | { method: "run"; request: Parameters<HostAdapter["run"]>[0] }
-  | { method: "abort"; reason: string }
-  | { method: "shutdown" };
+  | { id: string; method: "load"; module: string }
+  | { id: string; method: "run"; request: Parameters<HostAdapter["run"]>[0] }
+  | { id: string; method: "abort"; reason: string }
+  | { id: string; method: "shutdown" };
 
 type ImportInterrupt = {
+  id: string;
   method: "interrupt-import";
   reason: "SIGINT" | "SIGTERM";
   exitCode: number;
@@ -21,7 +22,7 @@ assert(socketPath, "adapter bridge requires its private socket");
 const socket = createConnection(socketPath);
 const lines = createInterface({ input: socket });
 let host: HostAdapter;
-let active: AbortController | undefined;
+const active = new Map<string, AbortController>();
 
 type JsonConfiguration =
   | null
@@ -148,17 +149,17 @@ async function dispatch(command: Request) {
     }
     case "run": {
       const controller = new AbortController();
-      active = controller;
+      active.set(command.id, controller);
       try {
         return validatedResult(
           await host.run({ ...command.request, signal: controller.signal }),
         );
       } finally {
-        active = undefined;
+        active.delete(command.id);
       }
     }
     case "abort":
-      active?.abort(command.reason);
+      active.get(command.id)?.abort(command.reason);
       return null;
     case "shutdown":
       return null;
@@ -168,10 +169,10 @@ async function dispatch(command: Request) {
 async function respond(command: Request) {
   try {
     const result: unknown = await dispatch(command);
-    socket.write(`${JSON.stringify({ result })}\n`);
+    socket.write(`${JSON.stringify({ id: command.id, result })}\n`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    socket.write(`${JSON.stringify({ error: message })}\n`);
+    socket.write(`${JSON.stringify({ id: command.id, error: message })}\n`);
   }
 }
 
@@ -181,7 +182,7 @@ function interruptImport(command: ImportInterrupt) {
   process.emit(command.reason);
 }
 
-let pending = Promise.resolve();
+const pending = new Set<Promise<void>>();
 for await (const line of lines) {
   const command = JSON.parse(line) as Request | ImportInterrupt;
   if (command.method === "interrupt-import") {
@@ -192,12 +193,15 @@ for await (const line of lines) {
     await dispatch(command);
     continue;
   }
-  pending = respond(command);
   if (command.method === "shutdown") {
-    await pending;
+    await Promise.all(pending);
+    await respond(command);
     process.exitCode = 0;
     socket.end();
     break;
   }
+  const response = respond(command);
+  pending.add(response);
+  void response.then(() => pending.delete(response));
 }
-await pending;
+await Promise.all(pending);

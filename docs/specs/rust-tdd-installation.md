@@ -157,7 +157,7 @@ retained the bundle runner digest in both report rows.
 Both are initial-green acceptance controls; no behavioral red or product fix is
 claimed. The fixture still copies executables through a waited child, runs from
 outside the checkout, and binds the complete installed asset inventory. The
-initializer-to-run workflow remains a separate queued slice.
+initializer-to-run workflow is recorded separately below.
 
 Final scoped validation passed: `cargo test --locked -p sevro --features
 native-bundle --test installed_bundle` reported ten passed and zero ignored;
@@ -165,3 +165,49 @@ native-bundle --test installed_bundle` reported ten passed and zero ignored;
 -- -D warnings`, `rustfmt --edition 2024 --check
 crates/sevro/tests/installed_bundle.rs`, `bunx --no-install prettier --check
 docs/specs/rust-tdd-installation.md`, and `bun run check:docs` all exited 0.
+
+## Installed response template lifecycle
+
+The next bounded control follows `assessedTemplate` in
+[`documentation-workflow.ts`](../../scripts/documentation-workflow.ts): initialize
+the response template, execute its generated `run.json` in pass, fail, and dry
+modes, then report the latest result. A fresh unchanged TypeScript public CLI
+capture ran before the Rust test was added:
+
+```sh
+python3 /Users/bjro/.codex/artifacts/sevro-native-bundle-20261016.cqkieS/response-oracle/capture.py
+bun /Users/bjro/.codex/artifacts/sevro-native-bundle-20261016.cqkieS/response-oracle/validate.ts
+cargo test --locked -p sevro --features native-bundle --test installed_bundle installed_bundle_response_template_preserves_pass_fail_dry_and_latest -- --exact
+```
+
+The successful TypeScript capture is retained under `response-oracle/observed-capture`
+within that external artifact root, with literal arguments, environment, exit
+codes, stdout/stderr, generated files, and evidence. TypeScript exited 0 for
+initialization, 0 with `passed`, 1 with `failed`, and 0 with `not_assessed` for the
+dry run. The latest report selected the dry run with null candidate duration.
+All seven result, evidence, and report documents passed the TypeScript public
+schema assertions. The capture uses the source CLI from a separate consumer
+directory; it is not fresh npm-install acceptance.
+
+The Rust command passed on its first execution: one passed, zero ignored. This
+is an initial-green acceptance control, with no behavioral red or product fix.
+It invokes the copied installed binary for both initialization and subsequent
+commands, uses the generated manifest's relative case and adapter paths, and
+supplies no identity override. It validates documents against the installed
+schemas, checks the independently computed bundle digest, and verifies retained
+evidence and each latest-result update. The report leaves the latest file,
+generated manifest, and adapter unchanged.
+
+Cleanup assertions follow the observed contract: successful and dry workspaces
+are removed, while the failed-task workspace remains available for diagnosis.
+The test removes that owned failed workspace after checking it. Two preliminary
+external capture assertions were corrected for the observation's array-valued
+metadata and intentional failure retention before the Rust test was written;
+those fixture mistakes are not product red evidence.
+
+Final scoped validation passed: `cargo test --locked -p sevro --features
+native-bundle --test installed_bundle` reported eleven passed and zero ignored;
+`cargo clippy --locked -p sevro --features native-bundle --test installed_bundle
+-- -D warnings`, `rustfmt --edition 2024 --check
+crates/sevro/tests/installed_bundle.rs`, `bunx --no-install prettier --check
+docs/specs/rust-tdd-installation.md`, and `bun run check:docs` exited 0.

@@ -2,6 +2,7 @@ use super::AdapterExit;
 use crate::cancellation::Cancellation;
 use serde_json::{Value, json};
 use signal_hook::consts::SIGINT;
+use std::collections::HashMap;
 use std::fs::{self, DirBuilder, OpenOptions};
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::Shutdown;
@@ -10,7 +11,8 @@ use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::Duration;
 use uuid::Uuid;
@@ -23,8 +25,17 @@ pub(super) enum CancellationPhase {
 pub(super) struct Transport {
     directory: PathBuf,
     child: Option<Child>,
-    stream: BufReader<UnixStream>,
+    writer: Mutex<UnixStream>,
+    pending: Arc<Mutex<Pending>>,
+    reader: Option<thread::JoinHandle<()>>,
+    next_id: AtomicU64,
     stderr: StderrForwarder,
+}
+
+#[derive(Default)]
+struct Pending {
+    replies: HashMap<String, mpsc::Sender<Result<Value, String>>>,
+    closed: Option<String>,
 }
 
 struct StderrForwarder {
@@ -120,10 +131,27 @@ impl Transport {
                 return Err(error);
             }
         };
+        let reader_stream = stream.try_clone().map_err(|error| error.to_string())?;
+        let pending = Arc::new(Mutex::new(Pending::default()));
+        let reader_pending = Arc::clone(&pending);
+        let reader = match thread::Builder::new()
+            .name("sevro-adapter-replies".into())
+            .spawn(move || Self::receive(reader_stream, &reader_pending))
+        {
+            Ok(reader) => reader,
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("cannot receive adapter replies: {error}"));
+            }
+        };
         Ok(Self {
             directory,
             child: Some(child),
-            stream: BufReader::new(stream),
+            writer: Mutex::new(stream),
+            pending,
+            reader: Some(reader),
+            next_id: AtomicU64::new(1),
             stderr,
         })
     }
@@ -149,82 +177,132 @@ impl Transport {
         }
     }
 
-    pub fn exchange(&mut self, request: &Value) -> Result<Value, String> {
-        Self::send(self.stream.get_mut(), request)?;
-        self.receive()
-    }
-
     pub fn exchange_cancelable(
-        &mut self,
+        &self,
         request: &Value,
         cancellation: &Cancellation,
         phase: CancellationPhase,
     ) -> Result<Value, String> {
-        Self::send(self.stream.get_mut(), request)?;
-        let mut writer = self
-            .stream
-            .get_ref()
-            .try_clone()
-            .map_err(|error| error.to_string())?;
-        let completed = AtomicBool::new(false);
-        thread::scope(|scope| {
-            let watcher = scope.spawn(|| {
-                while !completed.load(Ordering::Acquire) {
-                    if let Some(signal) = cancellation.signal() {
-                        let reason = if signal == SIGINT {
-                            "SIGINT"
-                        } else {
-                            "SIGTERM"
-                        };
-                        let interrupt = match phase {
-                            CancellationPhase::Import => json!({
-                                "method":"interrupt-import", "reason":reason,
-                                "exitCode":128 + signal
-                            }),
-                            CancellationPhase::Execution => {
-                                json!({"method":"abort", "reason":reason})
-                            }
-                        };
-                        return Self::send(&mut writer, &interrupt);
-                    }
-                    thread::park_timeout(Duration::from_millis(10));
-                }
-                Ok(())
-            });
-            let result = self.receive();
-            completed.store(true, Ordering::Release);
-            watcher.thread().unpark();
-            watcher
-                .join()
-                .map_err(|_| "adapter cancellation watcher failed")??;
-            result
-        })
+        self.exchange(request, Some((cancellation, phase)))
     }
 
-    fn send(stream: &mut UnixStream, request: &Value) -> Result<(), String> {
+    fn exchange(
+        &self,
+        request: &Value,
+        cancellation: Option<(&Cancellation, CancellationPhase)>,
+    ) -> Result<Value, String> {
+        let id = format!("rust:{}", self.next_id.fetch_add(1, Ordering::Relaxed));
+        let (sender, receiver) = mpsc::channel();
+        {
+            let mut pending = self.pending.lock().map_err(|error| error.to_string())?;
+            if let Some(error) = &pending.closed {
+                return Err(error.clone());
+            }
+            pending.replies.insert(id.clone(), sender);
+        }
+        let mut request = request.clone();
+        request["id"] = json!(id);
+        let result = (|| {
+            self.send(&request)?;
+            let mut interrupted = false;
+            loop {
+                if !interrupted
+                    && let Some((cancellation, phase)) = &cancellation
+                    && let Some(signal) = cancellation.signal()
+                {
+                    let reason = if signal == SIGINT {
+                        "SIGINT"
+                    } else {
+                        "SIGTERM"
+                    };
+                    let interrupt = match phase {
+                        CancellationPhase::Import => json!({
+                            "method":"interrupt-import", "id":id, "reason":reason,
+                            "exitCode":128 + signal
+                        }),
+                        CancellationPhase::Execution => {
+                            json!({"method":"abort", "id":id, "reason":reason})
+                        }
+                    };
+                    self.send(&interrupt)?;
+                    interrupted = true;
+                }
+                match receiver.recv_timeout(Duration::from_millis(10)) {
+                    Ok(response) => return response,
+                    Err(mpsc::RecvTimeoutError::Timeout) => {}
+                    Err(mpsc::RecvTimeoutError::Disconnected) => {
+                        return Err("adapter reply stream closed".into());
+                    }
+                }
+            }
+        })();
+        self.pending
+            .lock()
+            .map_err(|error| error.to_string())?
+            .replies
+            .remove(&id);
+        result
+    }
+
+    fn send(&self, request: &Value) -> Result<(), String> {
+        let mut stream = self.writer.lock().map_err(|error| error.to_string())?;
         serde_json::to_writer(&mut *stream, request).map_err(|error| error.to_string())?;
         stream.write_all(b"\n").map_err(|error| error.to_string())
     }
 
-    fn receive(&mut self) -> Result<Value, String> {
-        let mut line = String::new();
-        self.stream
-            .read_line(&mut line)
-            .map_err(|error| error.to_string())?;
-        let response: Value = serde_json::from_str(&line).map_err(|error| error.to_string())?;
-        if let Some(error) = response.get("error") {
-            return Err(format!("adapter failed: {error}"));
+    fn receive(stream: UnixStream, pending: &Mutex<Pending>) {
+        let mut reader = BufReader::new(stream);
+        let error = loop {
+            let mut line = String::new();
+            match reader.read_line(&mut line) {
+                Ok(0) => break "adapter reply stream closed".to_owned(),
+                Ok(_) => {}
+                Err(error) => break error.to_string(),
+            }
+            let response: Value = match serde_json::from_str(&line) {
+                Ok(response) => response,
+                Err(error) => break error.to_string(),
+            };
+            let Some(id) = response["id"].as_str() else {
+                break "adapter bridge response has no id".into();
+            };
+            let Ok(mut pending) = pending.lock() else {
+                return;
+            };
+            let Some(sender) = pending.replies.remove(id) else {
+                break "adapter bridge response has an unknown id".into();
+            };
+            let result = if let Some(error) = response.get("error") {
+                Err(format!("adapter failed: {error}"))
+            } else {
+                response
+                    .get("result")
+                    .cloned()
+                    .ok_or_else(|| "adapter bridge response has no result".into())
+            };
+            let _ = sender.send(result);
+        };
+        if let Ok(mut pending) = pending.lock() {
+            pending.closed = Some(error.clone());
+            for (_, sender) in pending.replies.drain() {
+                let _ = sender.send(Err(error.clone()));
+            }
         }
-        response
-            .get("result")
-            .cloned()
-            .ok_or_else(|| "adapter bridge response has no result".into())
     }
 
     pub fn shutdown(&mut self) -> Result<Option<AdapterExit>, String> {
         if let Some(mut child) = self.child.take() {
-            let response = self.exchange(&json!({"method":"shutdown"}));
+            let response = self.exchange(&json!({"method":"shutdown"}), None);
+            if response.is_err() {
+                let _ = child.kill();
+            }
             let status = child.wait().map_err(|error| error.to_string());
+            if let Ok(writer) = self.writer.lock() {
+                let _ = writer.shutdown(Shutdown::Both);
+            }
+            if let Some(reader) = self.reader.take() {
+                let _ = reader.join();
+            }
             let diagnostics = self.stderr.finish();
             let status = status?;
             response?;
