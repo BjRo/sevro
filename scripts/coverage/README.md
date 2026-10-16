@@ -17,6 +17,46 @@ the platform-reachable authored production inventory, so a narrow run can fail
 the gate.
 `--fast` skips coverage and the full integration suite.
 
+## Test shards
+
+CI runs four independent test shards, followed by one combined coverage gate:
+
+```sh
+bun run check:typescript --shard-plan
+bun run check:typescript --shard 1/4
+bun run check:typescript --shard 2/4
+bun run check:typescript --shard 3/4
+bun run check:typescript --shard 4/4
+bun run check:typescript --merge-shards
+```
+
+After frozen installation, the four shard commands can run concurrently. They
+write distinct `.quality/shards/<index>/` directories. Each validates its real
+process reports and requires successful test execution. Only `--merge-shards`
+enforces the two 95% thresholds; partial coverage cannot establish acceptance.
+The combined command also runs the existing coverage integrity controls.
+
+Assignments use the complete checked test inventory, with each file present
+exactly once. [`test-durations.json`](test-durations.json) records rounded seconds
+from the successful Ubuntu run [38747270730](https://github.com/BjRo/sevro/actions/runs/38747270730),
+with the former guide matrix divided by host and positive/negative scenarios.
+The longest files are assigned first to the lightest shard; ties are resolved
+deterministically by path and shard order. New files default to five seconds.
+Update estimates from retained `tests.log` durations when the workload changes;
+every job in a run must use the same checked-in estimates and source inventory.
+
+Aggregation requires all four manifests, unique shard/run identities, the exact
+expected assignments, matching candidate contents and workflow run, and
+the same OS, architecture, Bun version and instrumentation layout. It validates
+the full zero-seeded source inventory, locations and counters again after
+normalizing paths. Process ledgers remain separate so repeated PIDs on different
+runners cannot overwrite evidence. Raw counters are merged before platform
+projection and threshold enforcement. Outside GitHub Actions, the batch identity
+is `local`; rerun all four shards after changing candidate inputs. GitHub's
+failed-job reruns reuse passing artifacts from earlier attempts of the same run;
+each rerun replaces its own named shard artifact. The manifest retains the
+producing attempt, and artifacts from another workflow run remain incompatible.
+
 ## Pipeline and files
 
 1. Copy the current candidate into an isolated checkout with independent Git
@@ -38,6 +78,10 @@ the gate.
 | [gate.ts](gate.ts)                           | Validation of scope/layout/completion, safe report merging and threshold checks.                              |
 | [run.ts](run.ts)                             | Test execution, report collection, foreign-working-directory check and artifact generation.                   |
 | [types.ts](types.ts)                         | Shared report and capture types, including the coverage globals.                                              |
+| [shard-plan.ts](shard-plan.ts)               | Deterministic duration-balanced assignment of the complete test inventory.                                    |
+| [shard-output.ts](shard-output.ts)           | Portable source paths and candidate-bound shard manifests.                                                    |
+| [shard-merge.ts](shard-merge.ts)             | Complete-shard, identity, assignment, source-layout and counter validation.                                   |
+| [aggregate.ts](aggregate.ts)                 | Combined coverage artifacts, platform projection and the unchanged 95% thresholds.                            |
 | [probes.ts](probes.ts)                       | Controls for missing/stale reports, missing branch data, zero seeding and conservative force-kill collection. |
 | [scope-probe.ts](scope-probe.ts)             | Checks authored coverage scope and normal loading of excluded generated validators.                           |
 | [source-map-probe.ts](source-map-probe.ts)   | Checks that counters and runtime stacks point to original TypeScript.                                         |

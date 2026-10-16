@@ -9,6 +9,19 @@ import { platformBranchCoverage } from "../scripts/coverage/platform-branches";
 import { createInstrumenter } from "istanbul-lib-instrument";
 import { createCoverageMap, type CoverageMapData } from "istanbul-lib-coverage";
 
+test("release CI evidence controls require complete fresh phases and test shards", () => {
+  const child = Bun.spawnSync(
+    ["python3", ".github/scripts/test-release-ci.py"],
+    {
+      cwd: resolve(import.meta.dir, ".."),
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+  );
+  expect(child.exitCode, child.stderr.toString()).toBe(0);
+  expect(child.stderr.toString()).toContain("OK");
+});
+
 test.each([
   { args: ["--phase"] },
   { args: ["--phase", "unknown"] },

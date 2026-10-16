@@ -79,12 +79,20 @@ export function coverageRecord(
   }
   if (!entry.coverage) throw new Error("Missing coverage object");
 
+  return {
+    ...owner,
+    coverage: checkedCoverage(entry.coverage, baseline),
+    completion: entry.completion,
+  };
+}
+
+export function checkedCoverage(value: unknown, baseline: CoverageMapData) {
   const coverage: CoverageMapData = {};
-  for (const [path, data] of Object.entries(object(entry.coverage))) {
+  for (const [path, data] of Object.entries(object(value))) {
     const expected = baseline[path];
     coverage[path] = declaredFileCoverage(data, expected, path);
   }
-  return { ...owner, coverage, completion: entry.completion };
+  return coverage;
 }
 
 function declaredFileCoverage(

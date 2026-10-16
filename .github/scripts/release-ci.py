@@ -96,12 +96,27 @@ def completed_full_gate(run_id):
         for phase in ["static", "docs", "tests", "package"]
     ]
     if any(job["name"] in phases for job in jobs):
-        return all(
+        return completed_test_shards(jobs) and all(
             completed_job(jobs, name, "Canonical TypeScript quality phase")
             for name in phases
         )
     return completed_job(
         jobs, "TypeScript gate (Ubuntu x64)", "Canonical TypeScript quality gate"
+    )
+
+
+def completed_test_shards(jobs):
+    names = [f"TypeScript tests / shard {index} of 4 (Ubuntu x64)" for index in range(1, 5)]
+    markers = [
+        step
+        for job in jobs
+        for step in job.get("steps", [])
+        if step["name"] == "Require all four test shards"
+    ]
+    if not markers and not any(job["name"] in names for job in jobs):
+        return True
+    return len(markers) == 1 and markers[0]["conclusion"] == "success" and all(
+        completed_job(jobs, name, "Canonical TypeScript quality shard") for name in names
     )
 
 
