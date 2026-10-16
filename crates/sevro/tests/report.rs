@@ -104,6 +104,15 @@ impl RetainedRun {
             .unwrap()
     }
 
+    fn invoke_from_root(&self, options: &[&str]) -> Output {
+        Command::new(env!("CARGO_BIN_EXE_sevro"))
+            .current_dir(&self.root)
+            .arg("report")
+            .args(options)
+            .output()
+            .unwrap()
+    }
+
     fn edit(&self, change: impl FnOnce(&mut Value, &mut Value)) {
         let mut result = read_json(&self.result_path);
         let mut evidence = read_json(&self.evidence_path);
@@ -126,6 +135,16 @@ fn write_json(path: &Path, value: &Value) {
 
 fn read_json(path: &Path) -> Value {
     serde_json::from_slice(&fs::read(path).unwrap()).unwrap()
+}
+
+fn baseline_report(root: &Path, options: &[&str]) -> Output {
+    Command::new("bun")
+        .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../src/cli.ts"))
+        .current_dir(root)
+        .arg("report")
+        .args(options)
+        .output()
+        .unwrap()
 }
 
 #[test]
@@ -506,6 +525,94 @@ fn selects_latest_or_explicit_results_and_rejects_ambiguous_sources() {
         assert_eq!(output.status.code(), Some(64), "accepted {args:?}");
         assert!(output.stdout.is_empty());
         assert!(!output.stderr.is_empty());
+    }
+}
+
+#[test]
+fn terminal_separator_preserves_selected_report_and_refuses_positionals() {
+    let run = RetainedRun::graded();
+    let args = ["--json", "--result-file", "result.json", "--"];
+    let baseline = baseline_report(&run.root, &args);
+    let output = run.invoke_from_root(&args);
+    for candidate in [&baseline, &output] {
+        assert_eq!(
+            candidate.status.code(),
+            Some(0),
+            "{}",
+            String::from_utf8_lossy(&candidate.stderr)
+        );
+        assert!(candidate.stderr.is_empty());
+    }
+    let expected: Value = serde_json::from_slice(&baseline.stdout).unwrap();
+    let actual: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(actual["inputs"][0]["resultFile"], json!(run.result_path));
+    assert_eq!(actual["summary"]["passed"], 1);
+    assert_eq!(
+        serde_jcs::to_vec(&actual).unwrap(),
+        serde_jcs::to_vec(&expected).unwrap()
+    );
+    let invalid = ["--json", "--result-file", "result.json", "--", "extra"];
+    for candidate in [
+        baseline_report(&run.root, &invalid),
+        run.invoke_from_root(&invalid),
+    ] {
+        assert_eq!(candidate.status.code(), Some(64));
+        assert!(candidate.stdout.is_empty());
+        assert!(!candidate.stderr.is_empty());
+    }
+}
+
+#[test]
+fn dash_prefixed_paths_require_equals_except_for_a_literal_hyphen() {
+    let run = RetainedRun::graded();
+    for filename in ["-", "-result.json"] {
+        fs::copy(&run.result_path, run.root.join(filename)).unwrap();
+    }
+    fs::create_dir(run.root.join("-saved")).unwrap();
+    fs::copy(&run.result_path, run.root.join("-saved/latest.json")).unwrap();
+    for (args, filename) in [
+        (vec!["--json", "--result-file", "-"], "-"),
+        (vec!["--json", "--result-file=-result.json"], "-result.json"),
+        (
+            vec!["--json", "--latest", "--results-root=-saved"],
+            "-saved/latest.json",
+        ),
+    ] {
+        let baseline = baseline_report(&run.root, &args);
+        let output = run.invoke_from_root(&args);
+        for candidate in [&baseline, &output] {
+            assert_eq!(
+                candidate.status.code(),
+                Some(0),
+                "{args:?}: {}",
+                String::from_utf8_lossy(&candidate.stderr)
+            );
+            assert!(candidate.stderr.is_empty());
+        }
+        let expected: Value = serde_json::from_slice(&baseline.stdout).unwrap();
+        let actual: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(
+            actual["inputs"][0]["resultFile"],
+            json!(run.root.join(filename))
+        );
+        assert_eq!(actual["summary"]["passed"], 1);
+        assert_eq!(
+            serde_jcs::to_vec(&actual).unwrap(),
+            serde_jcs::to_vec(&expected).unwrap()
+        );
+    }
+    for args in [
+        vec!["--json", "--result-file", "-result.json"],
+        vec!["--json", "--latest", "--results-root", "-saved"],
+    ] {
+        for candidate in [
+            baseline_report(&run.root, &args),
+            run.invoke_from_root(&args),
+        ] {
+            assert_eq!(candidate.status.code(), Some(64), "{args:?}");
+            assert!(candidate.stdout.is_empty());
+            assert!(!candidate.stderr.is_empty());
+        }
     }
 }
 

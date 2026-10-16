@@ -153,13 +153,52 @@ stderr because the aggregate cannot be represented as a finite JSON number.
   duration, input token, output token and cost overflow each refuse with exit 64
   and no successful report. Genuinely absent measurements still remain unknown.
 
+## Compiler branch follow-up
+
+Two public CLI characterizations passed on their first execution, without a
+product change or claimed red:
+
+- `cargo test -p sevro --test report terminal_separator_preserves_selected_report_and_refuses_positionals -- --exact`:
+  a final `--` preserves the selected report; a positional argument after it
+  refuses with exit 64, empty stdout and a diagnostic.
+- `cargo test -p sevro --test report dash_prefixed_paths_require_equals_except_for_a_literal_hyphen -- --exact`:
+  a literal `-` result filename is accepted; other dash-prefixed result paths
+  and latest roots require equals syntax. Separate ambiguous values refuse
+  even when the named files exist.
+
+Both tests execute the TypeScript CLI over the same independently authored
+retained data. They compare complete successful JSON documents canonically to
+allow equivalent integer/decimal spelling, and assert the selected path and
+passed count directly. Refusal checks preserve exit category, empty stdout and
+a diagnostic; Rust's concise diagnostic wording differs from `node:util`'s
+parser messages and is not claimed to match byte for byte.
+
+The private Markdown renderer's null-candidate-route fallback was removed as
+a green refactor. Its only caller receives the completed internal report, and
+`report_row` rejects anything except exactly one retained candidate route
+before constructing an object-valued `candidateRoute`. Pre-run failures create
+no rows. A null route therefore cannot reach this renderer through the CLI;
+the existing missing/duplicate-route refusals and successful Markdown tests
+remain the public invariant checks. No impossible fixture or source exclusion
+was added. `cargo test -p sevro --test report --locked` passed all 17 tests
+after this refactor.
+
+The focused commands ran in an isolated archive of published commit `9db8dae`
+with only the command follow-up files overlaid while concurrent run changes
+temporarily prevented compilation. That unrelated build failure is not red
+evidence. The combined init/report suite was rerun in the shared worktree after
+run compilation was restored.
+
 ## Final gates
 
 The legacy TypeScript gates and GitHub CI remain separately required by the
 repository contribution contract. The coordinator runs combined compiler
 coverage and validates the published candidate.
 
-- `cargo clippy --workspace --all-targets --locked -- -D warnings` passed.
-- `cargo test -p sevro --test report --locked` passed all 15 tests.
-- `cargo fmt --all -- --check` passed.
+- `cargo clippy -p sevro --test init --test report --locked -- -D warnings`
+  passed in the isolated command candidate.
+- `cargo test -p sevro --test init --test report --locked` passed all 14 init
+  and 17 report tests in both the isolated command candidate and shared worktree.
+- `rustfmt --edition 2024 --check crates/sevro/tests/init.rs crates/sevro/tests/report.rs crates/sevro/src/report/render.rs`
+  passed for all command follow-up Rust files.
 - `bun run check:docs` passed. Remote CI remains the coordinator's gate.

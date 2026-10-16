@@ -109,11 +109,14 @@ cargo test --workspace --doc --locked
 The [Rust quality contract](docs/specs/rust-quality.md) documents compiler
 coverage, installed-binary checks, and retained evidence. The Rust workflow runs
 on Ubuntu 24.04 x64 and macOS 15 arm64. Its line and region gates each require
-95%; these compiler metrics do not establish branch coverage. Stable-toolchain
-branch coverage remains an explicit migration gap until a pinned, verified
-nightly branch gate is added. Do not lower the existing TypeScript statement or
-branch bar, exempt authored Rust production files, or claim port completion from
-the initial Rust gate alone.
+95%. Separate jobs use `nightly-2026-10-15` and require 95% of LLVM's supported
+branch outcomes, with real compiler controls and fail-closed raw-counter checks.
+Running the branch controls locally requires Python 3 and jq on `PATH`.
+The [branch metric and limits](docs/specs/rust-quality.md#compiler-branch-outcomes)
+remain explicit: compiler branch coverage does not measure every Rust construct
+or establish full TypeScript-equivalent coverage. Do not lower the existing
+TypeScript statement or branch bar, exempt authored Rust production files, or
+claim port completion from the Rust gates alone.
 
 ## Delivery and CI ownership
 

@@ -383,6 +383,41 @@ fn failed_bun_discovery_removes_the_partial_repository_skill_destination() {
 }
 
 #[test]
+#[cfg(unix)]
+fn relative_bun_discovery_removes_the_partial_repository_skill_destination() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let project = Project::new();
+    let bin = project.0.join("bin");
+    fs::create_dir(&bin).unwrap();
+    let bun = bin.join("bun");
+    let script = "#!/bin/sh\nprintf 'relative/bun\\n'\nexit 0\n";
+    fs::write(&bun, script).unwrap();
+    fs::set_permissions(&bun, fs::Permissions::from_mode(0o700)).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_sevro"))
+        .args([
+            "init",
+            "--template",
+            "repository-skill",
+            "--directory",
+            "skill",
+        ])
+        .env("PATH", &bin)
+        .current_dir(&project.0)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(64));
+    assert!(output.stdout.is_empty());
+    assert_eq!(
+        text(&output.stderr),
+        "sevro: repository-skill initialization requires Bun on PATH\n"
+    );
+    assert!(!project.0.join("skill").exists());
+    assert_eq!(fs::read_to_string(&bun).unwrap(), script);
+    assert_eq!(fs::read_dir(&project.0).unwrap().count(), 1);
+}
+
+#[test]
 fn an_uncreatable_parent_preserves_the_obstructing_file() {
     let project = Project::new();
     fs::write(project.0.join("occupied"), "user-owned file").unwrap();
@@ -410,6 +445,51 @@ fn final_template_selection_wins_and_bare_terminator_preserves_defaults() {
         assert!(project.0.join("sevro-evaluation/case.json").is_file());
         assert!(text(&output.stdout).starts_with("Created response evaluation at "));
     }
+}
+
+#[test]
+fn positional_argument_after_terminator_is_refused_without_creating_files() {
+    let project = Project::new();
+    let output = project.init(&["--", "extra"]);
+    assert_eq!(output.status.code(), Some(64));
+    assert!(output.stdout.is_empty());
+    assert_eq!(
+        text(&output.stderr),
+        "sevro: use --template response, coding or repository-skill; run sevro init --help\n"
+    );
+    assert_eq!(fs::read_dir(&project.0).unwrap().count(), 0);
+}
+
+#[test]
+fn single_hyphen_is_a_literal_directory_name() {
+    let project = Project::new();
+    let output = project.init(&["--directory", "-"]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    assert!(output.stderr.is_empty());
+    let destination = project.0.join("-");
+    assert_eq!(
+        text(&output.stdout),
+        format!(
+            "Created response evaluation at {}\nOpen README.md, then:\n  cd '{}'\n  sevro run --run-manifest-file run.json --dry\n  sevro run --run-manifest-file run.json\n",
+            destination.display(),
+            destination.display()
+        )
+    );
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(destination.join("run.json")).unwrap()).unwrap();
+    assert_eq!(
+        manifest,
+        serde_json::json!({
+            "format": "sevro.run.v1",
+            "settings": {
+                "case-file": "case.json",
+                "adapter-module": "adapter.ts",
+                "project-root": "."
+            }
+        })
+    );
+    assert!(destination.join("case.json").is_file());
+    assert_eq!(fs::read_dir(&project.0).unwrap().count(), 1);
 }
 
 fn template_files(root: &Path, directory: &Path) -> BTreeMap<PathBuf, Vec<u8>> {

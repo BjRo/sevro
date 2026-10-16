@@ -114,12 +114,43 @@ They exercise accepted failure behavior through subprocesses and real files;
 they required no product changes, test-only production branches or exclusions.
 The main coordinator owns the subsequent combined coverage measurement.
 
+## Compiler branch follow-up
+
+Three further public CLI characterizations passed before any product change;
+no red is claimed for them:
+
+- `cargo test -p sevro --test init positional_argument_after_terminator_is_refused_without_creating_files -- --exact`:
+  `init -- extra` returns 64, empty stdout, the existing initializer help
+  diagnostic, and no created files. The TypeScript CLI established these exact
+  observable results independently.
+- `cargo test -p sevro --test init single_hyphen_is_a_literal_directory_name -- --exact`:
+  `init --directory -` creates a response evaluation in a directory literally
+  named `-`, with the expected manifest and shell-quoted instructions. The
+  TypeScript CLI independently accepts the same argument and destination.
+- `cargo test -p sevro --test init relative_bun_discovery_removes_the_partial_repository_skill_destination -- --exact`:
+  a real executable that exits successfully but prints a relative Bun path
+  causes exit 64, empty stdout, a runtime diagnostic and removal of the partial
+  project, preserving the executable. This exercises the Rust initializer's
+  external discovery boundary and absolute command-path requirement. The
+  TypeScript initializer uses its own absolute `process.execPath`, so no
+  corresponding TypeScript discovery failure is claimed.
+
+The first focused command initially encountered unrelated compile errors in
+concurrent run implementation; this was not a behavioral red. All three commands
+then passed against an isolated archive of published commit `9db8dae` with only
+the command follow-up files overlaid. After run compilation was restored,
+`cargo test -p sevro --test init --test report --locked` was also run in the
+shared worktree. These tests needed no initializer product changes or coverage
+exclusions.
+
 ## Final checks
 
-- `cargo test -p sevro --test init`: 11 passed, 0 failed.
-- `cargo clippy -p sevro --test init -- -D warnings`: passed.
-- `rustfmt --edition 2024 --check crates/sevro/src/init.rs crates/sevro/tests/init.rs`:
-  passed.
+- `cargo test -p sevro --test init --test report --locked`: 14 init and 17 report
+  tests passed, both in the isolated command candidate and the shared worktree.
+- `cargo clippy -p sevro --test init --test report --locked -- -D warnings`:
+  passed in the isolated command candidate.
+- `rustfmt --edition 2024 --check crates/sevro/tests/init.rs crates/sevro/tests/report.rs crates/sevro/src/report/render.rs`:
+  passed for all command follow-up Rust files.
 - `bun run check:docs`: passed.
 - `bunx prettier --check docs/specs/rust-cli-engine-parity.md crates/sevro/templates`:
   passed; embedded emitted bytes remain identical to the TypeScript initializer.

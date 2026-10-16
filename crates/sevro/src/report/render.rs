@@ -157,17 +157,14 @@ pub(super) fn markdown(report: &Value) -> String {
 }
 
 fn case_line(row: &Value) -> String {
+    // report_row requires one candidate route before constructing any rendered row.
     let route = &row["candidateRoute"];
-    let route_text = if route.is_null() {
-        "unknown".into()
-    } else {
-        format!(
-            "{}/{}@{}",
-            cell(&route["host"]),
-            cell(&route["model"]),
-            cell(&route["effort"])
-        )
-    };
+    let route_text = format!(
+        "{}/{}@{}",
+        cell(&route["host"]),
+        cell(&route["model"]),
+        cell(&route["effort"])
+    );
     format!(
         "| {} | {} | {} | {} | {} | {} | {} / {} | {} | {} / {} | {} |",
         cell(&row["caseId"]),

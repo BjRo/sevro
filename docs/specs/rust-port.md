@@ -100,9 +100,10 @@ implementation covers these public seams:
   [report TDD evidence](rust-tdd-report.md).
 
 The [Rust quality contract](rust-quality.md) adds compiler coverage and installed
-binary checks on macOS and Ubuntu. Its line and region metrics do not establish
-the still-pending branch coverage requirement. Existing TypeScript acceptance
-remains the reference baseline; full Rust feature parity is not established.
+binary checks on macOS and Ubuntu. Stable line and region gates accompany a
+pinned nightly gate for LLVM's supported branch outcomes; the contract records
+the compiler's measured construct limits. Existing TypeScript acceptance remains
+the reference baseline; full Rust feature parity is not established.
 The production evaluation lifecycle, native hosts, isolation, grading, persistence,
 recovery, extension execution, and installed replacement still require Rust
 implementation and acceptance evidence. The existing npm command continues to use
