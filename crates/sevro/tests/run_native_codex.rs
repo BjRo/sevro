@@ -149,6 +149,13 @@ fn report_native_failure(root: &Path) {
             root.join("binary").join(marker).exists()
         );
     }
+    for phase in ["initial", "resume"] {
+        let path = root.join("binary").join(format!("{phase}-sandbox-status"));
+        match native_probe_status(&path) {
+            Some(code) => eprintln!("native fixture {phase} sandbox status: {code}"),
+            None => eprintln!("native fixture {phase} sandbox status: unavailable"),
+        }
+    }
     let Ok(runs) = fs::read_dir(root.join("project/.sevro/results")) else {
         eprintln!("native fixture results directory unavailable");
         return;
@@ -179,6 +186,21 @@ fn report_native_failure(root: &Path) {
             }
         }
     }
+}
+
+// Temporary CI diagnosis: accept only one bounded decimal shell exit status.
+fn native_probe_status(path: &Path) -> Option<u8> {
+    let mut bytes = Vec::new();
+    fs::File::open(path)
+        .ok()?
+        .take(5)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    let digits = bytes.strip_suffix(b"\n")?;
+    if digits.is_empty() || digits.len() > 3 || !digits.iter().all(u8::is_ascii_digit) {
+        return None;
+    }
+    std::str::from_utf8(digits).ok()?.parse().ok()
 }
 
 fn installed_codex() -> PathBuf {

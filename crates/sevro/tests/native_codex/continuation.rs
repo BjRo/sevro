@@ -449,7 +449,10 @@ profile=$(/usr/bin/sed -n 's/^default_permissions = "\(.*\)"/\1/p' "$CODEX_HOME/
   for protected in "$@"; do
     if /bin/cat "$protected" >/dev/null 2>&1; then exit 90; fi
   done
-' continuation-boundary-probe @AUTH@ "$CODEX_HOME/auth.json" "$CODEX_HOME/config.toml" || exit 96
+' continuation-boundary-probe @AUTH@ "$CODEX_HOME/auth.json" "$CODEX_HOME/config.toml"
+probe_status=$?
+printf '%s\n' "$probe_status" > @BINARY@/"$phase-sandbox-status"
+if [ "$probe_status" -ne 0 ]; then exit 96; fi
 printf '%s\n' "$CODEX_HOME" "$HOME" "$TMPDIR" > @BINARY@/native-state-paths
 model=
 effort=

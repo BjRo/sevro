@@ -95,7 +95,7 @@ fn protected_worktrees(path: &Path) -> Result<Vec<PathBuf>, String> {
         path.parent().ok_or("protected path has no parent")?
     };
     loop {
-        if current.join(".git").symlink_metadata().is_ok() {
+        if has_repository_metadata(current)? {
             break;
         }
         let Some(parent) = current.parent() else {
@@ -142,4 +142,20 @@ fn protected_worktrees(path: &Path) -> Result<Vec<PathBuf>, String> {
         return Err("protected repository worktrees are unavailable".into());
     }
     Ok(roots)
+}
+
+fn has_repository_metadata(directory: &Path) -> Result<bool, String> {
+    let entry = directory.join(".git");
+    let Ok(_metadata) = entry.symlink_metadata() else {
+        return Ok(false);
+    };
+    #[cfg(target_os = "linux")]
+    if (directory == Path::new("/tmp") || directory == std::env::temp_dir()) && _metadata.is_dir() {
+        // Codex's Linux sandbox can leave an empty mount placeholder here.
+        return fs::read_dir(entry)
+            .and_then(|mut entries| entries.next().transpose())
+            .map(|entry| entry.is_some())
+            .map_err(|_| "protected repository metadata is unreadable".into());
+    }
+    Ok(true)
 }

@@ -844,3 +844,50 @@ target directory. Both new exact commands have independent observed reds and
 greens. Strict scoped Clippy with the preceding native targets, owned-path
 `rustfmt --check --config skip_children=true`, ledger Prettier checking, and
 `bun run check:docs` passed. No common process or isolation changes were needed.
+
+## Linux temporary Git mount placeholder
+
+The unchanged TypeScript protection code ignores a real, empty `.git` directory
+only at Linux `/tmp` or the invoking process's temporary directory. Files,
+symlinks, nonempty directories, and metadata in other directories remain subject
+to ordinary protected-worktree discovery. Codex's Linux sandbox can leave this
+empty mount placeholder behind; treating it as a repository prevents later
+native trials from reaching execution.
+
+The Linux-only public regression
+`temporary_metadata::ignores_empty_git_mount_placeholder_in_temporary_root`
+owns its temporary root and empty `.git`, uses synthetic credentials and an
+explicit deterministic Codex wrapper, and first invokes the unchanged TypeScript
+CLI. It requires completed execution, `ready`, complete 12/4 usage, the exact
+event artifact, unchanged credentials and metadata, and private-state/workspace
+cleanup before invoking Rust with the same CLI arguments and temporary root.
+It has no prerequisite skip on supported Ubuntu.
+
+Red — `cargo test --workspace --all-targets --locked --no-fail-fast` on
+[`013e480` Ubuntu stable job 117180739277](https://github.com/BjRo/sevro/actions/runs/38962482404/job/117180739277):
+the paired TypeScript invocation completed, then Rust returned exit `2` instead
+of `0` with the fixed diagnostic stage `prepare-git-worktrees`. This is an actual
+public behavior failure, independently observed before the isolation repair.
+The full job had other failures; this regression does not establish their causes.
+
+The repair adds the same Linux-only exception during protected-root ancestor
+inspection. It uses symlink metadata, so a symlink to an empty directory cannot
+receive the exception. Directory-read failure still refuses preparation. Native
+sandbox permissions, credential handling, and protected-root expansion are
+unchanged.
+
+The focused Linux command remains
+`cargo test -p sevro --test run_native_codex --locked temporary_metadata::ignores_empty_git_mount_placeholder_in_temporary_root -- --exact`.
+Linux green is pending the repaired candidate's CI run. macOS compilation or
+regressions do not execute this platform-specific case. The separate nested
+sandbox exit-96 investigation remains unresolved; this repair does not claim to
+explain it. Temporary diagnostic instrumentation remains tracked for removal
+after the observed causes are resolved.
+
+Local macOS regression checks passed:
+`cargo test -p sevro --test run_native_claude --test run_native_codex --locked`
+ran all 64 existing native tests, including corrupt/unreadable protected Git
+metadata, linked worktrees, and stale registrations.
+`cargo clippy -p sevro --lib --test run_native_claude --test run_native_codex --locked -- -D warnings`
+and scoped Rust formatting passed. These checks preserve the existing behavior;
+they do not establish Linux acceptance for the repaired exception.
