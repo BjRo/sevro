@@ -712,12 +712,144 @@ binary/test targets passed, as did owned-file Rustfmt and documentation checks.
 No full-workspace suite or coverage claim is inferred from these results;
 the coordinator owns the frozen combined candidate and macOS/Ubuntu acceptance.
 
+## Git HEAD grading: first public red
+
+The next bounded grader is `sevro.git-head`, specified in
+[built-in graders v1](../builtin-graders-v1.md) and the
+[Git HEAD parity section](rust-fixtures-graders-parity.md#git-head-grading).
+The retained TypeScript integration oracle is
+`Git HEAD grading binds the base revision outside candidate control` in
+[generated-fixture.test.ts](../../tests/generated-fixture.test.ts).
+
+An independent unchanged TypeScript public CLI capture used a generated
+fixture with two commits (`chore: initialize` containing `first\\n`, then
+`feat: revise` containing `second\\n`), an unchanged real adapter returning
+`ready`, an `unchanged` check and required evidence
+`sevro.observation.git-head`. It returned completed execution and grading,
+a passed task and exit 0. The literal passing detail is
+`candidate created or switched to a different commit`, preserved despite its
+failure-oriented wording. The complete Git observation names
+`sevro.git-head`, has base and current revision
+`5c3b5472713da769681c6e25442b7c35cad8d9af`, and `baseAncestor: true`.
+The adapter independently records its actual HEAD. Raw `ready` hashes to
+`b24d6d33736ecd5604a4b17bc9c6481039fac362bb7df044ef1c10a2bfd21db6`;
+run/trial/result/latest evidence agrees and the successful workspace is removed.
+
+The captured command, stdout, stderr, case, adapter, summary and source hashes
+are retained under `/private/tmp/sevro-git-head-baseline.pxth0p9c`.
+`python3 /tmp/sevro-git-head-first-baseline.py` reproduces the capture in a new
+owned temporary root. The capture inspector initially treated the raw artifact's
+file URL as a filesystem path; it was corrected to decode the URL and verified
+the same completed capture without rerunning the CLI. This was a capture-tool
+correction, not a product failure or a changed oracle.
+
+- Red — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_git_head git_head_unchanged_passes_with_runner_owned_base -- --exact`:
+  the durable public Rust CLI test compiled and failed with actual exit 64
+  against required exit 0. The diagnostic was
+  `grader preparation is not yet supported in Rust: sevro.git-head`.
+  The complete log is `/tmp/sevro-git-head-first-red.log`.
+
+The new [run_git_head.rs](../../crates/sevro/tests/run_git_head.rs) fixture owns
+its UUID-named input/result root and places temporary workspaces under that
+root through `TMPDIR`. Its cleanup removes only that owned root. The first
+assertion has exposed the missing public behavior; later assertions retain the
+independent revision, literal outcome, required Git observation, raw digest,
+result consistency and successful cleanup oracle for the eventual green.
+
+At that checkpoint, product implementation was held pending the separate
+records/state-root cohort's handoff. No grader, preparation, fixture or records
+product code was changed for this red, and the full grader suite was not
+reported green with the new test present. The required boundary captures an immutable base after
+materialization and before candidate execution, grades current HEAD afterward,
+and merges the Git observation before required-evidence assessment. A post-turn
+HEAD cannot substitute for the runner-owned baseline. Git-specific runtime
+errors must retain their own diagnostic and evidence rather than reuse the
+output-grading diagnostic.
+
+## Git HEAD grading: unchanged, advanced and rewound history
+
+After the records/state-root handoff, the first public red above was completed
+without changing its oracle or the state-root allocator. The Git base is
+captured from the materialized fixture before the candidate turn and retained
+in a per-trial Rust value. Post-turn grading reads current HEAD and ancestry
+against that captured base. It does not infer the base from the candidate's
+final state or a candidate-written metadata file.
+
+- Red — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_git_head git_head_unchanged_passes_with_runner_owned_base -- --exact`:
+  the previously retained public failure returned 64 because Git HEAD grading
+  was unsupported, against the required successful exit 0.
+- Green — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_git_head git_head_unchanged_passes_with_runner_owned_base -- --exact`:
+  one test passed after preparation, pre-turn capture, grading and retained
+  observation integration. The same command also passed after a small process
+  ownership refactor that waits for bounded stdout before reaping normal exit.
+- Initial green — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_git_head git_head_advance_preserves_the_base_and_passes_changed_and_ancestry -- --exact`:
+  one test passed. The actual candidate commits `third\\n`; changed and ancestry
+  checks both pass with the original base retained.
+- Initial green — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_git_head git_head_rewind_changes_head_but_fails_ancestry_with_retained_evidence -- --exact`:
+  one test passed. The actual candidate resets to `HEAD~1`; changed passes,
+  ancestry fails, exit is 1, and the failed trial workspace retains
+  `README.md` containing `first\\n`.
+
+The latter controls were added one at a time after separate unchanged
+TypeScript CLI captures, using the same two-commit fixture and literal check
+configuration. They were first-green characterizations of the general kind
+comparison used by the first implementation, not manufactured red/green claims.
+The captures and independent source hashes are retained under
+`/private/tmp/sevro-git-head-advance.mcgj3u6b` and
+`/private/tmp/sevro-git-head-rewind.co3im4tu`.
+`python3 /tmp/sevro-git-head-transition-baseline.py advance` and
+`python3 /tmp/sevro-git-head-transition-baseline.py rewind` reproduce each
+public TypeScript observation in its own temporary root.
+
+| Candidate action          | Current revision                           | Base ancestor | Ordered check results                | Exit |
+| ------------------------- | ------------------------------------------ | ------------- | ------------------------------------ | ---- |
+| Unchanged                 | `5c3b5472713da769681c6e25442b7c35cad8d9af` | true          | unchanged passed                     | 0    |
+| Commit third file content | `a647de244b9760c795ce5af931a3517dd3c30a90` | true          | changed passed, base-ancestor passed | 0    |
+| Reset to previous commit  | `6c4776f37d408fe0c21ee516ea7ea91d117d5266` | false         | changed passed, base-ancestor failed | 1    |
+
+Every row retains base revision
+`5c3b5472713da769681c6e25442b7c35cad8d9af`. Passing details are the literal
+TypeScript strings rather than normalized `ok`: changed uses
+`candidate did not create the expected commit`, and ancestry uses
+`candidate replaced or diverged from the fixture history` for either verdict.
+Checks reference only the complete `sevro.observation.git-head`; required
+Git evidence is assessed after the grader produces that observation. Candidate
+raw `ready`, its independent hash, trial/run/result/latest consistency and
+successful cleanup or failure retention remain asserted through the public CLI.
+
+The new helper uses the existing contract's 128-byte Git stdout bound and
+10-second process deadline, cancellation token, isolated process group and
+sanitized Git environment, including `GIT_NO_REPLACE_OBJECTS=1`. It requires
+real `.git` directory metadata, immutable 40- or 64-hex revisions, and the
+actual `merge-base --is-ancestor` exit result. The helper adds no dependency,
+shared-process framework, source exclusions or custom coverage system.
+Preparation validates the declared kind and Git fixture before admission;
+compiled check state remains skipped in declaration identity serialization.
+
+The records integration passes the workspace/base/cancellation context into
+grading, merges the complete Git observation before required-evidence checks,
+and retains the existing state-root ownership and persistence boundaries.
+Grading error diagnostics now use the typed error's evaluator-owned public
+message, preserving the schema error's `output grading did not complete`
+while allowing Git's `Git HEAD grading did not complete` without exposing its
+underlying cause. Dedicated malformed-Git, cancellation, timeout, mixed-grader
+and Git-specific preflight controls remain subsequent work; this three-case
+cohort does not claim those public edges verified or full Git HEAD parity.
+
+The affected command `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_git_head --test run_graders --test run_results --test run_required_evidence --test run_concurrency --test run_storage --test run_ownership --test run_state_root --test run_generated`
+passed 194 tests: three Git HEAD, 123 output/JSON/regex/schema grader, 28
+generated-fixture, ten state-root, nine ownership, six concurrency, and five
+each required-evidence, results and storage cases. Scoped strict Clippy for
+the binary and those test targets passed. Owned Rustfmt, ledger Prettier and
+documentation checks passed. The coordinator retains combined-candidate
+coverage, review and exact-head macOS/Ubuntu acceptance responsibility.
+
 ## Remaining boundaries
 
 This ledger covers `sevro.output` with `expectExact`, `validJson`, ordinary
 `jsonPath` selection with `expectJson` equality and `containsJson` containment,
 standalone `sevro.json`, the standalone `sevro.regex` controls, and the bounded
-inline `sevro.schema` controls above.
+inline `sevro.schema` and generated-fixture `sevro.git-head` controls above.
 JSON object and array selection follows
 the accepted RFC 6901 decision, including referenced-member uniqueness. Other
 deterministic checks, custom graders, domain outcomes, semantic grading and

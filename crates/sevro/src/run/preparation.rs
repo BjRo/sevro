@@ -181,6 +181,14 @@ impl PreparedCase {
             if !ids.insert(&check.id) {
                 return Err("case check IDs must be unique".into());
             }
+            if check.grader == "sevro.git-head" {
+                let prepared = super::graders::prepare_git_head(&check.configuration)?;
+                if matches!(case.fixture, FixtureDeclaration::Inline { .. }) {
+                    return Err("Git HEAD checks require a Git fixture".into());
+                }
+                check.prepared = super::graders::PreparedOutput::GitHead(prepared);
+                continue;
+            }
             if check.grader == "sevro.regex" {
                 check.prepared = super::graders::PreparedOutput::Regex(
                     super::graders::prepare_regex(&check.configuration)?,

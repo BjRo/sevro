@@ -4,7 +4,11 @@ use serde::Serialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
+mod git_head;
 mod schema;
+pub(super) use git_head::{
+    Context as GitHeadContext, capture_base as capture_git_head_base, prepare as prepare_git_head,
+};
 pub(super) use schema::SchemaPreparation;
 
 #[derive(Default)]
@@ -17,6 +21,7 @@ pub(super) enum PreparedOutput {
     OutputContains(PreparedSubset),
     Regex(PreparedRegex),
     Schema(schema::PreparedSchema),
+    GitHead(git_head::Kind),
 }
 
 pub(super) enum PreparedSubset {
@@ -185,6 +190,7 @@ pub(super) struct Assessment {
     pub domain_outcomes: Vec<Value>,
     pub grading: GradingStatus,
     pub task: TaskVerdict,
+    pub git_head: Option<git_head::State>,
 }
 
 impl Assessment {
@@ -195,12 +201,14 @@ impl Assessment {
             domain_outcomes: Vec::new(),
             grading: GradingStatus::Error,
             task: TaskVerdict::NotAssessed,
+            git_head: None,
         }
     }
 }
 
 fn output_failure(check: &Check, message: &str) -> RunResult<Option<&'static str>> {
     let contains = match &check.prepared {
+        PreparedOutput::GitHead(_) => return Err("Git HEAD check requires fixture context".into()),
         PreparedOutput::Regex(regex) => return Ok(regex.failure(message)),
         PreparedOutput::Schema(schema) => {
             return schema
@@ -503,9 +511,11 @@ pub(super) fn evaluate(
     checks: &[Check],
     final_message: Option<&str>,
     complete: bool,
+    context: GitHeadContext<'_>,
 ) -> RunResult<Assessment> {
-    let checks: Vec<_> = checks
+    let mut results: Vec<_> = checks
         .iter()
+        .filter(|check| !matches!(check.prepared, PreparedOutput::GitHead(_)))
         .map(|check| {
             let (status, detail) = match final_message.filter(|_| complete) {
                 None => (CheckStatus::Unavailable, "output observation unavailable"),
@@ -526,6 +536,16 @@ pub(super) fn evaluate(
             })
         })
         .collect::<RunResult<_>>()?;
+    let git_head = context.observe(checks)?;
+    if let Some(state) = &git_head {
+        for check in checks {
+            if let PreparedOutput::GitHead(kind) = check.prepared {
+                results.push(state.check(check, kind));
+            }
+        }
+    }
+    results.sort_by_key(|result| checks.iter().position(|check| check.id == result.id));
+    let checks = results;
     let (grading, task) = if checks.is_empty() {
         (GradingStatus::NotRequested, TaskVerdict::NotAssessed)
     } else if checks
@@ -547,5 +567,6 @@ pub(super) fn evaluate(
         domain_outcomes: Vec::new(),
         grading,
         task,
+        git_head,
     })
 }

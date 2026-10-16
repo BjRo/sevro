@@ -207,8 +207,8 @@ fn run_owned(
     });
     let diagnostic = if interruption.is_some() {
         json!({"code":"sevro.run.cancelled","message":"run cancelled"})
-    } else if !failed && grading_failure.is_some() {
-        json!({"code":"sevro.grader.error","message":"output grading did not complete"})
+    } else if let Some(error) = grading_failure.as_ref().filter(|_| !failed) {
+        json!({"code":"sevro.grader.error","message":error.message()})
     } else {
         failure_diagnostic(failure)
     };
@@ -363,6 +363,11 @@ impl TrialContext<'_, '_> {
         } = self;
         let materialized = fixtures::materialize(fixture, host.cancellation())?;
         let workspace = &materialized.workspace;
+        let git_head_base = if materialized.cancelled {
+            None
+        } else {
+            graders::capture_git_head_base(&case.checks, workspace, host.cancellation())?
+        };
         let receipt = self.candidate_receipt(&materialized, trial)?;
         if receipt.failed || receipt.cancelled {
             self.stop_admission()?;
@@ -372,20 +377,31 @@ impl TrialContext<'_, '_> {
         } else {
             case.checks.as_slice()
         };
-        let (mut grading, grading_failure) =
-            match graders::evaluate(checks, receipt.final_message.as_deref(), receipt.complete) {
-                Ok(grading) => (grading, None),
-                Err(error) => {
-                    self.stop_admission()?;
-                    (graders::Assessment::error(), Some(error))
-                }
-            };
+        let (mut grading, grading_failure) = match graders::evaluate(
+            checks,
+            receipt.final_message.as_deref(),
+            receipt.complete,
+            graders::GitHeadContext {
+                workspace,
+                base: git_head_base.as_ref(),
+                cancellation: host.cancellation(),
+            },
+        ) {
+            Ok(grading) => (grading, None),
+            Err(error) => {
+                self.stop_admission()?;
+                (graders::Assessment::error(), Some(error))
+            }
+        };
         if receipt.execution(options.dry) == "completed"
             && grading_failure.is_none()
-            && case
-                .required_evidence
-                .iter()
-                .any(|id| !receipt.has_required_evidence(id))
+            && case.required_evidence.iter().any(|id| {
+                !receipt.has_required_evidence(id)
+                    && !grading
+                        .git_head
+                        .as_ref()
+                        .is_some_and(|state| state.satisfies(id))
+            })
         {
             grading.grading = graders::GradingStatus::Unavailable;
             if !matches!(grading.task, graders::TaskVerdict::Failed) {
@@ -406,6 +422,7 @@ impl TrialContext<'_, '_> {
         observations.extend(receipt.observations.iter().map(|observation| {
             json!({"id":observation.id,"source":identity.route.host,"completeness":observation.completeness,"data":observation.data})
         }));
+        observations.extend(grading.git_head.as_ref().map(|state| state.observation()));
         let evidence = json!({
             "caseId":case.id,"trial":trial,"executionMode":if options.dry {"dry"} else {"executed"},"candidateDurationMs":receipt.duration_ms,
             "condition":{"requested":options.condition,"actual":receipt.actual_condition,"appliedInstrumentation":[]},
