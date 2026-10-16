@@ -35,6 +35,7 @@ enum PreparedKind {
         source: RepositorySource,
         files: Option<BTreeMap<String, String>>,
         staged: Option<Vec<String>>,
+        hooks: Option<BTreeMap<String, String>>,
     },
 }
 
@@ -54,6 +55,7 @@ impl PreparedFixture {
                 source,
                 files,
                 staged,
+                hooks,
             } => {
                 let mut identity = json!({
                     "kind":"repository","sourceRef":source.reference,
@@ -64,6 +66,9 @@ impl PreparedFixture {
                 }
                 if let Some(staged) = staged {
                     identity["staged"] = json!(staged);
+                }
+                if let Some(hooks) = hooks {
+                    identity["hooks"] = json!(hooks);
                 }
                 identity
             }
@@ -109,10 +114,12 @@ pub(super) fn resolve(
             source_ref,
             files,
             staged,
+            hooks,
         } => PreparedKind::Repository {
             source: repository::resolve(sources.as_ref(), source_ref)?,
             files: files.clone(),
             staged: staged.clone(),
+            hooks: hooks.clone(),
         },
     };
     let fixture_paths = match declaration {
@@ -158,10 +165,14 @@ pub(super) fn prepare(
     })
 }
 
-pub(super) fn validate_repository_overlay(
+pub(super) fn validate_repository_fixture(
     files: Option<&BTreeMap<String, String>>,
     staged: &[String],
+    hooks: Option<&BTreeMap<String, String>>,
 ) -> RunResult<()> {
+    if let Some(hooks) = hooks {
+        tools::validate_hooks(hooks)?;
+    }
     repository::validate_overlay(files, staged)
 }
 
@@ -186,6 +197,7 @@ pub(super) fn materialize(
                 source,
                 files,
                 staged,
+                hooks,
             } => {
                 repository::clone(source, &workspace)?;
                 if let Some(files) = files {
@@ -193,6 +205,14 @@ pub(super) fn materialize(
                         files,
                         staged.as_deref().unwrap_or_default(),
                         &workspace,
+                    )?;
+                }
+                if let Some(hooks) = hooks {
+                    tools::install(
+                        hooks,
+                        &workspace.join(".git/hooks"),
+                        "fixture Git hooks directory is invalid",
+                        "fixture Git hook target is invalid",
                     )?;
                 }
             }

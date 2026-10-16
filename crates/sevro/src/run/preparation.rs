@@ -39,6 +39,7 @@ struct FixtureInput {
     files: Option<BTreeMap<String, String>>,
     source_ref: Option<String>,
     staged: Option<Vec<String>>,
+    hooks: Option<BTreeMap<String, String>>,
 }
 
 #[derive(Deserialize)]
@@ -52,6 +53,7 @@ pub(super) enum FixtureDeclaration {
         source_ref: String,
         files: Option<BTreeMap<String, String>>,
         staged: Option<Vec<String>>,
+        hooks: Option<BTreeMap<String, String>>,
     },
 }
 
@@ -87,6 +89,7 @@ impl TryFrom<FixtureInput> for FixtureDeclaration {
                 source_ref,
                 files: input.files,
                 staged: input.staged,
+                hooks: input.hooks,
             });
         }
         if input.kind.as_deref().is_some_and(|kind| kind != "inline") {
@@ -131,12 +134,16 @@ impl PreparedCase {
             .map_err(|error| RunError::with_source(format!("invalid case file: {error}"), error))?;
         let validation = match &case.fixture {
             FixtureDeclaration::Generated(fixture) => fixture.validate(),
-            FixtureDeclaration::Repository { files, staged, .. } => {
-                super::fixtures::validate_repository_overlay(
-                    files.as_ref(),
-                    staged.as_deref().unwrap_or_default(),
-                )
-            }
+            FixtureDeclaration::Repository {
+                files,
+                staged,
+                hooks,
+                ..
+            } => super::fixtures::validate_repository_fixture(
+                files.as_ref(),
+                staged.as_deref().unwrap_or_default(),
+                hooks.as_ref(),
+            ),
             _ => Ok(()),
         };
         validation.map_err(|error| {
@@ -166,6 +173,7 @@ impl PreparedCase {
             return Err("invalid required evidence IDs".into());
         }
         let mut ids = BTreeSet::new();
+        let mut schemas = super::graders::SchemaPreparation::default();
         for check in &mut case.checks {
             if check.id.is_empty() {
                 return Err("duplicate or empty check ID: ".into());
@@ -177,6 +185,11 @@ impl PreparedCase {
                 check.prepared = super::graders::PreparedOutput::Regex(
                     super::graders::prepare_regex(&check.configuration)?,
                 );
+                continue;
+            }
+            if check.grader == "sevro.schema" {
+                check.prepared =
+                    super::graders::PreparedOutput::Schema(schemas.prepare(&check.configuration)?);
                 continue;
             }
             if check.grader == "sevro.json" {
@@ -312,7 +325,11 @@ fn direct_case_issue(value: &Value) -> Option<String> {
     {
         return Some("fixture.kind: omit for inline/repository fixtures, or use generated".into());
     }
-    if value.pointer("/fixture/kind").and_then(Value::as_str) == Some("generated")
+    if (value.pointer("/fixture/kind").and_then(Value::as_str) == Some("generated")
+        || value
+            .pointer("/fixture/sourceRef")
+            .and_then(Value::as_str)
+            .is_some_and(|source| !source.is_empty()))
         && value.pointer("/fixture/hooks").is_some_and(|hooks| {
             hooks
                 .as_object()

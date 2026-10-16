@@ -71,6 +71,14 @@ impl Fixture {
         fs::write(path, serde_json::to_vec(&case).unwrap()).unwrap();
     }
 
+    fn schema_configuration(&self, configuration: Value) {
+        self.output_configuration(configuration);
+        let path = self.root.join("case.json");
+        let mut case = read_json(&path);
+        case["checks"][0]["grader"] = json!("sevro.schema");
+        fs::write(path, serde_json::to_vec(&case).unwrap()).unwrap();
+    }
+
     fn regex_configuration(&self, configuration: Value) {
         let mut case: Value =
             serde_json::from_slice(include_bytes!("../../../examples/basic/graded.json")).unwrap();
@@ -111,6 +119,471 @@ impl Fixture {
             .output()
             .unwrap()
     }
+}
+
+#[test]
+fn standalone_schema_passes_a_matching_inline_object() {
+    let mut fixture = Fixture::new();
+    fixture.schema_configuration(json!({"schema":{"type":"object","required":["status"],"properties":{"status":{"const":"ready"}}}}));
+    fixture.observation(Some(r#"{"status":"ready"}"#), true);
+    let evidence = assert_assessed_result(
+        &fixture.invoke(),
+        0,
+        "completed",
+        "passed",
+        json!({"id":"json","grader":"sevro.schema","status":"passed","detail":"ok","evidenceRefs":["sevro.observation.final-message"]}),
+    );
+    assert_eq!(raw_bytes(&evidence), r#"{"status":"ready"}"#.as_bytes());
+    assert_eq!(
+        evidence["trials"][0]["rawResult"]["sha256"],
+        "31bf75f4c0a97cc1f7b60df824fa390b3be9ba014f29b63c87c698ba63d9a9fd"
+    );
+    let result = &evidence["result"];
+    let run_directory = Path::new(result["evidencePath"].as_str().unwrap())
+        .parent()
+        .unwrap();
+    assert_eq!(read_json(&run_directory.join("result.json")), *result);
+    assert_eq!(
+        read_json(&fixture.root.join("results/latest.json")),
+        *result
+    );
+    assert!(!workspace_path(&evidence["trials"][0]).exists());
+}
+
+#[test]
+fn standalone_schema_runtime_error_retains_completed_trial_evidence() {
+    let mut fixture = Fixture::new();
+    fixture.schema_configuration(json!({"schema":{"$ref":"#"}}));
+    fixture.observation(Some("{}"), true);
+    let output = fixture.invoke();
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(result["exitCode"], 3);
+    let case = &result["cases"][0];
+    let trial = &case["trials"][0];
+    for assessment in [&result, case, trial] {
+        assert_eq!(assessment["execution"]["status"], "completed");
+        assert_eq!(assessment["grading"]["status"], "error");
+        assert_eq!(assessment["task"]["verdict"], "not_assessed");
+    }
+    assert_eq!(trial["checks"], json!([]));
+    assert_eq!(
+        result["diagnostic"],
+        json!({"code":"sevro.grader.error","message":"output grading did not complete"})
+    );
+    assert!(String::from_utf8_lossy(&output.stderr).contains("output grading did not complete"));
+    let evidence_path = Path::new(result["evidencePath"].as_str().unwrap());
+    let evidence = read_json(evidence_path);
+    assert_eq!(evidence["result"], result);
+    assert_eq!(evidence["diagnostic"], result["diagnostic"]);
+    assert_eq!(
+        read_json(Path::new(trial["artifactPath"].as_str().unwrap()))["result"],
+        *trial
+    );
+    assert_eq!(raw_bytes(&evidence), b"{}");
+    assert_eq!(
+        evidence["trials"][0]["rawResult"]["sha256"],
+        "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    );
+    assert_eq!(
+        read_json(&evidence_path.parent().unwrap().join("result.json")),
+        result
+    );
+    assert_eq!(read_json(&fixture.root.join("results/latest.json")), result);
+    remove_retained_workspace(&evidence);
+}
+
+#[test]
+fn standalone_schema_accepts_json_exponent_overflow_as_a_number() {
+    let mut fixture = Fixture::new();
+    fixture.schema_configuration(json!({"schema":{"type":"number"}}));
+    fixture.observation(Some(r###"1e400"###), true);
+    let evidence = assert_assessed_result(
+        &fixture.invoke(),
+        0,
+        "completed",
+        "passed",
+        json!({"id":"json","grader":"sevro.schema","status":"passed","detail":"ok","evidenceRefs":["sevro.observation.final-message"]}),
+    );
+    assert_eq!(raw_bytes(&evidence), r###"1e400"###.as_bytes());
+    assert_eq!(
+        evidence["trials"][0]["rawResult"]["sha256"],
+        "f2bba4568fecd4b9729970732e571ac9373a33fb2d6a960794a41f0f2ecdbc25"
+    );
+    let result = &evidence["result"];
+    let run_directory = Path::new(result["evidencePath"].as_str().unwrap())
+        .parent()
+        .unwrap();
+    assert_eq!(read_json(&run_directory.join("result.json")), *result);
+    assert_eq!(
+        read_json(&fixture.root.join("results/latest.json")),
+        *result
+    );
+    assert!(!workspace_path(&evidence["trials"][0]).exists());
+}
+
+#[test]
+fn standalone_schema_preserves_lone_surrogate_length() {
+    let mut fixture = Fixture::new();
+    fixture.schema_configuration(json!({"schema":{"type":"string","maxLength":1}}));
+    fixture.observation(Some(r###""\ud800""###), true);
+    let evidence = assert_assessed_result(
+        &fixture.invoke(),
+        0,
+        "completed",
+        "passed",
+        json!({"id":"json","grader":"sevro.schema","status":"passed","detail":"ok","evidenceRefs":["sevro.observation.final-message"]}),
+    );
+    assert_eq!(raw_bytes(&evidence), r###""\ud800""###.as_bytes());
+    assert_eq!(
+        evidence["trials"][0]["rawResult"]["sha256"],
+        "8c0c59dd0d275aadcd462a5fe12eb352cbdfeaf961eae4f85a4660521df7d2f5"
+    );
+    let result = &evidence["result"];
+    let run_directory = Path::new(result["evidencePath"].as_str().unwrap())
+        .parent()
+        .unwrap();
+    assert_eq!(read_json(&run_directory.join("result.json")), *result);
+    assert_eq!(
+        read_json(&fixture.root.join("results/latest.json")),
+        *result
+    );
+    assert!(!workspace_path(&evidence["trials"][0]).exists());
+}
+
+#[test]
+fn standalone_schema_ignores_uninstalled_formats_with_preflight_warnings() {
+    let mut fixture = Fixture::new();
+    fixture.schema_configuration(json!({"schema":{"type":"string","format":"email"}}));
+    fixture.observation(Some(r###""not an email""###), true);
+    let output = fixture.invoke();
+    let evidence = assert_assessed_result(
+        &output,
+        0,
+        "completed",
+        "passed",
+        json!({"id":"json","grader":"sevro.schema","status":"passed","detail":"ok","evidenceRefs":["sevro.observation.final-message"]}),
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr)
+            .lines()
+            .filter(|line| *line == r##"unknown format "email" ignored in schema at path "#""##)
+            .count(),
+        2
+    );
+    assert_eq!(raw_bytes(&evidence), r###""not an email""###.as_bytes());
+    assert_eq!(
+        evidence["trials"][0]["rawResult"]["sha256"],
+        "774721c1edf4c720f00b981d1c4b191b542c92f9319ec173958bf71f802ebd4e"
+    );
+    let result = &evidence["result"];
+    let run_directory = Path::new(result["evidencePath"].as_str().unwrap())
+        .parent()
+        .unwrap();
+    assert_eq!(read_json(&run_directory.join("result.json")), *result);
+    assert_eq!(
+        read_json(&fixture.root.join("results/latest.json")),
+        *result
+    );
+    assert!(!workspace_path(&evidence["trials"][0]).exists());
+}
+
+#[test]
+fn standalone_schema_compares_overflow_against_a_minimum() {
+    let mut fixture = Fixture::new();
+    fixture.schema_configuration(json!({"schema":{"type":"number","minimum":1}}));
+    fixture.observation(Some(r###"1e400"###), true);
+    let evidence = assert_assessed_result(
+        &fixture.invoke(),
+        0,
+        "completed",
+        "passed",
+        json!({"id":"json","grader":"sevro.schema","status":"passed","detail":"ok","evidenceRefs":["sevro.observation.final-message"]}),
+    );
+    assert_eq!(raw_bytes(&evidence), r###"1e400"###.as_bytes());
+    assert_eq!(
+        evidence["trials"][0]["rawResult"]["sha256"],
+        "f2bba4568fecd4b9729970732e571ac9373a33fb2d6a960794a41f0f2ecdbc25"
+    );
+    let result = &evidence["result"];
+    let run_directory = Path::new(result["evidencePath"].as_str().unwrap())
+        .parent()
+        .unwrap();
+    assert_eq!(read_json(&run_directory.join("result.json")), *result);
+    assert_eq!(
+        read_json(&fixture.root.join("results/latest.json")),
+        *result
+    );
+    assert!(!workspace_path(&evidence["trials"][0]).exists());
+}
+
+#[test]
+fn standalone_schema_compares_overflow_against_a_maximum() {
+    let mut fixture = Fixture::new();
+    fixture.schema_configuration(json!({"schema":{"type":"number","maximum":1}}));
+    fixture.observation(Some(r###"1e400"###), true);
+    let evidence = assert_assessed_result(
+        &fixture.invoke(),
+        1,
+        "completed",
+        "failed",
+        json!({"id":"json","grader":"sevro.schema","status":"failed","detail":"output did not match JSON Schema","evidenceRefs":["sevro.observation.final-message"]}),
+    );
+    assert_eq!(raw_bytes(&evidence), r###"1e400"###.as_bytes());
+    assert_eq!(
+        evidence["trials"][0]["rawResult"]["sha256"],
+        "f2bba4568fecd4b9729970732e571ac9373a33fb2d6a960794a41f0f2ecdbc25"
+    );
+    let result = &evidence["result"];
+    let run_directory = Path::new(result["evidencePath"].as_str().unwrap())
+        .parent()
+        .unwrap();
+    assert_eq!(read_json(&run_directory.join("result.json")), *result);
+    assert_eq!(
+        read_json(&fixture.root.join("results/latest.json")),
+        *result
+    );
+    remove_retained_workspace(&evidence);
+}
+
+#[test]
+fn standalone_schema_matches_the_actual_lone_surrogate_code_unit() {
+    let mut fixture = Fixture::new();
+    fixture.schema_configuration(json!({"schema":{"type":"string","pattern":"^\\uD800$"}}));
+    fixture.observation(Some(r###""\ud800""###), true);
+    let evidence = assert_assessed_result(
+        &fixture.invoke(),
+        0,
+        "completed",
+        "passed",
+        json!({"id":"json","grader":"sevro.schema","status":"passed","detail":"ok","evidenceRefs":["sevro.observation.final-message"]}),
+    );
+    assert_eq!(raw_bytes(&evidence), r###""\ud800""###.as_bytes());
+    assert_eq!(
+        evidence["trials"][0]["rawResult"]["sha256"],
+        "8c0c59dd0d275aadcd462a5fe12eb352cbdfeaf961eae4f85a4660521df7d2f5"
+    );
+    let result = &evidence["result"];
+    let run_directory = Path::new(result["evidencePath"].as_str().unwrap())
+        .parent()
+        .unwrap();
+    assert_eq!(read_json(&run_directory.join("result.json")), *result);
+    assert_eq!(
+        read_json(&fixture.root.join("results/latest.json")),
+        *result
+    );
+    assert!(!workspace_path(&evidence["trials"][0]).exists());
+}
+
+#[test]
+fn standalone_schema_rejects_a_different_surrogate_pattern() {
+    let mut fixture = Fixture::new();
+    fixture.schema_configuration(json!({"schema":{"type":"string","pattern":"^\\uD801$"}}));
+    fixture.observation(Some(r###""\ud800""###), true);
+    let evidence = assert_assessed_result(
+        &fixture.invoke(),
+        1,
+        "completed",
+        "failed",
+        json!({"id":"json","grader":"sevro.schema","status":"failed","detail":"output did not match JSON Schema","evidenceRefs":["sevro.observation.final-message"]}),
+    );
+    assert_eq!(raw_bytes(&evidence), r###""\ud800""###.as_bytes());
+    assert_eq!(
+        evidence["trials"][0]["rawResult"]["sha256"],
+        "8c0c59dd0d275aadcd462a5fe12eb352cbdfeaf961eae4f85a4660521df7d2f5"
+    );
+    let result = &evidence["result"];
+    let run_directory = Path::new(result["evidencePath"].as_str().unwrap())
+        .parent()
+        .unwrap();
+    assert_eq!(read_json(&run_directory.join("result.json")), *result);
+    assert_eq!(
+        read_json(&fixture.root.join("results/latest.json")),
+        *result
+    );
+    remove_retained_workspace(&evidence);
+}
+
+#[test]
+fn standalone_schema_fails_an_ordinary_property_mismatch() {
+    let mut fixture = Fixture::new();
+    fixture.schema_configuration(json!({"schema":{"type":"object","required":["status"],"properties":{"status":{"const":"ready"}}}}));
+    fixture.observation(Some(r###"{"status":"wait"}"###), true);
+    let evidence = assert_assessed_result(
+        &fixture.invoke(),
+        1,
+        "completed",
+        "failed",
+        json!({"id":"json","grader":"sevro.schema","status":"failed","detail":"output did not match JSON Schema","evidenceRefs":["sevro.observation.final-message"]}),
+    );
+    assert_eq!(raw_bytes(&evidence), r###"{"status":"wait"}"###.as_bytes());
+    assert_eq!(
+        evidence["trials"][0]["rawResult"]["sha256"],
+        "4cabe840edc4d80b08a2aa1284201449c961949e09ba62058e760ec69ac2d6fb"
+    );
+    let result = &evidence["result"];
+    let run_directory = Path::new(result["evidencePath"].as_str().unwrap())
+        .parent()
+        .unwrap();
+    assert_eq!(read_json(&run_directory.join("result.json")), *result);
+    assert_eq!(
+        read_json(&fixture.root.join("results/latest.json")),
+        *result
+    );
+    remove_retained_workspace(&evidence);
+}
+
+#[test]
+fn standalone_schema_refuses_an_invalid_schema_type_before_execution() {
+    let mut fixture = Fixture::new();
+    fixture.schema_configuration(json!({"schema":{"type":"not-a-type"}}));
+    fixture.observation(Some("ready"), true);
+    fs::write(&fixture.adapter, "import {writeFile} from 'node:fs/promises'; export default {id:'sevro.host.synthetic',model:'synthetic-v1',effort:'none',async run(){await writeFile(new URL('./candidate-called',import.meta.url),'called');return {finalMessage:'ready',complete:true};}};\n").unwrap();
+    let output = fixture.invoke();
+    assert_eq!(
+        output.status.code(),
+        Some(64),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        result,
+        json!({
+            "format":"sevro.cli-result.v1","runId":null,
+            "execution":{"status":"not_run"},"grading":{"status":"not_requested"},
+            "task":{"verdict":"not_assessed"},"exitCode":64,"evidencePath":null,"cases":[],
+            "diagnostic":{"code":"sevro.invocation.invalid","message":"invalid inline JSON Schema"}
+        })
+    );
+    assert!(String::from_utf8_lossy(&output.stderr).contains("sevro: invalid inline JSON Schema"));
+    assert!(!fixture.root.join("candidate-called").exists());
+    assert!(!fixture.root.join("results").exists());
+}
+
+#[test]
+fn standalone_schema_refuses_an_external_reference_before_execution() {
+    let mut fixture = Fixture::new();
+    fixture.schema_configuration(
+        json!({"schema":{"$ref":"https://example.invalid/sevro-schema.json"}}),
+    );
+    fixture.observation(Some("ready"), true);
+    fs::write(&fixture.adapter, "import {writeFile} from 'node:fs/promises'; export default {id:'sevro.host.synthetic',model:'synthetic-v1',effort:'none',async run(){await writeFile(new URL('./candidate-called',import.meta.url),'called');return {finalMessage:'ready',complete:true};}};\n").unwrap();
+    let output = fixture.invoke();
+    assert_eq!(
+        output.status.code(),
+        Some(64),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        result,
+        json!({
+            "format":"sevro.cli-result.v1","runId":null,
+            "execution":{"status":"not_run"},"grading":{"status":"not_requested"},
+            "task":{"verdict":"not_assessed"},"exitCode":64,"evidencePath":null,"cases":[],
+            "diagnostic":{"code":"sevro.invocation.invalid","message":"invalid inline JSON Schema"}
+        })
+    );
+    assert!(String::from_utf8_lossy(&output.stderr).contains("sevro: invalid inline JSON Schema"));
+    assert!(!fixture.root.join("candidate-called").exists());
+    assert!(!fixture.root.join("results").exists());
+}
+
+#[test]
+fn standalone_schema_refuses_an_unsupported_declared_dialect() {
+    let mut fixture = Fixture::new();
+    fixture.schema_configuration(
+        json!({"schema":{"$schema":"http://json-schema.org/draft-07/schema#","type":"string"}}),
+    );
+    fixture.observation(Some("ready"), true);
+    fs::write(&fixture.adapter, "import {writeFile} from 'node:fs/promises'; export default {id:'sevro.host.synthetic',model:'synthetic-v1',effort:'none',async run(){await writeFile(new URL('./candidate-called',import.meta.url),'called');return {finalMessage:'ready',complete:true};}};\n").unwrap();
+    let output = fixture.invoke();
+    assert_eq!(
+        output.status.code(),
+        Some(64),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        result,
+        json!({
+            "format":"sevro.cli-result.v1","runId":null,
+            "execution":{"status":"not_run"},"grading":{"status":"not_requested"},
+            "task":{"verdict":"not_assessed"},"exitCode":64,"evidencePath":null,"cases":[],
+            "diagnostic":{"code":"sevro.invocation.invalid","message":"invalid inline JSON Schema"}
+        })
+    );
+    assert!(String::from_utf8_lossy(&output.stderr).contains("sevro: invalid inline JSON Schema"));
+    assert!(!fixture.root.join("candidate-called").exists());
+    assert!(!fixture.root.join("results").exists());
+}
+
+#[test]
+fn standalone_schema_resolves_an_inline_definition() {
+    let mut fixture = Fixture::new();
+    fixture.schema_configuration(
+        json!({"schema":{"$defs":{"ready":{"const":"ready"}},"$ref":"#/$defs/ready"}}),
+    );
+    fixture.observation(Some(r###""ready""###), true);
+    let evidence = assert_assessed_result(
+        &fixture.invoke(),
+        0,
+        "completed",
+        "passed",
+        json!({"id":"json","grader":"sevro.schema","status":"passed","detail":"ok","evidenceRefs":["sevro.observation.final-message"]}),
+    );
+    assert_eq!(raw_bytes(&evidence), r###""ready""###.as_bytes());
+    assert_eq!(
+        evidence["trials"][0]["rawResult"]["sha256"],
+        "40ec7f71ea684c8b976e79e8e425f87779e6de57f4821dcfc8066dbcad2defe0"
+    );
+    let result = &evidence["result"];
+    let run_directory = Path::new(result["evidencePath"].as_str().unwrap())
+        .parent()
+        .unwrap();
+    assert_eq!(read_json(&run_directory.join("result.json")), *result);
+    assert_eq!(
+        read_json(&fixture.root.join("results/latest.json")),
+        *result
+    );
+    assert!(!workspace_path(&evidence["trials"][0]).exists());
+}
+
+#[test]
+fn standalone_schema_preserves_a_document_nested_130_levels() {
+    let mut fixture = Fixture::new();
+    fixture.schema_configuration(json!({"schema":{}}));
+    fixture.observation(Some(r###"[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[0]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]"###), true);
+    let evidence = assert_assessed_result(
+        &fixture.invoke(),
+        0,
+        "completed",
+        "passed",
+        json!({"id":"json","grader":"sevro.schema","status":"passed","detail":"ok","evidenceRefs":["sevro.observation.final-message"]}),
+    );
+    assert_eq!(raw_bytes(&evidence), r###"[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[0]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]"###.as_bytes());
+    assert_eq!(
+        evidence["trials"][0]["rawResult"]["sha256"],
+        "b04d255ad45ae4606adc932e61ce9b02559ba5c5e5aa6695f6e9f8f68b22121e"
+    );
+    let result = &evidence["result"];
+    let run_directory = Path::new(result["evidencePath"].as_str().unwrap())
+        .parent()
+        .unwrap();
+    assert_eq!(read_json(&run_directory.join("result.json")), *result);
+    assert_eq!(
+        read_json(&fixture.root.join("results/latest.json")),
+        *result
+    );
+    assert!(!workspace_path(&evidence["trials"][0]).exists());
 }
 
 impl Drop for Fixture {
@@ -1095,6 +1568,35 @@ fn standalone_json_containment_requires_every_nested_array_part() {
     assert_eq!(
         evidence["trials"][0]["rawResult"]["sha256"],
         "63ab4b86009791e7f1ecd22d5f1bfa3dda83dacd5d91e8405d3f8814cc53b16d"
+    );
+    let result = &evidence["result"];
+    let run_directory = Path::new(result["evidencePath"].as_str().unwrap())
+        .parent()
+        .unwrap();
+    assert_eq!(read_json(&run_directory.join("result.json")), *result);
+    assert_eq!(
+        read_json(&fixture.root.join("results/latest.json")),
+        *result
+    );
+    remove_retained_workspace(&evidence);
+}
+
+#[test]
+fn standalone_json_containment_does_not_match_inherited_prototype_members() {
+    let mut fixture = Fixture::new();
+    fixture.json_configuration(json!({"contains":{"__proto__":{}}}));
+    fixture.observation(Some("[{}]"), true);
+    let evidence = assert_assessed_result(
+        &fixture.invoke(),
+        1,
+        "completed",
+        "failed",
+        json!({"id":"json","grader":"sevro.json","status":"failed","detail":"JSON array did not contain expected item","evidenceRefs":["sevro.observation.final-message"]}),
+    );
+    assert_eq!(raw_bytes(&evidence), b"[{}]");
+    assert_eq!(
+        evidence["trials"][0]["rawResult"]["sha256"],
+        "e10808d43975dc400731053386849f864f297e6c4f7519c380f3dbaf7067a840"
     );
     let result = &evidence["result"];
     let run_directory = Path::new(result["evidencePath"].as_str().unwrap())

@@ -576,11 +576,148 @@ red/green repairs; eight were initial-green characterizations. Scoped
 and owned-file Rustfmt checks passed with the same target. Combined candidate
 acceptance and coverage remain the coordinator's checkpoint responsibility.
 
+## Accepted own-member containment decision
+
+The user subsequently chose **Compare actual JSON members (Recommended)** for
+recursive containment, recorded in the [accepted containment decision](rust-fixtures-graders-parity.md#rust-json-containment-compatibility-decision).
+This resolves the preceding cohort's explicitly open
+inherited-property boundary. It is a separate accepted compatibility choice
+from the [RFC pointer decision](rust-fixtures-graders-parity.md#rust-json-pointer-compatibility-decision),
+and does not authorize other JavaScript or schema behavior changes.
+
+The independent unchanged TypeScript CLI baseline used an accepted declaration
+with `contains: {"__proto__": {}}` and the candidate's exact response `[{}]`.
+The candidate object has no own members. TypeScript nevertheless passed it
+with exit 0 and detail `ok` through inherited-property lookup; the existing
+Rust CLI returned completed execution and grading, a failed task, exit 1,
+and detail `JSON array did not contain expected item`. Both retained the
+final-message observation and raw SHA-256
+`e10808d43975dc400731053386849f864f297e6c4f7519c380f3dbaf7067a840`.
+The accepted decision selects the Rust outcome deliberately; this regression
+does not claim equivalence to that historical TypeScript quirk.
+
+- Initial green — `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders standalone_json_containment_does_not_match_inherited_prototype_members -- --exact`:
+  one test passed with 108 filtered out. The public CLI case asserts the exact
+  failed assessment, detail and evidence reference, raw bytes and independent
+  digest, retained run/trial/result/latest consistency, and cleanup of its own
+  retained workspace. No product change or artificial red was needed.
+
+At that checkpoint, the previously observed first-red schema case remained
+held and excluded from the publication candidate pending engine integration.
+That focused containment result did not report the entire grader suite as green.
+
+## Inline JSON Schema grading
+
+This cohort completes the held first-red case above using the existing
+`sevro.schema` contract and unchanged public TypeScript CLI observations.
+The 14 original oracle captures cover ordinary object validation, parsed
+numeric overflow, lone UTF-16 surrogates, format warnings, numeric bounds,
+Unicode pattern matching, invalid schemas, offline references, declared
+dialects, inline definitions and depth 130. A separately captured accepted
+self-recursive schema establishes the runtime-error evidence boundary.
+
+Each durable test invokes the actual Rust CLI with an evaluator-owned case
+and a deterministic adapter in its own process/counter-named temporary root.
+The root contains the adapter, input, project and results; cleanup removes only
+that root and the workspace retained in its own evidence. No synthetic private
+validator state or network server supplies the expected result. Passed and
+failed assessments assert literal status/detail/evidence references, unchanged
+raw bytes, independent SHA-256 and run/result/latest consistency. Preflight
+refusals assert the complete result envelope and that the adapter was not
+called or a result directory allocated.
+
+| Public control                | Durable test                                                            | Observed progression             | Literal detail                     |
+| ----------------------------- | ----------------------------------------------------------------------- | -------------------------------- | ---------------------------------- |
+| `ordinary object`             | `standalone_schema_passes_a_matching_inline_object`                     | `Red 64 → green 0`               | `ok`                               |
+| `recursive runtime exception` | `standalone_schema_runtime_error_retains_completed_trial_evidence`      | `Red 70 → green 3`               | `output grading did not complete`  |
+| `nonfinite`                   | `standalone_schema_accepts_json_exponent_overflow_as_a_number`          | `Initial green 0`                | `ok`                               |
+| `surrogate`                   | `standalone_schema_preserves_lone_surrogate_length`                     | `Initial green 0`                | `ok`                               |
+| `format`                      | `standalone_schema_ignores_uninstalled_formats_with_preflight_warnings` | `Red missing warnings → green 0` | `ok`                               |
+| `inf-minimum`                 | `standalone_schema_compares_overflow_against_a_minimum`                 | `Initial green 0`                | `ok`                               |
+| `inf-maximum`                 | `standalone_schema_compares_overflow_against_a_maximum`                 | `Initial green 1`                | `output did not match JSON Schema` |
+| `surrogate-pattern-match`     | `standalone_schema_matches_the_actual_lone_surrogate_code_unit`         | `Initial green 0`                | `ok`                               |
+| `surrogate-pattern-mismatch`  | `standalone_schema_rejects_a_different_surrogate_pattern`               | `Initial green 1`                | `output did not match JSON Schema` |
+| `ordinary-mismatch`           | `standalone_schema_fails_an_ordinary_property_mismatch`                 | `Initial green 1`                | `output did not match JSON Schema` |
+| `invalid-type`                | `standalone_schema_refuses_an_invalid_schema_type_before_execution`     | `Initial green 64`               | `invalid inline JSON Schema`       |
+| `external-ref`                | `standalone_schema_refuses_an_external_reference_before_execution`      | `Initial green 64`               | `invalid inline JSON Schema`       |
+| `draft07`                     | `standalone_schema_refuses_an_unsupported_declared_dialect`             | `Initial green 64`               | `invalid inline JSON Schema`       |
+| `internal-ref`                | `standalone_schema_resolves_an_inline_definition`                       | `Initial green 0`                | `ok`                               |
+| `deep130`                     | `standalone_schema_preserves_a_document_nested_130_levels`              | `Initial green 0`                | `ok`                               |
+
+Each row was added only after the preceding focused test was green. Its exact
+focused command is `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders <durable-test-name> -- --exact`;
+the durable-test-name column supplies the literal argument. The first ordinary
+case's previous exit-64 behavioral red was preserved. During integration, the
+same case still refused because the unoptimized upstream C interpreter
+exhausted its default stack compiling an ordinary schema. An isolated probe
+reproduced that failure in debug and succeeded with dependency-only
+optimization. `[profile.dev.package.rquickjs-sys] opt-level = 3` repairs that
+build profile without changing authored Rust optimization, production coverage
+selection, runtime resource limits or the public oracle. The first held test's
+cleanup assertion was also corrected to pass the retained trial object to the
+existing workspace helper; its assessment expectations did not change.
+
+The runtime case uses the valid inline schema `{"$ref":"#"}` and complete raw
+response `{}`. TypeScript compiles it before execution and then reports
+completed execution, grading `error`, task `not_assessed`, exit 3, no check
+results and diagnostic `sevro.grader.error`. Rust initially returned runner
+error 70. The repair catches the typed grading error after candidate completion,
+stops new admission and persists raw/trial/run/result/latest evidence with the
+original completed observation. Its workspace stays retained. This is separate
+from candidate failure and from evidence persistence errors; their existing
+exit precedence remains in place.
+
+The format case independently found a real warning mismatch: an uninstalled
+`email` format still passes `"not an email"`, but TypeScript emits exactly two
+`unknown format "email" ignored in schema at path "#"` warnings during
+preflight. The first Rust test observed zero. The engine now buffers AJV's
+compiler warnings as engine-owned strings, and Rust emits them before the
+compile reply permits admission. No host callback, silent logger suppression,
+or candidate object conversion is introduced. The identical test then passed.
+
+The prepared case lazily starts one std-channel schema owner. It creates and
+drops the QuickJS runtime/context on that thread and compiles declarations in
+order; only strings, validator identifiers, booleans and typed errors cross
+channels. Parallel trial hosts run independently, and only schema calls queue
+on the owner. Last-handle drop closes the channel and joins. Compiled state is
+skipped in declaration serialization. The runtime registers no filesystem,
+network or module loader. AJV 2020 with `strict:false` preserves the observed
+inline-reference/dialect/format behavior. Raw candidate JSON is parsed inside
+QuickJS, preserving overflow to Infinity, lone UTF-16 code units and deep JSON
+without a serde_json Value conversion.
+
+The pinned `rquickjs =0.14.0` dependency uses only its `std` feature. Its
+vendored QuickJS-NG 0.16.2 is an upstream C/FFI boundary, not handwritten Sevro
+unsafe code. The embedded AJV 8.20.0 asset is reproducibly generated from the
+locked upstream closure; its exact source disposition, freshness controls and
+bounded third-party notices are independently reviewed as a separate cohort.
+All authored grading, lifetime, transport and error handling remains Rust
+production code subject to the unchanged quality gates. No experimental
+parallel feature or arbitrary new heap, stack, schema timeout or document limit
+was selected. Existing observation admission limits remain applicable.
+
+These observations establish the bounded schema cases above, not full
+ECMAScript/AJV conformance or all supported schema configuration combinations.
+Existing evaluator-configuration UTF-8 representation limits remain explicit.
+The recorded engine feasibility proof and public oracle directory map are in
+`/tmp/sevro-schema-engine-feasibility.json`; it is historical research evidence,
+not the current implementation status. Focused implementation logs use
+`/tmp/sevro-schema-*-{red,green,initial-green}.log`; the candidate-bound final
+manifest records their literal commands and hashes.
+
+The affected command `CARGO_TARGET_DIR=/tmp/sevro-json-equality-target.wIdMAq cargo test --locked -p sevro --test run_graders --test run_results --test run_required_evidence --test run_concurrency --test run_storage`
+passed 144 tests: 123 grader, six concurrency, five required-evidence, five
+result-precedence and five storage cases. Scoped strict Clippy for the same
+binary/test targets passed, as did owned-file Rustfmt and documentation checks.
+No full-workspace suite or coverage claim is inferred from these results;
+the coordinator owns the frozen combined candidate and macOS/Ubuntu acceptance.
+
 ## Remaining boundaries
 
 This ledger covers `sevro.output` with `expectExact`, `validJson`, ordinary
 `jsonPath` selection with `expectJson` equality and `containsJson` containment,
-standalone `sevro.json`, and the standalone `sevro.regex` controls above.
+standalone `sevro.json`, the standalone `sevro.regex` controls, and the bounded
+inline `sevro.schema` controls above.
 JSON object and array selection follows
 the accepted RFC 6901 decision, including referenced-member uniqueness. Other
 deterministic checks, custom graders, domain outcomes, semantic grading and

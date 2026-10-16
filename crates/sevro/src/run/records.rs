@@ -105,6 +105,7 @@ fn run_owned(
     let mut conditions = Vec::new();
     let mut failed = false;
     let mut failure = None;
+    let mut grading_failure = None;
     let mut retained_evidence_issue = None;
     let context = TrialContext {
         options,
@@ -128,6 +129,7 @@ fn run_owned(
             failure = completed.failure;
         }
         failed |= completed.failed;
+        grading_failure = grading_failure.or(completed.grading_failure);
         retained_evidence_issue = retained_evidence_issue.or(completed.retained_evidence_issue);
         trials.push(completed.evidence);
         summaries.push(completed.summary);
@@ -143,7 +145,9 @@ fn run_owned(
     } else {
         "completed"
     };
-    let grading = if summaries
+    let grading = if grading_failure.is_some() {
+        "error"
+    } else if summaries
         .iter()
         .any(|trial| trial.assessment.grading.status == "unavailable")
     {
@@ -179,6 +183,8 @@ fn run_owned(
         128 + signal
     } else if failed {
         2
+    } else if grading_failure.is_some() {
+        3
     } else if grading == "unavailable" {
         4
     } else if task == "failed" {
@@ -200,10 +206,12 @@ fn run_owned(
     });
     let diagnostic = if interruption.is_some() {
         json!({"code":"sevro.run.cancelled","message":"run cancelled"})
+    } else if !failed && grading_failure.is_some() {
+        json!({"code":"sevro.grader.error","message":"output grading did not complete"})
     } else {
         failure_diagnostic(failure)
     };
-    if failed || interruption.is_some() {
+    if failed || interruption.is_some() || grading_failure.is_some() {
         result["diagnostic"] = diagnostic.clone();
     }
     let mut evidence = json!({
@@ -214,7 +222,7 @@ fn run_owned(
         "condition":{"requested":options.condition,"actual":actual_condition,"requestedInstrumentation":[],"appliedInstrumentation":[]},
         "graders":{"active":identity.graders,"replacedDefaults":[]},"routes":[identity.route],"result":result,"trials":trials
     });
-    if failed || interruption.is_some() {
+    if failed || interruption.is_some() || grading_failure.is_some() {
         evidence["diagnostic"] = diagnostic;
     }
     validate(&result, &evidence)?;
@@ -261,6 +269,7 @@ struct CompletedTrial {
     condition: String,
     failed: bool,
     failure: Option<HostError>,
+    grading_failure: Option<RunError>,
     retained_evidence_issue: Option<RetainedEvidenceIssue>,
 }
 
@@ -362,9 +371,16 @@ impl TrialContext<'_, '_> {
         } else {
             case.checks.as_slice()
         };
-        let mut grading =
-            graders::evaluate(checks, receipt.final_message.as_deref(), receipt.complete)?;
+        let (mut grading, grading_failure) =
+            match graders::evaluate(checks, receipt.final_message.as_deref(), receipt.complete) {
+                Ok(grading) => (grading, None),
+                Err(error) => {
+                    self.stop_admission()?;
+                    (graders::Assessment::error(), Some(error))
+                }
+            };
         if receipt.execution(options.dry) == "completed"
+            && grading_failure.is_none()
             && case
                 .required_evidence
                 .iter()
@@ -412,6 +428,7 @@ impl TrialContext<'_, '_> {
         if !receipt.failed
             && !receipt.cancelled
             && summary.assessment.grading.status != "unavailable"
+            && summary.assessment.grading.status != "error"
             && summary.assessment.task.verdict != "failed"
             && storage::cleanup(workspace).is_err()
         {
@@ -437,6 +454,7 @@ impl TrialContext<'_, '_> {
             condition: receipt.actual_condition,
             failed: receipt.failed,
             failure: receipt.failure,
+            grading_failure,
             retained_evidence_issue: receipt.retained_evidence_issue,
         })
     }

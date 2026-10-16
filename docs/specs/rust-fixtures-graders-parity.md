@@ -233,6 +233,26 @@ for `sevro.json.pointer` (provenance: repository fact). The Rust
 [implementation ledger](rust-tdd-graders.md) records the applicable evidence;
 it does not establish a separate policy.
 
+### Rust JSON containment compatibility decision
+
+Accepted user decision: recursive JSON containment compares actual JSON
+members. Object subset keys must exist as explicit members of the parsed
+candidate object; inherited JavaScript properties do not satisfy them. An
+explicit object member named `__proto__` remains an ordinary JSON member and
+is compared recursively. Existing array subset and regex predicate semantics
+remain unchanged.
+
+The authority is the user's answer, "Compare actual JSON members (Recommended)"
+(provenance: user statement). This is a separate choice from RFC 6901 pointer
+selection. It does not redefine schema evaluation or other JavaScript behavior.
+
+The observed legacy TypeScript CLI passes `contains: {"__proto__": {}}` against
+the exact response `[{}]`, although the candidate object has no own members.
+Rust deliberately fails that assertion with completed execution and grading,
+exit 1, and detail `JSON array did not contain expected item`; it retains the
+final-message evidence. The [implementation ledger](rust-tdd-graders.md#accepted-own-member-containment-decision)
+records this accepted difference and its honest initial-green public regression.
+
 ## Shell grader semantics and isolation
 
 Source: [shell-grader.test.ts](../../tests/shell-grader.test.ts).

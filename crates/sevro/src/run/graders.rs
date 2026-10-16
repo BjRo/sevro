@@ -4,6 +4,9 @@ use serde::Serialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
+mod schema;
+pub(super) use schema::SchemaPreparation;
+
 #[derive(Default)]
 pub(super) enum PreparedOutput {
     #[default]
@@ -13,6 +16,7 @@ pub(super) enum PreparedOutput {
     },
     OutputContains(PreparedSubset),
     Regex(PreparedRegex),
+    Schema(schema::PreparedSchema),
 }
 
 pub(super) enum PreparedSubset {
@@ -126,6 +130,7 @@ pub(super) enum GradingStatus {
     NotRequested,
     Completed,
     Unavailable,
+    Error,
 }
 
 impl GradingStatus {
@@ -134,6 +139,7 @@ impl GradingStatus {
             Self::NotRequested => "not_requested",
             Self::Completed => "completed",
             Self::Unavailable => "unavailable",
+            Self::Error => "error",
         }
     }
 }
@@ -181,16 +187,33 @@ pub(super) struct Assessment {
     pub task: TaskVerdict,
 }
 
-fn output_failure(check: &Check, message: &str) -> Option<&'static str> {
+impl Assessment {
+    pub(super) fn error() -> Self {
+        Self {
+            checks: Vec::new(),
+            metrics: Vec::new(),
+            domain_outcomes: Vec::new(),
+            grading: GradingStatus::Error,
+            task: TaskVerdict::NotAssessed,
+        }
+    }
+}
+
+fn output_failure(check: &Check, message: &str) -> RunResult<Option<&'static str>> {
     let contains = match &check.prepared {
-        PreparedOutput::Regex(regex) => return regex.failure(message),
+        PreparedOutput::Regex(regex) => return Ok(regex.failure(message)),
+        PreparedOutput::Schema(schema) => {
+            return schema
+                .failure(message)
+                .map_err(|error| RunError::with_source("output grading did not complete", error));
+        }
         PreparedOutput::Json { contains } => {
             if check.configuration.get("exactDocument") == Some(&Value::Bool(true))
                 && let Some(failure) = json_document_failure(message)
             {
-                return Some(failure);
+                return Ok(Some(failure));
             }
-            return json_pointer_failure(
+            return Ok(json_pointer_failure(
                 message,
                 check
                     .configuration
@@ -199,7 +222,7 @@ fn output_failure(check: &Check, message: &str) -> Option<&'static str> {
                     .unwrap_or(""),
                 check.configuration.get("equals"),
                 contains.as_ref(),
-            );
+            ));
         }
         PreparedOutput::Output => None,
         PreparedOutput::OutputContains(contains) => Some(contains),
@@ -207,7 +230,7 @@ fn output_failure(check: &Check, message: &str) -> Option<&'static str> {
     if check.configuration.get("validJson") == Some(&Value::Bool(true))
         && let Some(failure) = json_document_failure(message)
     {
-        return Some(failure);
+        return Ok(Some(failure));
     }
     if let Some(pointer) = check.configuration.get("jsonPath").and_then(Value::as_str)
         && let Some(failure) = json_pointer_failure(
@@ -217,16 +240,16 @@ fn output_failure(check: &Check, message: &str) -> Option<&'static str> {
             contains,
         )
     {
-        return Some(failure);
+        return Ok(Some(failure));
     }
     if check
         .configuration
         .get("expectExact")
         .is_some_and(|expected| expected.as_str() != Some(message))
     {
-        return Some("exact output did not match");
+        return Ok(Some("exact output did not match"));
     }
-    None
+    Ok(None)
 }
 
 fn json_pointer_failure(
@@ -486,12 +509,12 @@ pub(super) fn evaluate(
         .map(|check| {
             let (status, detail) = match final_message.filter(|_| complete) {
                 None => (CheckStatus::Unavailable, "output observation unavailable"),
-                Some(message) => output_failure(check, message)
+                Some(message) => output_failure(check, message)?
                     .map_or((CheckStatus::Passed, "ok"), |detail| {
                         (CheckStatus::Failed, detail)
                     }),
             };
-            CheckResult {
+            Ok(CheckResult {
                 id: check.id.clone(),
                 grader: check.grader.clone(),
                 status,
@@ -500,9 +523,9 @@ pub(super) fn evaluate(
                     .map(|_| "sevro.observation.final-message")
                     .into_iter()
                     .collect(),
-            }
+            })
         })
-        .collect();
+        .collect::<RunResult<_>>()?;
     let (grading, task) = if checks.is_empty() {
         (GradingStatus::NotRequested, TaskVerdict::NotAssessed)
     } else if checks
