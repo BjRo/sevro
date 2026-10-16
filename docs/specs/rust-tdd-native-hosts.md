@@ -891,3 +891,45 @@ metadata, linked worktrees, and stale registrations.
 `cargo clippy -p sevro --lib --test run_native_claude --test run_native_codex --locked -- -D warnings`
 and scoped Rust formatting passed. These checks preserve the existing behavior;
 they do not establish Linux acceptance for the repaired exception.
+
+## Concurrent native fixture peer ownership
+
+The Ubuntu stable job for
+[`a52e57b`](https://github.com/BjRo/sevro/actions/runs/38966615554/job/117194608538)
+reported native `initial-events` exit `93` in the path-metadata control. The
+synthetic wrapper maps that status to failure creating its peer directory.
+Every Linux managed workspace has the same `/var/tmp/sevro-workspaces-private`
+parent, so the wrapper's fixed `case-oracle-peer` name was shared by otherwise
+independent test fixtures. The successful creator alone installed the cleanup
+trap; exit `93` does not establish the cause of earlier nested-probe exit `92`.
+
+This is a test-fixture repair. The existing public contract protects sibling
+workspaces under their shared managed parent, including peers created after
+launch. The wrapper still creates a sibling and uses the actual Codex sandbox
+to deny reads of that peer, source authentication, copied authentication, and
+private configuration while allowing candidate workspace reads and writes.
+
+The public regression uses two actual Rust CLI processes with one owned
+temporary base. A barrier holds the first wrapper after peer creation while the
+second reaches the same point. This exercises a real shared parent on macOS;
+Linux naturally uses its shared managed-workspace parent. It does not simulate
+the operating system, serialize the runs, or retry native launches.
+
+Red —
+`cargo test -p sevro --test run_native_codex --locked parallel_peers::concurrent_native_runs_keep_sibling_probe_peers_independent -- --exact`:
+the test compiled, then the second public invocation returned exit `2` instead
+of `0`, with the actual native status `93`, while the first owned its peer.
+Both CLI processes were reaped and the failed workspace was removed before the
+assertion. The observation was made on macOS arm64.
+
+Green — the identical command passed after deriving the peer name from the
+actual unique workspace basename. The unchanged regression verifies both peers
+exist concurrently, remain siblings outside their respective candidate trees,
+and have distinct paths. Both runs retain `ready`, 12/4 token usage and Codex
+event artifacts, preserve credentials, and remove their owned peers, successful
+workspaces and native state. No product isolation or permission profile changed.
+Ubuntu acceptance of this fixture repair remains pending its exact-head CI run.
+
+On macOS, `cargo test -p sevro --test run_native_codex --locked` passed all 49
+Codex tests. Scoped strict Clippy for the library and native Codex test target,
+owned-path Rust formatting, ledger formatting, and `bun run check:docs` passed.

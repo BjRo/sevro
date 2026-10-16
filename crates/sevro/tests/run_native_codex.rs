@@ -18,6 +18,9 @@ mod continuation;
 #[path = "native_codex/runtime.rs"]
 mod runtime;
 
+#[path = "native_codex/parallel_peers.rs"]
+mod parallel_peers;
+
 #[cfg(target_os = "linux")]
 #[path = "native_codex/temporary_metadata.rs"]
 mod temporary_metadata;
@@ -225,7 +228,7 @@ if [ "$(/bin/cat "$CODEX_HOME/auth.json")" != FAKE_NATIVE_TEST_CREDENTIAL ]; the
 if [ "$(/bin/cat)" != 'Return ready.' ]; then exit 94; fi
 printf '%s\n' "$CODEX_HOME" "$HOME" "$TMPDIR" > @STATE_PATHS@
 profile=$(/usr/bin/sed -n 's/^default_permissions = "\(.*\)"/\1/p' "$CODEX_HOME/config.toml")
-peer="$(/usr/bin/dirname "$PWD")/case-oracle-peer"
+peer="$(/usr/bin/dirname "$PWD")/oracle-peer-$(/usr/bin/basename "$PWD")"
 /bin/mkdir "$peer" || exit 93
 printf 'peer private input' > "$peer/private-input"
 trap '/bin/rm -rf "$peer"' EXIT
