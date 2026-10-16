@@ -86,6 +86,35 @@ Run `bun run check:docs:external` separately and [triage network failures](docs/
 Guide changes also need [native evals](docs/guide-evaluation.md).
 Documentation checks supplement #1 rather than replacing its contract.
 
+## Rust port development
+
+The Rust workspace is under `crates/`; `rust-toolchain.toml` pins the compiler,
+formatter, Clippy, and LLVM tools. Keep the TypeScript acceptance checks above
+while the existing implementation and compatibility fixtures remain. Implement
+Rust behavior through red/green integration slices using the
+[parity specification](docs/specs/rust-delivery-parity.md) and the applicable
+public contracts.
+
+From the repository root with rustup installed:
+
+```sh
+rustup show active-toolchain
+cargo fmt --all -- --check
+cargo build --workspace --all-targets --locked
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test --workspace --all-targets --locked
+cargo test --workspace --doc --locked
+```
+
+The [Rust quality contract](docs/specs/rust-quality.md) documents compiler
+coverage, installed-binary checks, and retained evidence. The Rust workflow runs
+on Ubuntu 24.04 x64 and macOS 15 arm64. Its line and region gates each require
+95%; these compiler metrics do not establish branch coverage. Stable-toolchain
+branch coverage remains an explicit migration gap until a pinned, verified
+nightly branch gate is added. Do not lower the existing TypeScript statement or
+branch bar, exempt authored Rust production files, or claim port completion from
+the initial Rust gate alone.
+
 ## Delivery and CI ownership
 
 An implementation PR is complete only when required CI checks pass for its exact

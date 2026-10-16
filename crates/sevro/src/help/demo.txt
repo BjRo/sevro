@@ -1,0 +1,13 @@
+Usage: sevro demo [--json]
+
+Examples:
+  sevro demo
+  sevro demo --json
+
+Run the packaged deterministic fixture and adapter without model credentials.
+Shows an assessed verdict and retains evidence in .sevro/results beneath the current directory.
+Caller project files, sevro.json and native configuration are not loaded.
+
+Options:
+  --json       Emit one sevro.cli-result.v1 document on stdout.
+  -h, --help   Show this help without preparing a run.

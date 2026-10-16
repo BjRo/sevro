@@ -1,0 +1,14 @@
+{
+  "format": "sevro.run.v1",
+  "settings": {
+    "project-root": ".",
+    "extension-command-file": "command.json",
+    "extension-source-file": [
+      "extension.ts",
+      "extension-data.ts",
+      ".agents/skills/startup-guide/SKILL.md"
+    ],
+    "case-id": "repository-skill",
+    "host": "codex"
+  }
+}

@@ -1,0 +1,186 @@
+use serde_json::Value;
+
+fn text(value: &Value) -> &str {
+    value.as_str().unwrap_or("unknown")
+}
+
+fn cell(value: &Value) -> String {
+    text(value).replace('|', "\\|").replace(['\r', '\n'], " ")
+}
+
+fn measurement(value: &Value, digits: usize) -> String {
+    value
+        .as_f64()
+        .map_or_else(|| "unknown".into(), |number| fixed(number, digits))
+}
+
+fn duration(value: &Value) -> String {
+    value.as_f64().map_or_else(
+        || "unknown".into(),
+        |number| format!("{}s", fixed(number / 1000.0, 2)),
+    )
+}
+
+fn rate(value: &Value) -> String {
+    value.as_f64().map_or_else(
+        || "unknown".into(),
+        |number| format!("{}%", fixed(number * 100.0, 0)),
+    )
+}
+
+fn cost(value: &Value) -> String {
+    value.as_f64().map_or_else(
+        || "unknown".into(),
+        |number| format!("${}", fixed(number, 4)),
+    )
+}
+
+fn fixed(number: f64, digits: usize) -> String {
+    if number >= 1e21 {
+        return serde_jcs::to_string(&number).expect("validated measurement is finite JSON");
+    }
+    let mut rendered = format!("{number:.digits$}");
+    if rounds_down_at_exact_half(number, digits as u32) {
+        // Rust chooses the even decimal at an exact half; ECMAScript toFixed
+        // chooses the larger one. Only an even final digit needs adjustment.
+        let digit = rendered.pop().expect("fixed decimal has a final digit");
+        rendered.push(char::from(digit as u8 + 1));
+    }
+    rendered
+}
+
+fn rounds_down_at_exact_half(number: f64, digits: u32) -> bool {
+    let bits = number.to_bits();
+    let exponent = ((bits >> 52) & 0x7ff) as i32 - 1075 + digits as i32;
+    if !(-127..=-1).contains(&exponent) {
+        return false;
+    }
+    // Compute the fractional part of number * 10^digits exactly from its
+    // binary significand, avoiding a second floating-point rounding.
+    let significand = u128::from((bits & ((1_u64 << 52) - 1)) | (1_u64 << 52));
+    let numerator = significand * 5_u128.pow(digits);
+    let denominator = 1_u128 << -exponent;
+    numerator % denominator == denominator / 2 && (numerator / denominator).is_multiple_of(2)
+}
+
+fn rows(value: &Value) -> &[Value] {
+    value.as_array().map_or(&[], Vec::as_slice)
+}
+
+pub(super) fn markdown(report: &Value) -> String {
+    let summary = &report["summary"];
+    let mut lines = vec![
+        "# Sevro evaluation report".into(),
+        "".into(),
+        "Task verdict, execution, and grading are separate. Unknown measurements are not zero. Rows do not claim matched comparisons.".into(),
+        "".into(),
+        format!("Cases: {}; passed: {}; failed: {}; not assessed: {}.", summary["cases"], summary["passed"], summary["failed"], summary["notAssessed"]),
+        "".into(), "## Input runs".into(), "".into(),
+        "| Result file | Exit | Execution | Grading | Task | Cases |".into(),
+        "| --- | ---: | --- | --- | --- | ---: |".into(),
+    ];
+    for input in rows(&report["inputs"]) {
+        lines.push(format!(
+            "| {} | {} | {} | {} | {} | {} |",
+            cell(&input["resultFile"]),
+            input["exitCode"],
+            text(&input["execution"]),
+            text(&input["grading"]),
+            text(&input["task"]),
+            input["caseCount"]
+        ));
+    }
+    lines.extend(["", "## Case outcomes", "", "| Case | Task | Execution | Grading | Pass rate | Candidate time | Candidate tokens | Candidate cost | Condition | Candidate route |", "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- |"].map(str::to_owned));
+    for row in rows(&report["rows"]) {
+        lines.push(case_line(row));
+    }
+    lines.extend(["", "## Retained evidence", ""].map(str::to_owned));
+    for row in rows(&report["rows"]) {
+        lines.push(format!(
+            "- {}: {}",
+            cell(&row["caseId"]),
+            row["evidencePath"].as_str().unwrap_or("unavailable")
+        ));
+    }
+    if rows(&report["rows"])
+        .iter()
+        .any(|row| !rows(&row["domainOutcomes"]).is_empty())
+    {
+        lines.extend(
+            [
+                "",
+                "## Domain outcomes",
+                "",
+                "Domain outcomes are independent of the task verdict.",
+                "",
+                "| Case | Trial | Outcome | Status |",
+                "| --- | ---: | --- | --- |",
+            ]
+            .map(str::to_owned),
+        );
+        for row in rows(&report["rows"]) {
+            for outcome in rows(&row["domainOutcomes"]) {
+                lines.push(format!(
+                    "| {} | {} | {} | {} |",
+                    cell(&row["caseId"]),
+                    outcome["trial"],
+                    cell(&outcome["id"]),
+                    text(&outcome["status"])
+                ));
+            }
+        }
+    }
+    lines.extend(
+        [
+            "",
+            "## Routes",
+            "",
+            "| Case | Role | Host | Model | Effort |",
+            "| --- | --- | --- | --- | --- |",
+        ]
+        .map(str::to_owned),
+    );
+    for row in rows(&report["rows"]) {
+        for route in rows(&row["routes"]) {
+            lines.push(format!(
+                "| {} | {} | {} | {} | {} |",
+                cell(&row["caseId"]),
+                text(&route["role"]),
+                cell(&route["host"]),
+                cell(&route["model"]),
+                cell(&route["effort"])
+            ));
+        }
+    }
+    lines.push(String::new());
+    lines.join("\n")
+}
+
+fn case_line(row: &Value) -> String {
+    let route = &row["candidateRoute"];
+    let route_text = if route.is_null() {
+        "unknown".into()
+    } else {
+        format!(
+            "{}/{}@{}",
+            cell(&route["host"]),
+            cell(&route["model"]),
+            cell(&route["effort"])
+        )
+    };
+    format!(
+        "| {} | {} | {} | {} | {} | {} | {} / {} | {} | {} / {} | {} |",
+        cell(&row["caseId"]),
+        text(&row["task"]),
+        text(&row["execution"]),
+        text(&row["grading"]),
+        rate(&row["taskPassRate"]),
+        duration(&row["candidateDurationMs"]),
+        measurement(&row["inputTokens"], 0),
+        measurement(&row["outputTokens"], 0),
+        cost(&row["costUsd"]),
+        text(&row["requestedCondition"]),
+        text(&row["actualCondition"]),
+        route_text
+    )
+}

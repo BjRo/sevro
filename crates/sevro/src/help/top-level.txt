@@ -1,0 +1,20 @@
+Usage: sevro <command> [options]
+
+Examples:
+  sevro demo
+  sevro init --template response --directory ./my-evaluation
+  sevro run --case-file /absolute/case.json --adapter-module /absolute/adapter.ts \
+    --project-root /absolute/project --results-root /absolute/results \
+    --condition passive --trials 1 --threshold 1
+  sevro run --help
+  sevro report --result-file /absolute/results/run/result.json
+
+Commands:
+  demo      Run the packaged credential-free assessed example; use demo --help.
+  init      Create a new evaluation project; use init --help.
+  run       Evaluate one resolved case or extension case; use run --help.
+  report    Summarize retained results; use report --help.
+
+Options:
+  -h, --help     Show help without preparing a run.
+  -v, --version  Print the installed Sevro package version.

@@ -1,0 +1,13 @@
+{
+  "id": "response-check",
+  "prompt": "Return exactly ready.",
+  "fixture": { "files": { "README.md": "Response-check fixture.\n" } },
+  "checks": [
+    {
+      "id": "ready",
+      "grader": "sevro.regex",
+      "configuration": { "pattern": "^ready$" }
+    }
+  ],
+  "requiredEvidence": []
+}

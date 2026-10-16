@@ -88,9 +88,21 @@ are separate maintainer actions.
 
 ## Current state
 
-The behaviour inventory is complete by source-file accounting. Rust implementation
-has started with the CLI, reporting, and initialization seams; full feature parity
-is not established. Existing TypeScript acceptance remains the reference baseline.
+The behaviour inventory is complete by source-file accounting. The first Rust
+implementation covers these public seams:
+
+- CLI help, version, and invalid-command output, with
+  [CLI TDD evidence](rust-tdd-cli.md).
+- All three initializer templates and destination safety, with
+  [initializer TDD evidence](rust-tdd-init.md).
+- Retained-result JSON and Markdown reports, published schema validation,
+  evidence consistency, and measurement semantics, with
+  [report TDD evidence](rust-tdd-report.md).
+
+The [Rust quality contract](rust-quality.md) adds compiler coverage and installed
+binary checks on macOS and Ubuntu. Its line and region metrics do not establish
+the still-pending branch coverage requirement. Existing TypeScript acceptance
+remains the reference baseline; full Rust feature parity is not established.
 The production evaluation lifecycle, native hosts, isolation, grading, persistence,
 recovery, extension execution, and installed replacement still require Rust
 implementation and acceptance evidence. The existing npm command continues to use
