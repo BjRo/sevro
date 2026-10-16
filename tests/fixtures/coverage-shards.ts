@@ -34,16 +34,22 @@ function copyGenerated(
   for (const file of files) cpSync(join(repo, file), join(project, file));
 }
 
+function copyValueGuards(repo: string, project: string) {
+  // Nested quality runs must instrument the original module, not counters and
+  // capture imports already bound to the outer snapshot.
+  cpSync(
+    join(process.env.SEVRO_COVERAGE_SOURCE_ROOT ?? repo, "src/value-guards.ts"),
+    join(project, "src/value-guards.ts"),
+  );
+}
+
 export function coverageShardCandidate(repo: string, root: string) {
   const inventory = sourceInventory(repo);
   const { project } = copySnapshot(repo, root);
   for (const name of ["src", "tests", "examples", "bunfig.toml"])
     rmSync(join(project, name), { recursive: true, force: true });
   for (const name of hostModules) writeSource(project, name, "export {};\n");
-  cpSync(
-    join(repo, "src/value-guards.ts"),
-    join(project, "src/value-guards.ts"),
-  );
+  copyValueGuards(repo, project);
   writeSource(
     project,
     "src/pick.ts",
