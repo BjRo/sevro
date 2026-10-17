@@ -36,6 +36,7 @@ export async function createFixture(
   projectRoot: string,
   signal?: AbortSignal,
   reservedWorkspace?: string,
+  candidateRuntimeRoot?: string,
 ): Promise<string> {
   const paths = inlineFixturePaths(fixture, generated, repository);
   const workspace = reservedWorkspace ?? (await allocateWorkspace());
@@ -53,7 +54,13 @@ export async function createFixture(
       workspace,
     );
     await writeInlineFixtureFiles(paths, workspace);
-    await setupFixture(setup, workspace, projectRoot, signal);
+    await setupFixture(
+      setup,
+      workspace,
+      projectRoot,
+      signal,
+      candidateRuntimeRoot,
+    );
     await mountPreparationArtifacts(artifacts, workspace);
     await excludePreparationArtifacts(artifacts, workspace);
     await fixtureBinDirectory(workspace);
@@ -131,6 +138,7 @@ async function setupFixture(
   workspace: string,
   projectRoot: string,
   signal?: AbortSignal,
+  candidateRuntimeRoot?: string,
 ): Promise<void> {
   if (!setup) return;
   await runFixtureSetup(setup, {
@@ -138,6 +146,7 @@ async function setupFixture(
     projectRoot,
     fixtureBinDir: (await fixtureBinDirectory(workspace)) ?? undefined,
     signal,
+    candidateRuntimeRoot,
   });
 }
 

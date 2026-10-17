@@ -1,7 +1,8 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, isAbsolute, join } from "node:path";
 import { isRecord } from "../value-guards";
+import { requireCandidateRuntime } from "../candidate-artifacts";
 import {
   ProcessDeadline,
   terminateOwnedProcessGroup,
@@ -112,6 +113,7 @@ interface FixtureSetupOptions {
   projectRoot: string;
   fixtureBinDir?: string;
   signal?: AbortSignal;
+  candidateRuntimeRoot?: string;
 }
 
 function setupPath(directory: string | undefined): string {
@@ -134,7 +136,9 @@ function executionEnvironment(
   );
   return {
     PATH: setupPath(options.fixtureBinDir),
-    HOME: home,
+    HOME: options.candidateRuntimeRoot
+      ? join(options.candidateRuntimeRoot, "home")
+      : home,
     TMPDIR: home,
     LANG: process.env.LANG ?? "C",
     GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null",
@@ -201,6 +205,12 @@ export async function runFixtureSetup(
   options: FixtureSetupOptions,
 ): Promise<void> {
   if (options.signal?.aborted) throw new Error("fixture setup cancelled");
+  await requireCandidateRuntime(options.candidateRuntimeRoot);
+  if (options.candidateRuntimeRoot)
+    await mkdir(join(options.candidateRuntimeRoot, "home"), {
+      recursive: true,
+      mode: 0o700,
+    });
   const home = await mkdtemp(join(tmpdir(), "sevro-setup-"));
   const execution = new FixtureSetupExecution(setup, options, home);
   try {

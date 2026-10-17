@@ -18,6 +18,7 @@ import {
   loadRuntimeConfiguration,
   runEvaluation,
   type HostAdapter,
+  type EvaluationOptions,
 } from "../../src/engine";
 import { parseRunEvidence } from "../fixtures/assertions";
 import { defined } from "../fixtures/assertions";
@@ -26,6 +27,10 @@ import {
   waitForNativeCommand,
 } from "../fixtures/runtime-host-fixtures";
 import { createCodexFixture } from "../fixtures/runtime-host-fixtures";
+import {
+  createEvaluation,
+  createSetupEvaluation,
+} from "../fixtures/evaluation-fixtures";
 
 const roots: string[] = [];
 
@@ -36,6 +41,215 @@ afterEach(async () => {
 });
 
 const codexFixture = createCodexFixture(roots);
+const setupEvaluation = createSetupEvaluation(createEvaluation(roots));
+
+test("fixture setup seeds a passed Review in the candidate HOME", async () => {
+  const { host } = await codexFixture(
+    '/bin/cat "$HOME/.darrow/reviews/prior.json"; test "$HOME" = "$(cat setup-home)" && test ! -d "$(cat setup-temp)"',
+  );
+  const checks: EvaluationOptions["case"]["checks"] = [
+    {
+      id: "candidate-read",
+      grader: "sevro.regex",
+      configuration: { pattern: "^passed$" },
+    },
+    {
+      id: "prior-review",
+      grader: "sevro.shell",
+      configuration: {
+        run: 'cat "$SEVRO_CANDIDATE_ARTIFACT_REVIEWS/prior.json"; ! printf changed > "$SEVRO_CANDIDATE_ARTIFACT_REVIEWS/prior.json"',
+        expectExact: "passed",
+      },
+    },
+  ];
+  const options = await setupEvaluation(
+    [
+      "/bin/sh",
+      "-c",
+      'mkdir -p "$HOME/.darrow/reviews"; printf passed > "$HOME/.darrow/reviews/prior.json"; printf "%s" "$HOME" > setup-home; printf "%s" "$TMPDIR" > setup-temp',
+    ],
+    {},
+    checks,
+  );
+  const homes = new Set<string>();
+  options.trialCount = 2;
+  options.jobs = 2;
+  options.host = {
+    ...host,
+    async run(request) {
+      homes.add(await readFile(join(request.workspace, "setup-home"), "utf8"));
+      const result = await host.run(request);
+      return {
+        ...result,
+        observations: [
+          ...(result.observations ?? []),
+          { id: "example.evidence", completeness: "complete", data: {} },
+        ],
+      };
+    },
+  };
+  options.runtimePolicy = {
+    format: "sevro.runtime.v1",
+    environment: {},
+    readOnlyRoots: [],
+    artifactDirectories: [{ name: "reviews", path: ".darrow/reviews" }],
+  };
+  options.shellIsolation = { protectedRoots: [] };
+  const { result } = await runEvaluation(options);
+  expect(result.execution.status).toBe("completed");
+  expect(result.grading.status).toBe("completed");
+  expect(result.task.verdict).toBe("passed");
+  expect(result.exitCode).toBe(0);
+  expect(homes.size).toBe(2);
+  for (const home of homes) expect(existsSync(home)).toBe(false);
+});
+
+test.each([false, true])(
+  "fixture setup shares candidate HOME without artifact grants: runtime policy %s",
+  async (configured) => {
+    const { host } = await codexFixture(
+      '/bin/cat "$HOME/prior-review"; test "$HOME" = "$(cat setup-home)"',
+    );
+    const options = await setupEvaluation(
+      [
+        "/bin/sh",
+        "-c",
+        'printf passed > "$HOME/prior-review"; printf "%s" "$HOME" > setup-home',
+      ],
+      {},
+      [
+        {
+          id: "candidate-read",
+          grader: "sevro.regex",
+          configuration: { pattern: "^passed$" },
+        },
+      ],
+    );
+    let home = "";
+    options.host = {
+      ...host,
+      async run(request) {
+        home = await readFile(join(request.workspace, "setup-home"), "utf8");
+        const result = await host.run(request);
+        return {
+          ...result,
+          observations: [
+            ...(result.observations ?? []),
+            { id: "example.evidence", completeness: "complete", data: {} },
+          ],
+        };
+      },
+    };
+    if (configured)
+      options.runtimePolicy = {
+        format: "sevro.runtime.v1",
+        environment: {},
+        readOnlyRoots: [],
+      };
+    const { result } = await runEvaluation(options);
+    expect(result.task.verdict).toBe("passed");
+    expect(result.exitCode).toBe(0);
+    expect(existsSync(home)).toBe(false);
+  },
+);
+
+test.each([false, true])(
+  "setup initializes empty Review evidence for ordinary grading: report required %s",
+  async (required) => {
+    const { host } = await codexFixture("printf ready");
+    const check = {
+      id: "review-state",
+      grader: "sevro.shell",
+      configuration: {
+        run: required
+          ? 'test -f "$SEVRO_CANDIDATE_ARTIFACT_REVIEWS/report.json"'
+          : 'test -d "$SEVRO_CANDIDATE_ARTIFACT_REVIEWS" && test -z "$(ls -A "$SEVRO_CANDIDATE_ARTIFACT_REVIEWS")"',
+      },
+    };
+    const options = await setupEvaluation(
+      ["/bin/sh", "-c", 'mkdir -p "$HOME/.darrow/reviews"'],
+      {},
+      [check],
+    );
+    options.host = {
+      ...host,
+      async run(request) {
+        const result = await host.run(request);
+        return {
+          ...result,
+          observations: [
+            { id: "example.evidence", completeness: "complete", data: {} },
+          ],
+        };
+      },
+    };
+    options.runtimePolicy = {
+      format: "sevro.runtime.v1",
+      environment: {},
+      readOnlyRoots: [],
+      artifactDirectories: [{ name: "reviews", path: ".darrow/reviews" }],
+    };
+    options.shellIsolation = { protectedRoots: [] };
+    const { result } = await runEvaluation(options);
+    expect(result.execution.status).toBe("completed");
+    expect(result.grading.status).toBe("completed");
+    const verdict = required ? "failed" : "passed";
+    expect(result.task.verdict).toBe(verdict);
+    expect(result.exitCode).toBe(required ? 1 : 0);
+    expect(
+      defined(defined(result.cases[0]).trials[0]).checks.find(
+        ({ id }) => id === check.id,
+      )?.status,
+    ).toBe(verdict);
+  },
+);
+
+test.each(["failure", "cancelled", "dry"] as const)(
+  "setup candidate HOME is cleaned after preparation %s",
+  async (mode) => {
+    const root = await mkdtemp(join(tmpdir(), "sevro-setup-home-cleanup-"));
+    roots.push(root);
+    const receipt = join(root, "setup-home");
+    const scripts = {
+      failure: "exit 17",
+      cancelled: "sleep 30",
+      dry: "exit 0",
+    };
+    const options = await setupEvaluation([
+      "/bin/sh",
+      "-c",
+      `printf '%s' "$HOME" > "$1"; ${scripts[mode]}`,
+      "setup",
+      receipt,
+    ]);
+    const controller = new AbortController();
+    options.signal = controller.signal;
+    options.dry = mode === "dry";
+    let calls = 0;
+    options.host.run = () => {
+      calls++;
+      return Promise.resolve({ finalMessage: "ready", complete: true });
+    };
+    const pending = runEvaluation(options);
+    if (mode === "failure") {
+      expect(pending).rejects.toThrow("fixture setup failed (17)");
+      await pending.catch(() => undefined);
+    } else {
+      if (mode === "cancelled") {
+        await waitForNativeCommand(receipt);
+        controller.abort();
+      }
+      const { result } = await pending;
+      expect(result.execution.status).toBe(
+        mode === "dry" ? "not_run" : "cancelled",
+      );
+    }
+    expect(calls).toBe(0);
+    const home = await readFile(receipt, "utf8");
+    expect(home).not.toBe(process.env.HOME);
+    expect(existsSync(home)).toBe(false);
+  },
+);
 
 test("runtime configuration declares named candidate-home artifact directories", async () => {
   const root = await mkdtemp(join(tmpdir(), "sevro-artifact-config-"));

@@ -106,8 +106,16 @@ trial in the Git fixture after source history and working-tree files are built,
 before extension artifacts are mounted or the host starts. The command is never
 interpreted through a shell by Sevro; an extension may explicitly select a
 shell executable. `{{sevro.project}}` and `{{sevro.workspace}}` in environment
-values resolve to the declared roots at execution time. The symbolic values and
-command enter fixture and comparison identity, while retained configuration
+values resolve to the declared roots at execution time. Setup's `HOME` is the
+candidate commands' private trial home, outside the Git fixture. Ordinary
+`$HOME` paths can initialize directories and seed prior state before the candidate
+starts, including without a runtime configuration file. This home is separate
+from host authentication and native configuration, other trials, and grader homes.
+Setup's `TMPDIR` remains disposable and is removed when setup finishes; the shared
+home survives through candidate execution and grading, then is removed even on
+setup failure, cancellation, or dry runs. Trusted injected hosts must use the
+supplied `candidateRuntimeRoot` and runtime policy to preserve this boundary.
+The symbolic values and command enter fixture and comparison identity, while retained configuration
 records only their digest. Setup has a two-minute limit, inherits no credential
 environment variables, and its output is discarded. Failure or interruption
 stops the run before host execution; it cannot become a passing assessment.

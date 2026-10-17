@@ -65,15 +65,25 @@ function validArtifactPath(path: string): boolean {
 /** Allocate before host execution so exceptions cannot lose cleanup ownership. */
 export async function allocateCandidateRuntime(
   policy: RuntimePolicy | undefined,
+  retainHome = false,
 ): Promise<string | undefined> {
   const directories = policy?.artifactDirectories ?? [];
   const codexState = codexStateEnabled(policy);
-  if (!directories.length && !codexState) return undefined;
+  if (!candidateRuntimeRequired(directories, codexState, retainHome))
+    return undefined;
   requireArtifactDirectories(directories);
   const root = await allocateNativeState("candidate-runtime-");
   leases.set(root, directories);
   allocateCodexStateLease(root, codexState);
   return root;
+}
+
+function candidateRuntimeRequired(
+  directories: RuntimeArtifactDirectory[],
+  codexState: boolean,
+  retainHome: boolean,
+): boolean {
+  return directories.length > 0 || codexState || retainHome;
 }
 
 export async function requireCandidateRuntime(

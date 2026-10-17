@@ -181,6 +181,7 @@ export async function prepareTrialWorkspace(
   invocation: PreparedInvocation,
   workspaces: RunWorkspaceReservations,
   trial: number,
+  candidateRuntimeRoot?: string,
 ) {
   const reservation = workspaces.candidate(trial);
   workspaces.retain(reservation);
@@ -195,6 +196,7 @@ export async function prepareTrialWorkspace(
     fixture.projectRoot,
     options.signal,
     reservation,
+    candidateRuntimeRoot,
   ).catch((error: unknown) => {
     if (
       !options.signal?.aborted ||
@@ -203,12 +205,13 @@ export async function prepareTrialWorkspace(
       throw error;
     return null;
   });
-  return trialWorkspaceDetails(
+  const details = await trialWorkspaceDetails(
     options.case,
     invocation,
     reservation,
     workspace,
   );
+  return { ...details, candidateRuntimeRoot };
 }
 
 async function trialWorkspaceDetails(
