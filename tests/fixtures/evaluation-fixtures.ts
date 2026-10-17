@@ -99,6 +99,7 @@ export function createSetupEvaluation(
   async function setupEvaluation(
     command: string[],
     preparation: Record<string, unknown> = {},
+    checks: EvaluationOptions["case"]["checks"] = [],
   ): Promise<EvaluationOptions> {
     const options = await evaluation({ finalMessage: "ready", complete: true });
     const fixture = {
@@ -116,7 +117,11 @@ export function createSetupEvaluation(
         graders: ["example.extension"],
         taskVerdictPolicies: [],
       },
-      resolve: { cases: [{ ...wireCase, fixture }] },
+      resolve: {
+        cases: [
+          { ...wireCase, fixture, checks: [...wireCase.checks, ...checks] },
+        ],
+      },
       prepare: {
         artifacts: [],
         requestedInstrumentation: [],

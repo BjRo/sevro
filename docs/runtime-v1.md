@@ -260,7 +260,10 @@ so zsh here-documents use their existing private temporary storage while shared
 host temporary directories remain denied. `TMPPREFIX` is runner-owned and cannot
 be inherited or set through runtime configuration.
 Sevro supplies private `HOME` and temporary storage and sets `UV_OFFLINE=1`
-and `PYTHONDONTWRITEBYTECODE=1`. Candidate, hook, checker, semantic, and advisory
+and `PYTHONDONTWRITEBYTECODE=1`. Fixture setup uses the candidate commands'
+private `HOME`, so `$HOME` paths initialize the same state the candidate will
+use. Its temporary directory stays disposable.
+Candidate, hook, checker, semantic, and advisory
 state are separate. With a runtime policy, native candidate, semantic, and
 advisory roots live in a unique runner-owned host directory outside the Git
 fixture. The root contains `home`, `tmp`, and declared seed slots; plugins can
@@ -270,7 +273,8 @@ configuration, and live transcript sources. Checker and hook caches also live
 outside candidate-controlled workspace state. Private roots survive native
 continuation turns and children, then are removed with their owning trial or
 host state after owned hooks terminate. Opted-in candidate artifact runtimes
-remain alive through grading as described below. Runs without a selected runtime policy
+remain alive through grading as described below. Runs with neither fixture setup
+nor a selected runtime policy
 retain their previous writable-state locations.
 
 Claude refuses managed workspace or runtime namespaces overlapping its
@@ -297,7 +301,8 @@ candidate's private home after execution.
 }
 ```
 
-The example permits only the candidate-created `~/.darrow/reviews` subtree.
+The example permits only the `~/.darrow/reviews` subtree, which may be initialized
+by trusted fixture setup or created by the candidate.
 Its original absolute path reaches isolated shell checks and native
 semantic/advisory commands as `SEVRO_CANDIDATE_ARTIFACT_REVIEWS`. Graders keep
 their own private `HOME`; use the supplied variable to read candidate evidence.
@@ -313,12 +318,31 @@ to 16,384 entries, including its root. Missing directories, symlinked ancestors,
 descendant symlinks, hardlinks and special files make grading an error; missing
 evidence cannot produce a pass.
 
+Initialize an empty directory or seed prior Review state in the extension's
+trusted `fixtureSetup` command before the candidate starts. For example:
+
+```sh
+mkdir -p "$HOME/.darrow/reviews"
+printf '%s\n' '{"verdict":"passed"}' > "$HOME/.darrow/reviews/prior.json"
+```
+
+Setup and candidate commands share this private trial home, including when no
+artifact grants or runtime file are selected. Graders keep their own homes and
+receive only declared read-only artifact grants. To test missing reports or
+absence of new artifacts, initialize the directory without writing a report;
+an empty safe directory reaches ordinary task checks. Missing required reports
+can then fail those checks, while negative cases can assert the directory is
+empty. Sevro does not automatically create declared artifact directories: if
+setup and candidate both leave one absent, or replace it with an unsafe path,
+grading still errors. Setup state is temporary and is removed with its trial,
+including setup failure, cancellation, and dry runs.
+
 The grant permits reads and denies writes, creation, deletion and renaming.
 Credentials, other home contents and peer role/trial state stay protected.
 Ordinary `filesystem.readOnlyRoots` cannot select this private-state exception.
 Artifact grants and native transcript access are independent opt-ins.
 
-The trial allocates the retained runtime before launching its candidate and
+The trial allocates the retained runtime before fixture setup and
 removes it after grading, advisory review and evidence persistence, including
 failure and cancellation paths. Review state remains outside the Git fixture.
 These artifacts are temporary; declaring access does not copy their bytes into

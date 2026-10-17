@@ -231,6 +231,7 @@ class EvaluationTrial {
     private readonly fixture: Awaited<ReturnType<typeof prepareTrialWorkspace>>,
   ) {
     this.state = initialTrialState(options.dry);
+    this.state.candidateRuntimeRoot = fixture.candidateRuntimeRoot;
     this.evidence = new TrialEvidenceWriter({
       runDir: context.resources.runDir,
       trial,
@@ -296,7 +297,7 @@ class EvaluationTrial {
       workspace: this.fixture.workspace,
       condition: this.options.condition,
       fixtureBinDir: this.fixture.fixtureBinDir,
-      runtimePolicy: this.options.runtimePolicy,
+      runtimePolicy: this.candidateRuntimePolicy(),
       instrumentation: snapshotInstrumentation(
         this.context.prepared.requestedInstrumentation,
       ),
@@ -310,6 +311,16 @@ class EvaluationTrial {
       ),
       ...candidateInvocationRequest(this.context.prepared.invocation),
       signal: this.options.signal,
+    };
+  }
+
+  private candidateRuntimePolicy() {
+    if (this.options.runtimePolicy) return this.options.runtimePolicy;
+    if (!this.context.prepared.fixture.fixtureSetup) return undefined;
+    return {
+      format: "sevro.runtime.v1" as const,
+      environment: {},
+      readOnlyRoots: [],
     };
   }
 
@@ -387,9 +398,6 @@ class EvaluationTrial {
     const started = performance.now();
     try {
       ensureNotCancelled(this.options.signal);
-      this.state.candidateRuntimeRoot = await allocateCandidateRuntime(
-        this.options.runtimePolicy,
-      );
       this.state.hostResult = await this.options.host.run(
         this.candidateRequest(),
       );
@@ -781,7 +789,6 @@ class EvaluationTrial {
     evaluationProgress(this.options, stage, status, this.trial);
   }
   private async cleanup(): Promise<void> {
-    await releaseCandidateRuntime(this.state.candidateRuntimeRoot);
     if (this.state.candidateTranscriptRoot)
       await rm(this.state.candidateTranscriptRoot, {
         recursive: true,
@@ -819,21 +826,30 @@ export async function executeEvaluationTrials(
       signal: options.signal,
     },
     async (trial, stopAdmission) => {
-      const fixture = await prepareTrialWorkspace(
-        options,
-        context.prepared.fixture,
-        context.prepared.invocation,
-        context.resources.workspaces,
-        trial,
+      const candidateRuntimeRoot = await allocateCandidateRuntime(
+        options.runtimePolicy,
+        Boolean(context.prepared.fixture.fixtureSetup),
       );
-      evaluationProgress(options, "preparation", "completed", trial);
-      return new EvaluationTrial(
-        options,
-        context,
-        trial,
-        stopAdmission,
-        fixture,
-      ).run();
+      try {
+        const fixture = await prepareTrialWorkspace(
+          options,
+          context.prepared.fixture,
+          context.prepared.invocation,
+          context.resources.workspaces,
+          trial,
+          candidateRuntimeRoot,
+        );
+        evaluationProgress(options, "preparation", "completed", trial);
+        return await new EvaluationTrial(
+          options,
+          context,
+          trial,
+          stopAdmission,
+          fixture,
+        ).run();
+      } finally {
+        await releaseCandidateRuntime(candidateRuntimeRoot);
+      }
     },
   );
 }
