@@ -1,0 +1,18 @@
+Usage: sevro report [options]
+
+Examples:
+  sevro report --latest
+  sevro report --result-file /absolute/results/run/result.json
+  sevro report --result-file /absolute/results/first/result.json \
+    --result-file /absolute/results/second/result.json --json
+
+Required:
+  --latest OR --result-file <path>  A retained result; repeat paths for distinct runs.
+                       Relative or absolute paths use the current directory.
+                       Keep each result's referenced evidence available and unchanged.
+
+Options and defaults:
+  --latest     Read the last retained CLI result, including dry or failed runs.
+  --results-root <path>  With --latest, override <cwd>/.sevro/results.
+  --json       Emit sevro.report.v1 JSON; Markdown by default.
+  -h, --help   Show this help without reading result files.

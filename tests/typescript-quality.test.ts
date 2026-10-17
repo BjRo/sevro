@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -48,10 +49,16 @@ function qualityInventory(root: string) {
   if (
     !isRecord(value) ||
     !isStringArray(value.production) ||
-    !isStringArray(value.generated)
+    !isStringArray(value.generated) ||
+    !isStringArray(value.thirdParty)
   )
     throw new Error("Expected complete source inventory");
-  return { ...value, production: value.production, generated: value.generated };
+  return {
+    ...value,
+    production: value.production,
+    generated: value.generated,
+    thirdParty: value.thirdParty,
+  };
 }
 
 function mutateCoverageCandidate(project: string, kind: string) {
@@ -134,6 +141,181 @@ test.each([
   },
   30000,
 );
+
+test("the public TypeScript inventory accepts the exact fresh upstream schema bundle", () => {
+  const root = mkdtempSync(resolve(tmpdir(), "sevro-schema-inventory-"));
+  try {
+    const { project } = copySnapshot(resolve(import.meta.dir, ".."), root);
+    writeFileSync(
+      resolve(project, "typescript-sources.json"),
+      JSON.stringify({
+        ...qualityInventory(project),
+        thirdParty: ["crates/sevro/assets/schema/ajv-8.20.0.bundle.js"],
+      }),
+    );
+    const child = Bun.spawnSync(
+      [
+        process.execPath,
+        resolve(project, "scripts/check-typescript.ts"),
+        "--inventory",
+        project,
+      ],
+      { cwd: project, stdout: "pipe", stderr: "pipe" },
+    );
+    expect(child.exitCode, child.stderr.toString()).toBe(0);
+    expect(JSON.parse(child.stdout.toString()) as unknown).toMatchObject({
+      thirdParty: ["crates/sevro/assets/schema/ajv-8.20.0.bundle.js"],
+    });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 30000);
+
+function schemaInventoryRefusal(mutate: (project: string) => void) {
+  const root = mkdtempSync(resolve(tmpdir(), "sevro-schema-inventory-"));
+  try {
+    const { project } = copySnapshot(resolve(import.meta.dir, ".."), root);
+    mutate(project);
+    return Bun.spawnSync(
+      [
+        process.execPath,
+        resolve(project, "scripts/check-typescript.ts"),
+        "--inventory",
+        project,
+      ],
+      { cwd: project, stdout: "pipe", stderr: "pipe" },
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+test("the public TypeScript inventory refuses authored code classified as upstream", () => {
+  const child = schemaInventoryRefusal((project) => {
+    const inventory = qualityInventory(project);
+    inventory.production = inventory.production.filter(
+      (path) => path !== "src/value-guards.ts",
+    );
+    inventory.thirdParty.push("src/value-guards.ts");
+    writeFileSync(
+      resolve(project, "typescript-sources.json"),
+      JSON.stringify(inventory),
+    );
+  });
+  expect(child.exitCode).toBe(1);
+  expect(child.stderr.toString()).toContain(
+    "Invalid thirdParty source disposition: src/value-guards.ts",
+  );
+}, 30000);
+
+test("the public TypeScript inventory refuses a missing schema manifest", () => {
+  const child = schemaInventoryRefusal((project) => {
+    rmSync(resolve(project, "crates/sevro/assets/schema/manifest.json"));
+  });
+  expect(child.exitCode).toBe(1);
+  expect(child.stderr.toString()).toContain(
+    "Stale schema runtime manifest.json",
+  );
+}, 30000);
+
+test("the public TypeScript inventory refuses a missing upstream schema bundle", () => {
+  const child = schemaInventoryRefusal((project) => {
+    rmSync(resolve(project, "crates/sevro/assets/schema/ajv-8.20.0.bundle.js"));
+  });
+  expect(child.exitCode).toBe(1);
+  expect(child.stderr.toString()).toContain(
+    "Missing inventoried source: crates/sevro/assets/schema/ajv-8.20.0.bundle.js",
+  );
+}, 30000);
+
+test("the public TypeScript inventory refuses authored bundle changes with a matching claimed hash", () => {
+  const child = schemaInventoryRefusal((project) => {
+    const bundlePath = resolve(
+      project,
+      "crates/sevro/assets/schema/ajv-8.20.0.bundle.js",
+    );
+    const content =
+      readFileSync(bundlePath, "utf8") +
+      "\nglobalThis.authoredGrader = () => true;\n";
+    writeFileSync(bundlePath, content);
+    const manifestPath = resolve(
+      project,
+      "crates/sevro/assets/schema/manifest.json",
+    );
+    const manifest: unknown = JSON.parse(readFileSync(manifestPath, "utf8"));
+    if (!isRecord(manifest) || !isRecord(manifest.bundle))
+      throw new Error("Expected schema manifest");
+    manifest.bundle.sha256 = createHash("sha256").update(content).digest("hex");
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
+  });
+  expect(child.exitCode).toBe(1);
+  expect(child.stderr.toString()).toContain(
+    "Stale schema runtime ajv-8.20.0.bundle.js",
+  );
+}, 30000);
+
+test("the public TypeScript inventory refuses stale upstream input provenance", () => {
+  const child = schemaInventoryRefusal((project) => {
+    const manifestPath = resolve(
+      project,
+      "crates/sevro/assets/schema/manifest.json",
+    );
+    const manifest: unknown = JSON.parse(readFileSync(manifestPath, "utf8"));
+    if (!isRecord(manifest)) throw new Error("Expected schema manifest");
+    manifest.inputs = [];
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
+  });
+  expect(child.exitCode).toBe(1);
+  expect(child.stderr.toString()).toContain(
+    "Stale schema runtime manifest.json",
+  );
+}, 30000);
+
+test("the public TypeScript inventory refuses another upstream asset path", () => {
+  const child = schemaInventoryRefusal((project) => {
+    const path = "crates/sevro/assets/schema/other.bundle.js";
+    writeFileSync(resolve(project, path), "globalThis.other = true;\n");
+    const inventory = qualityInventory(project);
+    inventory.thirdParty.push(path);
+    writeFileSync(
+      resolve(project, "typescript-sources.json"),
+      JSON.stringify(inventory),
+    );
+  });
+  expect(child.exitCode).toBe(1);
+  expect(child.stderr.toString()).toContain(
+    "Invalid thirdParty source disposition: crates/sevro/assets/schema/other.bundle.js",
+  );
+}, 30000);
+
+test("the public TypeScript inventory refuses unregistered JavaScript beside the upstream asset", () => {
+  const child = schemaInventoryRefusal((project) => {
+    writeFileSync(
+      resolve(project, "crates/sevro/assets/schema/extra.js"),
+      "globalThis.extra = true;\n",
+    );
+  });
+  expect(child.exitCode).toBe(1);
+  expect(child.stderr.toString()).toContain(
+    "Unregistered source: crates/sevro/assets/schema/extra.js",
+  );
+}, 30000);
+
+test("the public TypeScript inventory refuses dropping the required upstream disposition", () => {
+  const child = schemaInventoryRefusal((project) => {
+    rmSync(resolve(project, "crates/sevro/assets/schema/ajv-8.20.0.bundle.js"));
+    const inventory = qualityInventory(project);
+    inventory.thirdParty = [];
+    writeFileSync(
+      resolve(project, "typescript-sources.json"),
+      JSON.stringify(inventory),
+    );
+  });
+  expect(child.exitCode).toBe(1);
+  expect(child.stderr.toString()).toContain(
+    "Expected the exact pinned upstream schema bundle",
+  );
+}, 30000);
 
 test("the public TypeScript gate covers host-reachable production and excludes generated validators", () => {
   const repo = resolve(import.meta.dir, "..");
@@ -234,7 +416,7 @@ test.each(["stray.ts", "stray.tsx", "stray.mts", "stray.cts"])(
       writeFileSync(resolve(root, filename), "export const value = 1;\n");
       writeFileSync(
         resolve(root, "typescript-sources.json"),
-        '{"production":[],"tooling":[],"tests":[],"examples":[],"declarations":[],"generated":[]}',
+        '{"production":[],"tooling":[],"tests":[],"examples":[],"declarations":[],"generated":[],"thirdParty":[]}',
       );
       const child = Bun.spawnSync(
         [process.execPath, "run", "check:typescript", "--inventory", root],

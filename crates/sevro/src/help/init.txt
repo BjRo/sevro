@@ -1,0 +1,19 @@
+Usage: sevro init [options]
+
+Examples:
+  sevro init --template response --directory ./my-evaluation
+  cd my-evaluation
+  sevro run --run-manifest-file run.json --dry
+  sevro run --run-manifest-file run.json
+  sevro report --latest
+
+Options and defaults:
+  --template <response|repository-skill|coding>  Default: response.
+  --directory <new-path>  Default: ./sevro-evaluation; refuses existing paths.
+  -h, --help  Show this help without creating files.
+
+Response and coding use deterministic adapters and real assertions, including negative controls.
+Coding checks need sandbox-exec (macOS) or bubblewrap/socat (Linux).
+Repository-skill uses native Codex and requires explicit --model, --effort and --codex-auth-file.
+Read the generated README.md for prerequisites and live commands; dry preparation is not an assessment.
+Reference: docs/evaluation-workflow.md in the installed package.

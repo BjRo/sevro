@@ -220,10 +220,14 @@ test("public shard commands merge real subprocess counters and enforce coverage 
       root,
     );
     const observed = await exerciseCoverageShards(project);
-    const percentages = observed.runs.map(
-      (run) => object(object(object(run).summary).branches).pct,
-    );
-    expect(percentages).toContain(50);
+    // The real generator's value guards add production counters. Keep the
+    // original partial-branch oracle exact at the per-file shard boundary.
+    expect(observed.pickBranches).toEqual([
+      { "0": [2, 0] },
+      { "0": [1, 1] },
+      { "0": [2, 0] },
+      { "0": [1, 1] },
+    ]);
     const combined = object(observed.combined);
     expect(combined.shards).toHaveLength(4);
     expect(object(object(combined.summary).statements).pct).toBe(100);

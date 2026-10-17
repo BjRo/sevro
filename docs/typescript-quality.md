@@ -39,7 +39,7 @@ for reproducing the CI split.
 
 [`typescript-sources.json`](../typescript-sources.json) explicitly lists every
 TypeScript and JavaScript source. The guard refuses new, missing or duplicated
-files and declarations outside the configured TypeScript project. Changing a
+files; authored sources must belong to the configured TypeScript project. Changing a
 source disposition requires review; adding a glob is not a substitute for the
 inventory. The coverage baseline includes the platform-reachable subset of
 `inventory.production`; `scripts/coverage/platform-scope.ts` names each excluded
@@ -50,14 +50,15 @@ validators in `inventory.generated` are excluded from instrumentation and the
 coverage denominator. New `.tsx`, `.mts`, `.cts` or JavaScript
 production requires an explicit instrumentation and quality-policy change first.
 
-| Inventory      | Lint and typing                                                                                      | Test and coverage disposition                                                                                                                                                                                                |
-| -------------- | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `production`   | Type-aware strict lint and strict compiler                                                           | All platform-reachable authored executable `src` statements and branch outcomes, including unimported files in that scope                                                                                                    |
-| `generated`    | CommonJS syntax parsing, exact `schemas:check` freshness, and checked `.d.cts` boundary declarations | Real Bun schema tests; the five declared generated validators are outside the coverage denominator                                                                                                                           |
-| `declarations` | Type-aware lint and compiler                                                                         | Declaration-only files have no executable counters                                                                                                                                                                           |
-| `tooling`      | Same type-aware lint and strict compiler; `.mjs`/`.cjs` use `checkJs` and explicit JSDoc contracts   | Durable public gate probes, schema freshness, release and installed-package tests; outside the runner-production denominator                                                                                                 |
-| `tests`        | Same type-aware lint and strict compiler, including fixtures                                         | Real Bun filesystem/process/protocol tests; outside the production denominator                                                                                                                                               |
-| `examples`     | Same type-aware lint and strict compiler                                                             | Packaged recipe adapters, extensions and evaluator checks are consumer examples, exercised by tutorial and installed-package validation; they implement no runner behavior and are outside the runner-production denominator |
+| Inventory      | Lint and typing                                                                                       | Test and coverage disposition                                                                                                                                                                                                |
+| -------------- | ----------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `production`   | Type-aware strict lint and strict compiler                                                            | All platform-reachable authored executable `src` statements and branch outcomes, including unimported files in that scope                                                                                                    |
+| `generated`    | CommonJS syntax parsing, exact `schemas:check` freshness, and checked `.d.cts` boundary declarations  | Real Bun schema tests; the five declared generated validators are outside the coverage denominator                                                                                                                           |
+| `thirdParty`   | Syntax parsing and exact regeneration of the single pinned upstream AJV bundle and its input manifest | Upstream dependency code, outside the authored runner inventory; all authored Rust grading control and errors remain measured                                                                                                |
+| `declarations` | Type-aware lint and compiler                                                                          | Declaration-only files have no executable counters                                                                                                                                                                           |
+| `tooling`      | Same type-aware lint and strict compiler; `.mjs`/`.cjs` use `checkJs` and explicit JSDoc contracts    | Durable public gate probes, schema freshness, release and installed-package tests; outside the runner-production denominator                                                                                                 |
+| `tests`        | Same type-aware lint and strict compiler, including fixtures                                          | Real Bun filesystem/process/protocol tests; outside the production denominator                                                                                                                                               |
+| `examples`     | Same type-aware lint and strict compiler                                                              | Packaged recipe adapters, extensions and evaluator checks are consumer examples, exercised by tutorial and installed-package validation; they implement no runner behavior and are outside the runner-production denominator |
 
 Generated AJV CommonJS is deliberately not rewritten to conform to authored-code
 rules. An earlier audit of the original four generated files using ESLint's
@@ -69,6 +70,31 @@ measures authored runner behavior. This applies only to
 `src/generated/cli-result.cjs`, `extension.cjs`, `report.cjs`, `run-evidence.cjs` and `runtime.cjs`
 as explicitly declared in the inventory. This disposition does not apply to authored CommonJS, including
 the coverage capture hook.
+
+The separate `thirdParty` disposition permits exactly
+`crates/sevro/assets/schema/ajv-8.20.0.bundle.js`. It is the upstream AJV 8.20.0
+closure prepared for the native schema grader, with one straight-line packaging
+entry exposing the upstream constructor. It contains no authored grading or
+error-handling engine. The existing five-file generated disposition and both
+95% TypeScript thresholds remain unchanged.
+
+Every public source-inventory check independently regenerates the bundle and
+its manifest using `bun scripts/rust/generate-schema-runtime.ts --check` with
+Bun 1.3.13 and the installed locked dependencies. The manifest records each
+upstream input's SHA-256, the four exact package versions, and the bundle hash.
+Identifier minification is disabled because Bun assigned different identifiers
+after checkout relocation; syntax and whitespace minification are retained.
+The public gate controls exercise actual relocated snapshots, missing assets,
+stale provenance, altered bundle bytes even with an updated claimed hash, and
+attempts to classify authored or unrelated files as upstream code. Unregistered
+JavaScript remains an error.
+
+Regenerate with `bun scripts/rust/generate-schema-runtime.ts` after an intentional
+dependency or packaging change. New paths or source dispositions require review;
+neither renaming a source file nor editing the manifest creates an exemption.
+The [schema notice provenance](licenses/schema-provenance.json) names the bounded
+upstream notice collection shipped under the native bundle's existing docs root.
+It does not claim to inventory every linked native dependency.
 
 ## Types, functions and review
 

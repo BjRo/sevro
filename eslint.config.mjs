@@ -13,6 +13,11 @@ export default defineConfig(
     // Istanbul includes all executable counters. Authored rules do not apply.
   },
   {
+    files: ["crates/sevro/assets/schema/ajv-8.20.0.bundle.js"],
+    // Exact upstream bundle: parse syntax here; the inventory gate regenerates
+    // its bytes and input manifest. All authored grading control stays in Rust.
+  },
+  {
     files: [
       "**/*.ts",
       "**/*.cts",

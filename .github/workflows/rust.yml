@@ -1,0 +1,224 @@
+name: Verify Rust port
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  rust:
+    name: Rust gate / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.13.0"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+      - name: Install compatibility dependencies
+        run: bun install --frozen-lockfile
+      - name: Check pinned schema runtime asset
+        run: bun scripts/rust/generate-schema-runtime.ts --check
+      - name: Prepare Linux isolation
+        if: runner.os == 'Linux'
+        run: bash scripts/setup-ci-linux.sh
+      - name: Check macOS isolation prerequisites
+        if: runner.os == 'macOS'
+        run: |
+          brew install ripgrep
+          command -v sandbox-exec
+          command -v rg
+          /usr/bin/cc --version
+      - name: Install deterministic native host prerequisites
+        id: native-prerequisites
+        run: bun scripts/setup-ci-codex.ts
+      - name: Install the declared Rust toolchain
+        run: rustup show active-toolchain
+      - name: Install compiler coverage tooling
+        run: cargo install cargo-llvm-cov --version 0.9.1 --locked
+      - name: Record candidate and toolchain
+        run: |
+          mkdir -p .coverage
+          git rev-parse HEAD > .coverage/source.sha
+          git archive --format=tar --output=.coverage/source.tar HEAD
+          rustc -vV > .coverage/rustc.txt
+          cargo --version > .coverage/cargo.txt
+          cargo llvm-cov --version > .coverage/cargo-llvm-cov.txt
+          printf '%s\n' "$GITHUB_RUN_ID" > .coverage/workflow-run.txt
+          printf '%s\n' "$GITHUB_RUN_ATTEMPT" > .coverage/workflow-attempt.txt
+          printf '%s\n' "$RUNNER_OS/$RUNNER_ARCH" > .coverage/platform.txt
+      - name: Check Rust formatting
+        run: cargo fmt --all -- --check
+      - name: Build all targets with the lockfile
+        run: cargo build --workspace --all-targets --locked
+      - name: Check Rust lint
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Build and lint the installed bundle profile
+        run: |
+          cargo build -p sevro --features native-bundle --test installed_bundle --locked
+          cargo clippy -p sevro --features native-bundle --test installed_bundle --locked -- -D warnings
+      - name: Run Rust tests
+        run: cargo test --workspace --all-targets --locked --no-fail-fast 2>&1 | tee .coverage/tests.log
+      - name: Run installed bundle tests
+        run: cargo test -p sevro --features native-bundle --test installed_bundle --locked --no-fail-fast 2>&1 | tee .coverage/bundle-tests.log
+      - name: Run Rust documentation tests
+        run: cargo test --workspace --doc --locked 2>&1 | tee .coverage/doctests.log
+      - name: Install and run outside the checkout
+        run: |
+          SEVRO_INSTALL_ROOT="$RUNNER_TEMP/sevro-install"
+          SEVRO_SMOKE_ROOT=$(mktemp -d "$RUNNER_TEMP/sevro-smoke.XXXXXX")
+          trap 'rm -rf "$SEVRO_SMOKE_ROOT"' EXIT
+          cargo install --path crates/sevro --locked --root "$SEVRO_INSTALL_ROOT"
+          (
+            cd "$SEVRO_SMOKE_ROOT"
+            test ! -e .git
+            "$SEVRO_INSTALL_ROOT/bin/sevro" --help > help.txt
+            "$SEVRO_INSTALL_ROOT/bin/sevro" --version > version.txt
+            test -s help.txt
+            test -s version.txt
+          )
+          cp "$SEVRO_SMOKE_ROOT/help.txt" .coverage/installed-help.txt
+          cp "$SEVRO_SMOKE_ROOT/version.txt" .coverage/installed-version.txt
+          mkdir -p .coverage/bin
+          cp "$SEVRO_INSTALL_ROOT/bin/sevro" .coverage/bin/sevro
+          shasum -a 256 .coverage/bin/sevro > .coverage/binary.sha256
+      - name: Verify real compiler feature controls
+        run: python3 scripts/rust/test-feature-coverage.py --toolchain 1.99.0 --output-dir .coverage/feature-controls 2>&1 | tee .coverage/feature-controls.log
+      - name: Collect and enforce both compiler profiles
+        id: coverage
+        run: python3 scripts/rust/coverage-profiles.py --output-dir .coverage/profiles --target-dir target/llvm-cov-profiles 2>&1 | tee .coverage/coverage-tests.log
+      - name: Diagnose Linux private temporary policy
+        if: always() && runner.os == 'Linux' && steps.native-prerequisites.outcome == 'success'
+        run: python3 scripts/rust/diagnose-linux-temp-policy.py --output .coverage/private-temp-policy
+      - name: Retain candidate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-quality-${{ github.event.pull_request.head.sha || github.sha }}-${{ matrix.os }}-${{ github.run_attempt }}
+          path: |
+            .coverage/
+            Cargo.lock
+            rust-toolchain.toml
+          include-hidden-files: true
+          if-no-files-found: error
+  rust-branches:
+    name: Rust branches / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    env:
+      SEVRO_BRANCH_TOOLCHAIN: nightly-2026-10-15
+      CARGO_LLVM_COV_TARGET_DIR: ${{ github.workspace }}/target/llvm-cov-branches
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Record branch candidate
+        run: |
+          mkdir -p .coverage/branches
+          git rev-parse HEAD > .coverage/branches/source.sha
+          git archive --format=tar --output=.coverage/branches/source.tar HEAD
+          printf '%s\n' "$GITHUB_RUN_ID" > .coverage/branches/workflow-run.txt
+          printf '%s\n' "$GITHUB_RUN_ATTEMPT" > .coverage/branches/workflow-attempt.txt
+          printf '%s\n' "$RUNNER_OS/$RUNNER_ARCH" > .coverage/branches/platform.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.13.0"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+      - name: Install compatibility dependencies
+        run: bun install --frozen-lockfile
+      - name: Check pinned schema runtime asset
+        run: bun scripts/rust/generate-schema-runtime.ts --check
+      - name: Prepare Linux isolation
+        if: runner.os == 'Linux'
+        run: bash scripts/setup-ci-linux.sh
+      - name: Prepare macOS isolation prerequisites
+        if: runner.os == 'macOS'
+        run: |
+          brew install ripgrep
+          command -v sandbox-exec
+          command -v rg
+          /usr/bin/cc --version
+      - name: Install deterministic native host prerequisites
+        run: bun scripts/setup-ci-codex.ts
+      - name: Install branch gate prerequisites
+        run: |
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            sudo apt-get install -y jq
+          else
+            brew install jq
+          fi
+          command -v jq
+          command -v python3
+      - name: Install pinned branch compiler
+        run: rustup toolchain install "$SEVRO_BRANCH_TOOLCHAIN" --profile minimal --component llvm-tools-preview
+      - name: Install compiler coverage tooling
+        run: cargo +"$SEVRO_BRANCH_TOOLCHAIN" install cargo-llvm-cov --version 0.9.1 --locked
+      - name: Record branch toolchain
+        run: |
+          printf '%s\n' "$SEVRO_BRANCH_TOOLCHAIN" > .coverage/branches/toolchain.txt
+          rustc +"$SEVRO_BRANCH_TOOLCHAIN" -vV > .coverage/branches/rustc.txt
+          cargo +"$SEVRO_BRANCH_TOOLCHAIN" --version > .coverage/branches/cargo.txt
+          cargo +"$SEVRO_BRANCH_TOOLCHAIN" llvm-cov --version > .coverage/branches/cargo-llvm-cov.txt
+          jq --version > .coverage/branches/jq.txt
+          python3 --version > .coverage/branches/python.txt
+      - name: Verify raw counters and real compiler controls
+        run: python3 scripts/rust/test-branch-coverage.py --toolchain "$SEVRO_BRANCH_TOOLCHAIN" --output-dir .coverage/branches/controls 2>&1 | tee .coverage/branches/controls.log
+      - name: Verify real compiler feature controls
+        run: python3 scripts/rust/test-feature-coverage.py --toolchain "$SEVRO_BRANCH_TOOLCHAIN" --branch --output-dir .coverage/branches/feature-controls 2>&1 | tee .coverage/branches/feature-controls.log
+      - name: Collect and enforce both compiler branch profiles
+        id: branch-coverage
+        run: python3 scripts/rust/coverage-profiles.py --toolchain "$SEVRO_BRANCH_TOOLCHAIN" --branch --output-dir .coverage/branches/profiles --target-dir target/llvm-cov-branches 2>&1 | tee .coverage/branches/tests.log
+      - name: Retain branch evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-branches-${{ github.event.pull_request.head.sha || github.sha }}-${{ matrix.os }}-${{ github.run_attempt }}
+          path: |
+            .coverage/branches/
+            Cargo.lock
+            rust-toolchain.toml
+          include-hidden-files: true
+          if-no-files-found: error
+  rust-quality:
+    name: Rust quality
+    needs: [rust, rust-branches]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require both supported platforms
+        env:
+          RUST_RESULT: ${{ needs.rust.result }}
+          BRANCH_RESULT: ${{ needs.rust-branches.result }}
+        run: |
+          test "$RUST_RESULT" = success
+          test "$BRANCH_RESULT" = success

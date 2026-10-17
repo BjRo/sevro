@@ -1,0 +1,113 @@
+{
+  "scope": "Bounded embedded-schema notice collection for the AJV bundle, rquickjs, and vendored QuickJS-NG. This is not a complete inventory of native linked dependencies or release linkage.",
+  "pathsRelativeTo": "repository root",
+  "noticeCopies": "The listed notice files preserve the inspected upstream license text without modification. The QuickJS-NG notice concatenates quickjs/LICENSE, one separating newline, and the exact Unicode notice text from quickjs/libunicode-table.h lines 5-43, excluding its C comment delimiters.",
+  "bundle": {
+    "path": "crates/sevro/assets/schema/ajv-8.20.0.bundle.js",
+    "sha256": "7e2561d48545b3c92da0370e49debf6ab948e02d9dd0981cca13eff6bda61bcb",
+    "inputManifest": "crates/sevro/assets/schema/manifest.json",
+    "generator": "scripts/rust/generate-schema-runtime.ts",
+    "bunVersion": "1.3.13",
+    "dependencyLockfile": "bun.lock",
+    "reproduce": "bun scripts/rust/generate-schema-runtime.ts",
+    "check": "bun scripts/rust/generate-schema-runtime.ts --check"
+  },
+  "components": [
+    {
+      "name": "ajv",
+      "version": "8.20.0",
+      "license": "MIT",
+      "source": {
+        "kind": "npm-package",
+        "repository": "https://github.com/ajv-validator/ajv",
+        "path": "LICENSE"
+      },
+      "notice": {
+        "path": "docs/licenses/schema-ajv-8.20.0/ajv-LICENSE.txt",
+        "sha256": "a05350a88e318e4f5f2c2a1ff1e2e88daa4dd38e6e78b71cccae422bdc762cc3"
+      }
+    },
+    {
+      "name": "fast-deep-equal",
+      "version": "3.1.3",
+      "license": "MIT",
+      "source": {
+        "kind": "npm-package",
+        "repository": "https://github.com/epoberezkin/fast-deep-equal",
+        "path": "LICENSE"
+      },
+      "notice": {
+        "path": "docs/licenses/schema-ajv-8.20.0/fast-deep-equal-LICENSE.txt",
+        "sha256": "7bf9b2de73a6b356761c948d0e9eeb4be6c1270bd04c79cd489c1e400ffdfc1a"
+      }
+    },
+    {
+      "name": "fast-uri",
+      "version": "3.1.8",
+      "license": "BSD-3-Clause",
+      "source": {
+        "kind": "npm-package",
+        "repository": "https://github.com/fastify/fast-uri",
+        "path": "LICENSE"
+      },
+      "notice": {
+        "path": "docs/licenses/schema-ajv-8.20.0/fast-uri-LICENSE.txt",
+        "sha256": "b010b0dfdfdb23d7396e03b82cd4621fc9bb8f95d6b0aea70b9c24e12074c786"
+      }
+    },
+    {
+      "name": "json-schema-traverse",
+      "version": "1.0.0",
+      "license": "MIT",
+      "source": {
+        "kind": "npm-package",
+        "repository": "https://github.com/epoberezkin/json-schema-traverse",
+        "path": "LICENSE"
+      },
+      "notice": {
+        "path": "docs/licenses/schema-ajv-8.20.0/json-schema-traverse-LICENSE.txt",
+        "sha256": "7bf9b2de73a6b356761c948d0e9eeb4be6c1270bd04c79cd489c1e400ffdfc1a"
+      }
+    },
+    {
+      "name": "rquickjs",
+      "version": "0.14.0",
+      "license": "MIT",
+      "source": {
+        "kind": "cargo-package",
+        "repository": "https://github.com/DelSkayn/rquickjs",
+        "path": "LICENSE"
+      },
+      "notice": {
+        "path": "docs/licenses/schema-quickjs/rquickjs-0.14.0-LICENSE.txt",
+        "sha256": "976ad3d07927343ab99b31510625acba89eac8e0e517c712925620ddeda91b70"
+      }
+    },
+    {
+      "name": "QuickJS-NG",
+      "version": "0.16.2",
+      "license": "MIT AND Unicode-3.0",
+      "source": {
+        "kind": "vendored-cargo-package-source",
+        "package": "rquickjs-sys",
+        "packageVersion": "0.14.0",
+        "repository": "https://github.com/quickjs-ng/quickjs",
+        "path": "quickjs/LICENSE",
+        "versionEvidence": "quickjs/quickjs.h:QJS_VERSION_MAJOR,QJS_VERSION_MINOR,QJS_VERSION_PATCH",
+        "additionalNotices": [
+          {
+            "path": "quickjs/libunicode-table.h",
+            "lines": [5, 43],
+            "license": "Unicode-3.0",
+            "sourceSha256": "5840a921ac11664b505ee37b1219f518fff2a04972fe848b4bdf1e85c5a0bd83",
+            "noticeSha256": "e7a93b009565cfce55919a381437ac4db883e9da2126fa28b91d12732bc53d96"
+          }
+        ]
+      },
+      "notice": {
+        "path": "docs/licenses/schema-quickjs/quickjs-ng-0.16.2-LICENSE.txt",
+        "sha256": "4f2aa22873e7bf98721dc31f112f482e77e3989b0be0a757b711ae4f011e6d5e"
+      }
+    }
+  ]
+}
