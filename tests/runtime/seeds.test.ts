@@ -15,9 +15,12 @@ import { join } from "node:path";
 import { createCodexHost } from "../../src/hosts/codex";
 import { createClaudeHost } from "../../src/hosts/claude";
 import { runtimeSeedDigest } from "../../src/runtime/seeds";
-import { loadRuntimeConfiguration } from "../../src/engine";
+import { loadRuntimeConfiguration, runEvaluation } from "../../src/engine";
 import { defined, parseRecord } from "../fixtures/assertions";
-import { createCodexFixture } from "../fixtures/runtime-host-fixtures";
+import {
+  artifactEvaluation,
+  createCodexFixture,
+} from "../fixtures/runtime-host-fixtures";
 
 const roots: string[] = [];
 
@@ -28,6 +31,134 @@ afterEach(async () => {
 });
 
 const codexFixture = createCodexFixture(roots);
+
+test.each([
+  { change: "", error: null },
+  {
+    change: 'rm "$UV_CACHE_DIR"; printf replaced > "$UV_CACHE_DIR"',
+    error: "slot was replaced",
+  },
+  {
+    change: 'rm "$UV_CACHE_DIR"; ln -s "$OTHER_CACHE" "$UV_CACHE_DIR"',
+    error: "slot changed its source",
+  },
+  {
+    change: 'rm -r "$HOME/../seed"; printf changed > "$HOME/../seed"',
+    error: "runtime seed target is not a directory",
+  },
+])(
+  "native continuation validates its existing shared-cache slot: %j",
+  async ({ change, error }) => {
+    const { host, root } = await codexFixture(
+      'mkdir -p "$HOME/.marker"; test "$(cat "$HOME/../seed/input")" = isolated; cat "$UV_CACHE_DIR/input"; ' +
+        change,
+    );
+    const source = join(root, "shared-cache");
+    const other = join(root, "other-cache");
+    const seed = join(root, "isolated-seed");
+    await mkdir(source);
+    await mkdir(other);
+    await mkdir(seed);
+    await writeFile(join(seed, "input"), "isolated");
+    await writeFile(join(source, "input"), "prepared");
+    const project = join(root, "project");
+    await writeFile(
+      join(project, "sevro.json"),
+      JSON.stringify({
+        format: "sevro.runtime.v1",
+        environment: {
+          set: { UV_CACHE_DIR: "{{sevro.runtime}}/cache", OTHER_CACHE: other },
+        },
+        runtime: {
+          artifactDirectories: [{ name: "marker", path: ".marker" }],
+          seedDirectories: [
+            { source: seed, target: "seed", roles: ["candidate"] },
+          ],
+          sharedCacheDirectories: [
+            { source, target: "cache", roles: ["candidate"] },
+          ],
+        },
+      }),
+    );
+    const { result } = await runEvaluation({
+      projectRoot: project,
+      resultsRoot: join(root, "continuation-results"),
+      condition: "passive",
+      trialCount: 1,
+      passThreshold: 1,
+      runnerBuildDigest: "a".repeat(64),
+      projectDigest: "b".repeat(64),
+      runtimePolicy: await loadRuntimeConfiguration(project),
+      case: {
+        id: "cache-continuation",
+        prompt: "Use prepared cache.",
+        fixture: { files: {} },
+        checks: [],
+        requiredEvidence: [],
+      },
+      host: {
+        ...host,
+        async run(request) {
+          roots.push(request.workspace);
+          const first = await host.run(request);
+          expect(first.finalMessage).toBe("prepared");
+          if (error) {
+            const rejection = await host
+              .run(request)
+              .catch((cause: unknown) => cause);
+            expect(rejection).toBeInstanceOf(Error);
+            expect((rejection as Error).message).toContain(error);
+          } else
+            expect((await host.run(request)).finalMessage).toBe("prepared");
+          return first;
+        },
+      },
+    });
+    expect(result.exitCode).toBe(0);
+    expect(await readFile(join(source, "input"), "utf8")).toBe("prepared");
+    expect(await readFile(join(seed, "input"), "utf8")).toBe("isolated");
+  },
+);
+
+test.each([{ roles: [] }, { roles: ["candidate", "candidate"] as const }])(
+  "native API rejects invalid shared-cache role selections: %j",
+  async ({ roles }) => {
+    const { host, root, workspace } = await codexFixture();
+    expect(
+      artifactEvaluation(root, host, {
+        runtimePolicy: {
+          format: "sevro.runtime.v1",
+          environment: {},
+          readOnlyRoots: [],
+          sharedCacheDirectories: [
+            { source: workspace, target: "cache", roles: [...roles] },
+          ],
+        },
+      }),
+    ).rejects.toThrow("shared cache roles are invalid");
+  },
+);
+
+test("native API rejects a shared-cache source that is a regular file", async () => {
+  const { host, root, workspace } = await codexFixture();
+  const source = join(root, "cache-file");
+  await writeFile(source, "not a directory");
+  expect(
+    host.run({
+      prompt: "Return ready.",
+      workspace,
+      condition: "passive",
+      runtimePolicy: {
+        format: "sevro.runtime.v1",
+        environment: {},
+        readOnlyRoots: [],
+        sharedCacheDirectories: [
+          { source, target: "cache", roles: ["candidate"] },
+        ],
+      },
+    }),
+  ).rejects.toThrow("owned directory");
+});
 
 test("Codex denies shared-cache sources selected only for another role", async () => {
   const { host, root, workspace } = await codexFixture(
