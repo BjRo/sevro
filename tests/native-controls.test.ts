@@ -109,8 +109,14 @@ test("Codex projects bound labels and explicit acceptance and submitted-code cou
       method: "native_control_calls",
       calls: [{ ordinal: 4, namespace: "collaboration", name: "spawn_agent" }],
       acceptedAgentCount: null,
-      submittedExecCalls: null,
-      truncated: null,
+      directAcceptedAgentCount: 0,
+      coverage: {
+        nativeCalls: "complete",
+        execInspection: "partial",
+        acceptedAgents: "direct_native_calls",
+      },
+      submittedExecCalls: 2,
+      truncated: false,
     },
   });
   expect(JSON.stringify(projected)).not.toContain("private-target");

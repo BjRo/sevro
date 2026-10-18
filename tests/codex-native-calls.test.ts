@@ -17,6 +17,261 @@ import {
 } from "../src/hosts/codex-native-calls";
 import { codexNativeControls } from "../src/hosts/native-controls";
 const roots: string[] = [];
+
+test.each([
+  {
+    input: 'text(await tools.exec_command({cmd:"pwd"}));',
+    execution: "failed",
+    reason: null,
+  },
+  {
+    input: 'const r=await tools.exec_command({cmd:"pwd"});text(r.output',
+    execution: "failed",
+    reason: "malformed_source",
+  },
+])(
+  "Code Mode reports $execution separately from $reason inspection",
+  async ({ input, execution, reason }) => {
+    const root = await home();
+    await session(
+      root,
+      lines([
+        { type: "custom_tool_call", name: "exec", call_id: "failed", input },
+        {
+          type: "custom_tool_call_output",
+          call_id: "failed",
+          output: [
+            {
+              type: "input_text",
+              text: "Script failed\nWall time 0.1 seconds\nOutput:\n",
+            },
+            { type: "input_text", text: "private failure" },
+          ],
+        },
+      ]),
+    );
+    const portable = codexNativeControls(
+      await codexNativeCallObservation(root, "thread-1"),
+    );
+    expect(portable.completeness).toBe(reason ? "partial" : "complete");
+    expectUnknown(portable.data).toMatchObject({
+      coverage: { nativeCalls: "complete" },
+      execCalls: [{ inspectionReason: reason, execution, output: "complete" }],
+    });
+    expect(JSON.stringify(portable)).not.toContain("private");
+  },
+);
+
+test("Code Mode never repairs an incomplete native capture through source inspection", async () => {
+  const root = await home();
+  await session(
+    root,
+    lines([
+      {
+        type: "function_call",
+        namespace: "collaboration",
+        name: "spawn_agent",
+        call_id: "rejected",
+        arguments: "{}",
+      },
+      {
+        type: "custom_tool_call",
+        name: "exec",
+        call_id: "safe",
+        input: 'text(await tools.exec_command({cmd:"pwd"}));',
+      },
+    ]) + "{broken\n",
+  );
+  const portable = codexNativeControls(
+    await codexNativeCallObservation(root, "thread-1"),
+  );
+  expect(portable.completeness).toBe("partial");
+  expectUnknown(portable.data).toMatchObject({
+    acceptedAgentCount: null,
+    submittedExecCalls: null,
+    coverage: { nativeCalls: "partial", execInspection: "complete" },
+    calls: [{ name: "spawn_agent" }, { name: "exec" }],
+  });
+});
+
+test.each([
+  "const JSON={};text(JSON.stringify({}));",
+  'const String={};text(String("result"));',
+  "const r=await Promise.all([]);for(const x of r){text(await tools.spawn_agent({}));}",
+  'const r=await Promise.all([]);for(const x of r){if(x.status === "fulfilled")text(await tools.spawn_agent({}));}',
+  "const r=await Promise.all([]);for(let i=0;i<r.length;i++){text(await tools.spawn_agent({}));}",
+  "const r=await Promise.all([]);for(let i=1;i<r.length;i++){text(r[i]);}",
+  "const r=await Promise.all([]);for(let i=0;i<=r.length;i++){text(r[i]);}",
+  "const r=await Promise.all([]);for(let i=0;i<r.length;i--){text(r[i]);}",
+  'const r=await Promise.all([]);for(let i=0;i<r.length;i++){text(r[load("index")]);}',
+  'text(true ? await tools.spawn_agent({}) : "no launch");',
+])("Code Mode retains uncertainty for unsafe formatting: %s", async (input) => {
+  const portable = await submittedProgram(input, 0);
+  expect(portable.completeness).toBe("partial");
+  expect(portable.data.acceptedAgentCount).toBeNull();
+});
+
+test.each([
+  'const r=await Promise.all([tools.exec_command({cmd:"pwd"})]);for(const x of r)text(x.output);',
+  'const r=await Promise.allSettled([tools.exec_command({cmd:"pwd"})]);for(const x of r){if(x.status === "fulfilled")text(x.value.output);else text(String(x.reason));}',
+])(
+  "Code Mode inspects faithful retained batch-output shapes: %s",
+  async (input) => {
+    const portable = await submittedProgram(input, 0);
+    expect(portable.completeness).toBe("complete");
+    expectUnknown(portable.data).toMatchObject({
+      acceptedAgentCount: 0,
+      execCalls: [{ calls: [{ name: "exec_command" }] }],
+    });
+  },
+);
+
+test("Code Mode keeps direct acceptance facts scoped during dynamic inspection gaps", async () => {
+  const root = await home();
+  await session(
+    root,
+    lines([
+      spawn,
+      started,
+      result,
+      {
+        type: "function_call",
+        namespace: "collaboration",
+        name: "spawn_agent",
+        call_id: "rejected",
+        arguments: "{}",
+      },
+      {
+        type: "function_call_output",
+        call_id: "rejected",
+        output: "Unknown model",
+      },
+      {
+        type: "custom_tool_call",
+        name: "exec",
+        call_id: "dynamic",
+        input: 'tools[load("tool")]({});',
+      },
+    ]),
+  );
+  const portable = codexNativeControls(
+    await codexNativeCallObservation(root, "thread-1"),
+  );
+  expect(portable.completeness).toBe("partial");
+  expectUnknown(portable.data).toMatchObject({
+    acceptedAgentCount: null,
+    directAcceptedAgentCount: 1,
+    submittedExecCalls: 1,
+    truncated: false,
+    coverage: {
+      nativeCalls: "complete",
+      execInspection: "partial",
+      acceptedAgents: "direct_native_calls",
+    },
+    calls: [
+      { ordinal: 0, namespace: "collaboration", name: "spawn_agent" },
+      { ordinal: 3, namespace: "collaboration", name: "spawn_agent" },
+      { ordinal: 5, name: "exec" },
+    ],
+    execCalls: [
+      {
+        completeness: "partial",
+        inspectionReason: "unsupported_source",
+        execution: "incomplete",
+        output: "unavailable",
+      },
+    ],
+  });
+});
+
+test("Code Mode separates truncated output from no-launch source coverage", async () => {
+  const root = await home();
+  await session(
+    root,
+    lines([
+      {
+        type: "custom_tool_call",
+        name: "exec",
+        call_id: "truncated",
+        input: 'const r=await tools.exec_command({cmd:"pwd"});text(r.output);',
+      },
+      {
+        type: "custom_tool_call_output",
+        call_id: "truncated",
+        output: JSON.stringify([
+          {
+            type: "input_text",
+            text: "Script completed\nWall time 1.0 seconds\nOutput:\n",
+          },
+          { type: "input_text", text: "Warning: truncated output" },
+        ]),
+      },
+    ]),
+  );
+  const source = await codexNativeCallObservation(root, "thread-1");
+  expect(source.completeness).toBe("complete");
+  const portable = codexNativeControls(source);
+  expect(portable.completeness).toBe("complete");
+  expectUnknown(portable.data).toMatchObject({
+    acceptedAgentCount: 0,
+    execCalls: [
+      {
+        completeness: "complete",
+        inspectionReason: null,
+        execution: "completed",
+        output: "truncated",
+      },
+    ],
+  });
+});
+
+test("Code Mode inspects bounded numeric batch-output loops", async () => {
+  const portable = await submittedProgram(
+    'const results=await Promise.allSettled([tools.exec_command({cmd:"pwd"})]);for(let i=0;i<results.length;i++){text(JSON.stringify({i,...results[i]}));}',
+    1,
+  );
+  expect(portable.completeness).toBe("complete");
+  expectUnknown(portable.data).toMatchObject({
+    execCalls: [
+      { calls: [{ index: 0, namespace: "functions", name: "exec_command" }] },
+    ],
+  });
+});
+
+test("Code Mode inspects ordinary conditional batch-result formatting", async () => {
+  const portable = await submittedProgram(
+    'const results=await Promise.allSettled([tools.exec_command({cmd:"pwd"}),tools.exec_command({cmd:"ls"})]);for(const r of results){text(r.status === "fulfilled" ? JSON.stringify({...r.value}) : String(r.reason));}',
+    1,
+  );
+  expect(portable.completeness).toBe("complete");
+  expectUnknown(portable.data).toMatchObject({
+    execCalls: [
+      {
+        calls: [
+          { index: 0, namespace: "functions", name: "exec_command" },
+          { index: 1, namespace: "functions", name: "exec_command" },
+        ],
+      },
+    ],
+  });
+});
+
+test("Code Mode inspects JSON serialization without inventing launches", async () => {
+  const portable = await submittedProgram(
+    'const r=await tools.exec_command({cmd:"pwd"});text(JSON.stringify(r));',
+    1,
+  );
+  expect(portable.completeness).toBe("complete");
+  expectUnknown(portable.data).toMatchObject({
+    acceptedAgentCount: 0,
+    execCalls: [
+      {
+        completeness: "complete",
+        calls: [{ index: 0, namespace: "functions", name: "exec_command" }],
+      },
+    ],
+  });
+});
 test("Code Mode recovers retained direct ordinal 45 template commands", async () => {
   const input = await readFile(
     join(import.meta.dir, "fixtures/code-mode-85/direct-45.txt"),
@@ -203,7 +458,6 @@ test.each([
   "const results = await Promise.all([]); for (item of results) text(item);",
   "const results = await Promise.all([]); for (let item of results) text(item);",
   "const results = await Promise.all([]); for (const item = 1 of results) text(item);",
-  "const results = await Promise.all([]); for (const item of results) { text(item); }",
 ])(
   "Code Mode cannot establish complete control evidence from unsupported bindings: %s",
   async (input) => {
@@ -218,7 +472,7 @@ test.each([
   { callId: "retained", output: { private: "unstructured result" } },
   { callId: "retained", output: "{}" },
 ])(
-  "Code Mode requires a bound structured completion before its control evidence is complete: %j",
+  "Code Mode keeps missing structured completion separate from source coverage: %j",
   async ({ callId, output }) => {
     const root = await home();
     await session(
@@ -234,8 +488,12 @@ test.each([
       ]),
     );
     const observed = await codexNativeCallObservation(root, "thread-1");
-    expect(defined(observed.data.execCalls?.[0]).completeness).toBe("partial");
-    expect(codexNativeControls(observed).completeness).toBe("partial");
+    expectUnknown(defined(observed.data.execCalls?.[0])).toMatchObject({
+      completeness: "complete",
+      execution: "incomplete",
+      output: "unavailable",
+    });
+    expect(codexNativeControls(observed).completeness).toBe("complete");
     expect(JSON.stringify(observed)).not.toContain("unstructured result");
   },
 );
@@ -344,37 +602,49 @@ test.each([
   { label: "duplicate outputs", outputs: ["complete", "complete"] },
   { label: "failed executor", outputs: ["error"] },
   { label: "yielded executor", outputs: ["running"] },
-])("Code Mode cannot prove absence with $label", async ({ outputs }) => {
-  const root = await home();
-  await session(
-    root,
-    lines([
-      {
-        type: "custom_tool_call",
-        name: "exec",
-        call_id: "incomplete",
-        input: 'text(await tools.exec_command({cmd:"true"}));',
-      },
-      ...outputs.map((value) => ({
-        type: "custom_tool_call_output",
-        call_id: "incomplete",
-        output:
-          value === "complete"
-            ? [
-                {
-                  type: "text",
-                  text: "Script completed\nWall time 0.1 seconds\nOutput:\n",
-                },
-              ]
-            : value,
-      })),
-    ]),
-  );
-  expect(
-    codexNativeControls(await codexNativeCallObservation(root, "thread-1"))
-      .completeness,
-  ).toBe("partial");
-});
+])(
+  "Code Mode distinguishes source absence from $label",
+  async ({ outputs }) => {
+    const root = await home();
+    await session(
+      root,
+      lines([
+        {
+          type: "custom_tool_call",
+          name: "exec",
+          call_id: "incomplete",
+          input: 'text(await tools.exec_command({cmd:"true"}));',
+        },
+        ...outputs.map((value) => ({
+          type: "custom_tool_call_output",
+          call_id: "incomplete",
+          output:
+            value === "complete"
+              ? [
+                  {
+                    type: "text",
+                    text: "Script completed\nWall time 0.1 seconds\nOutput:\n",
+                  },
+                ]
+              : value,
+        })),
+      ]),
+    );
+    const portable = codexNativeControls(
+      await codexNativeCallObservation(root, "thread-1"),
+    );
+    expect(portable.completeness).toBe("complete");
+    expectUnknown(portable.data).toMatchObject({
+      execCalls: [
+        {
+          completeness: "complete",
+          execution: "incomplete",
+          output: "unavailable",
+        },
+      ],
+    });
+  },
+);
 test("Code Mode text and command bodies cannot invent native controls", async () => {
   const root = await home();
   await session(
@@ -467,7 +737,7 @@ test.each([
     { type: "text", text: "Warning: truncated output" },
   ]),
 ])(
-  "Code Mode refuses malformed or truncated completion envelopes: %s",
+  "Code Mode preserves source coverage with malformed or truncated completion envelopes: %s",
   async (output) => {
     const root = await home();
     await session(
@@ -485,8 +755,8 @@ test.each([
     const portable = codexNativeControls(
       await codexNativeCallObservation(root, "thread-1"),
     );
-    expect(portable.completeness).toBe("partial");
-    expect(portable.data.acceptedAgentCount).toBeNull();
+    expect(portable.completeness).toBe("complete");
+    expect(portable.data.acceptedAgentCount).toBe(0);
   },
 );
 test.each([
@@ -736,7 +1006,16 @@ test("native goal and agent calls retain names and order without private argumen
         { ordinal: 5, namespace: "other", name: "update_goal" },
       ],
       submittedExecCalls: 1,
-      execCalls: [{ ordinal: 1, completeness: "partial", calls: [] }],
+      execCalls: [
+        {
+          ordinal: 1,
+          completeness: "partial",
+          calls: [],
+          inspectionReason: "malformed_source",
+          execution: "incomplete",
+          output: "unavailable",
+        },
+      ],
       acceptedSpawns: [],
       feedbackCalls: [],
       childSessions: [],

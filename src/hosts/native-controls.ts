@@ -14,6 +14,12 @@ export interface NativeControlObservation {
     method: "native_control_calls";
     calls: Call[];
     acceptedAgentCount: number | null;
+    directAcceptedAgentCount?: number;
+    coverage?: {
+      nativeCalls: NativeControlObservation["completeness"];
+      execInspection: "complete" | "partial";
+      acceptedAgents: "direct_native_calls";
+    };
     submittedExecCalls: number | null;
     execCalls?: ExecCallReceipt[];
     truncated: boolean | null;
@@ -47,10 +53,26 @@ export function codexNativeControls(
       acceptedAgentCount: complete
         ? observation.data.acceptedSpawns.length
         : null,
-      submittedExecCalls: complete ? observation.data.submittedExecCalls : null,
+      directAcceptedAgentCount: observation.data.acceptedSpawns.length,
+      coverage: {
+        nativeCalls: observation.completeness,
+        execInspection: inspectedExecCalls(observation)
+          ? "complete"
+          : "partial",
+        acceptedAgents: "direct_native_calls",
+      },
+      ...nativeCounts(observation),
       ...execEvidence(observation.data.execCalls),
-      truncated: complete ? false : null,
     },
+  };
+}
+function nativeCounts(
+  observation: Awaited<ReturnType<typeof codexNativeCallObservation>>,
+) {
+  const complete = observation.completeness === "complete";
+  return {
+    submittedExecCalls: complete ? observation.data.submittedExecCalls : null,
+    truncated: complete ? false : null,
   };
 }
 function controlCompleteness(
