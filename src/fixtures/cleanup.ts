@@ -20,6 +20,7 @@ export async function removeDisposableDirectory(path: string): Promise<void> {
   try {
     await rm(path, { recursive: true, force: true });
   } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOTDIR") return;
     if (!permissionFailure(error)) throw error;
     await restoreDirectoryAccess(path);
     await rm(path, { recursive: true, force: true });

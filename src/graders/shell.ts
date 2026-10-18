@@ -280,7 +280,11 @@ async function shellRuntime(options: ShellRunOptions) {
       privateRuntimeRoot: runtime.root,
     };
   }
-  const root = join(options.workspace, ".git", "sevro-runtime"),
+  const root = join(
+      options.privateStateRoot,
+      "runtime",
+      hashJson(options.workspace),
+    ),
     home = join(root, "check-home"),
     temp = join(root, "check-tmp");
   await Promise.all([
@@ -291,9 +295,9 @@ async function shellRuntime(options: ShellRunOptions) {
     root,
     home,
     temp,
-    uvCache: join(root, "uv-cache"),
+    uvCache: join(options.workspace, ".git", "sevro-runtime", "uv-cache"),
     environment: {} as Record<string, string>,
-    privateRuntimeRoot: undefined,
+    privateRuntimeRoot: root,
     writableCacheRoots: [],
   };
 }

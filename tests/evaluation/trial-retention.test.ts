@@ -39,6 +39,134 @@ const evaluation = createEvaluation(roots);
 
 const setupEvaluation = createSetupEvaluation(evaluation);
 
+test.each(["failed", "timedout", "cancelled"])(
+  "removes fallback checker state after %s grading",
+  async (ending) => {
+    const options = await evaluation({ finalMessage: "ready", complete: true });
+    options.shellIsolation = { protectedRoots: [] };
+    const abort = new AbortController();
+    options.signal = abort.signal;
+    let workspace = "";
+    options.host.run = async (request) => {
+      workspace = request.workspace;
+      roots.push(workspace);
+      await mkdir(join(workspace, ".git/sevro-runtime"), { recursive: true });
+      await writeFile(
+        join(workspace, ".git/sevro-runtime/candidate-state"),
+        "retain",
+      );
+      return { finalMessage: "ready", complete: true };
+    };
+    options.case.checks = [
+      {
+        id: "ending",
+        grader: "sevro.shell",
+        configuration: {
+          run:
+            'printf "%s" "$TMPDIR" > checker-temp; printf "%s" "$HOME" > checker-home; ' +
+            (ending === "failed" ? "exit 1" : "sleep 10"),
+          timeoutMs: ending === "timedout" ? 100 : 3000,
+        },
+      },
+    ];
+    const poll = setInterval(() => {
+      if (ending === "cancelled" && existsSync(join(workspace, "checker-home")))
+        abort.abort("SIGINT");
+    }, 10);
+    try {
+      const { result } = await runEvaluation(options);
+      const expectedExitCodes: Record<string, number> = {
+        failed: 1,
+        timedout: 3,
+        cancelled: 130,
+      };
+      expect(result.exitCode).toBe(defined(expectedExitCodes[ending]));
+      expect(
+        existsSync(await readFile(join(workspace, "checker-home"), "utf8")),
+      ).toBe(false);
+      expect(
+        existsSync(await readFile(join(workspace, "checker-temp"), "utf8")),
+      ).toBe(false);
+      expect(
+        await readFile(
+          join(workspace, ".git/sevro-runtime/candidate-state"),
+          "utf8",
+        ),
+      ).toBe("retain");
+      expect(existsSync(result.evidencePath)).toBe(true);
+    } finally {
+      clearInterval(poll);
+    }
+  },
+);
+
+test.each(["failed", "timedout", "cancelled"])(
+  "checker cleanup preserves a shared cache after %s grading",
+  async (ending) => {
+    const options = await evaluation({ finalMessage: "ready", complete: true });
+    const source = await mkdtemp(
+      join(tmpdir(), "sevro-persistent-check-cache-"),
+    );
+    roots.push(source);
+    await writeFile(join(source, "dependency"), "prepared");
+    await writeFile(
+      join(options.projectRoot, "sevro.json"),
+      JSON.stringify({
+        format: "sevro.runtime.v1",
+        environment: { set: { CACHE: "{{sevro.runtime}}/cache" } },
+        runtime: {
+          sharedCacheDirectories: [
+            { source, target: "cache", roles: ["checks"] },
+          ],
+        },
+      }),
+    );
+    options.runtimePolicy = await loadRuntimeConfiguration(options.projectRoot);
+    options.shellIsolation = { protectedRoots: [] };
+    const abort = new AbortController();
+    options.signal = abort.signal;
+    let workspace = "";
+    options.host.run = (request) => {
+      workspace = request.workspace;
+      roots.push(workspace);
+      return Promise.resolve({ finalMessage: "ready", complete: true });
+    };
+    options.case.checks = [
+      {
+        id: "ending",
+        grader: "sevro.shell",
+        configuration: {
+          run:
+            'cat "$CACHE/dependency" > dependency; printf "%s" "$HOME" > checker-home; ' +
+            (ending === "failed" ? "exit 1" : "sleep 10"),
+          timeoutMs: ending === "timedout" ? 100 : 3000,
+        },
+      },
+    ];
+    const poll = setInterval(() => {
+      if (ending === "cancelled" && existsSync(join(workspace, "checker-home")))
+        abort.abort("SIGINT");
+    }, 10);
+    try {
+      const { result } = await runEvaluation(options);
+      const expectedExitCodes: Record<string, number> = {
+        failed: 1,
+        timedout: 3,
+        cancelled: 130,
+      };
+      expect(result.exitCode).toBe(defined(expectedExitCodes[ending]));
+      const home = await readFile(join(workspace, "checker-home"), "utf8");
+      expect(existsSync(home)).toBe(false);
+      expect(await readFile(join(source, "dependency"), "utf8")).toBe(
+        "prepared",
+      );
+      expect(existsSync(result.evidencePath)).toBe(true);
+    } finally {
+      clearInterval(poll);
+    }
+  },
+);
+
 test("removes read-only checker runtime after failed grading", async () => {
   const options = await evaluation({ finalMessage: "ready", complete: true });
   const source = await mkdtemp(join(tmpdir(), "sevro-readonly-check-seed-"));
