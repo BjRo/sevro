@@ -209,9 +209,13 @@ The negative fixture changes the port to `9000`; Python raises an assertion:
 bun "$SEVRO_RECIPES/run.ts" python-uv deterministic --fail
 ```
 
-For real dependencies, prepare a public cache before evaluation and add a
-declared [seed directory](runtime-v1.md#private-writable-state), then use your locked
-offline install command. This dependency-free recipe needs no cache seed.
+For real dependencies, prepare a public cache once outside the evaluated project
+and declare a [shared cache](runtime-v1.md#reuse-a-shared-dependency-cache), then
+use your locked offline install command. Select only the roles using UV; add
+`checks` only when the grader needs it. The same directory can serve candidates,
+hooks, and UV-based graders across trials and runs without copying the cache.
+Use [private seeds](runtime-v1.md#private-writable-state) when isolated dependency
+bytes matter more than disk reuse. This dependency-free recipe needs no cache seed.
 
 ### An existing mise installation
 

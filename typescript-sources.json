@@ -122,6 +122,7 @@
     "src/runtime/paths.ts",
     "src/runtime/query.ts",
     "src/runtime/seeds.ts",
+    "src/runtime/shared-cache.ts",
     "src/runtime/state.ts",
     "src/schema-types.ts",
     "src/schema.ts",

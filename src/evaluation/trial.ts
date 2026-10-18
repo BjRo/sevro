@@ -1,4 +1,5 @@
 import { rm } from "node:fs/promises";
+import { hashJson } from "../identity";
 import {
   allocateCandidateRuntime,
   candidateArtifactRoots,
@@ -38,7 +39,10 @@ import type {
   ObservationCompleteness,
   TaskVerdict,
 } from "../contract-types";
-import { clearFixtureContents } from "../fixtures/cleanup";
+import {
+  clearFixtureContents,
+  removeDisposableDirectory,
+} from "../fixtures/cleanup";
 import { retainWorkspace } from "../fixtures/workspace-state";
 import { gitHeadRevision } from "../graders/git-head";
 import {
@@ -789,6 +793,13 @@ class EvaluationTrial {
     evaluationProgress(this.options, stage, status, this.trial);
   }
   private async cleanup(): Promise<void> {
+    await removeDisposableDirectory(
+      join(
+        this.context.resources.stateDir,
+        "shell-sandbox/runtime",
+        hashJson(this.fixture.workspace),
+      ),
+    );
     if (this.state.candidateTranscriptRoot)
       await rm(this.state.candidateTranscriptRoot, {
         recursive: true,

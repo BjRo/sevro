@@ -8,6 +8,7 @@ import { delimiter, join } from "node:path";
 import { prepareIsolatedCommand } from "../hosts/isolation";
 import type { RuntimePolicy } from "../runtime/config";
 import { prepareRuntimeState } from "../runtime/state";
+import { sharedCacheDenyRoots } from "../runtime/shared-cache";
 import { hashJson } from "../identity";
 import {
   captureBoundedText,
@@ -279,7 +280,11 @@ async function shellRuntime(options: ShellRunOptions) {
       privateRuntimeRoot: runtime.root,
     };
   }
-  const root = join(options.workspace, ".git", "sevro-runtime"),
+  const root = join(
+      options.privateStateRoot,
+      "runtime",
+      hashJson(options.workspace),
+    ),
     home = join(root, "check-home"),
     temp = join(root, "check-tmp");
   await Promise.all([
@@ -290,9 +295,10 @@ async function shellRuntime(options: ShellRunOptions) {
     root,
     home,
     temp,
-    uvCache: join(root, "uv-cache"),
+    uvCache: join(options.workspace, ".git", "sevro-runtime", "uv-cache"),
     environment: {} as Record<string, string>,
-    privateRuntimeRoot: undefined,
+    privateRuntimeRoot: root,
+    writableCacheRoots: [],
   };
 }
 type ShellRuntime = Awaited<ReturnType<typeof shellRuntime>>;
@@ -429,11 +435,15 @@ export async function runShellCheck(
       ? [options.candidateTranscriptRoot]
       : [],
     writableRuntimeRoot: runtime.privateRuntimeRoot,
+    writableCacheRoots: runtime.writableCacheRoots,
   });
   await requireShellRuntimeCache(options, runtime);
   return new ShellExecution(check, options, isolated, runtime).run();
 }
 
 function shellSeedSources(options: ShellRunOptions): string[] {
-  return runtimeSeedSources(options.runtimePolicy);
+  return [
+    ...runtimeSeedSources(options.runtimePolicy),
+    ...sharedCacheDenyRoots(options.runtimePolicy, "checks"),
+  ];
 }

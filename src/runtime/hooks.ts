@@ -11,6 +11,7 @@ import type { RuntimePolicy } from "./config";
 import { insideRuntimeRoot, requireRuntimeReadRoots } from "./paths";
 import { runtimeSeedDigest } from "./seeds";
 import { prepareRuntimeState } from "./state";
+import { sharedCacheDenyRoots, sharedCacheRoots } from "./shared-cache";
 import { macSandboxProfile } from "../hosts/mac-sandbox";
 import type { IsolatedCommand } from "../hosts/mac-sandbox";
 import { prepareLinuxSandboxCommand } from "../hosts/linux-sandbox";
@@ -156,7 +157,7 @@ function lazyHookExecution(
         options,
         index,
         readRoots,
-        runtime.root,
+        runtime,
       );
       if (boundary.isolation) isolation.push(boundary.isolation);
       return {
@@ -175,31 +176,43 @@ async function prepareHookIsolation(
   options: Parameters<typeof prepareHookMounts>[0],
   index: number,
   roots: { ordinary: string[]; curated: string[] },
-  runtimeRoot: string,
+  runtime: Awaited<ReturnType<typeof prepareRuntimeState>>,
 ): Promise<{ profile?: string; isolation?: IsolatedCommand }> {
+  const cacheRoots = await sharedCacheRoots(
+    options.policy,
+    "hooks",
+    options.protectedRoots,
+  );
+  const protectedRoots = [
+    ...options.protectedRoots,
+    ...sharedCacheDenyRoots(options.policy, "hooks"),
+  ];
   if (process.platform === "linux")
     return {
       isolation: await prepareLinuxSandboxCommand({
         argv: ["/bin/true"],
         workspace: options.workspace,
-        protectedRoots: options.protectedRoots,
+        protectedRoots,
         privateStateRoot: options.privateRoot,
         denyNetwork: true,
         readOnlyRoots: roots.ordinary,
         hookReadRoots: roots.curated,
-        writableRuntimeRoot: runtimeRoot,
+        writableRuntimeRoot: runtime.root,
+        writableCacheRoots: cacheRoots,
       }),
     };
   const profile = join(options.privateRoot, `hooks-${index}.sb`);
   await writeFile(
     profile,
     macSandboxProfile(
-      options.protectedRoots,
+      protectedRoots,
       true,
       roots.ordinary,
-      runtimeRoot,
+      runtime.root,
       roots.curated,
       options.workspace,
+      undefined,
+      cacheRoots,
     ) + "\n(deny process-info* (require-not (target self)))\n",
     { mode: 0o600 },
   );

@@ -44,7 +44,7 @@ Repository skill mounts under `.claude/skills` require explicit
 `--claude-project-settings`; otherwise repository dispatch is refused before
 launch. The bundled route disables hooks by default and omits candidate Write
 access. [Runtime configuration](runtime-v1.md) enables native goals and selected
-plugin hooks and reuses declared host tools with private caches. These changes
+plugin hooks and reuses declared host tools with private or explicitly shared caches. These changes
 require `rc.3` or later. The CLI reference covers credential scrubbing
 and follow-ups.
 

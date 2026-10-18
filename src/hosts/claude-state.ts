@@ -28,6 +28,10 @@ import {
   runtimeExecutableProtection,
 } from "../runtime/paths";
 import { prepareRuntimeState } from "../runtime/state";
+import {
+  sharedCacheDenyRoots,
+  sharedCacheRoots,
+} from "../runtime/shared-cache";
 import { stageClaudeAuthentication } from "./claude-credential";
 import { claudeHostSettings } from "./claude-settings";
 import { evaluationProtectedRoots } from "./isolation-roots";
@@ -222,6 +226,11 @@ export async function prepareClaudeState(
     runtime,
     stateRoot,
   );
+  const cacheRoots = await sharedCacheRoots(
+    request.runtimePolicy,
+    request.runtimeRole,
+    roots,
+  );
   await writeFile(
     settingsPath,
     JSON.stringify(
@@ -229,7 +238,10 @@ export async function prepareClaudeState(
         state.privateRoot,
         state.credential,
         [...pluginDirs, ...effectivePlugins],
-        roots,
+        [
+          ...roots,
+          ...sharedCacheDenyRoots(request.runtimePolicy, request.runtimeRole),
+        ],
         transcripts.policy,
         [
           ...transcripts.readRoots,
@@ -237,7 +249,7 @@ export async function prepareClaudeState(
           ...candidateArtifactReadRoots(request.candidateArtifactRoots),
         ],
         runtimeWriteRoot
-          ? { root: runtimeWriteRoot, workspace: request.workspace }
+          ? { root: runtimeWriteRoot, workspace: request.workspace, cacheRoots }
           : undefined,
         request.workspace,
       ),

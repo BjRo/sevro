@@ -7,6 +7,7 @@ import {
   requireNativeHookRoots,
 } from "../native-transcript-state";
 import { requireRuntimeReadRoots } from "../runtime/paths";
+import { requireWritableCacheRoots } from "../runtime/shared-cache";
 import { requireCandidateArtifactRoots } from "../candidate-artifacts";
 import {
   commandRuntimeRoot,
@@ -67,6 +68,10 @@ export async function prepareLinuxSandboxCommand(
     options.writableRuntimeRoot,
   );
   const readRoots = options.readOnlyRoots ?? [];
+  const writableCacheRoots = await cacheMountRoots(options, [
+    ...roots,
+    stateRoot,
+  ]);
   requireRuntimeReadRoots(readRoots, [...roots, stateRoot]);
   requireDisjointState(workspace, roots, stateRoot);
   const blockedFile = resolve(stateRoot, `blocked-${randomUUID()}`);
@@ -106,6 +111,7 @@ export async function prepareLinuxSandboxCommand(
         ...candidateArtifactMounts(options),
         ...hookMounts(options),
         ...(ownedRoot ? ["--bind", ownedRoot, ownedRoot] : []),
+        ...writableCacheRoots.flatMap((path) => ["--bind", path, path]),
         "--chdir",
         workspace,
         "--",
@@ -119,6 +125,13 @@ export async function prepareLinuxSandboxCommand(
     await rm(blockedFile, { force: true });
     throw error;
   }
+}
+
+function cacheMountRoots(options: IsolationOptions, protectedRoots: string[]) {
+  return requireWritableCacheRoots(
+    options.writableCacheRoots ?? [],
+    protectedRoots,
+  );
 }
 
 function transcriptMounts(options: IsolationOptions): string[] {
