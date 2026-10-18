@@ -7,6 +7,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  realpath,
   rm,
   writeFile,
 } from "node:fs/promises";
@@ -313,7 +314,7 @@ test("isolated shell checks can use an explicit toolchain", async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
-test("shell scratch files stay inside Git metadata", async () => {
+test("shell scratch files stay outside the fixture", async () => {
   if (!isolatedNativeHost) return;
   const root = await mkdtemp(join(tmpdir(), "sevro-shell-scratch-"));
   const workspace = join(root, "fixture");
@@ -324,7 +325,8 @@ test("shell scratch files stay inside Git metadata", async () => {
         id: "scratch",
         grader: "sevro.shell",
         configuration: {
-          run: 'printf home >"$HOME/probe" && printf temp >"$TMPDIR/probe"',
+          run: 'printf home >"$HOME/probe" && printf temp >"$TMPDIR/probe" && printf "%s\\n%s\\n" "$HOME" "$TMPDIR"',
+          expectRegex: ".+",
         },
       },
     ]);
@@ -334,16 +336,14 @@ test("shell scratch files stay inside Git metadata", async () => {
       privateStateRoot: join(root, "private"),
     });
     expect(result.exitCode).toBe(0);
-    expect(
-      existsSync(
-        join(workspace, ".git", "sevro-runtime", "check-home", "probe"),
-      ),
-    ).toBeTrue();
-    expect(
-      existsSync(
-        join(workspace, ".git", "sevro-runtime", "check-tmp", "probe"),
-      ),
-    ).toBeTrue();
+    const paths = defined(result.stdout).trim().split("\n");
+    expect(paths).toHaveLength(2);
+    const canonicalWorkspace = await realpath(workspace);
+    for (const path of paths) {
+      expect(path.startsWith(`${canonicalWorkspace}/`)).toBeFalse();
+      expect(existsSync(join(path, "probe"))).toBeTrue();
+    }
+    expect(existsSync(join(workspace, ".git", "sevro-runtime"))).toBeFalse();
     expect(existsSync(join(workspace, ".sevro-check-home"))).toBeFalse();
     expect(existsSync(join(workspace, ".sevro-check-tmp"))).toBeFalse();
   } finally {
