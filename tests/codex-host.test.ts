@@ -528,6 +528,18 @@ test("failed app-server execution cannot yield a complete owner-dispatch receipt
 
 test.each([
   {
+    name: "serialized read",
+    input:
+      'const r=await tools.exec_command({cmd:"private read"});text(JSON.stringify(r));',
+    completeness: "complete",
+  },
+  {
+    name: "truncated read",
+    input:
+      'const r=await tools.exec_command({cmd:"private read"});text(r.output);',
+    completeness: "complete",
+  },
+  {
     name: "read",
     input: 'text(await tools.exec_command({cmd:"private read"}));',
     completeness: "complete",
@@ -544,7 +556,7 @@ test.each([
   },
 ] as const)(
   "Codex host retains Code Mode $name evidence",
-  async ({ input, completeness }) => {
+  async ({ name, input, completeness }) => {
     if (!isolatedNativeHost || !Bun.which("codex")) return;
     const selected = await ordinaryCodexRequest();
     const entries = [
@@ -567,7 +579,13 @@ test.each([
               type: "input_text",
               text: "Script completed\nWall time 0.1 seconds\nOutput:\n",
             },
-            { type: "input_text", text: "private rejected result" },
+            {
+              type: "input_text",
+              text:
+                name === "truncated read"
+                  ? "Warning: truncated output"
+                  : "private rejected result",
+            },
           ],
         },
       },
@@ -596,7 +614,18 @@ test.each([
         id: "sevro.host.native-controls",
         completeness,
         data: objectContaining({
-          execCalls: [objectContaining({ ordinal: 0, completeness })],
+          coverage: objectContaining({
+            nativeCalls: "complete",
+            execInspection: completeness,
+          }),
+          execCalls: [
+            objectContaining({
+              ordinal: 0,
+              completeness,
+              execution: "completed",
+              output: name === "truncated read" ? "truncated" : "complete",
+            }),
+          ],
         }),
       }),
     );
@@ -924,6 +953,12 @@ test("Codex host binds bounded native calls to its completed thread", async () =
       method: "native_control_calls",
       calls: [{ ordinal: 0, namespace: "functions", name: "create_goal" }],
       acceptedAgentCount: 0,
+      directAcceptedAgentCount: 0,
+      coverage: {
+        nativeCalls: "complete",
+        execInspection: "complete",
+        acceptedAgents: "direct_native_calls",
+      },
       submittedExecCalls: 0,
       truncated: false,
     },

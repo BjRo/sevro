@@ -21,6 +21,14 @@ export interface ExecCallReceipt {
   ordinal: number;
   completeness: "complete" | "partial";
   calls: SubmittedCall[];
+  inspectionReason?:
+    | "unsupported_source"
+    | "malformed_source"
+    | "source_limit"
+    | "foreign_namespace"
+    | null;
+  execution?: "completed" | "failed" | "incomplete";
+  output?: "complete" | "truncated" | "unavailable";
 }
 
 function toolNamespace(name: string): SubmittedCall["namespace"] {
@@ -77,7 +85,15 @@ function member(node: ts.Expression, owner: string, names: string[]): boolean {
 function localName(node: ts.BindingName): string | undefined {
   const ts = typescript();
   if (!ts.isIdentifier(node)) return undefined;
-  return ["tools", "text", "store", "Promise", "load"].includes(node.text)
+  return [
+    "tools",
+    "text",
+    "store",
+    "Promise",
+    "load",
+    "JSON",
+    "String",
+  ].includes(node.text)
     ? undefined
     : node.text;
 }
@@ -85,6 +101,7 @@ class Submission {
   readonly calls: SubmittedCall[] = [];
   private readonly locals = new Set<string>();
   private readonly collections = new Set<string>();
+  private readonly indices = new Set<string>();
   private nodes = 0;
   expression(node: ts.Expression): boolean {
     const ts = typescript();
@@ -110,17 +127,42 @@ class Submission {
         return this.localProperty(node);
       case ts.isCallExpression(node):
         return this.call(node);
+      case ts.isConditionalExpression(node):
+        return [node.condition, node.whenTrue, node.whenFalse].every((part) =>
+          this.outputExpression(part),
+        );
+      case ts.isElementAccessExpression(node):
+        return (
+          this.collection(node.expression) &&
+          typescript().isIdentifier(node.argumentExpression) &&
+          this.indices.has(node.argumentExpression.text)
+        );
       default:
         return false;
     }
   }
   private property(node: ts.ObjectLiteralElementLike): boolean {
     const ts = typescript();
+    if (ts.isSpreadAssignment(node))
+      return this.outputExpression(node.expression);
+    if (ts.isShorthandPropertyAssignment(node)) return this.shorthand(node);
     if (!ts.isPropertyAssignment(node) || ts.isComputedPropertyName(node.name))
       return false;
     return this.expression(node.initializer);
   }
+  private shorthand(node: ts.ShorthandPropertyAssignment): boolean {
+    return !node.objectAssignmentInitializer && this.expression(node.name);
+  }
   private composition(node: ts.BinaryExpression): boolean {
+    if (
+      [
+        typescript().SyntaxKind.EqualsEqualsEqualsToken,
+        typescript().SyntaxKind.ExclamationEqualsEqualsToken,
+      ].includes(node.operatorToken.kind)
+    )
+      return (
+        this.outputExpression(node.left) && this.outputExpression(node.right)
+      );
     return (
       node.operatorToken.kind === typescript().SyntaxKind.PlusToken &&
       this.expression(node.left) &&
@@ -148,13 +190,12 @@ class Submission {
     if (ts.isVariableStatement(node))
       return this.declarations(node.declarationList);
     if (ts.isForOfStatement(node)) return this.outputLoop(node);
+    if (ts.isForStatement(node)) return this.numericOutputLoop(node);
     return ts.isExpressionStatement(node) && this.expression(node.expression);
   }
   private localProperty(node: ts.PropertyAccessExpression): boolean {
-    const ts = typescript();
     return (
-      ts.isIdentifier(node.expression) &&
-      this.locals.has(node.expression.text) &&
+      this.expression(node.expression) &&
       !["constructor", "__proto__", "prototype"].includes(node.name.text)
     );
   }
@@ -231,10 +272,43 @@ class Submission {
     if (!this.collection(node.expression)) return false;
     if (!ts.isVariableDeclarationList(node.initializer)) return false;
     const name = loopVariable(node.initializer);
+    if (!name || this.locals.has(name)) return false;
+    this.locals.add(name);
+    const valid = this.outputBody(node.statement);
+    this.locals.delete(name);
+    return valid;
+  }
+  private outputExpression(node: ts.Expression): boolean {
+    const count = this.calls.length;
+    return this.expression(node) && this.calls.length === count;
+  }
+  private numericOutputLoop(node: ts.ForStatement): boolean {
+    const name = numericLoopVariable(node);
+    if (!name || this.locals.has(name)) return false;
+    const condition = node.condition as ts.BinaryExpression;
+    const bound = condition.right as ts.PropertyAccessExpression;
+    if (!this.collection(bound.expression)) return false;
+    this.locals.add(name);
+    this.indices.add(name);
+    const valid = this.outputBody(node.statement);
+    this.locals.delete(name);
+    this.indices.delete(name);
+    return valid;
+  }
+  private outputBody(node: ts.Statement): boolean {
+    const ts = typescript();
+    if (ts.isBlock(node))
+      return node.statements.every((statement) => this.outputBody(statement));
+    if (ts.isIfStatement(node)) return this.outputConditional(node);
     return (
-      name !== undefined &&
-      !this.locals.has(name) &&
-      outputLoopBody(node.statement, name)
+      ts.isExpressionStatement(node) && this.outputExpression(node.expression)
+    );
+  }
+  private outputConditional(node: ts.IfStatement): boolean {
+    return (
+      this.outputExpression(node.expression) &&
+      this.outputBody(node.thenStatement) &&
+      (!node.elseStatement || this.outputBody(node.elseStatement))
     );
   }
   private collection(node: ts.Expression): boolean {
@@ -244,9 +318,12 @@ class Submission {
 }
 function helperCall(node: ts.Expression): boolean {
   const ts = typescript();
-  if (ts.isIdentifier(node) && ["text", "store"].includes(node.text))
+  if (ts.isIdentifier(node) && ["text", "store", "String"].includes(node.text))
     return true;
-  return member(node, "Promise", ["all", "allSettled"]);
+  return (
+    member(node, "Promise", ["all", "allSettled"]) ||
+    member(node, "JSON", ["stringify"])
+  );
 }
 function namedIdentifier(
   node: ts.Expression | undefined,
@@ -271,22 +348,69 @@ function loopVariable(list: ts.VariableDeclarationList): string | undefined {
     ? localName(declaration.name)
     : undefined;
 }
-function outputLoopBody(statement: ts.Statement, name: string): boolean {
+function numericLoopVariable(node: ts.ForStatement): string | undefined {
   const ts = typescript();
+  if (!node.initializer || !ts.isVariableDeclarationList(node.initializer))
+    return undefined;
+  const name = numericBinding(node.initializer);
+  return name && numericLoopBounds(node, name) ? name : undefined;
+}
+function numericBinding(list: ts.VariableDeclarationList): string | undefined {
   if (
-    !ts.isExpressionStatement(statement) ||
-    !ts.isCallExpression(statement.expression)
+    !(list.flags & typescript().NodeFlags.Let) ||
+    list.declarations.length !== 1
   )
-    return false;
-  const call = statement.expression;
+    return undefined;
+  const declaration = list.declarations[0];
+  return declaration && zeroInitializer(declaration.initializer)
+    ? localName(declaration.name)
+    : undefined;
+}
+function zeroInitializer(node: ts.Expression | undefined): boolean {
   return (
-    namedIdentifier(call.expression, "text") &&
-    call.arguments.length === 1 &&
-    namedIdentifier(call.arguments[0], name)
+    node !== undefined &&
+    typescript().isNumericLiteral(node) &&
+    node.text === "0"
   );
 }
-function inspectedSource(code: unknown): Submission | undefined {
-  if (typeof code !== "string" || code.length > 65536) return undefined;
+function numericLoopBounds(node: ts.ForStatement, name: string): boolean {
+  const ts = typescript();
+  const condition = node.condition;
+  if (!condition || !ts.isBinaryExpression(condition)) return false;
+  return (
+    numericCondition(condition, name) &&
+    numericIncrement(node.incrementor, name)
+  );
+}
+function numericCondition(node: ts.BinaryExpression, name: string): boolean {
+  return (
+    node.operatorToken.kind === typescript().SyntaxKind.LessThanToken &&
+    namedIdentifier(node.left, name) &&
+    lengthProperty(node.right)
+  );
+}
+function lengthProperty(node: ts.Expression): boolean {
+  return (
+    typescript().isPropertyAccessExpression(node) && node.name.text === "length"
+  );
+}
+function numericIncrement(
+  node: ts.Expression | undefined,
+  name: string,
+): boolean {
+  return (
+    node !== undefined &&
+    typescript().isPostfixUnaryExpression(node) &&
+    node.operator === typescript().SyntaxKind.PlusPlusToken &&
+    namedIdentifier(node.operand, name)
+  );
+}
+function inspectedSource(code: unknown): {
+  submission?: Submission;
+  reason: ExecCallReceipt["inspectionReason"];
+} {
+  if (typeof code !== "string") return { reason: "unsupported_source" };
+  if (code.length > 65536) return { reason: "source_limit" };
   const ts = typescript();
   const source = ts.createSourceFile(
     "submitted.js",
@@ -298,33 +422,26 @@ function inspectedSource(code: unknown): Submission | undefined {
   const diagnostics = (
     source as ts.SourceFile & { parseDiagnostics: readonly ts.Diagnostic[] }
   ).parseDiagnostics;
-  if (diagnostics.length !== 0) return undefined;
+  if (diagnostics.length !== 0) return { reason: "malformed_source" };
   const submission = new Submission();
   return source.statements.every((statement) => submission.statement(statement))
-    ? submission
-    : undefined;
+    ? { submission, reason: null }
+    : { reason: "unsupported_source" };
 }
-function completedOutput(output: unknown): boolean {
-  if (isUnknownArray(output)) return completedBlocks(output);
-  if (typeof output !== "string") return false;
+function outputBlocks(output: unknown): unknown[] {
+  if (isUnknownArray(output)) return output;
+  if (typeof output !== "string") return [];
   try {
     const blocks: unknown = JSON.parse(output);
-    if (!isUnknownArray(blocks)) return false;
-    return completedBlocks(blocks);
+    return isUnknownArray(blocks) ? blocks : [];
   } catch {
-    return false;
+    return [];
   }
-}
-function completedBlocks(blocks: unknown[]): boolean {
-  return blocks.every(completeTextBlock) && completedHeader(blocks[0]);
 }
 function completeTextBlock(block: unknown): boolean {
   if (!isRecord(block) || !["text", "input_text"].includes(String(block.type)))
     return false;
-  return (
-    typeof block.text === "string" &&
-    !block.text.includes("Warning: truncated output")
-  );
+  return typeof block.text === "string";
 }
 function completedHeader(block: unknown): boolean {
   return (
@@ -335,23 +452,35 @@ function completedHeader(block: unknown): boolean {
     )
   );
 }
-function completedSubmission(entry: Entry, entries: Entry[]): boolean {
-  if (!nativeExecNamespace(entry.payload.namespace)) return false;
+function submissionOutput(entry: Entry, entries: Entry[]): unknown[] {
   const id = entry.payload.call_id;
-  if (typeof id !== "string") return false;
+  if (typeof id !== "string") return [];
   const matches = entries.filter((other) => other.payload.call_id === id);
-  if (matches.length !== 2) return false;
+  if (matches.length !== 2) return [];
   const result = matches.find(
     (other) => other.payload.type === "custom_tool_call_output",
   );
-  return laterCompletion(result, entry.ordinal);
+  return result && result.ordinal > entry.ordinal
+    ? outputBlocks(result.payload.output)
+    : [];
 }
-function laterCompletion(result: Entry | undefined, ordinal: number): boolean {
-  return (
-    result !== undefined &&
-    result.ordinal > ordinal &&
-    completedOutput(result.payload.output)
+function outputEvidence(
+  blocks: unknown[],
+): Pick<ExecCallReceipt, "execution" | "output"> {
+  if (!blocks.length || !blocks.every(completeTextBlock))
+    return { execution: "incomplete", output: "unavailable" };
+  const header = blocks[0] as { text: string };
+  const execution = executionStatus(header);
+  const truncated = blocks.some((block) =>
+    (block as { text: string }).text.includes("Warning: truncated output"),
   );
+  return { execution, output: truncated ? "truncated" : "complete" };
+}
+function executionStatus(header: {
+  text: string;
+}): ExecCallReceipt["execution"] {
+  if (completedHeader(header)) return "completed";
+  return /^Script failed\b/.test(header.text) ? "failed" : "incomplete";
 }
 function nativeExecNamespace(namespace: unknown): boolean {
   return namespace === undefined || namespace === "functions";
@@ -363,14 +492,25 @@ export function codexExecCallReceipts(entries: Entry[]): ExecCallReceipt[] {
       ({ payload }) =>
         payload.type === "custom_tool_call" && payload.name === "exec",
     )
-    .map((entry) => {
-      const submission = inspectedSource(entry.payload.input);
-      const complete =
-        submission !== undefined && completedSubmission(entry, entries);
-      return {
-        ordinal: entry.ordinal,
-        completeness: complete ? "complete" : "partial",
-        calls: submission?.calls ?? [],
-      };
-    });
+    .map((entry) => ({
+      ordinal: entry.ordinal,
+      ...inspectionEvidence(entry),
+      ...outputEvidence(submissionOutput(entry, entries)),
+    }));
+}
+function inspectionEvidence(
+  entry: Entry,
+): Pick<ExecCallReceipt, "completeness" | "calls" | "inspectionReason"> {
+  if (!nativeExecNamespace(entry.payload.namespace))
+    return {
+      completeness: "partial",
+      calls: [],
+      inspectionReason: "foreign_namespace",
+    };
+  const inspected = inspectedSource(entry.payload.input);
+  return {
+    completeness: inspected.submission ? "complete" : "partial",
+    calls: inspected.submission?.calls ?? [],
+    inspectionReason: inspected.reason,
+  };
 }
