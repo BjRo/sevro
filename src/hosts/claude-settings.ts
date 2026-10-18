@@ -12,6 +12,7 @@ import {
 interface WritableRuntime {
   root: string;
   workspace: string;
+  cacheRoots?: string[];
 }
 
 function absoluteRule(root: string, tool: "Read" | "Edit"): string {
@@ -53,6 +54,10 @@ export function claudeHostSettings(
     throw new Error("Claude private state paths are invalid");
   const readRoots = runtimeReadRoots(runtimePolicy);
   requireRuntimeReadRoots(readRoots, [privateRoot, ...protectedRoots]);
+  requireRuntimeReadRoots(runtimeCacheRoots(runtime), [
+    privateRoot,
+    ...protectedRoots,
+  ]);
   return {
     disableAllHooks: !runtimeHooksEnabled(runtimePolicy),
     sandbox: {
@@ -95,6 +100,7 @@ function claudeFilesystemPolicy(
   workspace: string | undefined,
 ) {
   const runtimeWriteRoot = runtime?.root;
+  const writableRoots = runtimeWriteRoots(runtime);
   return {
     denyRead: [privateRoot, ...protectedRoots],
     allowRead: [
@@ -102,13 +108,18 @@ function claudeFilesystemPolicy(
       ...readRoots,
       ...transcriptReadRoots,
       ...pluginRoots,
-      ...optionalRuntimeRoot(runtimeWriteRoot),
+      ...writableRoots,
     ],
-    ...(runtimeWriteRoot ? { allowWrite: [runtimeWriteRoot] } : {}),
+    ...(writableRoots.length ? { allowWrite: writableRoots } : {}),
     denyWrite: [
       privateRoot,
       ...pluginRoots,
-      ...writableProtectedRoots(protectedRoots, runtimeWriteRoot, workspace),
+      ...writableProtectedRoots(
+        protectedRoots,
+        runtimeWriteRoot,
+        workspace,
+        runtimeCacheRoots(runtime),
+      ),
       ...readRoots,
       ...transcriptReadRoots,
     ],
@@ -139,7 +150,7 @@ function claudePermissions(
     ? roots.filter((root) => !isRuntimeHomeRoot(root))
     : roots;
   const toolRoots = [...runtimeReadRoots(policy), ...transcriptReadRoots];
-  const writableRoots = optionalRuntimeRoot(runtimeWriteRoot);
+  const writableRoots = runtimeWriteRoots(runtime);
   return {
     allow: claudeToolAllowRules(policy, runtime, managedWorkspace),
     ...(policy || managedWorkspace
@@ -153,7 +164,12 @@ function claudePermissions(
         }
       : {}),
     deny: [
-      ...writableProtectedRoots(roots, runtimeWriteRoot).flatMap((root) =>
+      ...writableProtectedRoots(
+        roots,
+        runtimeWriteRoot,
+        workspace,
+        runtimeCacheRoots(runtime),
+      ).flatMap((root) =>
         protectedToolRules(
           root,
           readRoots.includes(root) &&
@@ -189,6 +205,7 @@ function claudeToolAllowRules(
     "Agent",
     absoluteRule(runtime.workspace, "Edit"),
     absoluteRule(runtime.root, "Edit"),
+    ...(runtime.cacheRoots ?? []).map((root) => absoluteRule(root, "Edit")),
   ];
 }
 
@@ -197,13 +214,33 @@ function writableProtectedRoots(
   roots: string[],
   runtimeWriteRoot: string | undefined,
   workspace?: string,
+  cacheRoots: string[] = [],
 ): string[] {
   const namespace = nativeStatePath();
   return roots.filter(
     (root) =>
       !workspaceBoundaryException(root, workspace).length &&
+      !sharedHomeGrant(root, cacheRoots) &&
       keepNativeWriteDeny(root, namespace, runtimeWriteRoot),
   );
+}
+
+function sharedHomeGrant(root: string, cacheRoots: string[]): boolean {
+  return (
+    isRuntimeHomeRoot(root) &&
+    cacheRoots.some((cache) => cache.startsWith(`${root}/`))
+  );
+}
+
+function runtimeCacheRoots(runtime: WritableRuntime | undefined): string[] {
+  return runtime?.cacheRoots ?? [];
+}
+
+function runtimeWriteRoots(runtime: WritableRuntime | undefined): string[] {
+  return [
+    ...optionalRuntimeRoot(runtime?.root),
+    ...(runtime?.cacheRoots ?? []),
+  ];
 }
 
 function keepNativeWriteDeny(

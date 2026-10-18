@@ -10,6 +10,11 @@ import {
 import { materializeRuntimeSeed } from "./seeds";
 import { requireRuntimeReadRoots } from "./paths";
 import { hashJson } from "../identity";
+import {
+  linkSharedCaches,
+  sharedCacheRoots,
+  selectedSharedCaches,
+} from "./shared-cache";
 
 export type { RuntimeRole } from "./config";
 
@@ -29,6 +34,9 @@ export function runtimeObservations(
         environmentNames: Object.keys(policy.environment).sort(),
         readOnlyRoots: policy.readOnlyRoots,
         ...discoveryObservations(policy),
+        ...(policy.sharedCacheDirectories?.length
+          ? { sharedCacheDirectories: selectedSharedCaches(policy, role) }
+          : {}),
         seeds: runtimeRoleSeeds(policy, role).map((seed) => ({
           target: seed.target,
           sha256: seed.sha256,
@@ -57,7 +65,7 @@ function runtimeDigest(policy: RuntimePolicy): string {
   });
 }
 
-/** Each role gets private writable copies while the host inputs stay protected. */
+/** Private role state contains copied seeds and aliases to explicitly shared caches. */
 export async function prepareRuntimeState(
   workspace: string,
   policy: RuntimePolicy,
@@ -65,8 +73,15 @@ export async function prepareRuntimeState(
   privateRoot?: string,
 ) {
   requireRuntimeEnvironment(policy.environment);
-  requireRuntimeSeedTargets(policy.seeds ?? []);
+  requireRuntimeSeedTargets([
+    ...(policy.seeds ?? []),
+    ...(policy.sharedCacheDirectories ?? []),
+  ]);
   const root = await runtimeRoot(workspace, role, privateRoot);
+  const writableCacheRoots = await sharedCacheRoots(policy, role, [
+    workspace,
+    root,
+  ]);
   const home = join(root, "home"),
     temp = join(root, "tmp");
   await Promise.all(
@@ -74,6 +89,7 @@ export async function prepareRuntimeState(
   );
   for (const seed of runtimeRoleSeeds(policy, role))
     await copyRuntimeSeed(seed, join(root, seed.target));
+  await linkSharedCaches(policy, role, root);
   const environment = Object.fromEntries(
     Object.entries(policy.environment).map(([name, value]) => [
       name,
@@ -87,7 +103,13 @@ export async function prepareRuntimeState(
     UV_OFFLINE: "1",
     PYTHONDONTWRITEBYTECODE: "1",
   };
-  return { root, home, temp, environment: isolatedEnvironment };
+  return {
+    root,
+    home,
+    temp,
+    environment: isolatedEnvironment,
+    writableCacheRoots,
+  };
 }
 
 async function runtimeRoot(

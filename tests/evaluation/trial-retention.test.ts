@@ -1,7 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { existsSync, watch } from "node:fs";
+import { existsSync, readFileSync, watch } from "node:fs";
 import {
+  chmod,
   mkdir,
   mkdtemp,
   readFile,
@@ -9,9 +10,13 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { runEvaluation, type EvaluationOptions } from "../../src/engine";
+import {
+  loadRuntimeConfiguration,
+  runEvaluation,
+  type EvaluationOptions,
+} from "../../src/engine";
 import {
   defined,
   parseRecord,
@@ -33,6 +38,176 @@ afterEach(async () => {
 const evaluation = createEvaluation(roots);
 
 const setupEvaluation = createSetupEvaluation(evaluation);
+
+test("removes read-only checker runtime after failed grading", async () => {
+  const options = await evaluation({ finalMessage: "ready", complete: true });
+  const source = await mkdtemp(join(tmpdir(), "sevro-readonly-check-seed-"));
+  roots.push(source);
+  await mkdir(join(source, "nested"));
+  await writeFile(join(source, "nested/dependency"), "prepared");
+  await chmod(join(source, "nested"), 0o500);
+  await writeFile(
+    join(options.projectRoot, "sevro.json"),
+    JSON.stringify({
+      format: "sevro.runtime.v1",
+      runtime: {
+        seedDirectories: [{ source, target: "cache", roles: ["checks"] }],
+      },
+    }),
+  );
+  options.runtimePolicy = await loadRuntimeConfiguration(options.projectRoot);
+  options.shellIsolation = { protectedRoots: [] };
+  let workspace = "";
+  options.host.run = (request) => {
+    workspace = request.workspace;
+    roots.push(workspace);
+    return Promise.resolve({ finalMessage: "ready", complete: true });
+  };
+  options.case.checks = [
+    {
+      id: "failed-check",
+      grader: "sevro.shell",
+      configuration: { run: 'printf "%s" "$HOME" > checker-home; exit 1' },
+    },
+  ];
+  const homes: string[] = [];
+  options.onProgress = (event) => {
+    if (event.stage === "grading" && event.status === "completed")
+      homes.push(readFileSync(join(workspace, "checker-home"), "utf8"));
+  };
+  try {
+    const { result } = await runEvaluation(options);
+    expect(result.exitCode).toBe(1);
+    expect(existsSync(defined(homes[0]))).toBe(false);
+    expect(existsSync(workspace)).toBe(true);
+    expect(
+      parseRunEvidence(await readFile(result.evidencePath, "utf8")).result.task
+        .verdict,
+    ).toBe("failed");
+    expect(await readFile(join(source, "nested/dependency"), "utf8")).toBe(
+      "prepared",
+    );
+  } finally {
+    await chmod(join(source, "nested"), 0o700);
+  }
+});
+
+test("removes checker runtime after successful grading", async () => {
+  const options = await evaluation({ finalMessage: "ready", complete: true });
+  options.runtimePolicy = {
+    format: "sevro.runtime.v1",
+    environment: {},
+    readOnlyRoots: [],
+  };
+  options.shellIsolation = { protectedRoots: [] };
+  options.case.checks = [
+    {
+      id: "checker-home",
+      grader: "sevro.shell",
+      configuration: { run: 'printf "%s" "$HOME" > checker-home' },
+    },
+  ];
+  let workspace = "";
+  options.host.run = (request) => {
+    workspace = request.workspace;
+    return Promise.resolve({ finalMessage: "ready", complete: true });
+  };
+  const homes: string[] = [];
+  options.onProgress = (event) => {
+    if (event.stage === "grading" && event.status === "completed")
+      homes.push(readFileSync(join(workspace, "checker-home"), "utf8"));
+  };
+  const { result } = await runEvaluation(options);
+  expect(result.exitCode).toBe(0);
+  expect(homes).toHaveLength(1);
+  expect(existsSync(defined(homes[0]))).toBe(false);
+  expect(
+    parseRunEvidence(await readFile(result.evidencePath, "utf8")).result.task
+      .verdict,
+  ).toBe("passed");
+});
+
+test("does not copy an implicit UV seed into a non-UV grader", async () => {
+  const options = await evaluation({ finalMessage: "ready", complete: true });
+  const source = await mkdtemp(join(tmpdir(), "sevro-public-uv-seed-"));
+  roots.push(source);
+  await writeFile(join(source, "dependency"), "prepared dependency");
+  await writeFile(
+    join(options.projectRoot, "sevro.json"),
+    JSON.stringify({
+      format: "sevro.runtime.v1",
+      environment: { set: { UV_CACHE_DIR: "{{sevro.runtime}}/uv-cache" } },
+      runtime: { seedDirectories: [{ source, target: "uv-cache" }] },
+    }),
+  );
+  options.runtimePolicy = await loadRuntimeConfiguration(options.projectRoot);
+  options.shellIsolation = { protectedRoots: [] };
+  options.host.run = (request) => {
+    roots.push(request.workspace);
+    return Promise.resolve({ finalMessage: "ready", complete: true });
+  };
+  options.case.checks = [
+    {
+      id: "no-uv-cache",
+      grader: "sevro.shell",
+      configuration: { run: 'test ! -d "$HOME/../uv-cache"' },
+    },
+  ];
+  const { result } = await runEvaluation(options);
+  expect(result.exitCode).toBe(0);
+  expect(await readFile(join(source, "dependency"), "utf8")).toBe(
+    "prepared dependency",
+  );
+});
+
+test("shell checks reuse one declared cache across concurrent trials and runs", async () => {
+  const options = await evaluation({ finalMessage: "ready", complete: true });
+  const source = await mkdtemp(join(homedir(), ".sevro-shared-check-cache-"));
+  roots.push(source);
+  await writeFile(join(source, "dependency"), "prepared dependency");
+  await writeFile(
+    join(options.projectRoot, "sevro.json"),
+    JSON.stringify({
+      format: "sevro.runtime.v1",
+      environment: {
+        set: {
+          UV_CACHE_DIR: "{{sevro.runtime}}/uv-cache",
+          SHARED_SOURCE: source,
+        },
+      },
+      runtime: {
+        sharedCacheDirectories: [
+          { source, target: "uv-cache", roles: ["checks"] },
+        ],
+      },
+    }),
+  );
+  options.runtimePolicy = await loadRuntimeConfiguration(options.projectRoot);
+  options.shellIsolation = { protectedRoots: [] };
+  options.trialCount = 2;
+  options.jobs = 2;
+  options.host.run = (request) => {
+    roots.push(request.workspace);
+    return Promise.resolve({ finalMessage: "ready", complete: true });
+  };
+  options.case.checks = [
+    {
+      id: "shared-cache",
+      grader: "sevro.shell",
+      configuration: {
+        run: 'test "$UV_CACHE_DIR/dependency" -ef "$SHARED_SOURCE/dependency"; printf "used\\n" >> "$UV_CACHE_DIR/uses"',
+      },
+    },
+  ];
+  expect((await runEvaluation(options)).result.exitCode).toBe(0);
+  expect((await runEvaluation(options)).result.exitCode).toBe(0);
+  expect(await readFile(join(source, "uses"), "utf8")).toBe(
+    "used\nused\nused\nused\n",
+  );
+  expect(await readFile(join(source, "dependency"), "utf8")).toBe(
+    "prepared dependency",
+  );
+});
 
 async function cancelReadySetup(options: EvaluationOptions) {
   const abort = new AbortController();

@@ -4,7 +4,10 @@ import {
   mkdtemp,
   readFile,
   realpath,
+  rename,
   rm,
+  stat,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -12,7 +15,8 @@ import { join } from "node:path";
 import { createCodexHost } from "../../src/hosts/codex";
 import { createClaudeHost } from "../../src/hosts/claude";
 import { runtimeSeedDigest } from "../../src/runtime/seeds";
-import { defined } from "../fixtures/assertions";
+import { loadRuntimeConfiguration } from "../../src/engine";
+import { defined, parseRecord } from "../fixtures/assertions";
 import { createCodexFixture } from "../fixtures/runtime-host-fixtures";
 
 const roots: string[] = [];
@@ -24,6 +28,167 @@ afterEach(async () => {
 });
 
 const codexFixture = createCodexFixture(roots);
+
+test("Codex denies shared-cache sources selected only for another role", async () => {
+  const { host, root, workspace } = await codexFixture(
+    'if /bin/cat "$CACHE_SOURCE/input" 2>/dev/null; then /bin/echo leaked; else /bin/echo denied; fi',
+  );
+  const source = await realpath(await mkdtemp(join(root, "checks-cache-")));
+  await writeFile(join(source, "input"), "private to checks");
+  const result = await host.run({
+    prompt: "Probe access.",
+    workspace,
+    condition: "passive",
+    runtimePolicy: {
+      format: "sevro.runtime.v1",
+      environment: { CACHE_SOURCE: source },
+      readOnlyRoots: [],
+      sharedCacheDirectories: [{ source, target: "cache", roles: ["checks"] }],
+    },
+  });
+  expect(result.finalMessage).toBe("denied");
+  expect(await readFile(join(source, "input"), "utf8")).toBe(
+    "private to checks",
+  );
+});
+
+test("Codex rejects a shared cache retargeted after configuration load", async () => {
+  const { host, root, workspace } = await codexFixture();
+  const source = join(root, "cache");
+  const replacement = join(root, "replacement");
+  await mkdir(source);
+  await mkdir(replacement);
+  const project = join(root, "project");
+  await writeFile(
+    join(project, "sevro.json"),
+    JSON.stringify({
+      format: "sevro.runtime.v1",
+      runtime: {
+        sharedCacheDirectories: [
+          { source, target: "cache", roles: ["candidate"] },
+        ],
+      },
+    }),
+  );
+  const runtimePolicy = await loadRuntimeConfiguration(project);
+  await rename(source, join(root, "original"));
+  await symlink(replacement, source);
+  expect(
+    host.run({
+      prompt: "Return ready.",
+      workspace,
+      condition: "passive",
+      runtimePolicy,
+    }),
+  ).rejects.toThrow("canonical directory");
+});
+
+test("Codex reuses a shared UV cache across separate native runs without copying", async () => {
+  const { host, root, workspace } = await codexFixture(
+    '/bin/cat "$UV_CACHE_DIR/input"; /bin/echo warmed > "$UV_CACHE_DIR/input"',
+  );
+  const source = await realpath(
+    await mkdtemp(join(homedir(), ".sevro-shared-codex-cache-")),
+  );
+  roots.push(source);
+  const dependency = join(source, "input");
+  await writeFile(dependency, "prepared");
+  const original = await stat(dependency);
+  const project = join(root, "project");
+  await writeFile(
+    join(project, "sevro.json"),
+    JSON.stringify({
+      format: "sevro.runtime.v1",
+      environment: { set: { UV_CACHE_DIR: "{{sevro.runtime}}/uv-cache" } },
+      runtime: {
+        sharedCacheDirectories: [
+          { source, target: "uv-cache", roles: ["candidate"] },
+        ],
+      },
+    }),
+  );
+  const runtimePolicy = await loadRuntimeConfiguration(project);
+  const request = {
+    prompt: "Use the shared cache.",
+    workspace,
+    condition: "passive" as const,
+    runtimePolicy,
+  };
+  const first = await host.run(request);
+  expect(first.finalMessage).toBe("prepared");
+  expect(
+    first.observations?.find((item) => item.id === "sevro.host.runtime")?.data,
+  ).toMatchObject({
+    sharedCacheDirectories: [
+      { source, target: "uv-cache", roles: ["candidate"] },
+    ],
+  });
+  expect(await readFile(dependency, "utf8")).toBe("warmed\n");
+  expect((await host.run(request)).finalMessage).toBe("warmed");
+  expect((await stat(dependency)).ino).toBe(original.ino);
+});
+
+test("Claude grants its selected shared cache through the native command policy", async () => {
+  const { root, workspace } = await codexFixture();
+  const source = await realpath(
+    await mkdtemp(join(homedir(), ".sevro-shared-claude-cache-")),
+  );
+  roots.push(source);
+  const project = join(root, "project");
+  await writeFile(
+    join(project, "sevro.json"),
+    JSON.stringify({
+      format: "sevro.runtime.v1",
+      environment: { set: { CACHE_SOURCE: source, REAL_HOME: homedir() } },
+      runtime: {
+        sharedCacheDirectories: [
+          { source, target: "cache", roles: ["candidate"] },
+        ],
+      },
+    }),
+  );
+  const binary = join(root, "claude-cache-policy");
+  await writeFile(
+    binary,
+    `#!${process.execPath}
+import { readFileSync } from "node:fs";
+const path = process.argv[process.argv.indexOf("--settings") + 1];
+const settings = JSON.parse(readFileSync(path, "utf8"));
+const source = process.env.CACHE_SOURCE;
+const filesystem = settings.sandbox.filesystem;
+const receipt = {
+  cacheWritable: filesystem.allowWrite.includes(source),
+  homeWriteDenied: filesystem.denyWrite.includes(process.env.REAL_HOME),
+  cacheEditable: settings.permissions.allow.includes("Edit(/" + source + "/**)"),
+};
+console.log(JSON.stringify({ type: "result", subtype: "success", is_error: false, result: JSON.stringify(receipt) }));
+`,
+    { mode: 0o700 },
+  );
+  const credentialFile = join(root, "claude-credential.json");
+  await writeFile(credentialFile, "{}");
+  const host = createClaudeHost({
+    binary,
+    credentialFile,
+    model: "synthetic",
+    effort: "low",
+    projectRoot: project,
+    resultsRoot: join(root, "results"),
+    additionalProtectedRoots: [],
+  });
+  const result = await host.run({
+    prompt: "Use the cache.",
+    workspace,
+    condition: "passive",
+    runtimePolicy: await loadRuntimeConfiguration(project),
+  });
+  expect(result.complete).toBe(true);
+  expect(parseRecord(defined(result.finalMessage))).toEqual({
+    cacheWritable: true,
+    homeWriteDenied: false,
+    cacheEditable: true,
+  });
+});
 
 test("Claude refuses direct read access to an original seed source", async () => {
   const { root, workspace } = await codexFixture();

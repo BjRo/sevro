@@ -62,6 +62,38 @@
             }
           }
         },
+        "sharedCacheDirectories": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["source", "target", "roles"],
+            "properties": {
+              "source": { "type": "string", "minLength": 1, "maxLength": 4096 },
+              "target": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,63}$",
+                "not": { "enum": ["home", "tmp"] }
+              },
+              "roles": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 5,
+                "uniqueItems": true,
+                "items": {
+                  "enum": [
+                    "candidate",
+                    "checks",
+                    "hooks",
+                    "semantic",
+                    "advisory"
+                  ]
+                }
+              }
+            }
+          }
+        },
         "seedDirectories": {
           "type": "array",
           "maxItems": 16,

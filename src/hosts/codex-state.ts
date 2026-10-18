@@ -33,6 +33,10 @@ import {
   runtimeExecutableProtection,
 } from "../runtime/paths";
 import { prepareRuntimeState } from "../runtime/state";
+import {
+  sharedCacheDenyRoots,
+  sharedCacheRoots,
+} from "../runtime/shared-cache";
 import { codexPermissionProfile } from "./codex-profile";
 import { evaluationProtectedRoots } from "./isolation-roots";
 type Request = Parameters<HostAdapter["run"]>[0];
@@ -155,7 +159,8 @@ async function writeCodexProfile(
   protectedRoots: string[],
   limit: number | null,
   commandEnvironment = request.runtimePolicy?.environment,
-  runtimeWriteRoot?: string,
+  runtimeWriteRoot: string | undefined,
+  writableCacheRoots: string[],
 ): Promise<void> {
   const profile = codexPermissionProfile({
     localHttp: runtimeLocalHttpEnabled(
@@ -170,7 +175,10 @@ async function writeCodexProfile(
     runtimeWriteRoot,
     runtimeReadRoots: request.runtimePolicy?.readOnlyRoots,
     nativeReadRoots: codexNativeReadRoots(request, paths.codexHome),
-    nativeWriteRoots: codexStateWriteRoots(request, paths),
+    nativeWriteRoots: [
+      ...codexStateWriteRoots(request, paths),
+      ...writableCacheRoots,
+    ],
     id: profileId,
     workspace: request.workspace,
     commandHome: paths.commandHome,
@@ -356,7 +364,11 @@ function applyCodexRuntime(
 function codexRuntimeProfile(
   runtime: Awaited<ReturnType<typeof codexRuntime>>,
 ) {
-  return { environment: runtime?.environment, root: runtime?.root };
+  return {
+    environment: runtime?.environment,
+    root: runtime?.root,
+    writableCacheRoots: runtime?.writableCacheRoots ?? [],
+  };
 }
 
 export async function prepareCodexState(
@@ -392,6 +404,14 @@ export async function prepareCodexState(
   );
   if (helperRoot) readRoots.push(helperRoot);
   requireCodexRuntimeReadRoots(request, protectedRoots);
+  await sharedCacheRoots(
+    request.runtimePolicy,
+    request.runtimeRole,
+    protectedRoots,
+  );
+  protectedRoots.push(
+    ...sharedCacheDenyRoots(request.runtimePolicy, request.runtimeRole),
+  );
   requireUnprotectedExecutables(
     readRoots,
     runtimeExecutableProtection(
@@ -411,6 +431,7 @@ export async function prepareCodexState(
     limit,
     runtimeProfile.environment,
     runtimeProfile.root,
+    runtimeProfile.writableCacheRoots,
   );
   const shellRoot = await fixtureShellRoot(request, paths.parentHome);
   const env = codexEnvironment(paths, request, shellRoot);

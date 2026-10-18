@@ -24,6 +24,7 @@ export interface IsolationOptions {
   candidateArtifactRoots?: CandidateArtifactRoots;
   hookReadRoots?: string[];
   writableRuntimeRoot?: string;
+  writableCacheRoots?: string[];
 }
 
 export interface IsolatedCommand {
@@ -65,6 +66,7 @@ function absoluteIsolationPaths(options: IsolationOptions): boolean {
   return (
     isAbsolute(options.workspace) &&
     isAbsolute(options.privateStateRoot) &&
+    (options.writableCacheRoots ?? []).every(isAbsolute) &&
     options.protectedRoots.every(isAbsolute)
   );
 }

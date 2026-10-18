@@ -14,6 +14,11 @@ import {
 } from "../candidate-artifacts";
 import { runtimeSeedDigest } from "./seeds";
 import {
+  resolveSharedCaches,
+  requireSharedCachePolicy,
+  type SharedCacheDirectory,
+} from "./shared-cache";
+import {
   discoverRuntimeSupport,
   type RuntimeDiscoverySource,
 } from "./discovery";
@@ -34,6 +39,7 @@ export interface RuntimeConfiguration {
   filesystem?: { readOnlyRoots?: string[]; optionalReadOnlyRoots?: string[] };
   runtime?: {
     seedDirectories?: RuntimeSeed[];
+    sharedCacheDirectories?: SharedCacheDirectory[];
     artifactDirectories?: RuntimeArtifactDirectory[];
   };
   hooks?: { nativeGoal?: boolean; plugins?: string[] };
@@ -52,6 +58,7 @@ export interface RuntimePolicy {
   /** Original source denials retained when a derived role policy omits seeds. */
   seedReadDenyRoots?: string[];
   seeds?: (RuntimeSeed & { sha256: string })[];
+  sharedCacheDirectories?: SharedCacheDirectory[];
   hooks?: { nativeGoal?: boolean; plugins?: string[] };
 }
 
@@ -75,17 +82,14 @@ export function runtimePolicySnapshot(
 ): RuntimePolicy | undefined {
   if (!policy) return undefined;
   requireRuntimeEnvironment(policy.environment);
+  requireSharedCachePolicy(policy);
   const snapshot = structuredClone(policy);
   Object.freeze(snapshot.network);
   freezeArtifactDirectories(snapshot);
   Object.freeze(snapshot.environment);
   Object.freeze(snapshot.readOnlyRoots);
   freezeDiscovery(snapshot);
-  for (const seed of snapshot.seeds ?? []) {
-    Object.freeze(seed.roles);
-    Object.freeze(seed);
-  }
-  Object.freeze(snapshot.seeds);
+  freezeRuntimeCaches(snapshot);
   Object.freeze(snapshot.seedReadDenyRoots);
   const hooks = snapshot.hooks;
   if (hooks) {
@@ -93,6 +97,18 @@ export function runtimePolicySnapshot(
     Object.freeze(hooks);
   }
   return Object.freeze(snapshot);
+}
+
+function freezeRuntimeCaches(snapshot: RuntimePolicy): void {
+  for (const seed of [
+    ...(snapshot.seeds ?? []),
+    ...(snapshot.sharedCacheDirectories ?? []),
+  ]) {
+    Object.freeze(seed.roles);
+    Object.freeze(seed);
+  }
+  Object.freeze(snapshot.seeds);
+  Object.freeze(snapshot.sharedCacheDirectories);
 }
 
 function freezeDiscovery(snapshot: RuntimePolicy): void {
@@ -158,9 +174,7 @@ export function requireRuntimeEnvironment(
   snapshotEnvironment([], environment);
 }
 
-export function requireRuntimeSeedTargets(
-  seeds: NonNullable<RuntimePolicy["seeds"]>,
-): void {
+export function requireRuntimeSeedTargets(seeds: RuntimeSeed[]): void {
   for (const seed of seeds) requireRuntimeSeedRoles(seed.roles);
   const targets = seeds.map((seed) => seed.target);
   if (
@@ -327,8 +341,42 @@ async function resolveRuntimeConfiguration(
     readOnlyRoots: [...new Set(readOnlyRoots)].sort(),
     discovery: discovery.sources,
     skippedOptionalReadOnlyRoots: optional.skipped,
-    seeds: await resolvedSeeds(configurationSeeds(value), environment, base),
+    ...(await resolvedRuntimeCaches(value, environment, base, [
+      ...protectedRoots,
+      ...readOnlyRoots,
+    ])),
     hooks: resolvedHooks(value.hooks),
+  };
+}
+
+async function resolvedRuntimeCaches(
+  value: RuntimeConfiguration,
+  environment: Record<string, string>,
+  base: string,
+  protectedRoots: string[],
+) {
+  const seeds = await resolvedSeeds(
+    configurationSeeds(value),
+    environment,
+    base,
+  );
+  const caches = await resolveSharedCaches(
+    value.runtime?.sharedCacheDirectories ?? [],
+    environment,
+    base,
+    [...protectedRoots, ...seeds.map((seed) => seed.source)],
+  );
+  requireRuntimeSeedTargets([...seeds, ...caches]);
+  requireSharedCachePolicy({
+    format: value.format,
+    environment,
+    readOnlyRoots: [],
+    seeds,
+    sharedCacheDirectories: caches,
+  });
+  return {
+    seeds,
+    ...(caches.length ? { sharedCacheDirectories: caches } : {}),
   };
 }
 
@@ -390,7 +438,7 @@ function requireRuntimeSeedRoles(roles: RuntimeRole[] | undefined): void {
 
 export function runtimeRoleSeeds(policy: RuntimePolicy, role: RuntimeRole) {
   return (policy.seeds ?? []).filter(
-    (seed) => seed.roles === undefined || seed.roles.includes(role),
+    (seed) => seed.roles?.includes(role) ?? role !== "checks",
   );
 }
 

@@ -87,7 +87,10 @@ contents and temporary native state paths do not enter identity.
 Selected [runtime configuration](runtime-v1.md) is retained under
 `configuration.redacted.runtimePolicy` and enters `configurationDigest`.
 It includes declared non-secret environment values, canonical read roots,
-private seed digests and optional role selections, and hook authority. Per-role output paths are resolved
+private seed digests and optional role selections, shared-cache sources/slots/roles,
+and hook authority. Mutable shared-cache contents are excluded; equal identities
+do not establish equal cache contents or trial independence in shared mode.
+Per-role output paths are resolved
 only during execution; runtime placeholders remain symbolic in identity.
 Runtime roots also retain lexical aliases, metadata discovery sources,
 and skipped optional directories. Moving or

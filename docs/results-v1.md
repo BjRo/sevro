@@ -147,6 +147,11 @@ remain available through grading and are removed afterward, including failed
 and cancelled trials. Failed-fixture retention does not preserve them.
 Read access does not automatically retain artifact bytes in run evidence.
 
+Checker private home, temporary storage, and copied dependency slots are removed
+after grading on success, failure, and cancellation. Retained failed fixtures and
+saved evidence do not retain checker runtime copies. Explicitly declared shared
+caches survive this cleanup and remain under operator control.
+
 A host adapter can return `executionFailed: true` with bounded artifacts from
 a failed process. The engine retains those artifacts, skips all grading, and
 reports `failed` / `not_requested` / `not_assessed` with exit code `2`. A final

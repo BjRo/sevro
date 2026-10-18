@@ -1,6 +1,6 @@
 # Runtime configuration v1
 
-Configure access to existing host tools, private writable caches, native goals,
+Configure access to existing host tools, private state, reusable caches, native goals,
 and selected plugin hooks in `<project-root>/sevro.json`.
 
 `--runtime-config-file /absolute/path/runtime.json` selects a replacement file.
@@ -36,7 +36,13 @@ capabilities:
     }
   },
   "runtime": {
-    "seedDirectories": [{ "source": "./public-uv-cache", "target": "uv-cache" }]
+    "sharedCacheDirectories": [
+      {
+        "source": "../public-uv-cache",
+        "target": "uv-cache",
+        "roles": ["candidate", "hooks"]
+      }
+    ]
   },
   "hooks": {
     "nativeGoal": true,
@@ -45,7 +51,7 @@ capabilities:
 }
 ```
 
-Create the example's `public-uv-cache` directory beside the configuration, or
+Prepare the example's `public-uv-cache` directory outside the project, or
 omit `runtime` when no prepared cache is needed. Selected plugin names must be
 present in the case's prepared mounts; remove names that the case does not mount.
 `DARROW_CACHE_DIR` is an ordinary explicit variable in this example, not a
@@ -235,10 +241,12 @@ digits, and hyphens. `home` and `tmp` are reserved. Targets must be unique.
 An optional nonempty `roles` array selects any of `candidate`, `checks`, `hooks`,
 `semantic`, and `advisory`. For example, `"roles": ["candidate", "checks", "hooks"]`
 keeps dependency slots out of semantic and advisory runtimes. Without `roles`,
-execution and artifact-grading roles retain the existing selection. Response-only
+candidate, hook, artifact semantic, and advisory roles receive private copies.
+Shell checks require explicit `"checks"` selection; a non-UV grader receives no
+implicit UV/Python cache. Existing configurations whose shell checks need seeded
+dependencies must add `"checks"` to `roles`. Response-only
 semantic grading omits implicit seeds; include `"semantic"` explicitly in `roles`
-when that route needs dependencies. Artifact semantic grading and executable
-shell checks keep their declared tools and default seed selection.
+when that route needs dependencies. Declared host tools remain available to shell checks.
 
 Each source tree is bounded to 16,384 entries and 512 MiB. Escaping symlinks,
 directory cycles, dangling links, and special files are refused. File content
@@ -254,6 +262,41 @@ retaining large policies can retain up to the configured per-seed byte bounds.
 Source caches are never a writable runtime. Use prepared public caches rather
 than credential-bearing homes or evaluator directories.
 
+### Reuse a shared dependency cache
+
+`runtime.sharedCacheDirectories` opts into persistent writable caches without
+copying or hashing their contents for each trial. Each entry requires `source`,
+`target`, and a nonempty `roles` array drawn from the same five roles above.
+The source must already be an owned, readable, writable directory. Relative paths
+resolve beside the runtime file. Sevro resolves declaration symlinks to their
+canonical source and revalidates that directory before execution.
+Targets use the seed slot rules and must be unique across seeds and shared caches.
+Sources cannot overlap each other, private seed sources, declared read-only
+inputs, evaluated project/source trees, results, credentials, or native private state.
+
+Select only roles that actually use UV, for example `"roles": ["candidate", "hooks"]`.
+If a grader also uses UV, add `"checks"` to that same entry; both roles use the
+same cache. Each selected private slot aliases the original directory, with a
+narrow sandbox write grant. Other roles receive no slot or source grant.
+Shared content survives successful, failed, and cancelled trials and later runs.
+Sevro removes only disposable role state, never the declared shared source.
+
+Prepare UV packages once outside evaluation, point `UV_CACHE_DIR` at
+`{{sevro.runtime}}/uv-cache`, and reuse the existing Python installation through
+declared read-only tool roots. Set `UV_PYTHON_DOWNLOADS=never` to require that
+installation. Sevro keeps `UV_OFFLINE=1`; a missing dependency fails rather than
+downloading during a trial. Project virtual environments and temporary files
+remain disposable; UV's install/link mode can still allocate files in a virtual
+environment. The shared option removes the full cache copy per trial.
+
+Shared caches are mutable across trials, roles, and runs. Use them only for public
+dependencies and accept that a participant can change them for later participants.
+Use isolated seeds when dependency independence is required. Configuration identity
+binds the source, slot, and roles, but excludes mutable cache contents; equal
+identities therefore do not prove identical shared-cache bytes. Sevro does not
+age-delete shared caches. Manage their size between evaluations with the cache
+tool, such as `uv cache prune --cache-dir /absolute/public-uv-cache`.
+
 `{{sevro.runtime}}` in an environment value resolves to that role's writable
 root. Codex commands receive a `TMPPREFIX` inside their private `TMPDIR`,
 so zsh here-documents use their existing private temporary storage while shared
@@ -266,13 +309,15 @@ use. Its temporary directory stays disposable.
 Candidate, hook, checker, semantic, and advisory
 state are separate. With a runtime policy, native candidate, semantic, and
 advisory roots live in a unique runner-owned host directory outside the Git
-fixture. The root contains `home`, `tmp`, and declared seed slots; plugins can
+fixture. The root contains `home`, `tmp`, private seed slots and selected shared-cache links; plugins can
 use paths such as `~/.darrow/reviews` without creating repository-local review
 state. Command runtime directories are separate from host authentication,
-configuration, and live transcript sources. Checker and hook caches also live
-outside candidate-controlled workspace state. Private roots survive native
+configuration, and live transcript sources. Checker and hook private state also lives
+outside candidate-controlled workspace state. Shared sources remain at their declared locations. Private roots survive native
 continuation turns and children, then are removed with their owning trial or
-host state after owned hooks terminate. Opted-in candidate artifact runtimes
+host state after owned hooks terminate. Checker home, temporary storage, and copied
+seeds are removed after grading even when the fixture is retained after failure
+or cancellation. Results and evidence are preserved. Opted-in candidate artifact runtimes
 remain alive through grading as described below. Runs with neither fixture setup
 nor a selected runtime policy
 retain their previous writable-state locations.
@@ -525,7 +570,7 @@ run evidence. Extensions and external benchmarks consume the
 ## Evidence and compatibility
 
 `configuration.redacted.runtimePolicy` retains the selected environment,
-canonical read roots, seed digests, and hook declaration. The engine snapshots
+canonical read roots, seed digests, shared-cache declarations, and hook declaration. The engine snapshots
 this input once; it participates in `configurationDigest` and evaluation
 identity. Symbolic runtime placeholders remain symbolic in identity, while
 execution uses per-role paths. This binds declared setup and seed contents;
@@ -539,7 +584,8 @@ file contents do not. The same discovery and skip evidence reaches
 `sevro.host.runtime` observations.
 
 Bundled hosts supply `sevro.host.runtime` with the applied policy digest, role,
-environment names, read roots, and seed slots. `sevro.host.hooks` records source
+environment names, read roots, seed slots, and selected shared-cache declarations.
+Shared entries contain no content digest. `sevro.host.hooks` records source
 and effective plugin digests plus observed executions and their exit codes.
 An empty execution list does not prove hook activation. Partial lifecycle
 evidence remains partial. Cases can require these observations; missing required
@@ -549,7 +595,8 @@ task verdict.
 `--toolchain-bin-dir` and `--claude-uv-cache-dir` are deprecated. They keep their
 previous behavior with a warning when no runtime file is selected. Combining
 them with a runtime file fails before execution. Migrate to `environment`,
-`filesystem`, and private seed slots; removal is no earlier than `0.2.0`.
+`filesystem`, and either private seed slots or shared-cache declarations; removal
+is no earlier than `0.2.0`. The deprecated UV option continues to copy privately.
 See the [CLI reference](development-cli.md), [native hosts](native-hosts.md),
 and [identity contract](identity-v1.md).
 

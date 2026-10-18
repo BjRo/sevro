@@ -8,6 +8,7 @@ import { delimiter, join } from "node:path";
 import { prepareIsolatedCommand } from "../hosts/isolation";
 import type { RuntimePolicy } from "../runtime/config";
 import { prepareRuntimeState } from "../runtime/state";
+import { sharedCacheDenyRoots } from "../runtime/shared-cache";
 import { hashJson } from "../identity";
 import {
   captureBoundedText,
@@ -293,6 +294,7 @@ async function shellRuntime(options: ShellRunOptions) {
     uvCache: join(root, "uv-cache"),
     environment: {} as Record<string, string>,
     privateRuntimeRoot: undefined,
+    writableCacheRoots: [],
   };
 }
 type ShellRuntime = Awaited<ReturnType<typeof shellRuntime>>;
@@ -429,11 +431,15 @@ export async function runShellCheck(
       ? [options.candidateTranscriptRoot]
       : [],
     writableRuntimeRoot: runtime.privateRuntimeRoot,
+    writableCacheRoots: runtime.writableCacheRoots,
   });
   await requireShellRuntimeCache(options, runtime);
   return new ShellExecution(check, options, isolated, runtime).run();
 }
 
 function shellSeedSources(options: ShellRunOptions): string[] {
-  return runtimeSeedSources(options.runtimePolicy);
+  return [
+    ...runtimeSeedSources(options.runtimePolicy),
+    ...sharedCacheDenyRoots(options.runtimePolicy, "checks"),
+  ];
 }

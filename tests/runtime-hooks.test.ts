@@ -9,11 +9,12 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { createClaudeHost } from "../src/hosts/claude";
 import { createCodexHost } from "../src/hosts/codex";
 import { runtimeSeedDigest } from "../src/runtime/seeds";
+import { loadRuntimeConfiguration } from "../src/engine";
 import { defined } from "./fixtures/assertions";
 import {
   allocateWorkspace,
@@ -121,6 +122,56 @@ console.log(JSON.stringify({ type: "result", subtype: "success", is_error: false
   await chmod(binary, 0o755);
   return binary;
 }
+
+test("Claude plugin hooks reuse a shared cache without per-run copies", async () => {
+  const fixture = await hookFixture();
+  const source = await realpath(
+    await mkdtemp(join(homedir(), ".sevro-shared-hook-cache-")),
+  );
+  roots.push(source);
+  await writeFile(join(source, "input"), "prepared dependency");
+  await writeFile(
+    join(fixture.workspace, "packages/allowed/hooks/start.sh"),
+    '#!/bin/sh\ncat "$UV_CACHE_DIR/input" > "$PWD/allowed.txt"; printf "used\\n" >> "$UV_CACHE_DIR/uses"\n',
+  );
+  await writeFile(
+    join(fixture.projectRoot, "sevro.json"),
+    JSON.stringify({
+      format: "sevro.runtime.v1",
+      environment: { set: { UV_CACHE_DIR: "{{sevro.runtime}}/uv-cache" } },
+      runtime: {
+        sharedCacheDirectories: [
+          { source, target: "uv-cache", roles: ["hooks"] },
+        ],
+      },
+      hooks: { plugins: ["allowed"] },
+    }),
+  );
+  const runtimePolicy = await loadRuntimeConfiguration(fixture.projectRoot);
+  const host = createClaudeHost({
+    ...fixture,
+    additionalProtectedRoots: [fixture.credentialFile],
+    model: "synthetic",
+    effort: "low",
+    timeoutMs: 15000,
+  });
+  const request = {
+    prompt: "Return ready.",
+    workspace: fixture.workspace,
+    condition: "passive" as const,
+    claudePluginDirs: {
+      artifactRoots: fixture.artifactRoots,
+      artifactPaths: fixture.artifactPaths,
+    },
+    runtimePolicy,
+  };
+  expect((await host.run(request)).complete).toBe(true);
+  expect(await readFile(join(fixture.workspace, "allowed.txt"), "utf8")).toBe(
+    "prepared dependency",
+  );
+  expect((await host.run(request)).complete).toBe(true);
+  expect(await readFile(join(source, "uses"), "utf8")).toBe("used\nused\n");
+});
 
 test("Claude executes only selected plugin hooks under protected-root isolation", async () => {
   const fixture = await hookFixture();

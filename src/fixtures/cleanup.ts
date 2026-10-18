@@ -15,6 +15,17 @@ async function restoreDirectoryAccess(path: string): Promise<void> {
       await restoreDirectoryAccess(join(path, child.name));
 }
 
+/** Remove owned disposable state without following cache or fixture symlinks. */
+export async function removeDisposableDirectory(path: string): Promise<void> {
+  try {
+    await rm(path, { recursive: true, force: true });
+  } catch (error) {
+    if (!permissionFailure(error)) throw error;
+    await restoreDirectoryAccess(path);
+    await rm(path, { recursive: true, force: true });
+  }
+}
+
 /** Clear a completed fixture while preserving its reserved root for active peers. */
 export async function clearFixtureContents(workspace: string): Promise<void> {
   const root = await lstat(workspace);
@@ -26,13 +37,7 @@ export async function clearFixtureContents(workspace: string): Promise<void> {
   await Promise.all(
     names.map(async (name) => {
       const path = join(workspace, name);
-      try {
-        await rm(path, { recursive: true, force: true });
-      } catch (error) {
-        if (!permissionFailure(error)) throw error;
-        await restoreDirectoryAccess(path);
-        await rm(path, { recursive: true, force: true });
-      }
+      await removeDisposableDirectory(path);
     }),
   );
 }

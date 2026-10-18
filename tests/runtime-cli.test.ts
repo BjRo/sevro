@@ -19,6 +19,158 @@ import {
 } from "./fixtures/assertions";
 
 const roots: string[] = [];
+test("CLI binds shared-cache declarations but not mutable cache contents to identity", async () => {
+  const { root, project, args } = await fixture();
+  const source = join(root, "public-cache");
+  await mkdir(source);
+  const large = join(source, "prepared-dependency");
+  await writeFile(large, "");
+  await truncate(large, 512 * 1024 * 1024 + 1);
+  const path = join(project, "sevro.json");
+  const configuration = {
+    format: "sevro.runtime.v1",
+    runtime: {
+      sharedCacheDirectories: [
+        { source, target: "cache", roles: ["candidate"] },
+      ],
+    },
+  };
+  await writeFile(path, JSON.stringify(configuration));
+  const first = await invoke([...args, "--dry"]);
+  expect(first.code, first.stderr).toBe(0);
+  const before = parseRunEvidence(
+    await readFile(defined(first.result.evidencePath), "utf8"),
+  );
+  await writeFile(join(source, "mutable"), "warmed dependency");
+  const second = await invoke([...args, "--dry"]);
+  expect(second.code, second.stderr).toBe(0);
+  const after = parseRunEvidence(
+    await readFile(defined(second.result.evidencePath), "utf8"),
+  );
+  expect(after.configuration.digest).toBe(before.configuration.digest);
+  expect(after.configuration.redacted.runtimePolicy).toMatchObject(
+    configuration.runtime,
+  );
+  configuration.runtime.sharedCacheDirectories[0] = {
+    source,
+    target: "cache",
+    roles: ["candidate", "hooks"],
+  };
+  await writeFile(path, JSON.stringify(configuration));
+  const changed = await invoke([...args, "--dry"]);
+  expect(changed.code, changed.stderr).toBe(0);
+  const evidence = parseRunEvidence(
+    await readFile(defined(changed.result.evidencePath), "utf8"),
+  );
+  expect(evidence.configuration.digest).not.toBe(before.configuration.digest);
+});
+
+test.each([
+  { target: "cache" },
+  { target: "cache", roles: [] },
+  { target: "cache", roles: ["candidate", "candidate"] },
+  { target: "cache", roles: ["unknown"] },
+  { target: "home", roles: ["candidate"] },
+  { target: "tmp", roles: ["candidate"] },
+  { target: "../cache", roles: ["candidate"] },
+])("CLI refuses invalid shared-cache declarations: %j", async (declaration) => {
+  const { root, project, args } = await fixture();
+  const source = join(root, "public-cache");
+  await mkdir(source);
+  await writeFile(
+    join(project, "sevro.json"),
+    JSON.stringify({
+      format: "sevro.runtime.v1",
+      runtime: { sharedCacheDirectories: [{ source, ...declaration }] },
+    }),
+  );
+  const result = await invoke([...args, "--dry"]);
+  expect(result.code).toBe(64);
+  expect(result.result.evidencePath).toBeNull();
+});
+
+test.each([
+  "project",
+  "results",
+  "credential",
+  "broad",
+  "file",
+  "readonly",
+  "slot-collision",
+  "duplicate-source",
+])("CLI refuses conflicting shared-cache sources: %s", async (kind) => {
+  const { root, project, args } = await fixture();
+  const cache = join(root, "cache");
+  await mkdir(cache);
+  const source = await conflictingCacheSource(kind, root, project, cache);
+  const entry = { source, target: "cache", roles: ["candidate"] };
+  await writeFile(
+    join(project, "sevro.json"),
+    JSON.stringify({
+      format: "sevro.runtime.v1",
+      runtime: {
+        sharedCacheDirectories:
+          kind === "duplicate-source"
+            ? [entry, { ...entry, target: "other" }]
+            : [entry],
+        ...(kind === "slot-collision"
+          ? { seedDirectories: [{ source: project, target: "cache" }] }
+          : {}),
+      },
+    }),
+  );
+  try {
+    const result = await invoke([...args, "--dry"]);
+    expect(result.code).toBe(64);
+    expect(result.result.evidencePath).toBeNull();
+  } finally {
+    if (kind === "readonly") await chmod(cache, 0o700);
+  }
+});
+
+async function conflictingCacheSource(
+  kind: string,
+  root: string,
+  project: string,
+  cache: string,
+) {
+  const paths: Record<string, string> = {
+    project,
+    results: join(root, "results"),
+    credential: join(homedir(), ".codex"),
+    broad: homedir(),
+  };
+  const source = paths[kind] ?? cache;
+  if (kind === "results") await mkdir(source);
+  if (kind === "file") {
+    await rm(cache, { recursive: true });
+    await writeFile(cache, "file");
+  }
+  if (kind === "readonly") await chmod(cache, 0o500);
+  return source;
+}
+
+test("CLI rejects shared caches that overlap declared read-only inputs", async () => {
+  const { root, project, args } = await fixture();
+  const source = join(root, "public-cache");
+  await mkdir(source);
+  await writeFile(
+    join(project, "sevro.json"),
+    JSON.stringify({
+      format: "sevro.runtime.v1",
+      filesystem: { readOnlyRoots: [source] },
+      runtime: {
+        sharedCacheDirectories: [
+          { source, target: "cache", roles: ["candidate"] },
+        ],
+      },
+    }),
+  );
+  const result = await invoke([...args, "--dry"]);
+  expect(result.code).toBe(64);
+  expect(result.result.evidencePath).toBeNull();
+});
+
 test("CLI snapshots local HTTP opt-in and binds evaluation identity", async () => {
   const { project, args } = await fixture();
   const path = join(project, "sevro.json");
@@ -1025,7 +1177,9 @@ test("CLI protects grader runtime seeds from candidate-created state", async () 
     JSON.stringify({
       format: "sevro.runtime.v1",
       environment: { set: { UV_CACHE_DIR: "{{sevro.runtime}}/cache" } },
-      runtime: { seedDirectories: [{ source, target: "cache" }] },
+      runtime: {
+        seedDirectories: [{ source, target: "cache", roles: ["checks"] }],
+      },
     }),
   );
   const run = await invoke([...args, "--shell-isolation"]);
@@ -1829,7 +1983,11 @@ test("CLI seeds a private writable runtime without changing the host cache", asy
       environment: {
         set: { PUBLIC_CACHE_DIR: "{{sevro.runtime}}/dependencies" },
       },
-      runtime: { seedDirectories: [{ source, target: "dependencies" }] },
+      runtime: {
+        seedDirectories: [
+          { source, target: "dependencies", roles: ["checks"] },
+        ],
+      },
     }),
   );
   const run = await invoke([...args, "--shell-isolation"]);
@@ -1890,7 +2048,11 @@ test("CLI separates candidate and check runtime seeds", async () => {
       environment: {
         set: { PUBLIC_CACHE_DIR: "{{sevro.runtime}}/dependencies" },
       },
-      runtime: { seedDirectories: [{ source, target: "dependencies" }] },
+      runtime: {
+        seedDirectories: [
+          { source, target: "dependencies", roles: ["candidate", "checks"] },
+        ],
+      },
     }),
   );
   const native = args.filter(
@@ -2050,7 +2212,9 @@ test("CLI materializes verified executable bytes, internal links, and empty dire
     JSON.stringify({
       format: "sevro.runtime.v1",
       environment: { set: { PUBLIC_CACHE_DIR: "{{sevro.runtime}}/cache" } },
-      runtime: { seedDirectories: [{ source, target: "cache" }] },
+      runtime: {
+        seedDirectories: [{ source, target: "cache", roles: ["checks"] }],
+      },
     }),
   );
   const result = await invoke([...args, "--shell-isolation"]);
