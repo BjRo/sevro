@@ -98,6 +98,3 @@ coverage for an absence pass. They must examine submitted labels for prohibited 
 `acceptedAgentCount` is zero. Older consumers that require
 `submittedExecCalls === 0` remain conservative but cannot use this new evidence
 until they adopt receipt validation.
-
-[Regression and retained-trace reinspection evidence](evidence/native-control-coverage-103.md)
-records the test-first repair without changing historical trial results.
