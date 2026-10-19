@@ -29,6 +29,12 @@ including dry and failed runs. Pre-run failures do not replace latest. Missing
 latest or referenced evidence is an error. See
 [the evaluation workflow](evaluation-workflow.md).
 
+[`sevro prune`](reading-results.md#prune-retained-results) maintains this index
+when removing retained evidence. After pruning, latest selects the newest
+remaining completed result; if none remain, the index is removed and `--latest`
+reports a missing-input diagnostic. Explicit reports still require their selected
+results and evidence to exist.
+
 Each case row keeps task verdict, execution, and grading separate. Task pass
 rate is measured only when every trial completed execution and grading with an
 assessed task verdict. Candidate duration sums the measured host call time

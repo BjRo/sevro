@@ -154,3 +154,27 @@ test.each(
     expect(result.stdout).toContain("without model credentials");
   },
 );
+
+test.each(
+  [
+    ["prune", "--help"],
+    ["prune", "-h"],
+    ["help", "prune"],
+  ].map((args) => ({ args })),
+)(
+  "CLI prune help %j explains default and explicit retention without deleting files",
+  async ({ args }) => {
+    const result = await information(args);
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe("");
+    for (const text of [
+      "Usage: sevro prune",
+      "10",
+      "--older-than",
+      "--keep",
+      "--latest",
+      "--results-root",
+    ])
+      expect(result.stdout).toContain(text);
+  },
+);
