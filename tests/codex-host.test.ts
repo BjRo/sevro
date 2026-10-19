@@ -258,18 +258,28 @@ const pagedSkillPages = [
 
 async function runPagedCodex(
   pages: readonly { text: string; session?: string; turn?: string }[],
-  options: { body?: string; aliases?: string[] } = {},
+  options: {
+    body?: string;
+    aliases?: string[];
+    siblings?: Record<string, string>;
+  } = {},
 ) {
   const { host, request } = await ordinaryCodexRequest();
   const body = options.body ?? pagedSkillPages.join("");
   await mkdir(join(request.workspace, ".git"));
-  for (const name of ["probe", ...(options.aliases ?? [])]) {
+  const skills = {
+    ...Object.fromEntries(
+      ["probe", ...(options.aliases ?? [])].map((name) => [name, body]),
+    ),
+    ...options.siblings,
+  };
+  for (const [name, skillBody] of Object.entries(skills)) {
     await mkdir(join(request.workspace, ".agents/skills", name), {
       recursive: true,
     });
     await writeFile(
       join(request.workspace, ".agents/skills", name, "SKILL.md"),
-      body,
+      skillBody,
     );
   }
   await writeFile(
@@ -293,6 +303,110 @@ await emit("Stop");
   );
   return host.run(request);
 }
+
+const sharedSkillParagraph =
+  "This diagnostic capability leaves all repository files unchanged and returns only its named public result.\n";
+const completeProbeBody = pagedSkillPages.join("") + sharedSkillParagraph;
+const siblingSkillBody =
+  "---\nname: sibling\ndescription: An unrelated greeting skill.\n---\n# Sibling\nReturn HELLO only when asked for the sibling diagnostic.\n\n" +
+  sharedSkillParagraph;
+
+test("complete Codex skill reads do not imply partial reads of shared siblings", async () => {
+  if (!isolatedNativeHost) return;
+  const result = await runPagedCodex([{ text: completeProbeBody }], {
+    body: completeProbeBody,
+    siblings: { sibling: siblingSkillBody },
+  });
+  expect(result.complete).toBe(true);
+  expect(
+    result.observations?.find(
+      (item) => item.id === "sevro.host.skill-activations",
+    ),
+  ).toMatchObject({
+    completeness: "complete",
+    data: {
+      observedSkills: ["probe"],
+      partialSkills: [],
+      ambiguousSkills: [],
+      catalogComplete: true,
+      truncated: false,
+      calls: [{ invocations: ["probe"], partial: false }],
+    },
+  });
+});
+
+test("overlapping complete Codex skill bodies explain their shared fragments", async () => {
+  if (!isolatedNativeHost) return;
+  const tail = "Return the second skill's independent public result.\n";
+  const result = await runPagedCodex([{ text: completeProbeBody + tail }], {
+    body: completeProbeBody,
+    siblings: {
+      other: sharedSkillParagraph + tail,
+      sibling:
+        "Different beginning.\n" + pagedSkillPages.join("") + "Unread end.\n",
+    },
+  });
+  expect(
+    result.observations?.find(
+      (item) => item.id === "sevro.host.skill-activations",
+    ),
+  ).toMatchObject({
+    completeness: "complete",
+    data: {
+      observedSkills: ["other", "probe"],
+      partialSkills: [],
+      ambiguousSkills: [],
+    },
+  });
+});
+
+test.each([
+  {
+    name: "shared paragraph before the complete body",
+    pages: [sharedSkillParagraph + completeProbeBody],
+  },
+  {
+    name: "shared paragraph after the complete body",
+    pages: [completeProbeBody + sharedSkillParagraph],
+  },
+  {
+    name: "earlier sibling read",
+    pages: [sharedSkillParagraph, completeProbeBody],
+  },
+  {
+    name: "later sibling read",
+    pages: [completeProbeBody, sharedSkillParagraph],
+  },
+  {
+    name: "distinct sibling instructions",
+    pages: [completeProbeBody + siblingSkillBody.slice(0, 100)],
+  },
+])(
+  "independent partial sibling reads remain partial: $name",
+  async ({ pages }) => {
+    if (!isolatedNativeHost) return;
+    const result = await runPagedCodex(
+      pages.map((text) => ({ text })),
+      {
+        body: completeProbeBody,
+        siblings: { sibling: siblingSkillBody },
+      },
+    );
+    expect(
+      result.observations?.find(
+        (item) => item.id === "sevro.host.skill-activations",
+      ),
+    ).toMatchObject({
+      completeness: "partial",
+      data: {
+        observedSkills: ["probe"],
+        partialSkills: ["sibling"],
+        ambiguousSkills: [],
+        truncated: false,
+      },
+    });
+  },
+);
 
 test("Codex host accounts for paged tool results", async () => {
   if (!isolatedNativeHost) return;

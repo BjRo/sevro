@@ -46,6 +46,11 @@ function spend(budget: MatchBudget, count: number) {
     throw new Error("skill page matching exceeds limit");
 }
 
+function spendAnchor(budget: MatchBudget) {
+  budget.anchors--;
+  if (budget.anchors < 0) throw new Error("skill page anchors exceed limit");
+}
+
 function matchingLength(
   body: string,
   text: string,
@@ -88,8 +93,7 @@ function anchoredRange(
   anchorLength: number,
   budget: MatchBudget,
 ) {
-  budget.anchors--;
-  if (budget.anchors < 0) throw new Error("skill page anchors exceed limit");
+  spendAnchor(budget);
   const before = matchingLength(
     body,
     text,
@@ -211,6 +215,46 @@ function responseValues(value: unknown): unknown[] {
   return isRecord(value) ? Object.values(value) : [];
 }
 
+function completeBodyRanges(
+  text: string,
+  skill: HookSkill,
+  budget: MatchBudget,
+): [number, number][] {
+  spend(budget, text.length);
+  const ranges: [number, number][] = [];
+  let start = text.indexOf(skill.body);
+  while (start !== -1) {
+    spendAnchor(budget);
+    ranges.push([start, start + skill.body.length]);
+    start = text.indexOf(skill.body, start + 1);
+  }
+  return ranges;
+}
+
+function textOutsideRanges(text: string, ranges: [number, number][]) {
+  const remaining: string[] = [];
+  let cursor = 0;
+  for (const [start, end] of ranges.sort((a, b) => a[0] - b[0])) {
+    if (start > cursor) remaining.push(text.slice(cursor, start));
+    cursor = Math.max(cursor, end);
+  }
+  remaining.push(text.slice(cursor));
+  return remaining;
+}
+
+function textsOutsideCompleteBodies(
+  texts: string[],
+  skills: HookSkill[],
+  budget: MatchBudget,
+) {
+  return texts.flatMap((text) =>
+    textOutsideRanges(
+      text,
+      skills.flatMap((skill) => completeBodyRanges(text, skill, budget)),
+    ),
+  );
+}
+
 function invocations(
   event: Record<string, unknown>,
   configuration: SkillHookConfiguration,
@@ -232,18 +276,16 @@ function invocations(
     ),
   );
   const ambiguousNames = new Set(ambiguous.map((skill) => skill.invocation));
+  const unambiguous = matched.filter(
+    (skill) => !ambiguousNames.has(skill.invocation),
+  );
   const budget = { comparisons: 4 * MAX_INPUT_BYTES, anchors: 4096 };
+  const remainingTexts = textsOutsideCompleteBodies(texts, unambiguous, budget);
   const bodyRanges = configuration.skills
     .filter((skill) => !matched.includes(skill))
-    .flatMap((skill) => skillRanges(skill, texts, budget));
+    .flatMap((skill) => skillRanges(skill, remainingTexts, budget));
   return {
-    invocations: [
-      ...new Set(
-        matched
-          .filter((skill) => !ambiguousNames.has(skill.invocation))
-          .map((skill) => skill.invocation),
-      ),
-    ],
+    invocations: [...new Set(unambiguous.map((skill) => skill.invocation))],
     ambiguousInvocations: [...ambiguousNames],
     ...(bodyRanges.length ? { bodyRanges } : {}),
   };

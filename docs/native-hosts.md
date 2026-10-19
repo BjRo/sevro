@@ -80,7 +80,10 @@ Page matching uses complete nonblank lines as anchors and exact fragments of
 at least 32 string code units. Fragments with multiple possible positions in a
 body cannot establish coverage. Recognizable unfinished fragments appear in
 `partialSkills` and keep the observation partial; a later complete match resolves
-them. Comparison and anchor budgets also fail closed. Private receipts retain
+them. Within each tool result, text covered by unambiguous complete-body matches
+does not also imply partial reads of skills sharing that text. Fragments returned
+outside those complete-body spans or in other tool results remain independent
+partial-read evidence. Comparison and anchor budgets also fail closed. Private receipts retain
 body offsets rather than tool text; the public observation omits those offsets.
 Shorter, transformed or unanchored fragments remain outside this matching scope.
 Newly created or changed skill bodies are outside the prepared snapshot. A
