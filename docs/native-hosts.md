@@ -135,6 +135,28 @@ cause, and a tool error with a balanced hook pair does not itself imply an
 observer gap. These diagnostics preserve unknown activation verdicts and do
 not recover activation from native transcripts.
 
+Codex also reports `primarySkill` and `primarySkillCompleteness` separately
+from whole-collection completeness. A complete collection establishes its first
+observed skill when the first matching receipt credits exactly one skill, or
+`null` when none was observed. Multiple bodies credited by the first receipt
+leave primary selection unknown even with complete collection; their catalog
+order does not prove selection order. A partial collection can still
+establish the primary skill when its only gap is pending tool calls, exactly one
+skill was credited by the first matching receipt, and every call started through
+that receipt has a matching post hook. A later pending call cannot change that
+established first selection. An earlier or overlapping pending call leaves the
+primary unknown (`null` with `primarySkillCompleteness: partial`). Other
+collection gaps remain conservative. Consumers may use the established primary
+for first-selection assertions while retaining the partial collection status;
+this claim does not establish exclusions or a complete supporting sequence.
+When a partial collection establishes the primary, the same collector emits
+`sevro.host.skill-activation-claims` as complete evidence with scope
+`primary_and_positive_presence`, the qualified `primarySkill`, and `presentSkills`.
+It retains `collectionCompleteness: partial`. Consumers cite this receipt for
+those specific claims, preserving the protocol's requirement that passing
+results cite complete evidence. It cannot establish an exclusion or an
+unobserved supporting read and is absent when the primary is unknown.
+
 Claude's `skill_tool_result` method observes its existing structured `Skill`
 stream without enabling additional command hooks. It pairs each call with a
 successful result under the same session, parent actor and tool-use ID.

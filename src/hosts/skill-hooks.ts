@@ -395,6 +395,60 @@ function relevantCall(
   ].some(Boolean);
 }
 
+function primaryEvidence(events: SkillHookReceipt[], reasons: string[]) {
+  const index = events.findIndex((event) => event.invocations.length > 0);
+  const first = events[index];
+  const complete = primarySelectionComplete(events, index, reasons);
+  if (!complete)
+    return { primarySkill: null, primarySkillCompleteness: "partial" as const };
+  return {
+    primarySkill: first?.invocations[0] ?? null,
+    primarySkillCompleteness: "complete" as const,
+  };
+}
+
+function primarySelectionComplete(
+  events: SkillHookReceipt[],
+  index: number,
+  reasons: string[],
+) {
+  const matches = events[index]?.invocations.length ?? 0;
+  if (matches > 1) return false;
+  if (reasons.length === 0) return true;
+  return primaryBeforeGap(events, index, reasons);
+}
+
+function primaryBeforeGap(
+  events: SkillHookReceipt[],
+  index: number,
+  reasons: string[],
+) {
+  if (reasons.join(",") !== "pending_tool_calls") return false;
+  if (events[index]?.invocations.length !== 1) return false;
+  const prefix = collectionSummary(events.slice(0, index + 1), null);
+  return prefix.pendingToolCallCount === 0;
+}
+
+export function skillActivationClaims(
+  observation: Awaited<ReturnType<typeof skillTrackingObservation>>,
+) {
+  if (observation.completeness !== "partial") return [];
+  if (observation.data.primarySkillCompleteness !== "complete") return [];
+  return [
+    {
+      id: "sevro.host.skill-activation-claims",
+      completeness: "complete" as const,
+      data: {
+        method: "tool_result_body_match",
+        scope: "primary_and_positive_presence",
+        collectionCompleteness: "partial",
+        primarySkill: observation.data.primarySkill,
+        presentSkills: observation.data.observedSkills,
+      },
+    },
+  ];
+}
+
 export async function skillTrackingObservation(
   tracking: SkillTracking,
   sessionId: string | null,
@@ -444,6 +498,7 @@ export async function skillTrackingObservation(
       scope: "prepared_skill_bodies",
       catalogComplete: tracking.configuration.catalogComplete,
       observedSkills: [...new Set(calls.flatMap((call) => call.invocations))],
+      ...primaryEvidence(events, incompleteReasons),
       partialSkills,
       ambiguousSkills,
       calls,

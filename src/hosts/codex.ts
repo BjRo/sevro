@@ -44,6 +44,7 @@ import { codexSkillCatalogRoots } from "./skill-hook-catalog";
 import {
   prepareSkillTracking,
   skillTrackingObservation,
+  skillActivationClaims,
   type SkillTracking,
 } from "./skill-hooks";
 import {
@@ -139,6 +140,7 @@ function codexCapabilities(
     "sevro.host.native-transcripts",
     "sevro.host.hooks",
     "sevro.host.skill-activations",
+    "sevro.host.skill-activation-claims",
     ...(entrypoint === "app-server" ? ["sevro.host.native-goal"] : []),
     "sevro.codex.plugin-marketplace",
     "sevro.codex.explicit-invocation",
@@ -732,6 +734,11 @@ function appServerObservation(result: AppServerResult | null): Observation[] {
     : [];
 }
 async function codexObservations(context: ExecutionContext, turns: TurnResult) {
+  const tracking = await skillTrackingObservation(
+    context.skillTracking,
+    turns.summary.threadId,
+    turns.summary.complete,
+  );
   const native = await codexNativeCallObservation(
     context.state.codexHome,
     turns.summary.threadId,
@@ -752,11 +759,8 @@ async function codexObservations(context: ExecutionContext, turns: TurnResult) {
     codexNativeControls(native),
     ...(turns.continuation ? [turns.continuation] : []),
     ...(explicit ? [explicit] : []),
-    await skillTrackingObservation(
-      context.skillTracking,
-      turns.summary.threadId,
-      turns.summary.complete,
-    ),
+    tracking,
+    ...skillActivationClaims(tracking),
   ];
 }
 

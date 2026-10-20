@@ -360,6 +360,90 @@ test("Codex activation evidence explains an unmatched tool hook without losing s
   expect(JSON.stringify(observation)).not.toContain("private command");
 });
 
+test("Codex preserves a proven primary activation before a later hook gap", async () => {
+  if (!isolatedNativeHost) return;
+  const result = await runPagedCodex(
+    [{ text: completeProbeBody }, { text: "rejected", omitPost: true }],
+    { body: completeProbeBody },
+  );
+  expect(
+    result.observations?.find(
+      (item) => item.id === "sevro.host.skill-activations",
+    ),
+  ).toMatchObject({
+    completeness: "partial",
+    data: {
+      primarySkill: "probe",
+      primarySkillCompleteness: "complete",
+      incompleteReasons: ["pending_tool_calls"],
+    },
+  });
+});
+
+test("Codex publishes complete primary claims without completing collection", async () => {
+  if (!isolatedNativeHost) return;
+  const result = await runPagedCodex(
+    [{ text: completeProbeBody }, { text: "rejected", omitPost: true }],
+    { body: completeProbeBody },
+  );
+  expect(result.observations).toContainEqual({
+    id: "sevro.host.skill-activation-claims",
+    completeness: "complete",
+    data: {
+      method: "tool_result_body_match",
+      scope: "primary_and_positive_presence",
+      collectionCompleteness: "partial",
+      primarySkill: "probe",
+      presentSkills: ["probe"],
+    },
+  });
+});
+
+test("Codex cannot establish primary selection across an earlier hook gap", async () => {
+  if (!isolatedNativeHost) return;
+  const result = await runPagedCodex(
+    [{ text: "unobserved", omitPost: true }, { text: completeProbeBody }],
+    { body: completeProbeBody },
+  );
+  expect(
+    result.observations?.find(
+      (item) => item.id === "sevro.host.skill-activations",
+    ),
+  ).toMatchObject({
+    completeness: "partial",
+    data: {
+      observedSkills: ["probe"],
+      primarySkill: null,
+      primarySkillCompleteness: "partial",
+    },
+  });
+  expect(
+    result.observations?.some(
+      (item) => item.id === "sevro.host.skill-activation-claims",
+    ),
+  ).toBe(false);
+});
+
+test("Codex keeps primary unknown when one completed result exposes multiple bodies", async () => {
+  if (!isolatedNativeHost) return;
+  const result = await runPagedCodex(
+    [{ text: siblingSkillBody + completeProbeBody }],
+    { body: completeProbeBody, siblings: { sibling: siblingSkillBody } },
+  );
+  expect(
+    result.observations?.find(
+      (item) => item.id === "sevro.host.skill-activations",
+    ),
+  ).toMatchObject({
+    completeness: "complete",
+    data: {
+      observedSkills: ["probe", "sibling"],
+      primarySkill: null,
+      primarySkillCompleteness: "partial",
+    },
+  });
+});
+
 test("Codex activation calls retain fragment-only and pending hook evidence", async () => {
   if (!isolatedNativeHost) return;
   const result = await runPagedCodex(
