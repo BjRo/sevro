@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
+import { gzipSync } from "node:zlib";
 import { runEvaluation, type HostAdapter } from "../../src/engine";
 import { parseRunEvidence } from "../fixtures/assertions";
 import { defined } from "../fixtures/assertions";
@@ -34,6 +35,39 @@ const retainedNativeBundle = {
   ],
 };
 
+function gzipFile(path: string, bytes: Buffer) {
+  return {
+    path,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+    gzipBase64: gzipSync(bytes).toString("base64"),
+  };
+}
+
+const compressedNativeFile = gzipFile(
+  "rollout-runtime-test.jsonl",
+  Buffer.from(nativeRoot),
+);
+
+function retainedEvidenceHost(bundle: unknown): HostAdapter {
+  return {
+    id: "native-evidence.fixture",
+    model: "fixture",
+    effort: "low",
+    run() {
+      return Promise.resolve({
+        complete: true,
+        finalMessage: "ready",
+        artifacts: [
+          {
+            id: "sevro.native-transcripts.bundle",
+            bytes: Buffer.from(JSON.stringify(bundle)),
+          },
+        ],
+      });
+    },
+  };
+}
+
 test.each([
   {
     label: "unsupported format",
@@ -63,28 +97,82 @@ test.each([
       ],
     },
   },
+  {
+    label: "decompressed total above native byte limit",
+    bundle: {
+      ...retainedNativeBundle,
+      format: "sevro.native-transcripts.v2",
+      files: [
+        gzipFile("rollout-runtime-test.jsonl", Buffer.alloc(3 * 1024 * 1024)),
+        gzipFile("child.jsonl", Buffer.alloc(3 * 1024 * 1024)),
+      ],
+    },
+  },
+  {
+    label: "missing v2 gzip payload",
+    bundle: { ...retainedNativeBundle, format: "sevro.native-transcripts.v2" },
+  },
+  {
+    label: "decompressed bytes after exhausted native limit",
+    bundle: {
+      ...retainedNativeBundle,
+      format: "sevro.native-transcripts.v2",
+      files: [
+        gzipFile("rollout-runtime-test.jsonl", Buffer.alloc(5 * 1024 * 1024)),
+        gzipFile("child.jsonl", Buffer.from([1])),
+      ],
+    },
+  },
+  {
+    label: "corrupt v2 gzip payload",
+    bundle: {
+      ...retainedNativeBundle,
+      format: "sevro.native-transcripts.v2",
+      files: [
+        {
+          ...compressedNativeFile,
+          gzipBase64: Buffer.from("not gzip").toString("base64"),
+        },
+      ],
+    },
+  },
+  {
+    label: "truncated v2 gzip payload",
+    bundle: {
+      ...retainedNativeBundle,
+      format: "sevro.native-transcripts.v2",
+      files: [
+        {
+          ...compressedNativeFile,
+          gzipBase64: Buffer.from(compressedNativeFile.gzipBase64, "base64")
+            .subarray(0, -4)
+            .toString("base64"),
+        },
+      ],
+    },
+  },
+  {
+    label: "tampered decompressed v2 bytes",
+    bundle: {
+      ...retainedNativeBundle,
+      format: "sevro.native-transcripts.v2",
+      files: [
+        {
+          ...gzipFile(
+            compressedNativeFile.path,
+            Buffer.from("altered evidence"),
+          ),
+          sha256: compressedNativeFile.sha256,
+        },
+      ],
+    },
+  },
 ])(
   "evaluation refuses $label retained native evidence before grading",
   async ({ bundle }) => {
     const { root } = await codexFixture();
     const graderCalls: string[] = [];
-    const host: HostAdapter = {
-      id: "native-evidence.fixture",
-      model: "fixture",
-      effort: "low",
-      run() {
-        return Promise.resolve({
-          complete: true,
-          finalMessage: "ready",
-          artifacts: [
-            {
-              id: "sevro.native-transcripts.bundle",
-              bytes: Buffer.from(JSON.stringify(bundle)),
-            },
-          ],
-        });
-      },
-    };
+    const host = retainedEvidenceHost(bundle);
     const semanticHost: HostAdapter = {
       ...host,
       id: "native-evidence.grader",
@@ -104,47 +192,28 @@ test.each([
   },
 );
 
-test("evaluation supplies verified Claude native bytes to a retained-evidence consumer", async () => {
+test("evaluation decodes v2 files at the native byte limit including empty files", async () => {
   const { root } = await codexFixture();
-  const bytes =
-    '{"type":"assistant","message":{"model":"fixture","content":[]}}';
-  const host: HostAdapter = {
-    id: "claude-evidence.fixture",
-    model: "fixture",
-    effort: "low",
-    run() {
-      return Promise.resolve({
-        complete: true,
-        finalMessage: "ready",
-        artifacts: [
-          {
-            id: "sevro.native-transcripts.bundle",
-            bytes: Buffer.from(
-              JSON.stringify({
-                ...retainedNativeBundle,
-                host: "claude",
-                files: [
-                  {
-                    path: "project/runtime-test.jsonl",
-                    sha256: createHash("sha256").update(bytes).digest("hex"),
-                    bytesBase64: Buffer.from(bytes).toString("base64"),
-                  },
-                ],
-              }),
-            ),
-          },
-        ],
-      });
-    },
-  };
+  const original = Buffer.alloc(5 * 1024 * 1024, 255);
+  const host = retainedEvidenceHost({
+    ...retainedNativeBundle,
+    format: "sevro.native-transcripts.v2",
+    files: [
+      gzipFile("rollout-runtime-test.jsonl", original),
+      gzipFile("empty.bin", Buffer.alloc(0)),
+    ],
+  });
   const semanticHost: HostAdapter = {
     ...host,
-    id: "claude-evidence.consumer",
+    id: "native-evidence.boundary-consumer",
     async run(request) {
       const view = defined(request.candidateTranscriptRoot);
       expect(
-        await readFile(join(view, "claude/project/runtime-test.jsonl"), "utf8"),
-      ).toBe(bytes);
+        await readFile(join(view, "codex/rollout-runtime-test.jsonl")),
+      ).toEqual(original);
+      expect(await readFile(join(view, "codex/empty.bin"))).toEqual(
+        Buffer.alloc(0),
+      );
       return {
         complete: true,
         finalMessage: JSON.stringify({
@@ -152,7 +221,7 @@ test("evaluation supplies verified Claude native bytes to a retained-evidence co
             {
               id: "native-evidence",
               verdict: "pass",
-              reason: "Verified native bytes",
+              reason: "Exact bounded native bytes",
             },
           ],
         }),
@@ -164,6 +233,80 @@ test("evaluation supplies verified Claude native bytes to a retained-evidence co
   );
   expect(result.task.verdict).toBe("passed");
 });
+
+test.each(["v1", "v2"])(
+  "evaluation supplies verified Claude native bytes from %s to a retained-evidence consumer",
+  async (version) => {
+    const { root } = await codexFixture();
+    const bytes =
+      '{"type":"assistant","message":{"model":"fixture","content":[]}}';
+    const host: HostAdapter = {
+      id: "claude-evidence.fixture",
+      model: "fixture",
+      effort: "low",
+      run() {
+        return Promise.resolve({
+          complete: true,
+          finalMessage: "ready",
+          artifacts: [
+            {
+              id: "sevro.native-transcripts.bundle",
+              bytes: Buffer.from(
+                JSON.stringify({
+                  ...retainedNativeBundle,
+                  format: `sevro.native-transcripts.${version}`,
+                  host: "claude",
+                  files: [
+                    {
+                      path: "project/runtime-test.jsonl",
+                      sha256: createHash("sha256").update(bytes).digest("hex"),
+                      ...(version === "v1"
+                        ? { bytesBase64: Buffer.from(bytes).toString("base64") }
+                        : {
+                            gzipBase64: gzipSync(Buffer.from(bytes)).toString(
+                              "base64",
+                            ),
+                          }),
+                    },
+                  ],
+                }),
+              ),
+            },
+          ],
+        });
+      },
+    };
+    const semanticHost: HostAdapter = {
+      ...host,
+      id: "claude-evidence.consumer",
+      async run(request) {
+        const view = defined(request.candidateTranscriptRoot);
+        expect(
+          await readFile(
+            join(view, "claude/project/runtime-test.jsonl"),
+            "utf8",
+          ),
+        ).toBe(bytes);
+        return {
+          complete: true,
+          finalMessage: JSON.stringify({
+            checks: [
+              {
+                id: "native-evidence",
+                verdict: "pass",
+                reason: "Verified native bytes",
+              },
+            ],
+          }),
+        };
+      },
+    };
+    const { result } = await runEvaluation(
+      retainedNativeEvaluation(root, host, semanticHost),
+    );
+    expect(result.task.verdict).toBe("passed");
+  },
+);
 
 function retainedNativeEvaluation(
   root: string,

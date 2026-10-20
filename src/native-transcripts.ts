@@ -1,5 +1,6 @@
 import { lstat, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { gzipSync } from "node:zlib";
 import { sha256 } from "./identity";
 import { HostExecutionFailure, type HostResult } from "./evaluation/types";
 import type { RuntimeRole } from "./runtime/state";
@@ -81,7 +82,7 @@ function requireFailureCapture(
 const MAX_FILES = 4096;
 const MAX_BYTES = 5 * 1024 * 1024;
 const MAX_ENCODED_FILES_BYTES = 7 * 1024 * 1024;
-type NativeFile = { path: string; sha256: string; bytesBase64: string };
+type NativeFile = { path: string; sha256: string; gzipBase64: string };
 type Capture = {
   files: NativeFile[];
   bytes: number;
@@ -113,7 +114,7 @@ export async function retainNativeTranscripts(
   observeCaptureRoot(capture, rootSessionId, host);
   const completeness = captureCompleteness(capture, result);
   const bundle = {
-    format: "sevro.native-transcripts.v1",
+    format: "sevro.native-transcripts.v2",
     host,
     role,
     rootSessionId,
@@ -226,7 +227,7 @@ async function captureFile(
   const file = {
     path,
     sha256: sha256(bytes),
-    bytesBase64: bytes.toString("base64"),
+    gzipBase64: gzipSync(bytes).toString("base64"),
   };
   const issue = nativeFileIssue(path, bytes);
   if (issue && !capture.issues.includes(issue)) capture.issues.push(issue);
