@@ -35,6 +35,16 @@ remaining completed result; if none remain, the index is removed and `--latest`
 reports a missing-input diagnostic. Explicit reports still require their selected
 results and evidence to exist.
 
+After [`sevro prune --native-transcripts`](reading-results.md#remove-native-transcript-bundles),
+reports accept absent native bundles only with the matching
+[pruning receipt](results-v1.md#native-transcript-bundles). Present bundles must
+still match their recorded hashes; unexplained missing bytes remain an error.
+New report rows include optional `nativeTranscripts` with nonnegative integer
+`retained` and `pruned` bundle counts across the case's trials and host roles.
+Markdown shows the same counts beside retained evidence. Older report documents
+without this field remain valid. Pruning does not change verdicts, routes,
+identity, usage, or duration.
+
 Each case row keeps task verdict, execution, and grading separate. Task pass
 rate is measured only when every trial completed execution and grading with an
 assessed task verdict. Candidate duration sums the measured host call time

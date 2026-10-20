@@ -110,6 +110,15 @@
         "domainOutcomes"
       ],
       "properties": {
+        "nativeTranscripts": {
+          "type": "object",
+          "required": ["retained", "pruned"],
+          "properties": {
+            "retained": { "type": "integer", "minimum": 0 },
+            "pruned": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        },
         "resultFile": { "$ref": "#/$defs/path" },
         "evidencePath": { "type": ["string", "null"] },
         "runId": { "type": ["string", "null"] },

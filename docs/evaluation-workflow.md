@@ -81,7 +81,10 @@ an earlier failed assessment into success.
 `report --latest --results-root ./other-results` for another output root or working
 directory. `--result-file ./path/to/result.json` selects older runs and accepts
 relative paths. Reports validate referenced evidence; missing/moved evidence
-produces a diagnostic. [Report v1](report-v1.md) defines fields and limits.
+produces a diagnostic. To reclaim native bundle space while keeping reportable
+results and hashes, use [`sevro prune --native-transcripts`](reading-results.md#remove-native-transcript-bundles).
+Reports label bundles intentionally removed by that command as pruned.
+[Report v1](report-v1.md) defines fields and limits.
 
 ## Choose another starter
 

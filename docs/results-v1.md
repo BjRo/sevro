@@ -261,3 +261,23 @@ structure, not native semantic correctness.
 An empty/missing native JSONL tree is `unavailable`. Failure, cancellation and
 timeout retain available native bytes with incomplete capture state. Raw
 bundles and views are private evidence and must stay out of Git.
+
+The explicit [`sevro prune --native-transcripts` mode](reading-results.md#remove-native-transcript-bundles)
+can remove these bundles without rewriting CLI results, run/trial evidence,
+capture observations, native file hashes, or whole-bundle hashes. It retains
+other artifacts and does not change evaluation identity or assessment states.
+Reports validate present native bundles against their recorded SHA-256 and
+require an exact pruning receipt for absent bundles.
+
+Before deletion, Sevro atomically writes private
+`native-transcripts-pruned.json` beside `run.json`, with format
+`sevro.pruned-native-transcripts.v1`, the original `runId`, and `artifacts`.
+Each entry contains the original artifact reference (`id`, `path`, `sha256`,
+and any optional reference flags), plus its `caseId` and `trial`. Entries follow
+run trial/reference order and cover every candidate, semantic (including
+source-specific), and advisory native bundle in that run. A receipt must match
+these original references exactly; malformed, inconsistent, or linked receipts
+are errors. Bundle references must name regular files directly inside their
+result directory. Missing bytes without a receipt, changed hashes, and escaping
+references remain errors. An interrupted deletion may leave some marked bundles
+present; reports count actual availability, and a repeated prune completes removal.
