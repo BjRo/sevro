@@ -90,6 +90,73 @@ Newly created or changed skill bodies are outside the prepared snapshot. A
 complete empty observation is limited to this scope and the supported local
 tool hook paths.
 
+Codex observations include `incompleteReasons`: an empty array for a complete
+collection, or all applicable reason codes for a partial collection. Older
+observations without this field have unknown reasons; their missing details
+cannot be reconstructed from balanced native call/return counts.
+
+| Reason                                           | Meaning                                                                                            |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
+| `host_incomplete`                                | Host execution did not complete.                                                                   |
+| `catalog_incomplete`                             | The prepared catalog could not be collected completely.                                            |
+| `receipts_unavailable`                           | The receipt file is missing or unreadable.                                                         |
+| `invalid_receipts`                               | A malformed receipt stopped processing; earlier valid receipts remain available.                   |
+| `receipt_limit`                                  | The receipt file exceeds the collection byte limit.                                                |
+| `observer_failure`                               | The hook recorded a failure or writer limit, including input, nesting or matching-budget failures. |
+| `session_identity_missing`                       | No root session identity was available.                                                            |
+| `session_start_missing` / `session_stop_missing` | The root session lacks the corresponding lifecycle hook.                                           |
+| `pending_tool_calls`                             | Pre-tool hooks remain without matching post-tool hooks.                                            |
+| `unmatched_post_tool_use`                        | Post-tool hooks were received without pending pre-tool hooks.                                      |
+| `duplicate_tool_calls`                           | A pre-tool identity was already pending or finished.                                               |
+| `partial_hook_events`                            | A hook receipt is partial independently of body ambiguity.                                         |
+| `ambiguous_skill_bodies`                         | Complete body exposure could not distinguish skill names.                                          |
+| `partial_skill_bodies`                           | Recognized fragments remain without complete body exposure.                                        |
+| `calls_truncated`                                | Relevant call evidence exceeded its public count or byte budget.                                   |
+
+The `collection` summary reports `eventCount`, `preToolUseCount`,
+`postToolUseCount`, `pendingToolCallCount`, `unmatchedPostToolUseCount`,
+`duplicateToolCallCount` and `partialEventCount`, plus `sessionIdentified`,
+`sessionStarted` and `sessionStopped` for the root session. Counts cover all
+successfully parsed receipts, including receipts omitted from `calls`; an
+unreadable or invalid tail remains unknown. Tool pairing spans the observed
+sessions and uses session and tool-use identities. A later balanced pair is
+still counted after an earlier anomaly.
+
+`calls` is a bounded selection of complete matches, fragment-only matches,
+ambiguous or partial receipts, and receipts associated with pending, orphaned
+or duplicate tool identities. Each entry's `fragmentSkills` names recognizable
+fragments without exposing their body offsets or digests. A fragment entry can
+remain in `calls` after later complete exposure resolves `partialSkills`.
+Neither `partial: false` on an individual receipt nor an empty `partialSkills`
+array proves aggregate completeness. `truncated` describes this selected call
+list, which is never the complete observer event ledger. A pending tool hook
+can follow a rejected launch or a missing hook; it does not establish either
+cause, and a tool error with a balanced hook pair does not itself imply an
+observer gap. These diagnostics preserve unknown activation verdicts and do
+not recover activation from native transcripts.
+
+Codex also reports `primarySkill` and `primarySkillCompleteness` separately
+from whole-collection completeness. A complete collection establishes its first
+observed skill when the first matching receipt credits exactly one skill, or
+`null` when none was observed. Multiple bodies credited by the first receipt
+leave primary selection unknown even with complete collection; their catalog
+order does not prove selection order. A partial collection can still
+establish the primary skill when its only gap is pending tool calls, exactly one
+skill was credited by the first matching receipt, and every call started through
+that receipt has a matching post hook. A later pending call cannot change that
+established first selection. An earlier or overlapping pending call leaves the
+primary unknown (`null` with `primarySkillCompleteness: partial`). Other
+collection gaps remain conservative. Consumers may use the established primary
+for first-selection assertions while retaining the partial collection status;
+this claim does not establish exclusions or a complete supporting sequence.
+When a partial collection establishes the primary, the same collector emits
+`sevro.host.skill-activation-claims` as complete evidence with scope
+`primary_and_positive_presence`, the qualified `primarySkill`, and `presentSkills`.
+It retains `collectionCompleteness: partial`. Consumers cite this receipt for
+those specific claims, preserving the protocol's requirement that passing
+results cite complete evidence. It cannot establish an exclusion or an
+unobserved supporting read and is absent when the primary is unknown.
+
 Claude's `skill_tool_result` method observes its existing structured `Skill`
 stream without enabling additional command hooks. It pairs each call with a
 successful result under the same session, parent actor and tool-use ID.

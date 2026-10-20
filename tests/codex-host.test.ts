@@ -256,13 +256,24 @@ const pagedSkillPages = [
   "# Second page\nRead the second instruction and return the requested result.\n",
 ] as const;
 
+interface CodexSkillPage {
+  text: string;
+  session?: string;
+  turn?: string;
+  omitPost?: boolean;
+}
+interface SkillTrackingFixtureOptions {
+  body?: string;
+  aliases?: readonly string[];
+  siblings?: Record<string, string>;
+  omitStart?: boolean;
+  omitStop?: boolean;
+  hookEvents?: readonly { event: string; fields?: Record<string, unknown> }[];
+}
+
 async function runPagedCodex(
-  pages: readonly { text: string; session?: string; turn?: string }[],
-  options: {
-    body?: string;
-    aliases?: string[];
-    siblings?: Record<string, string>;
-  } = {},
+  pages: readonly CodexSkillPage[],
+  options: SkillTrackingFixtureOptions = {},
 ) {
   const { host, request } = await ordinaryCodexRequest();
   const body = options.body ?? pagedSkillPages.join("");
@@ -284,7 +295,16 @@ async function runPagedCodex(
   }
   await writeFile(
     join(request.workspace, ".git/skill-hooks.ts"),
-    `
+    pagedHookScript(pages, options),
+  );
+  return host.run(request);
+}
+
+function pagedHookScript(
+  pages: readonly CodexSkillPage[],
+  options: SkillTrackingFixtureOptions,
+) {
+  return `
 const definitions = await Bun.file(process.env.CODEX_HOME + "/hooks.json").json();
 async function emit(name, fields = {}) {
   const input = {hook_event_name: name, session_id: "thread-1", turn_id: "turn-1", ...fields};
@@ -292,16 +312,15 @@ async function emit(name, fields = {}) {
   const child = Bun.spawn(["/bin/sh", "-c", command], {stdin: Buffer.from(JSON.stringify(input)), stdout: "pipe", stderr: "pipe"});
   if (await child.exited !== 0) process.exit(90);
 }
-await emit("SessionStart");
+if (!${Boolean(options.omitStart)}) await emit("SessionStart");
 for (const [index, page] of ${JSON.stringify(pages)}.entries()) {
   const identity = {tool_use_id: "page-" + index, tool_name: "Bash", session_id: page.session ?? "thread-1", turn_id: page.turn ?? "turn-1"};
   await emit("PreToolUse", identity);
-  await emit("PostToolUse", {...identity, tool_response: {output: "private-output-prefix\\n" + page.text + "private-output-suffix"}});
+  if (!page.omitPost) await emit("PostToolUse", {...identity, tool_response: {output: "private-output-prefix\\n" + page.text + "private-output-suffix"}});
 }
-await emit("Stop");
-`,
-  );
-  return host.run(request);
+for (const extra of ${JSON.stringify(options.hookEvents ?? [])}) await emit(extra.event, extra.fields);
+if (!${Boolean(options.omitStop)}) await emit("Stop");
+`;
 }
 
 const sharedSkillParagraph =
@@ -310,6 +329,258 @@ const completeProbeBody = pagedSkillPages.join("") + sharedSkillParagraph;
 const siblingSkillBody =
   "---\nname: sibling\ndescription: An unrelated greeting skill.\n---\n# Sibling\nReturn HELLO only when asked for the sibling diagnostic.\n\n" +
   sharedSkillParagraph;
+
+test("Codex activation evidence explains an unmatched tool hook without losing skill credit", async () => {
+  if (!isolatedNativeHost) return;
+  const result = await runPagedCodex(
+    [
+      { text: completeProbeBody },
+      { text: "policy-rejected private command", omitPost: true },
+    ],
+    { body: completeProbeBody },
+  );
+  expect(result.complete).toBe(true);
+  const observation = result.observations?.find(
+    (item) => item.id === "sevro.host.skill-activations",
+  );
+  expect(observation).toMatchObject({
+    completeness: "partial",
+    data: {
+      observedSkills: ["probe"],
+      partialSkills: [],
+      incompleteReasons: ["pending_tool_calls"],
+      collection: {
+        eventCount: 5,
+        preToolUseCount: 2,
+        postToolUseCount: 1,
+        pendingToolCallCount: 1,
+      },
+    },
+  });
+  expect(JSON.stringify(observation)).not.toContain("private command");
+});
+
+test("Codex preserves a proven primary activation before a later hook gap", async () => {
+  if (!isolatedNativeHost) return;
+  const result = await runPagedCodex(
+    [{ text: completeProbeBody }, { text: "rejected", omitPost: true }],
+    { body: completeProbeBody },
+  );
+  expect(
+    result.observations?.find(
+      (item) => item.id === "sevro.host.skill-activations",
+    ),
+  ).toMatchObject({
+    completeness: "partial",
+    data: {
+      primarySkill: "probe",
+      primarySkillCompleteness: "complete",
+      incompleteReasons: ["pending_tool_calls"],
+    },
+  });
+});
+
+test("Codex publishes complete primary claims without completing collection", async () => {
+  if (!isolatedNativeHost) return;
+  const result = await runPagedCodex(
+    [{ text: completeProbeBody }, { text: "rejected", omitPost: true }],
+    { body: completeProbeBody },
+  );
+  expect(result.observations).toContainEqual({
+    id: "sevro.host.skill-activation-claims",
+    completeness: "complete",
+    data: {
+      method: "tool_result_body_match",
+      scope: "primary_and_positive_presence",
+      collectionCompleteness: "partial",
+      primarySkill: "probe",
+      presentSkills: ["probe"],
+    },
+  });
+});
+
+test("Codex cannot establish primary selection across an earlier hook gap", async () => {
+  if (!isolatedNativeHost) return;
+  const result = await runPagedCodex(
+    [{ text: "unobserved", omitPost: true }, { text: completeProbeBody }],
+    { body: completeProbeBody },
+  );
+  expect(
+    result.observations?.find(
+      (item) => item.id === "sevro.host.skill-activations",
+    ),
+  ).toMatchObject({
+    completeness: "partial",
+    data: {
+      observedSkills: ["probe"],
+      primarySkill: null,
+      primarySkillCompleteness: "partial",
+    },
+  });
+  expect(
+    result.observations?.some(
+      (item) => item.id === "sevro.host.skill-activation-claims",
+    ),
+  ).toBe(false);
+});
+
+test("Codex keeps primary unknown when one completed result exposes multiple bodies", async () => {
+  if (!isolatedNativeHost) return;
+  const result = await runPagedCodex(
+    [{ text: siblingSkillBody + completeProbeBody }],
+    { body: completeProbeBody, siblings: { sibling: siblingSkillBody } },
+  );
+  expect(
+    result.observations?.find(
+      (item) => item.id === "sevro.host.skill-activations",
+    ),
+  ).toMatchObject({
+    completeness: "complete",
+    data: {
+      observedSkills: ["probe", "sibling"],
+      primarySkill: null,
+      primarySkillCompleteness: "partial",
+    },
+  });
+});
+
+test("Codex activation calls retain fragment-only and pending hook evidence", async () => {
+  if (!isolatedNativeHost) return;
+  const result = await runPagedCodex(
+    [
+      { text: completeProbeBody },
+      { text: sharedSkillParagraph },
+      { text: "private rejected output", omitPost: true },
+    ],
+    { body: completeProbeBody, siblings: { sibling: siblingSkillBody } },
+  );
+  const observation = result.observations?.find(
+    (item) => item.id === "sevro.host.skill-activations",
+  );
+  expect(observation).toMatchObject({
+    completeness: "partial",
+    data: {
+      observedSkills: ["probe"],
+      partialSkills: ["sibling"],
+      calls: [
+        {
+          event: "PostToolUse",
+          toolUseId: "page-0",
+          invocations: ["probe"],
+          fragmentSkills: [],
+        },
+        {
+          event: "PostToolUse",
+          toolUseId: "page-1",
+          invocations: [],
+          fragmentSkills: ["probe", "sibling"],
+        },
+        {
+          event: "PreToolUse",
+          toolUseId: "page-2",
+          invocations: [],
+          fragmentSkills: [],
+        },
+      ],
+    },
+  });
+  for (const privateValue of [
+    "bodyRanges",
+    "sha256",
+    sharedSkillParagraph,
+    "private rejected output",
+  ])
+    expect(JSON.stringify(observation)).not.toContain(privateValue);
+});
+
+test.each([
+  {
+    name: "missing session start",
+    options: { omitStart: true },
+    reasons: ["session_start_missing"],
+  },
+  {
+    name: "missing session stop",
+    options: { omitStop: true },
+    reasons: ["session_stop_missing"],
+  },
+  {
+    name: "fragment-only output",
+    options: { siblings: { sibling: siblingSkillBody } },
+    reasons: ["partial_skill_bodies"],
+  },
+  {
+    name: "ambiguous bodies",
+    options: { aliases: ["alias"] },
+    reasons: ["ambiguous_skill_bodies"],
+  },
+  {
+    name: "orphan post hook",
+    options: {
+      hookEvents: [
+        {
+          event: "PostToolUse",
+          fields: { tool_use_id: "orphan", tool_name: "Bash" },
+        },
+      ],
+    },
+    reasons: ["unmatched_post_tool_use"],
+  },
+  {
+    name: "duplicate pre hook",
+    options: {
+      hookEvents: [
+        {
+          event: "PreToolUse",
+          fields: { tool_use_id: "page-0", tool_name: "Bash" },
+        },
+        {
+          event: "PostToolUse",
+          fields: { tool_use_id: "page-0", tool_name: "Bash" },
+        },
+      ],
+    },
+    reasons: ["duplicate_tool_calls"],
+  },
+  {
+    name: "invalid hook identity",
+    options: {
+      hookEvents: [
+        {
+          event: "PostToolUse",
+          fields: { tool_use_id: "orphan", tool_name: null },
+        },
+      ],
+    },
+    reasons: ["unmatched_post_tool_use", "partial_hook_events"],
+  },
+  {
+    name: "observer failure",
+    options: {
+      hookEvents: [{ event: "PostToolUse", fields: { hook_event_name: null } }],
+    },
+    reasons: ["observer_failure"],
+  },
+])(
+  "Codex partial collection exposes reasons: $name",
+  async ({ options, reasons }) => {
+    if (!isolatedNativeHost) return;
+    const result = await runPagedCodex(
+      [{ text: completeProbeBody }, { text: sharedSkillParagraph }],
+      { body: completeProbeBody, ...options },
+    );
+    const observation = result.observations?.find(
+      (item) => item.id === "sevro.host.skill-activations",
+    );
+    expect(observation).toMatchObject({
+      completeness: "partial",
+      data: {
+        incompleteReasons: reasons,
+        collection: { pendingToolCallCount: 0 },
+      },
+    });
+  },
+);
 
 test("complete Codex skill reads do not imply partial reads of shared siblings", async () => {
   if (!isolatedNativeHost) return;
