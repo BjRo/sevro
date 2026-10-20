@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { createClaudeHost } from "../../src/hosts/claude";
 import { nativeStateParent } from "../../src/native-transcript-state";
 import { createHash } from "node:crypto";
+import { gunzipSync } from "node:zlib";
 import { defined } from "../fixtures/assertions";
 import { nativeRoot } from "../fixtures/runtime-host-fixtures";
 import { createCodexFixture } from "../fixtures/runtime-host-fixtures";
@@ -28,9 +29,65 @@ afterEach(async () => {
 const codexFixture = createCodexFixture(roots);
 
 type NativeBundle = {
+  format: string;
   completeness: string;
-  files: { path: string; bytesBase64: string; sha256: string }[];
+  files: { path: string; gzipBase64: string; sha256: string }[];
 };
+
+test("native capture stores gzip v2 payloads that recover exact file bytes", async () => {
+  const { host, root, workspace } = await codexFixture();
+  const nativeBytes = Buffer.from(
+    '{"type":"future_native_record","text":"Preserve 🧭 and unknown fields"}\r\n'.repeat(
+      256,
+    ),
+  );
+  const sidecarBytes = Buffer.from([0, 255, 128, 13, 10, 1]);
+  await writeFile(
+    join(root, "candidate"),
+    `#!${process.execPath}
+import {mkdir,writeFile} from 'node:fs/promises';
+const path = process.env.CODEX_HOME + '/sessions';
+await mkdir(path, {recursive:true});
+await writeFile(path + '/rollout-runtime-test.jsonl', Buffer.from('${nativeBytes.toString("base64")}', 'base64'));
+await writeFile(path + '/sidecar.bin', Buffer.from('${sidecarBytes.toString("base64")}', 'base64'));
+console.log(JSON.stringify({type:'thread.started',thread_id:'runtime-test'}));
+console.log(JSON.stringify({type:'item.completed',item:{type:'agent_message',text:'ready'}}));
+console.log(JSON.stringify({type:'turn.completed',usage:{input_tokens:1,output_tokens:1}}));
+`,
+    { mode: 0o700 },
+  );
+  const result = await host.run({
+    prompt: "Return ready",
+    workspace,
+    condition: "passive",
+    runtimePolicy: {
+      format: "sevro.runtime.v1",
+      environment: {},
+      readOnlyRoots: [],
+      nativeTranscripts: true,
+    },
+  });
+  const artifact = defined(
+    result.artifacts?.find(
+      (item) => item.id === "sevro.native-transcripts.bundle",
+    ),
+  );
+  const bundle = JSON.parse(
+    Buffer.from(artifact.bytes).toString(),
+  ) as NativeBundle;
+  expect(bundle.format).toBe("sevro.native-transcripts.v2");
+  expect(bundle.completeness).toBe("complete");
+  expect(artifact.bytes.byteLength).toBeLessThan(nativeBytes.byteLength / 4);
+  for (const [path, bytes] of [
+    ["rollout-runtime-test.jsonl", nativeBytes],
+    ["sidecar.bin", sidecarBytes],
+  ] as const) {
+    const file = defined(bundle.files.find((item) => item.path === path));
+    expect(gunzipSync(Buffer.from(file.gzipBase64, "base64"))).toEqual(bytes);
+    expect(file.sha256).toBe(createHash("sha256").update(bytes).digest("hex"));
+    expect(file).not.toHaveProperty("bytesBase64");
+  }
+});
 
 test.each([false, undefined])(
   "Claude disabled transcript policy keeps command home and temp outside private denial: %s",
@@ -126,8 +183,8 @@ console.log(JSON.stringify({type:'turn.completed',usage:{input_tokens:1,output_t
     expect(observation.completeness).toBe("partial");
     expect(bundle.completeness).toBe(observation.completeness);
     const child = defined(bundle.files.find((file) => file.path === name));
-    expect(child.bytesBase64).toBe(
-      Buffer.from('{"truncated":').toString("base64"),
+    expect(gunzipSync(Buffer.from(child.gzipBase64, "base64"))).toEqual(
+      Buffer.from('{"truncated":'),
     );
     expect(child.sha256).toBe(
       createHash("sha256").update('{"truncated":').digest("hex"),
@@ -192,7 +249,9 @@ console.log(JSON.stringify({type:'turn.completed',usage:{input_tokens:1,output_t
     expect(bundle.completeness).toBe(observation.completeness);
     const bytes =
       content === "\ufffd" ? Buffer.from([0xff]) : Buffer.from(content);
-    expect(defined(bundle.files[0]).bytesBase64).toBe(bytes.toString("base64"));
+    expect(
+      gunzipSync(Buffer.from(defined(bundle.files[0]).gzipBase64, "base64")),
+    ).toEqual(bytes);
     expect(defined(bundle.files[0]).sha256).toBe(
       createHash("sha256").update(bytes).digest("hex"),
     );
@@ -465,9 +524,12 @@ test("Codex opt-in retains native bytes and marks missing sessions unavailable",
       (item) => item.id === "sevro.native-transcripts.bundle",
     ),
   );
-  expect(Buffer.from(artifact.bytes).toString()).toContain(
-    Buffer.from(nativeRoot).toString("base64"),
-  );
+  const bundle = JSON.parse(
+    Buffer.from(artifact.bytes).toString(),
+  ) as NativeBundle;
+  expect(
+    gunzipSync(Buffer.from(defined(bundle.files[0]).gzipBase64, "base64")),
+  ).toEqual(Buffer.from(nativeRoot));
 });
 
 test("native capture refuses to call a missing original session complete", async () => {
@@ -564,15 +626,17 @@ test("Codex opt-in preserves partial native transcripts when native execution fa
       (item) => item.id === "sevro.host.native-transcripts",
     )?.completeness,
   ).toBe("partial");
+  const artifact = defined(
+    result.artifacts?.find(
+      (item) => item.id === "sevro.native-transcripts.bundle",
+    ),
+  );
+  const bundle = JSON.parse(
+    Buffer.from(artifact.bytes).toString(),
+  ) as NativeBundle;
   expect(
-    Buffer.from(
-      defined(
-        result.artifacts?.find(
-          (item) => item.id === "sevro.native-transcripts.bundle",
-        ),
-      ).bytes,
-    ).toString(),
-  ).toContain(Buffer.from("unfinished").toString("base64"));
+    gunzipSync(Buffer.from(defined(bundle.files[0]).gzipBase64, "base64")),
+  ).toEqual(Buffer.from("unfinished"));
 });
 
 test("native host refuses an unsafe pre-existing transcript namespace", async () => {
@@ -696,7 +760,12 @@ test("native capture refuses credential-bearing source links", async () => {
       (item) => item.id === "sevro.native-transcripts.bundle",
     ),
   );
-  expect(Buffer.from(artifact.bytes).toString()).not.toContain(
-    Buffer.from("synthetic-auth").toString("base64"),
-  );
+  const bundle = JSON.parse(
+    Buffer.from(artifact.bytes).toString(),
+  ) as NativeBundle;
+  expect(bundle.files.map((file) => file.path)).not.toContain("escape.jsonl");
+  for (const file of bundle.files)
+    expect(
+      gunzipSync(Buffer.from(file.gzipBase64, "base64")).toString(),
+    ).not.toContain("synthetic-auth");
 });

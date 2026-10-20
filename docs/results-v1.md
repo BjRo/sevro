@@ -224,13 +224,25 @@ failure; cleanup warnings contain no raw error/output bodies.
 With [runtime transcript opt-in](runtime-v1.md#native-transcript-access), each
 bundled host captures full native files before removing its private state.
 Candidate artifact `sevro.native-transcripts.bundle` has format
-`sevro.native-transcripts.v1`. It contains `host` (`codex` or `claude`), `role`,
+`sevro.native-transcripts.v2`. It contains `host` (`codex` or `claude`), `role`,
 native `rootSessionId` (or `null`), `completeness`, `issues`, and `files`.
-Each file records its native relative `path`, SHA-256 `sha256`, and exact bytes
-as `bytesBase64`. Decode the bytes without rewriting native records. Native
+Each file records its native relative `path`, SHA-256 `sha256` of the original
+bytes, and `gzipBase64`: the exact file bytes compressed with gzip, then encoded
+as base64. Decode base64, decompress gzip, and verify the original-byte hash
+before using a file. Bound decompression to 5 MiB across all files in the bundle.
+Decode bytes without rewriting native records. Native
 session paths, root/child records and sidecar metadata preserve associations;
 the bundle does not normalize model, effort, timing, token, or cost statistics.
 Existing unknown metrics remain unknown.
+
+Sevro reads both v2 bundles and existing `sevro.native-transcripts.v1` bundles.
+V1 files use uncompressed `bytesBase64`; decode that field directly without
+gzip decompression and verify the same original-byte hash. Readers must select
+the payload field and decoding by `format` and reject unsupported formats,
+corrupt compressed payloads, hash mismatches, or a decoded total above 5 MiB.
+New captures emit v2; reading retained v1 evidence does not rewrite it.
+The retained view exposes the same exact native files for either format, with
+the original bundle in `index.json`.
 
 `sevro.host.native-transcripts` records the same capture state and file hashes
 without raw bytes. Semantic and advisory bundles retain their role in the
@@ -242,7 +254,8 @@ benchmarks can use the same references and decode the native files.
 
 Capture includes native transcript-tree sidecars and refuses descendant links,
 special files and escaping paths. It is bounded to 4,096 directory entries,
-5 MiB of native file bytes and 7 MiB of encoded file metadata/content. The
+5 MiB of native file bytes before compression and 7 MiB of encoded file
+metadata/gzip content. The
 bundle remains inside the existing 8 MiB item and 32 MiB host artifact budgets;
 it groups sessions instead of spending an artifact per child. Limits produce
 `byte_limit`, `entry_limit`, or `bundle_limit` issues. Unreadable, unsafe or
