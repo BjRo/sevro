@@ -295,6 +295,7 @@ test("passive hooks identify returned bodies without parsing commands or retaini
     true,
   );
   expect(observation.completeness).toBe("complete");
+  expect(observation.data.incompleteReasons).toEqual([]);
   expect(observation.data.observedSkills).toEqual(["plugin:fixture"]);
   expect(observation.data.calls.map((call) => call.toolUseId)).toEqual([
     "full",
@@ -307,8 +308,13 @@ test("passive hooks identify returned bodies without parsing commands or retaini
 test("missing collection and unfinished tools remain partial while preserving positive evidence", async () => {
   const { tracking } = await fixture();
   expect(
-    (await skillTrackingObservation(tracking, "session-a", true)).completeness,
-  ).toBe("partial");
+    (await skillTrackingObservation(tracking, "session-a", true)).data
+      .incompleteReasons,
+  ).toEqual([
+    "receipts_unavailable",
+    "session_start_missing",
+    "session_stop_missing",
+  ]);
   await emit(tracking, "SessionStart");
   await tool(tracking, "positive", body);
   await emit(tracking, "PreToolUse", {
@@ -347,11 +353,21 @@ test("complete empty collection differs from a failed host or the wrong session"
     (await skillTrackingObservation(tracking, "session-a", true)).completeness,
   ).toBe("complete");
   expect(
-    (await skillTrackingObservation(tracking, "session-a", false)).completeness,
-  ).toBe("partial");
+    (await skillTrackingObservation(tracking, "session-a", false)).data
+      .incompleteReasons,
+  ).toEqual(["host_incomplete"]);
   expect(
-    (await skillTrackingObservation(tracking, "other", true)).completeness,
-  ).toBe("partial");
+    (await skillTrackingObservation(tracking, "other", true)).data
+      .incompleteReasons,
+  ).toEqual(["session_start_missing", "session_stop_missing"]);
+  expect(
+    (await skillTrackingObservation(tracking, null, true)).data
+      .incompleteReasons,
+  ).toEqual([
+    "session_identity_missing",
+    "session_start_missing",
+    "session_stop_missing",
+  ]);
 });
 
 test("malformed hook inputs stay silent and mark evidence partial", async () => {
@@ -495,6 +511,7 @@ test("invalid receipt tails preserve earlier positives while marking collection 
     await storeReceipts(tracking, [...valid, invalid]);
     const observation = await skillTrackingObservation(tracking, "s", true);
     expect(observation.completeness).toBe("partial");
+    expect(observation.data.incompleteReasons).toEqual(["invalid_receipts"]);
     expect(observation.data.observedSkills).toEqual(["fixture"]);
   }
 });
@@ -508,6 +525,11 @@ test("receipt files exceeding the collection budget cannot report complete evide
   const observation = await skillTrackingObservation(tracking, "s", true);
   expect(observation.completeness).toBe("partial");
   expect(observation.data.calls).toEqual([]);
+  expect(observation.data.incompleteReasons).toEqual([
+    "receipt_limit",
+    "session_start_missing",
+    "session_stop_missing",
+  ]);
 });
 
 test("duplicate tool identities make an otherwise finished lifecycle partial", async () => {
@@ -548,6 +570,7 @@ test("retained activation calls respect both count and serialized byte limits", 
     const observation = await skillTrackingObservation(tracking, "s", true);
     expect(observation.completeness).toBe("partial");
     expect(observation.data.truncated).toBe(true);
+    expect(observation.data.incompleteReasons).toEqual(["calls_truncated"]);
     expect(observation.data.observedSkills).toEqual(["fixture"]);
     if (padding) expect(observation.data.calls.length).toBeLessThan(128);
     else expect(observation.data.calls).toHaveLength(128);

@@ -142,69 +142,107 @@ function receiptLabels(value: Record<string, unknown>): boolean {
 
 async function receipts(tracking: SkillTracking) {
   const root = tracking.configuration.receipts;
-  const result = { events: [] as SkillHookReceipt[], partial: false };
+  const result = { events: [] as SkillHookReceipt[], reasons: [] as string[] };
+  if (await Bun.file(join(root, "partial")).exists())
+    result.reasons.push("observer_failure");
   try {
     const path = join(root, "events.jsonl");
     if ((await stat(path)).size > MAX_EVENTS_BYTES)
-      throw new Error("oversized skill hook receipts");
-    result.partial = await Bun.file(join(root, "partial")).exists();
-    for (const line of (await readFile(path, "utf8")).trimEnd().split("\n")) {
-      const event: unknown = JSON.parse(line);
-      if (!isReceipt(event, tracking.configuration.skills))
-        throw new Error("invalid skill hook receipt");
-      result.events.push(event);
-    }
-  } catch {
-    result.partial = true;
+      return { ...result, reasons: [...result.reasons, "receipt_limit"] };
+    parseReceipts(
+      await readFile(path, "utf8"),
+      tracking.configuration.skills,
+      result.events,
+    );
+  } catch (error) {
+    result.reasons.push(
+      error instanceof SyntaxError
+        ? "invalid_receipts"
+        : "receipts_unavailable",
+    );
   }
   return result;
+}
+
+function parseReceipts(
+  text: string,
+  skills: HookSkill[],
+  events: SkillHookReceipt[],
+) {
+  for (const line of text.trimEnd().split("\n")) {
+    const event: unknown = JSON.parse(line);
+    if (!isReceipt(event, skills))
+      throw new SyntaxError("invalid skill hook receipt");
+    events.push(event);
+  }
 }
 
 function hookKey(event: SkillHookReceipt): string {
   return JSON.stringify([event.sessionId, event.toolUseId]);
 }
 
-function collectionComplete(
+function collectionSummary(
   events: SkillHookReceipt[],
   sessionId: string | null,
-): boolean {
-  if (!lifecycleAvailable(events, sessionId)) return false;
+) {
   const ledger = {
     pending: new Set<string>(),
     finished: new Set<string>(),
-    partial: false,
+    diagnosticKeys: new Set<string>(),
+    duplicateToolCallCount: 0,
+    unmatchedPostToolUseCount: 0,
   };
   for (const event of events) updatePending(event, ledger);
-  return (
-    ledger.pending.size === 0 &&
-    !ledger.partial &&
-    events.every((event) => !event.partial)
-  );
+  return {
+    diagnosticKeys: new Set([...ledger.diagnosticKeys, ...ledger.pending]),
+    eventCount: events.length,
+    preToolUseCount: events.filter((event) => event.event === "PreToolUse")
+      .length,
+    postToolUseCount: events.filter((event) => event.event === "PostToolUse")
+      .length,
+    pendingToolCallCount: ledger.pending.size,
+    duplicateToolCallCount: ledger.duplicateToolCallCount,
+    unmatchedPostToolUseCount: ledger.unmatchedPostToolUseCount,
+    partialEventCount: events.filter((event) => event.partial).length,
+    ...lifecycleSummary(events, sessionId),
+  };
 }
 
-function lifecycleAvailable(
+function lifecycleSummary(
   events: SkillHookReceipt[],
   sessionId: string | null,
-): boolean {
+) {
   const selected = events.filter((event) => event.sessionId === sessionId);
-  return (
-    sessionId !== null &&
-    selected.some((event) => event.event === "SessionStart") &&
-    selected.some((event) => event.event === "Stop")
-  );
+  return {
+    sessionIdentified: sessionId !== null,
+    sessionStarted: selected.some((event) => event.event === "SessionStart"),
+    sessionStopped: selected.some((event) => event.event === "Stop"),
+  };
 }
 
 function updatePending(
   event: SkillHookReceipt,
-  ledger: { pending: Set<string>; finished: Set<string>; partial: boolean },
+  ledger: {
+    pending: Set<string>;
+    finished: Set<string>;
+    diagnosticKeys: Set<string>;
+    duplicateToolCallCount: number;
+    unmatchedPostToolUseCount: number;
+  },
 ) {
   const key = hookKey(event);
   if (event.event === "PreToolUse") {
-    ledger.partial ||= duplicateCall(key, ledger);
+    if (duplicateCall(key, ledger)) {
+      ledger.duplicateToolCallCount++;
+      ledger.diagnosticKeys.add(key);
+    }
     ledger.pending.add(key);
   }
   if (event.event === "PostToolUse") {
-    ledger.partial ||= !ledger.pending.delete(key);
+    if (!ledger.pending.delete(key)) {
+      ledger.unmatchedPostToolUseCount++;
+      ledger.diagnosticKeys.add(key);
+    }
     ledger.finished.add(key);
   }
 }
@@ -299,7 +337,12 @@ function pagedEvents(events: SkillHookReceipt[], skills: HookSkill[]) {
 function publicReceipt(event: SkillHookReceipt) {
   const receipt = { ...event };
   delete receipt.bodyRanges;
-  return receipt;
+  return {
+    ...receipt,
+    fragmentSkills: [
+      ...new Set((event.bodyRanges ?? []).map((page) => page.invocation)),
+    ],
+  };
 }
 
 function incompleteSkills(events: SkillHookReceipt[]) {
@@ -317,10 +360,15 @@ function incompleteSkills(events: SkillHookReceipt[]) {
   return [...fragments].filter((invocation) => !settled.has(invocation));
 }
 
-function retainedCalls(events: SkillHookReceipt[]) {
-  const calls: SkillHookReceipt[] = [];
+function retainedCalls(
+  events: SkillHookReceipt[],
+  diagnosticKeys: Set<string>,
+) {
+  const calls: ReturnType<typeof publicReceipt>[] = [];
   let truncated = false;
-  for (const event of events.filter((event) => event.invocations.length > 0)) {
+  for (const event of events.filter((event) =>
+    relevantCall(event, diagnosticKeys),
+  )) {
     calls.push(publicReceipt(event));
     if (
       calls.length > MAX_RETAINED_CALLS ||
@@ -334,24 +382,59 @@ function retainedCalls(events: SkillHookReceipt[]) {
   return { calls, truncated };
 }
 
+function relevantCall(
+  event: SkillHookReceipt,
+  diagnosticKeys: Set<string>,
+): boolean {
+  return [
+    event.invocations.length > 0,
+    event.ambiguousInvocations.length > 0,
+    (event.bodyRanges ?? []).length > 0,
+    event.partial,
+    diagnosticKeys.has(hookKey(event)),
+  ].some(Boolean);
+}
+
 export async function skillTrackingObservation(
   tracking: SkillTracking,
   sessionId: string | null,
   completed: boolean,
 ) {
   const collected = await receipts(tracking);
-  const { partial } = collected;
   const events = pagedEvents(collected.events, tracking.configuration.skills);
   const partialSkills = incompleteSkills(events);
-  const { calls, truncated } = retainedCalls(events);
-  const complete = [
-    completed,
-    !partial,
-    !truncated,
-    partialSkills.length === 0,
-    tracking.configuration.catalogComplete,
-    collectionComplete(events, sessionId),
-  ].every(Boolean);
+  const { diagnosticKeys, ...collection } = collectionSummary(
+    events,
+    sessionId,
+  );
+  const { calls, truncated } = retainedCalls(events, diagnosticKeys);
+  const ambiguousSkills = [
+    ...new Set(events.flatMap((event) => event.ambiguousInvocations)),
+  ];
+  const conditions: [string, boolean][] = [
+    ["host_incomplete", !completed],
+    ["catalog_incomplete", !tracking.configuration.catalogComplete],
+    ["session_identity_missing", !collection.sessionIdentified],
+    ["session_start_missing", !collection.sessionStarted],
+    ["session_stop_missing", !collection.sessionStopped],
+    ["pending_tool_calls", collection.pendingToolCallCount > 0],
+    ["unmatched_post_tool_use", collection.unmatchedPostToolUseCount > 0],
+    ["duplicate_tool_calls", collection.duplicateToolCallCount > 0],
+    [
+      "partial_hook_events",
+      events.some(
+        (event) => event.partial && event.ambiguousInvocations.length === 0,
+      ),
+    ],
+    ["ambiguous_skill_bodies", ambiguousSkills.length > 0],
+    ["partial_skill_bodies", partialSkills.length > 0],
+    ["calls_truncated", truncated],
+  ];
+  const incompleteReasons = [
+    ...collected.reasons,
+    ...conditions.filter(([, applies]) => applies).map(([reason]) => reason),
+  ];
+  const complete = incompleteReasons.length === 0;
   return {
     id: "sevro.host.skill-activations",
     completeness: complete ? ("complete" as const) : ("partial" as const),
@@ -362,11 +445,11 @@ export async function skillTrackingObservation(
       catalogComplete: tracking.configuration.catalogComplete,
       observedSkills: [...new Set(calls.flatMap((call) => call.invocations))],
       partialSkills,
-      ambiguousSkills: [
-        ...new Set(events.flatMap((event) => event.ambiguousInvocations)),
-      ],
+      ambiguousSkills,
       calls,
       truncated,
+      incompleteReasons,
+      collection,
     },
   };
 }
