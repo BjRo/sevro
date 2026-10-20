@@ -165,6 +165,43 @@ test.each(["changed", "outside"])(
   },
 );
 
+test("transcript pruning refuses aliases of retained result metadata", async () => {
+  const { root, evidence, evidencePath, resultPath, resultBefore, transcript } =
+    await nativeFixture();
+  transcript.path = pathToFileURL(resultPath).href;
+  transcript.sha256 = createHash("sha256").update(resultBefore).digest("hex");
+  await writeFile(evidencePath, JSON.stringify(evidence));
+  const pruned = await command(root, ["prune", "--native-transcripts"]);
+  expect(pruned.code, pruned.stderr).toBe(64);
+  expect(pruned.stderr).toContain("native transcript");
+  expect(await readFile(resultPath, "utf8")).toBe(resultBefore);
+  await expectMissing(
+    join(dirname(resultPath), "native-transcripts-pruned.json"),
+  );
+});
+
+test.each(["artifact", "candidate"])(
+  "transcript pruning refuses non-transcript aliases: %s",
+  async (kind) => {
+    const { root, evidence, evidencePath, transcript } = await nativeFixture([
+      "fixture.output",
+    ]);
+    const trial = defined(evidence.trials[0]);
+    const target =
+      kind === "candidate"
+        ? defined(trial.rawResult.path)
+        : defined(trial.artifactRefs.find((ref) => ref.id === "fixture.output"))
+            .path;
+    const bytes = await readFile(fileURLToPath(target));
+    transcript.path = target;
+    transcript.sha256 = createHash("sha256").update(bytes).digest("hex");
+    await writeFile(evidencePath, JSON.stringify(evidence));
+    const pruned = await command(root, ["prune", "--native-transcripts"]);
+    expect(pruned.code, pruned.stderr).toBe(64);
+    expect(await readFile(fileURLToPath(target))).toEqual(bytes);
+  },
+);
+
 test.each([
   { policy: ["--keep", "1"] },
   { policy: ["--latest"] },

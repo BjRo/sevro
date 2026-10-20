@@ -7,19 +7,19 @@ import type { ArtifactReference } from "./contract-types";
 import { retainedFile } from "./results-lock";
 import { atomicWriteJson } from "./storage";
 
+function isNativeTranscript(artifact: ArtifactReference) {
+  return /^(?:sevro\.(?:semantic(?:\.[a-f0-9]{64})?|advisory)\.)?sevro\.native-transcripts\.bundle$/.test(
+    artifact.id,
+  );
+}
+
 function transcriptArtifacts(evidence: RunEvidenceData) {
   return evidence.trials.flatMap((trial) =>
-    trial.artifactRefs
-      .filter((artifact) =>
-        /^(?:sevro\.(?:semantic(?:\.[a-f0-9]{64})?|advisory)\.)?sevro\.native-transcripts\.bundle$/.test(
-          artifact.id,
-        ),
-      )
-      .map((artifact) => ({
-        caseId: trial.caseId,
-        trial: trial.trial,
-        ...artifact,
-      })),
+    trial.artifactRefs.filter(isNativeTranscript).map((artifact) => ({
+      caseId: trial.caseId,
+      trial: trial.trial,
+      ...artifact,
+    })),
   );
 }
 
@@ -51,7 +51,41 @@ function transcriptPath(
     throw new Error(
       "native transcript artifact is outside its retained result directory",
     );
+  if (metadataPaths(evidence).includes(path))
+    throw new Error(
+      "native transcript artifact aliases retained result metadata",
+    );
+  if (otherArtifactPaths(evidence).includes(path))
+    throw new Error(
+      "native transcript artifact aliases other retained evidence",
+    );
   return path;
+}
+
+function otherArtifactPaths(evidence: RunEvidenceData) {
+  return evidence.trials
+    .flatMap((trial) => [
+      trial.rawResult.path,
+      trial.advisoryReview?.rawResult.path,
+      ...trial.artifactRefs
+        .filter((ref) => !isNativeTranscript(ref))
+        .map((ref) => ref.path),
+    ])
+    .filter((path): path is string => path != null)
+    .map((path) => fileURLToPath(path));
+}
+
+function metadataPaths(evidence: RunEvidenceData) {
+  const receipt = pruningPath(evidence);
+  return [
+    receipt,
+    evidence.result.evidencePath,
+    join(dirname(receipt), "result.json"),
+    join(dirname(receipt), "latest.json"),
+    ...evidence.result.cases.flatMap((selected) =>
+      selected.trials.map((trial) => trial.artifactPath),
+    ),
+  ];
 }
 
 async function transcriptPresent(

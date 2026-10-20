@@ -281,3 +281,5 @@ are errors. Bundle references must name regular files directly inside their
 result directory. Missing bytes without a receipt, changed hashes, and escaping
 references remain errors. An interrupted deletion may leave some marked bundles
 present; reports count actual availability, and a repeated prune completes removal.
+Transcript references that alias result/trial metadata, raw responses, or other
+retained artifacts are refused before pruning.
