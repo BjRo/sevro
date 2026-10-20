@@ -23,10 +23,10 @@ Local installation records the selected version in the project lockfile.
 
 ## Current release
 
-The current release is `0.1.0-rc.18`. Install this exact version:
+The current release is `0.1.0-rc.19`. Install this exact version:
 
 ```sh
-bun add --exact @bjoernrochel/sevro@0.1.0-rc.18
+bun add --exact @bjoernrochel/sevro@0.1.0-rc.19
 ```
 
 <!-- sevro-current-release:end -->
