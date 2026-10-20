@@ -9,6 +9,7 @@ import { parseArgs } from "node:util";
 import { canonicalJson } from "./identity";
 import { assertCliResult, assertReport, assertRunEvidence } from "./schema";
 import { canonicalRuntimeRoot } from "./runtime/paths";
+import { nativeTranscriptRetention } from "./transcript-retention";
 
 type CliResult = CliResultData;
 type Evidence = RunEvidenceData;
@@ -96,6 +97,7 @@ function reportRow(
   result: CliResult,
   selected: Case,
   evidence: Evidence | null,
+  transcripts: Awaited<ReturnType<typeof nativeTranscriptRetention>>,
 ): ReportRow {
   const retained = trialEvidence(selected.caseId, selected.trials, evidence);
   const candidateRoute = retainedCandidateRoute(evidence);
@@ -117,6 +119,14 @@ function reportRow(
     ...usage,
     ...retainedIdentity(evidence),
     candidateRoute,
+    nativeTranscripts: {
+      retained: transcripts.filter(
+        (item) => item.caseId === selected.caseId && !item.pruned,
+      ).length,
+      pruned: transcripts.filter(
+        (item) => item.caseId === selected.caseId && item.pruned,
+      ).length,
+    },
     domainOutcomes: selected.trials.flatMap((trial) =>
       (trial.domainOutcomes ?? []).map((outcome) => ({
         trial: trial.trial,
@@ -178,6 +188,7 @@ export async function createReport(paths: string[]) {
   for (const path of paths) {
     const result = await loadResult(path);
     const evidence = await loadEvidence(result);
+    const transcripts = await nativeTranscriptRetention(evidence);
     inputs.push({
       resultFile: path,
       execution: result.execution.status,
@@ -187,7 +198,7 @@ export async function createReport(paths: string[]) {
       caseCount: result.cases.length,
     });
     for (const selected of result.cases)
-      rows.push(reportRow(path, result, selected, evidence));
+      rows.push(reportRow(path, result, selected, evidence, transcripts));
   }
   const report = {
     format: "sevro.report.v1",
@@ -244,7 +255,8 @@ export function renderReport(
     "## Retained evidence",
     "",
     ...report.rows.map(
-      (row) => `- ${cell(row.caseId)}: ${row.evidencePath ?? "unavailable"}`,
+      (row) =>
+        `- ${cell(row.caseId)}: ${row.evidencePath ?? "unavailable"}${transcriptSummary(row)}`,
     ),
     "",
   ];
@@ -279,6 +291,11 @@ export function renderReport(
     "",
   );
   return lines.join("\n");
+}
+
+function transcriptSummary(row: ReportRow): string {
+  if (!row.nativeTranscripts) return "";
+  return `; native transcripts: ${row.nativeTranscripts.retained} retained, ${row.nativeTranscripts.pruned} pruned`;
 }
 
 function passRateCell(rate: number | null): string {

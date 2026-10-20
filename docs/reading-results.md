@@ -84,6 +84,34 @@ results fail. An empty or missing results root is a successful no-op. Ownership
 coordination metadata, partial attempts without CLI results, temporary fixtures,
 and a separate `--run-state-root` remain outside evidence pruning.
 
+### Remove native transcript bundles
+
+Use `--native-transcripts` to permanently remove captured native bundles while
+keeping every result, recorded hash, observation, and other artifact:
+
+```sh
+sevro prune --native-transcripts
+sevro prune --native-transcripts --older-than 30d
+sevro prune --native-transcripts --keep 5
+sevro report --latest
+```
+
+Without a policy, this mode removes bundles from all completed results. With
+`--keep 5`, it preserves the newest five results' bundles and removes bundles
+from older results. `--latest` preserves the newest result's bundles;
+`--older-than` removes bundles only from results older than the given duration.
+Age, ordering, root selection, active-run protection, and input validation follow
+the rules above. The mode includes candidate, semantic, and advisory bundles.
+
+`result.json`, `run.json`, trial evidence, and `latest.json` stay unchanged.
+Before removing bytes, pruning atomically saves a private
+`native-transcripts-pruned.json` receipt beside `run.json`. Keep that receipt
+with the evidence: reports require it to distinguish intentional pruning from
+missing evidence. Reports show retained and pruned bundle counts while preserving
+the original verdicts and measurements. Pruned native bytes cannot be decoded
+or recovered from hashes. Repeating the command safely resumes interrupted
+deletions; ordinary whole-result pruning still works afterward.
+
 ## Compare carefully
 
 [Identity v1](identity-v1.md) binds inputs, evaluator content, host/model/effort,

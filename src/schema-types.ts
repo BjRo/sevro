@@ -173,6 +173,7 @@ type ReportDataOutcome = {
   status: OutcomeStatus;
 };
 type ReportDataRow = {
+  nativeTranscripts?: { retained: number; pruned: number };
   resultFile: ReportDataPath;
   evidencePath: string | null;
   runId: string | null;

@@ -14,11 +14,14 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { createHash } from "node:crypto";
 import {
   defined,
   parseCliResult,
   parseReport,
   parseRecord,
+  parseRunEvidence,
 } from "./fixtures/assertions";
 
 const repo = resolve(import.meta.dir, "..");
@@ -29,6 +32,327 @@ afterEach(async () => {
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
+});
+
+async function nativeFixture(extraArtifacts: string[] = []) {
+  const { root, results } = await fixture(0);
+  const adapter = join(root, "native-host.ts");
+  const bundle = JSON.stringify({
+    format: "sevro.native-transcripts.v1",
+    host: "codex",
+    role: "candidate",
+    rootSessionId: null,
+    completeness: "unavailable",
+    issues: ["root_session_unknown"],
+    files: [
+      {
+        path: "rollout-root.jsonl",
+        sha256: createHash("sha256")
+          .update('{"type":"message"}\n')
+          .digest("hex"),
+        bytesBase64: Buffer.from('{"type":"message"}\n').toString("base64"),
+      },
+    ],
+  });
+  await writeFile(
+    adapter,
+    `export default {
+    id: "fixture.native", model: "fixture", effort: "none",
+    run() { return Promise.resolve({ finalMessage: "ready", complete: true,
+      artifacts: ${JSON.stringify(["sevro.native-transcripts.bundle", ...extraArtifacts])}.map(id => ({ id, bytes: Buffer.from(${JSON.stringify(bundle)}) })),
+      observations: [{ id: "sevro.host.native-transcripts", completeness: "unavailable",
+        data: { files: ${JSON.stringify([{ path: "rollout-root.jsonl", sha256: createHash("sha256").update('{"type":"message"}\n').digest("hex") }])}, issues: ["root_session_unknown"] } }]
+    }); }
+  };`,
+  );
+  const run = await nativeRun(root, adapter);
+  const evidencePath = defined(parseCliResult(run.stdout).evidencePath);
+  const resultPath = join(dirname(evidencePath), "result.json");
+  const evidenceBefore = await readFile(evidencePath, "utf8");
+  const resultBefore = await readFile(resultPath, "utf8");
+  const latestBefore = await readFile(join(results, "latest.json"), "utf8");
+  const evidence = parseRunEvidence(evidenceBefore);
+  const transcript = defined(
+    defined(evidence.trials[0]).artifactRefs.find(
+      (item) => item.id === "sevro.native-transcripts.bundle",
+    ),
+  );
+  return {
+    root,
+    results,
+    adapter,
+    evidencePath,
+    resultPath,
+    evidenceBefore,
+    resultBefore,
+    latestBefore,
+    evidence,
+    transcript,
+  };
+}
+
+async function nativeRun(root: string, adapter: string) {
+  const run = await command(root, [
+    "run",
+    "--json",
+    "--case-file",
+    join(repo, "examples/basic/graded.json"),
+    "--adapter-module",
+    adapter,
+    "--runner-build-digest",
+    "a".repeat(64),
+    "--project-digest",
+    "b".repeat(64),
+  ]);
+  expect(run.code, run.stderr).toBe(0);
+  return run;
+}
+
+test("prune native transcripts preserves results and hashes and reports pruned bundles", async () => {
+  const {
+    root,
+    results,
+    evidencePath,
+    resultPath,
+    evidenceBefore,
+    resultBefore,
+    latestBefore,
+    transcript,
+  } = await nativeFixture();
+  const pruned = await command(root, ["prune", "--native-transcripts"]);
+  expect(pruned.code, pruned.stderr).toBe(0);
+  await expectMissing(fileURLToPath(transcript.path));
+  expect(await readFile(evidencePath, "utf8")).toBe(evidenceBefore);
+  expect(await readFile(resultPath, "utf8")).toBe(resultBefore);
+  expect(await readFile(join(results, "latest.json"), "utf8")).toBe(
+    latestBefore,
+  );
+  const report = await command(root, ["report", "--latest", "--json"]);
+  expect(report.code, report.stderr).toBe(0);
+  expect(parseRecord(report.stdout).rows).toMatchObject([
+    { nativeTranscripts: { retained: 0, pruned: 1 }, task: "passed" },
+  ]);
+  const human = await command(root, ["report", "--result-file", resultPath]);
+  expect(human.code, human.stderr).toBe(0);
+  expect(human.stdout).toContain("native transcripts: 0 retained, 1 pruned");
+});
+
+test.each(["changed", "outside"])(
+  "transcript pruning refuses %s bytes before deleting or marking evidence",
+  async (kind) => {
+    const { root, results, evidence, evidencePath, transcript, latestBefore } =
+      await nativeFixture();
+    const original = fileURLToPath(transcript.path);
+    let protectedPath = original;
+    if (kind === "changed") await writeFile(original, "changed native bytes");
+    else {
+      protectedPath = join(root, "outside.bundle");
+      await writeFile(protectedPath, await readFile(original));
+      transcript.path = pathToFileURL(protectedPath).href;
+      await writeFile(evidencePath, JSON.stringify(evidence));
+    }
+    const protectedBytes = await readFile(protectedPath, "utf8");
+    const pruned = await command(root, ["prune", "--native-transcripts"]);
+    expect(pruned.code, pruned.stderr).toBe(64);
+    expect(pruned.stderr).toContain("native transcript");
+    expect(await readFile(protectedPath, "utf8")).toBe(protectedBytes);
+    expect(await readFile(join(results, "latest.json"), "utf8")).toBe(
+      latestBefore,
+    );
+    await expectMissing(
+      join(dirname(evidencePath), "native-transcripts-pruned.json"),
+    );
+  },
+);
+
+test("transcript pruning refuses aliases of retained result metadata", async () => {
+  const { root, evidence, evidencePath, resultPath, resultBefore, transcript } =
+    await nativeFixture();
+  transcript.path = pathToFileURL(resultPath).href;
+  transcript.sha256 = createHash("sha256").update(resultBefore).digest("hex");
+  await writeFile(evidencePath, JSON.stringify(evidence));
+  const pruned = await command(root, ["prune", "--native-transcripts"]);
+  expect(pruned.code, pruned.stderr).toBe(64);
+  expect(pruned.stderr).toContain("native transcript");
+  expect(await readFile(resultPath, "utf8")).toBe(resultBefore);
+  await expectMissing(
+    join(dirname(resultPath), "native-transcripts-pruned.json"),
+  );
+});
+
+test.each(["artifact", "candidate"])(
+  "transcript pruning refuses non-transcript aliases: %s",
+  async (kind) => {
+    const { root, evidence, evidencePath, transcript } = await nativeFixture([
+      "fixture.output",
+    ]);
+    const trial = defined(evidence.trials[0]);
+    const target =
+      kind === "candidate"
+        ? defined(trial.rawResult.path)
+        : defined(trial.artifactRefs.find((ref) => ref.id === "fixture.output"))
+            .path;
+    const bytes = await readFile(fileURLToPath(target));
+    transcript.path = target;
+    transcript.sha256 = createHash("sha256").update(bytes).digest("hex");
+    await writeFile(evidencePath, JSON.stringify(evidence));
+    const pruned = await command(root, ["prune", "--native-transcripts"]);
+    expect(pruned.code, pruned.stderr).toBe(64);
+    expect(await readFile(fileURLToPath(target))).toEqual(bytes);
+  },
+);
+
+test.each([
+  { policy: ["--keep", "1"] },
+  { policy: ["--latest"] },
+  { policy: ["--older-than", "1d"] },
+])(
+  "transcript pruning applies result selection $policy while retaining every result",
+  async ({ policy }) => {
+    const { root, adapter, resultPath, transcript } = await nativeFixture();
+    const old = new Date("2020-01-01T00:00:00Z");
+    await utimes(resultPath, old, old);
+    const second = await nativeRun(root, adapter);
+    const secondEvidence = defined(parseCliResult(second.stdout).evidencePath);
+    const latest = parseRunEvidence(await readFile(secondEvidence, "utf8"));
+    const latestBundle = defined(
+      defined(latest.trials[0]).artifactRefs.find(
+        (item) => item.id === "sevro.native-transcripts.bundle",
+      ),
+    );
+    const pruned = await command(root, [
+      "prune",
+      "--native-transcripts",
+      ...policy,
+    ]);
+    expect(pruned.code, pruned.stderr).toBe(0);
+    await expectMissing(fileURLToPath(transcript.path));
+    expect((await stat(fileURLToPath(latestBundle.path))).isFile()).toBe(true);
+    expect(
+      (await command(root, ["report", "--result-file", resultPath])).code,
+    ).toBe(0);
+    const report = await command(root, ["report", "--latest", "--json"]);
+    expect(report.code, report.stderr).toBe(0);
+    expect(parseRecord(report.stdout).rows).toMatchObject([
+      { nativeTranscripts: { retained: 1, pruned: 0 } },
+    ]);
+  },
+);
+
+test("transcript pruning selects only candidate semantic and advisory bundle identities", async () => {
+  const customId = "fixture.sevro.native-transcripts.bundle";
+  const { root, evidence } = await nativeFixture([
+    "sevro.semantic.sevro.native-transcripts.bundle",
+    `sevro.semantic.${"a".repeat(64)}.sevro.native-transcripts.bundle`,
+    "sevro.advisory.sevro.native-transcripts.bundle",
+    customId,
+    "sevro.host.diagnostics",
+  ]);
+  const pruned = await command(root, ["prune", "--native-transcripts"]);
+  expect(pruned.code, pruned.stderr).toBe(0);
+  const refs = defined(evidence.trials[0]).artifactRefs;
+  const custom = defined(refs.find((item) => item.id === customId));
+  expect((await stat(fileURLToPath(custom.path))).isFile()).toBe(true);
+  const diagnostics = defined(
+    refs.find((item) => item.id === "sevro.host.diagnostics"),
+  );
+  expect((await stat(fileURLToPath(diagnostics.path))).isFile()).toBe(true);
+  const report = await command(root, ["report", "--latest", "--json"]);
+  expect(report.code, report.stderr).toBe(0);
+  expect(parseRecord(report.stdout).rows).toMatchObject([
+    { nativeTranscripts: { retained: 0, pruned: 4 } },
+  ]);
+});
+
+test("report requires an intact matching pruning receipt for absent native bytes", async () => {
+  const { root, evidencePath, resultPath, transcript } = await nativeFixture();
+  const before = await readFile(fileURLToPath(transcript.path));
+  await rm(fileURLToPath(transcript.path));
+  const missing = await command(root, ["report", "--latest"]);
+  expect(missing.code).toBe(64);
+  expect(missing.stderr).toContain("missing without a pruning record");
+  await writeFile(fileURLToPath(transcript.path), before);
+  expect((await command(root, ["prune", "--native-transcripts"])).code).toBe(0);
+  const path = join(dirname(evidencePath), "native-transcripts-pruned.json");
+  const receipt = await readFile(path, "utf8");
+  for (const content of [
+    "{",
+    receipt.replace(transcript.sha256, "f".repeat(64)),
+    receipt.replace("sevro.pruned-native-transcripts.v1", "unknown"),
+  ]) {
+    await writeFile(path, content);
+    expect(
+      (await command(root, ["report", "--result-file", resultPath])).code,
+    ).toBe(64);
+    expect((await command(root, ["prune", "--native-transcripts"])).code).toBe(
+      64,
+    );
+  }
+  await writeFile(path, receipt);
+  const external = join(root, "external-receipt.json");
+  await rename(path, external);
+  await symlink(external, path);
+  expect((await command(root, ["report", "--latest"])).code).toBe(64);
+  expect((await command(root, ["prune", "--native-transcripts"])).code).toBe(
+    64,
+  );
+});
+
+test("transcript pruning serializes retries and remains compatible with whole-result pruning", async () => {
+  const { root, resultPath, evidencePath, evidenceBefore } =
+    await nativeFixture();
+  const attempts = await Promise.all(
+    Array.from({ length: 4 }, () =>
+      command(root, ["prune", "--native-transcripts"]),
+    ),
+  );
+  for (const attempt of attempts) expect(attempt.code, attempt.stderr).toBe(0);
+  expect(
+    attempts.filter((attempt) =>
+      attempt.stdout.includes("Removed 1 native transcript bundle(s)"),
+    ),
+  ).toHaveLength(1);
+  expect(await readFile(evidencePath, "utf8")).toBe(evidenceBefore);
+  expect((await command(root, ["report", "--latest"])).code).toBe(0);
+  const old = new Date("2020-01-01T00:00:00Z");
+  await utimes(resultPath, old, old);
+  expect((await command(root, ["prune", "--older-than", "1d"])).code).toBe(0);
+  await expectMissing(dirname(resultPath));
+});
+
+test.each(["active", "unrecognized"])(
+  "transcript pruning protects %s attempts",
+  async (status) => {
+    const { root, results, evidence, transcript } = await nativeFixture();
+    const record = join(results, "active", `${evidence.runId}.json`);
+    const active = parseRecord(await readFile(record, "utf8"));
+    active.status = status;
+    await writeFile(record, JSON.stringify(active));
+    const pruned = await command(root, ["prune", "--native-transcripts"]);
+    expect(pruned.code, pruned.stderr).toBe(0);
+    expect((await stat(fileURLToPath(transcript.path))).isFile()).toBe(true);
+  },
+);
+
+test("transcript pruning is a no-op without captured transcripts or completed results", async () => {
+  const { root } = await fixture(0);
+  expect((await command(root, ["prune", "--native-transcripts"])).code).toBe(0);
+  const completed = await fixture(1);
+  const pruned = await command(completed.root, [
+    "prune",
+    "--native-transcripts",
+  ]);
+  expect(pruned.code, pruned.stderr).toBe(0);
+  expect(pruned.stdout).toContain(
+    "Removed 0 native transcript bundle(s); kept 1 result(s)",
+  );
+  await expectMissing(
+    join(
+      dirname(defined(completed.paths[0])),
+      "native-transcripts-pruned.json",
+    ),
+  );
+  expect((await command(completed.root, ["report", "--latest"])).code).toBe(0);
 });
 
 test("prune latest keeps only the newest result and repairs a stale index", async () => {

@@ -140,6 +140,7 @@ Examples:
   sevro prune --results-root ./other-results --keep 5
   sevro prune --older-than 30d
   sevro prune --latest
+  sevro prune --native-transcripts --older-than 30d
 
 Defaults: keep the newest 10 completed results under <cwd>/.sevro/results.
 Select at most one explicit retention policy:
@@ -147,6 +148,7 @@ Select at most one explicit retention policy:
   --latest                   Keep only the newest result (same as --keep 1).
   --older-than <duration>    Remove results older than a positive integer plus ms, s, m, h, d or w.
   --results-root <path>      Relative or absolute results root, resolved from cwd.
+  --native-transcripts       Remove only native transcript bundles; keep results and hashes.
   -h, --help                 Show help without reading or deleting results.
 
 Age and ordering use result.json modification times; equal times sort by path.
@@ -154,6 +156,9 @@ Each retained attempt counts separately, including dry, failed and interrupted r
 Active/unrecognized attempts and directories without result.json are preserved.
 Evidence is permanently deleted. Remaining results stay usable by sevro report;
 latest.json is updated, or removed when no completed results remain.
+With --native-transcripts, no policy removes bundles from all completed results;
+--keep/--latest preserve bundles for the newest results, and --older-than selects older results.
+Result/evidence files and latest.json stay unchanged. Reports label removed bundles as pruned.
 Missing or empty results roots are a successful no-op. Invalid or unreadable inputs exit 64.
 Reference: docs/reading-results.md in the installed package.
 `;

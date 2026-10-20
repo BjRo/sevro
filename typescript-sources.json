@@ -110,6 +110,7 @@
     "src/process-lifecycle.ts",
     "src/provenance.ts",
     "src/prune.ts",
+    "src/transcript-retention.ts",
     "src/report.ts",
     "src/resolved-case.ts",
     "src/results.ts",

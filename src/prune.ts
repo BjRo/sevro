@@ -1,16 +1,18 @@
 import { readFile, readdir, realpath, rm, stat } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { assertCliResult } from "./schema";
-import type { CliResultData } from "./schema-types";
+import { assertCliResult, assertRunEvidence } from "./schema";
+import type { CliResultData, RunEvidenceData } from "./schema-types";
 import { createReport } from "./report";
 import { atomicWriteJson } from "./storage";
 import { isRecord } from "./value-guards";
 import { retainedFile, withResultsLock } from "./results-lock";
+import { pruneNativeTranscripts } from "./transcript-retention";
 
 interface RetainedResult {
   directory: string;
   result: CliResultData;
+  evidence: RunEvidenceData;
   time: number;
 }
 
@@ -56,6 +58,7 @@ function parseInvocation(args: string[]) {
       keep: { type: "string" },
       latest: { type: "boolean" },
       "older-than": { type: "string" },
+      "native-transcripts": { type: "boolean" },
     },
   });
   return values;
@@ -65,7 +68,9 @@ function policy(values: ReturnType<typeof parseInvocation>): RetentionPolicy {
   if (values.latest) return { keep: 1, cutoff: null };
   if (values["older-than"] !== undefined)
     return { keep: null, cutoff: Date.now() - duration(values["older-than"]) };
-  return { keep: count(values.keep ?? "10"), cutoff: null };
+  if (values.keep !== undefined)
+    return { keep: count(values.keep), cutoff: null };
+  return { keep: values["native-transcripts"] ? 0 : 10, cutoff: null };
 }
 
 function invocation(args: string[]) {
@@ -79,6 +84,7 @@ function invocation(args: string[]) {
   return {
     root: resolve(values["results-root"] ?? ".sevro/results"),
     policy: policy(values),
+    nativeTranscripts: values["native-transcripts"] === true,
   };
 }
 
@@ -95,8 +101,17 @@ async function retainedResults(root: string): Promise<RetainedResult[]> {
         `retained result references evidence outside its directory: ${path}`,
       );
     await retainedFile(result.evidencePath);
+    const evidence: unknown = JSON.parse(
+      await readFile(result.evidencePath, "utf8"),
+    );
+    assertRunEvidence(evidence);
     await createReport([path]);
-    results.push({ directory, result, time: (await stat(path)).mtimeMs });
+    results.push({
+      directory,
+      result,
+      evidence,
+      time: (await stat(path)).mtimeMs,
+    });
   }
   return results.sort(
     (left, right) =>
@@ -136,13 +151,16 @@ function finalizedRecord(
   );
 }
 
+function retainedByPolicy(results: RetainedResult[], policy: RetentionPolicy) {
+  const cutoff = policy.cutoff;
+  return cutoff === null
+    ? results.slice(0, policy.keep)
+    : results.filter((result) => result.time >= cutoff);
+}
+
 async function pruneResults(root: string, policy: RetentionPolicy) {
   const results = await retainedResults(root);
-  const cutoff = policy.cutoff;
-  const remaining =
-    cutoff === null
-      ? results.slice(0, policy.keep)
-      : results.filter((result) => result.time >= cutoff);
+  const remaining = retainedByPolicy(results, policy);
   const latest = remaining[0];
   if (latest) await atomicWriteJson(join(root, "latest.json"), latest.result);
   else await rm(join(root, "latest.json"), { force: true });
@@ -151,21 +169,41 @@ async function pruneResults(root: string, policy: RetentionPolicy) {
   return { removed: removed.length, kept: remaining.length };
 }
 
+async function pruneTranscripts(root: string, policy: RetentionPolicy) {
+  const results = await retainedResults(root);
+  const preserved = retainedByPolicy(results, policy);
+  let removed = 0;
+  for (const { evidence } of results.filter(
+    (item) => !preserved.includes(item),
+  )) {
+    removed += await pruneNativeTranscripts(evidence);
+  }
+  return { removed, kept: results.length };
+}
+
 async function prune(options: ReturnType<typeof invocation>) {
   const root = await realpath(options.root).catch((cause: unknown) => {
     if ((cause as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw cause;
   });
   if (root === null) return { removed: 0, kept: 0 };
-  return withResultsLock(root, () => pruneResults(root, options.policy));
+  return withResultsLock(root, () =>
+    options.nativeTranscripts
+      ? pruneTranscripts(root, options.policy)
+      : pruneResults(root, options.policy),
+  );
 }
 
 /** Explicitly remove old retained runs while keeping report's latest index usable. */
 export async function pruneCommand(args: string[]): Promise<number> {
   try {
-    const result = await prune(invocation(args));
+    const options = invocation(args);
+    const result = await prune(options);
+    const unit = options.nativeTranscripts
+      ? "native transcript bundle(s)"
+      : "result(s)";
     process.stdout.write(
-      `Removed ${result.removed} result(s); kept ${result.kept}.\n`,
+      `Removed ${result.removed} ${unit}; kept ${result.kept}${options.nativeTranscripts ? " result(s)" : ""}.\n`,
     );
     return 0;
   } catch (error) {
