@@ -10,12 +10,14 @@ Examples:
     --condition passive --trials 1 --threshold 1
   sevro run --help
   sevro report --result-file /absolute/results/run/result.json
+  sevro prune
 
 Commands:
   demo      Run the packaged credential-free assessed example; use demo --help.
   init      Create a new evaluation project; use init --help.
   run       Evaluate one resolved case or extension case; use run --help.
   report    Summarize retained results; use report --help.
+  prune     Remove retained results using a retention policy; use prune --help.
 
 Options:
   -h, --help     Show help without preparing a run.
@@ -131,6 +133,31 @@ Options and defaults:
   -h, --help   Show this help without reading result files.
 `;
 
+const PRUNE_HELP = `Usage: sevro prune [options]
+
+Examples:
+  sevro prune
+  sevro prune --results-root ./other-results --keep 5
+  sevro prune --older-than 30d
+  sevro prune --latest
+
+Defaults: keep the newest 10 completed results under <cwd>/.sevro/results.
+Select at most one explicit retention policy:
+  --keep <positive-integer>  Keep this many newest results.
+  --latest                   Keep only the newest result (same as --keep 1).
+  --older-than <duration>    Remove results older than a positive integer plus ms, s, m, h, d or w.
+  --results-root <path>      Relative or absolute results root, resolved from cwd.
+  -h, --help                 Show help without reading or deleting results.
+
+Age and ordering use result.json modification times; equal times sort by path.
+Each retained attempt counts separately, including dry, failed and interrupted runs.
+Active/unrecognized attempts and directories without result.json are preserved.
+Evidence is permanently deleted. Remaining results stay usable by sevro report;
+latest.json is updated, or removed when no completed results remain.
+Missing or empty results roots are a successful no-op. Invalid or unreadable inputs exit 64.
+Reference: docs/reading-results.md in the installed package.
+`;
+
 const INIT_HELP = `Usage: sevro init [options]
 
 Examples:
@@ -169,6 +196,9 @@ const HELP_REQUESTS: Record<string, string> = {
   "report --help": REPORT_HELP,
   "report -h": REPORT_HELP,
   "help report": REPORT_HELP,
+  "prune --help": PRUNE_HELP,
+  "prune -h": PRUNE_HELP,
+  "help prune": PRUNE_HELP,
 };
 
 /** Handle informational commands before loading inputs or creating run state. */

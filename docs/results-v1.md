@@ -142,6 +142,13 @@ results and evidence remain intact. Failed cleanup is retried on later evaluatio
 `sevro.observation.workspaces` records candidate and retained auxiliary workspace
 paths for inspection. These paths are temporary and do not affect evaluation identity.
 
+Retained results have no automatic expiration. The explicit
+[`sevro prune` command](reading-results.md#prune-retained-results) applies an
+operator-selected age or count policy, defaulting to the newest ten results.
+It deletes complete retained result directories and maintains `latest.json`
+for the remaining results. Active or unrecognized attempts remain protected;
+fixture cleanup and run-state coordination metadata have separate lifecycles.
+
 Opted-in [candidate artifact runtimes](runtime-v1.md#candidate-artifact-access)
 remain available through grading and are removed afterward, including failed
 and cancelled trials. Failed-fixture retention does not preserve them.

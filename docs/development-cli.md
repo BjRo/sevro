@@ -8,10 +8,15 @@ grading, evidence, and extension lifecycle.
 [versioned report contract](report-v1.md). It emits Markdown by default or
 `sevro.report.v1` with `--json`.
 
+`sevro prune` [removes older retained results](reading-results.md#prune-retained-results)
+and maintains the latest report index. Bare pruning keeps the newest ten results;
+`--keep`, `--older-than`, and `--latest` select explicit retention policies.
+
 Examples assume [Sevro and Bun are on `PATH`](installing.md#make-the-command-available).
 For a contributor checkout, use `bun src/cli.ts` in place of `sevro`.
 
-Use `sevro --help`, `sevro run --help`, or `sevro report --help` for examples,
+Use `sevro --help`, `sevro run --help`, `sevro report --help`, or
+`sevro prune --help` for examples,
 required options, and defaults without preparing a run. `sevro --version` prints
 the installed package version. Invocation and configuration diagnostics go to
 stderr in both output modes; `--json` keeps one `sevro.cli-result.v1` document
