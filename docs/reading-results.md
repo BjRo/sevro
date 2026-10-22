@@ -24,6 +24,26 @@ Preparation/candidate/grading/evidence progress appears on stderr. Stage complet
 means the attempt ended; read the three result states to determine its outcome.
 See the [evaluation workflow](evaluation-workflow.md) for the complete progression.
 
+## Interpret skill exposure
+
+In retained Codex `sevro.host.skill-activations` observations, read
+`data.skillExposures` alongside `data.collectionStatus`. A skill may have `full`
+or `partial` exposure even when collection is incomplete. `none` means no
+exposure was detected within a complete collection's scope; `unknown` means
+collection gaps prevent that conclusion. `ambiguous` means identical bodies
+could not identify a named skill. Missing fields in older evidence remain
+unknown.
+
+Full exposure establishes that a tool caller received the complete prepared
+body, not that the model followed it. Partial exposure establishes only
+recognizable fragments. Cases that accept partial exposure must say so in
+their extension policy. The separate `sevro.host.skill-exposure-claims`
+observation supports positive exposure checks without treating gaps as absence
+or first selection. [Native host evidence](native-hosts.md#skill-activation-evidence)
+defines the fields and limits; Claude's native skill-tool evidence has a
+different scope. Task verdicts and existing activation requirements retain their
+current meaning.
+
 ## Summarize runs
 
 ```sh

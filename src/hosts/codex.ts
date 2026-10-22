@@ -45,6 +45,7 @@ import {
   prepareSkillTracking,
   skillTrackingObservation,
   skillActivationClaims,
+  skillExposureClaims,
   type SkillTracking,
 } from "./skill-hooks";
 import {
@@ -141,6 +142,7 @@ function codexCapabilities(
     "sevro.host.hooks",
     "sevro.host.skill-activations",
     "sevro.host.skill-activation-claims",
+    "sevro.host.skill-exposure-claims",
     ...(entrypoint === "app-server" ? ["sevro.host.native-goal"] : []),
     "sevro.codex.plugin-marketplace",
     "sevro.codex.explicit-invocation",
@@ -761,6 +763,7 @@ async function codexObservations(context: ExecutionContext, turns: TurnResult) {
     ...(explicit ? [explicit] : []),
     tracking,
     ...skillActivationClaims(tracking),
+    ...skillExposureClaims(tracking),
   ];
 }
 

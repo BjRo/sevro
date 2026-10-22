@@ -22,6 +22,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { runEvaluation } from "../src/engine";
 import { createCodexHost } from "../src/hosts/codex";
+import { createEvaluation } from "./fixtures/evaluation-fixtures";
 import {
   allocateWorkspace,
   removeWorkspace,
@@ -235,6 +236,7 @@ for (const name of ["SessionStart", "PreToolUse", "PostToolUse", "Stop"]) {
   const result = await host.run(request);
   expect(result.complete).toBe(true);
   expect(host.hostCapabilities).toContain("sevro.host.skill-activations");
+  expect(host.hostCapabilities).toContain("sevro.host.skill-exposure-claims");
   expect(
     result.observations?.some((item) => item.id.endsWith("skill-reads")),
   ).toBe(false);
@@ -329,6 +331,171 @@ const completeProbeBody = pagedSkillPages.join("") + sharedSkillParagraph;
 const siblingSkillBody =
   "---\nname: sibling\ndescription: An unrelated greeting skill.\n---\n# Sibling\nReturn HELLO only when asked for the sibling diagnostic.\n\n" +
   sharedSkillParagraph;
+
+test("Codex separates full and absent skill exposure from collection health", async () => {
+  if (!isolatedNativeHost) return;
+  const result = await runPagedCodex([{ text: completeProbeBody }], {
+    body: completeProbeBody,
+    siblings: { sibling: siblingSkillBody },
+  });
+  expect(
+    result.observations?.find(
+      (item) => item.id === "sevro.host.skill-activations",
+    ),
+  ).toMatchObject({
+    completeness: "complete",
+    data: {
+      collectionStatus: "complete",
+      skillExposures: [
+        { skill: "probe", status: "full" },
+        { skill: "sibling", status: "none" },
+      ],
+    },
+  });
+});
+
+test("Codex reports partial exposure without implying a collection failure", async () => {
+  if (!isolatedNativeHost) return;
+  const result = await runPagedCodex([{ text: pagedSkillPages[0] }], {
+    siblings: { sibling: siblingSkillBody },
+  });
+  expect(
+    result.observations?.find(
+      (item) => item.id === "sevro.host.skill-activations",
+    ),
+  ).toMatchObject({
+    completeness: "partial",
+    data: {
+      collectionStatus: "complete",
+      skillExposures: [
+        { skill: "probe", status: "partial" },
+        { skill: "sibling", status: "none" },
+      ],
+      observedSkills: [],
+      incompleteReasons: ["partial_skill_bodies"],
+    },
+  });
+});
+
+test.each([
+  {
+    label: "earlier pending call",
+    pages: [{ text: "gap", omitPost: true }, { text: completeProbeBody }],
+    options: {},
+  },
+  {
+    label: "missing stop",
+    pages: [{ text: completeProbeBody }],
+    options: { omitStop: true },
+  },
+])(
+  "Codex preserves full exposure with unknown absence after $label",
+  async ({ pages, options }) => {
+    if (!isolatedNativeHost) return;
+    const result = await runPagedCodex(pages, {
+      ...options,
+      body: completeProbeBody,
+      siblings: { sibling: siblingSkillBody },
+    });
+    expect(
+      result.observations?.find(
+        (item) => item.id === "sevro.host.skill-activations",
+      ),
+    ).toMatchObject({
+      completeness: "partial",
+      data: {
+        collectionStatus: "partial",
+        primarySkill: null,
+        primarySkillCompleteness: "partial",
+        skillExposures: [
+          { skill: "probe", status: "full" },
+          { skill: "sibling", status: "unknown" },
+        ],
+      },
+    });
+  },
+);
+
+test("Codex distinguishes ambiguous bodies from absent exposure", async () => {
+  if (!isolatedNativeHost) return;
+  const result = await runPagedCodex([{ text: pagedSkillPages.join("") }], {
+    aliases: ["other"],
+    siblings: { sibling: siblingSkillBody },
+  });
+  expect(
+    result.observations?.find(
+      (item) => item.id === "sevro.host.skill-activations",
+    ),
+  ).toMatchObject({
+    completeness: "partial",
+    data: {
+      collectionStatus: "complete",
+      skillExposures: [
+        { skill: "other", status: "ambiguous" },
+        { skill: "probe", status: "ambiguous" },
+        { skill: "sibling", status: "none" },
+      ],
+    },
+  });
+  expect(
+    result.observations?.some(
+      (item) => item.id === "sevro.host.skill-exposure-claims",
+    ),
+  ).toBe(false);
+});
+
+test("Codex reports unavailable collection without claiming no exposure", async () => {
+  if (!isolatedNativeHost) return;
+  const result = await runPagedCodex([], { omitStart: true, omitStop: true });
+  expect(
+    result.observations?.find(
+      (item) => item.id === "sevro.host.skill-activations",
+    ),
+  ).toMatchObject({
+    completeness: "partial",
+    data: {
+      collectionStatus: "unavailable",
+      skillExposures: [{ skill: "probe", status: "unknown" }],
+    },
+  });
+  expect(
+    result.observations?.some(
+      (item) => item.id === "sevro.host.skill-exposure-claims",
+    ),
+  ).toBe(false);
+});
+
+test.each([
+  { label: "full", text: completeProbeBody, status: "full" },
+  { label: "partial", text: pagedSkillPages[0], status: "partial" },
+])(
+  "Codex publishes complete positive exposure claims for $label reads across gaps",
+  async ({ text, status }) => {
+    if (!isolatedNativeHost) return;
+    const result = await runPagedCodex(
+      [{ text: "gap", omitPost: true }, { text }],
+      { body: completeProbeBody, siblings: { sibling: siblingSkillBody } },
+    );
+    expect(result.observations).toContainEqual({
+      id: "sevro.host.skill-exposure-claims",
+      completeness: "complete",
+      data: {
+        method: "tool_result_body_match",
+        scope: "positive_exposure",
+        collectionStatus: "partial",
+        skillExposures: [{ skill: "probe", status }],
+      },
+    });
+    expect(
+      result.observations?.some(
+        (item) => item.id === "sevro.host.skill-activation-claims",
+      ),
+    ).toBe(false);
+    expect(JSON.stringify(result.observations)).not.toContain(
+      pagedSkillPages[0],
+    );
+  },
+);
 
 test("Codex activation evidence explains an unmatched tool hook without losing skill credit", async () => {
   if (!isolatedNativeHost) return;
@@ -695,6 +862,24 @@ test("Codex host accounts for paged tool results", async () => {
     "private-output-prefix",
   );
   expect(JSON.stringify(result.observations)).not.toContain(pagedSkillPages[0]);
+});
+
+test("exposure claims satisfy positive evidence requirements without completing aggregate activation", async () => {
+  if (!isolatedNativeHost) return;
+  const hostResult = await runPagedCodex([
+    { text: "gap", omitPost: true },
+    { text: pagedSkillPages[0] },
+  ]);
+  const evaluation = createEvaluation(roots);
+  const positive = await evaluation(hostResult);
+  positive.case.requiredEvidence = ["sevro.host.skill-exposure-claims"];
+  const accepted = await runEvaluation(positive);
+  expect(accepted.result.task.verdict).toBe("passed");
+  const aggregate = await evaluation(hostResult);
+  aggregate.case.requiredEvidence = ["sevro.host.skill-activations"];
+  const unknown = await runEvaluation(aggregate);
+  expect(unknown.result.task.verdict).toBe("not_assessed");
+  expect(unknown.result.exitCode).toBe(4);
 });
 
 test.each([
