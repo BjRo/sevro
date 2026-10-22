@@ -90,8 +90,55 @@ Newly created or changed skill bodies are outside the prepared snapshot. A
 complete empty observation is limited to this scope and the supported local
 tool hook paths.
 
+Codex separates per-skill exposure from collection health in the same
+observation. `skillExposures` contains one `{ skill, status }` entry per prepared
+catalog entry, in catalog order, with qualified skill names:
+
+| Status      | Meaning                                                                 |
+| ----------- | ----------------------------------------------------------------------- |
+| `full`      | The complete prepared body was exposed, in one result or exact pages.   |
+| `partial`   | Recognizable fragments were exposed without establishing the full body. |
+| `none`      | No exposure was detected within a complete collection's matching scope. |
+| `unknown`   | No exposure was detected, but collection gaps prevent an absence claim. |
+| `ambiguous` | Body exposure could not distinguish identically registered bodies.      |
+
+`collectionStatus` is `complete`, `partial`, or `unavailable`. No parsed hook
+receipts means `unavailable`; otherwise collection gaps mean `partial`.
+Recognized partial bodies and ambiguous identities alone do not indicate a
+collection failure. Their existing `incompleteReasons` still keep the aggregate
+activation observation partial for compatibility. Other reason codes, including
+truncated call diagnostics, keep collection partial. Older observations without
+these new fields have unknown exposure and collection status; do not infer them
+from an empty `observedSkills` list.
+
+Exposure statuses use all parsed receipts before the diagnostic `calls` list is
+bounded. A proven `full` or `partial` exposure survives collection gaps, including
+an earlier pending call, missing lifecycle hooks or an invalid receipt tail.
+Full exposure takes precedence over fragments; ambiguous identities cannot
+establish exposure of a particular named skill. `none` does not establish that
+the skill was never used outside the prepared catalog and matching scope.
+Recognizable fragments may be shared by several skill bodies. These statuses
+describe content exposure to a tool caller, not instruction compliance, model
+visibility or selection order.
+
+The Codex adapter also advertises `sevro.host.skill-exposure-claims`. When at
+least one skill has `full` or `partial` exposure, it emits that observation with
+`completeness: complete`, `method: tool_result_body_match`,
+`scope: positive_exposure`, the original `collectionStatus`, and `skillExposures`
+containing only those positive entries. It is absent when no unambiguous
+positive exposure is available. Extensions can require this evidence for a
+specific positive assertion: accept only `full` for complete body exposure,
+or explicitly accept `partial` when recognizable exposure suffices. A `partial`
+entry is not a full activation. This receipt cannot establish absence, first
+selection, a complete sequence or successful execution; collection remains
+independently qualified. Existing activation and primary-selection requirements
+are unchanged. Claude's native `Skill` seam does not emit body-exposure statuses
+or these positive body-exposure claims.
+
 Codex observations include `incompleteReasons`: an empty array for a complete
-collection, or all applicable reason codes for a partial collection. Older
+aggregate activation observation, or all applicable reason codes for a partial
+aggregate observation. The separate `collectionStatus` isolates collection
+health from partial bodies and body ambiguity. Older
 observations without this field have unknown reasons; their missing details
 cannot be reconstructed from balanced native call/return counts.
 

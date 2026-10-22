@@ -449,6 +449,66 @@ export function skillActivationClaims(
   ];
 }
 
+export function skillExposureClaims(
+  observation: Awaited<ReturnType<typeof skillTrackingObservation>>,
+) {
+  const skillExposures = observation.data.skillExposures.filter(
+    (exposure) => exposure.status === "full" || exposure.status === "partial",
+  );
+  if (skillExposures.length === 0) return [];
+  return [
+    {
+      id: "sevro.host.skill-exposure-claims",
+      completeness: "complete" as const,
+      data: {
+        method: "tool_result_body_match",
+        scope: "positive_exposure",
+        collectionStatus: observation.data.collectionStatus,
+        skillExposures,
+      },
+    },
+  ];
+}
+
+function exposureSummary(
+  skills: HookSkill[],
+  events: SkillHookReceipt[],
+  collectionStatus: string,
+) {
+  const exposure = {
+    full: new Set(events.flatMap((event) => event.invocations)),
+    partial: new Set(incompleteSkills(events)),
+    ambiguous: new Set(events.flatMap((event) => event.ambiguousInvocations)),
+  };
+  return skills.map(({ invocation: skill }) => ({
+    skill,
+    status: skillExposureStatus(skill, exposure, collectionStatus),
+  }));
+}
+
+function skillExposureStatus(
+  skill: string,
+  exposure: { full: Set<string>; partial: Set<string>; ambiguous: Set<string> },
+  collectionStatus: string,
+) {
+  if (exposure.full.has(skill)) return "full" as const;
+  if (exposure.ambiguous.has(skill)) return "ambiguous" as const;
+  if (exposure.partial.has(skill)) return "partial" as const;
+  return collectionStatus === "complete"
+    ? ("none" as const)
+    : ("unknown" as const);
+}
+
+function exposureCollectionStatus(reasons: string[], eventCount: number) {
+  if (eventCount === 0) return "unavailable" as const;
+  return reasons.some(
+    (reason) =>
+      !["partial_skill_bodies", "ambiguous_skill_bodies"].includes(reason),
+  )
+    ? ("partial" as const)
+    : ("complete" as const);
+}
+
 export async function skillTrackingObservation(
   tracking: SkillTracking,
   sessionId: string | null,
@@ -489,6 +549,10 @@ export async function skillTrackingObservation(
     ...conditions.filter(([, applies]) => applies).map(([reason]) => reason),
   ];
   const complete = incompleteReasons.length === 0;
+  const collectionStatus = exposureCollectionStatus(
+    incompleteReasons,
+    events.length,
+  );
   return {
     id: "sevro.host.skill-activations",
     completeness: complete ? ("complete" as const) : ("partial" as const),
@@ -497,6 +561,12 @@ export async function skillTrackingObservation(
       visibility: "tool_result",
       scope: "prepared_skill_bodies",
       catalogComplete: tracking.configuration.catalogComplete,
+      collectionStatus,
+      skillExposures: exposureSummary(
+        tracking.configuration.skills,
+        events,
+        collectionStatus,
+      ),
       observedSkills: [...new Set(calls.flatMap((call) => call.invocations))],
       ...primaryEvidence(events, incompleteReasons),
       partialSkills,

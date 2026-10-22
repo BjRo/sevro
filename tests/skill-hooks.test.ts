@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   prepareSkillTracking,
+  skillExposureClaims,
   skillTrackingObservation,
   type SkillTracking,
 } from "../src/hosts/skill-hooks";
@@ -578,6 +579,41 @@ test("retained activation calls respect both count and serialized byte limits", 
       Buffer.byteLength(JSON.stringify(observation.data.calls)),
     ).toBeLessThanOrEqual(24 * 1024);
   }
+});
+
+test("exposure claims preserve proven reads beyond the retained call budget", async () => {
+  const { tracking } = await fixture();
+  const events = [
+    recorded("SessionStart"),
+    ...Array.from({ length: 128 }, (_, index) =>
+      recorded("PreToolUse", { tool_use_id: `pending-${index}` }),
+    ),
+    recorded("PreToolUse", { tool_use_id: "full" }),
+    {
+      ...recorded("PostToolUse", { tool_use_id: "full" }),
+      invocations: ["plugin:fixture"],
+    },
+    recorded("Stop"),
+  ];
+  await storeReceipts(tracking, events);
+  const observation = await skillTrackingObservation(tracking, "s", true);
+  expect(observation.data.truncated).toBe(true);
+  expect(observation.data.calls).toHaveLength(128);
+  expect(observation.data.skillExposures).toEqual([
+    { skill: "plugin:fixture", status: "full" },
+  ]);
+  expect(skillExposureClaims(observation)).toEqual([
+    {
+      id: "sevro.host.skill-exposure-claims",
+      completeness: "complete",
+      data: {
+        method: "tool_result_body_match",
+        scope: "positive_exposure",
+        collectionStatus: "partial",
+        skillExposures: [{ skill: "plugin:fixture", status: "full" }],
+      },
+    },
+  ]);
 });
 
 test("the observer can collect a complete empty catalog when no roots are configured", async () => {
