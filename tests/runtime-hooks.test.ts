@@ -15,7 +15,11 @@ import { createClaudeHost } from "../src/hosts/claude";
 import { createCodexHost } from "../src/hosts/codex";
 import { runtimeSeedDigest } from "../src/runtime/seeds";
 import { loadRuntimeConfiguration } from "../src/engine";
-import { defined } from "./fixtures/assertions";
+import {
+  defined,
+  expectUnknown,
+  objectContaining,
+} from "./fixtures/assertions";
 import {
   allocateWorkspace,
   removeWorkspace,
@@ -684,6 +688,17 @@ test("Claude safely processes skill hook frontmatter alongside ordinary Markdown
   );
 });
 
+function codexCandidateProbe(codex: string): string {
+  return `async function candidateProbe() {
+ if (!await Bun.file(".git/candidate-probe.sh").exists()) return;
+ const config = await Bun.file(process.env.CODEX_HOME + "/config.toml").text();
+ const profile = /^default_permissions = "([^"]+)"/m.exec(config)[1];
+ const child = Bun.spawn([${JSON.stringify(codex)}, "sandbox", "-P", profile, "-C", process.cwd(), "/bin/sh", ".git/candidate-probe.sh"], {env: process.env, stdout: "pipe", stderr: "pipe"});
+ const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+ await Bun.write("candidate-probe.json", JSON.stringify({stdout, stderr, code}));
+}`;
+}
+
 async function runCodexHookFixture(
   fixture: Awaited<ReturnType<typeof hookFixture>>,
   entrypoint: "exec" | "app-server" = "exec",
@@ -711,6 +726,7 @@ const args = process.argv.slice(2);
 if (args[0] === "plugin" || args[0] === "--version") {
  const child = Bun.spawn([${JSON.stringify(codex)}, ...args], {env: process.env, stdout: "inherit", stderr: "inherit"}); process.exit(await child.exited);
 }
+${codexCandidateProbe(codex)}
 const server = Bun.serve({port: 0, fetch() { return Response.json({error: {message: "intentional fixture stop"}}, {status: 400}); }});
 if (args[0] === "app-server") {
  // Only the external model route is mocked; native hook discovery, trust and execution stay in Codex.
@@ -719,14 +735,14 @@ if (args[0] === "app-server") {
  const {createInterface} = await import("node:readline");
  createInterface({input: process.stdin}).on("line", (line) => { const message = JSON.parse(line); if (message.method === "thread/start") message.params.modelProvider = "runtime_mock"; child.stdin.write(JSON.stringify(message) + "\\n"); });
  const reader = child.stdout.getReader(); let buffer = "";
- for (;;) { const {value, done} = await reader.read(); if (done) break; buffer += new TextDecoder().decode(value); let newline; while ((newline = buffer.indexOf("\\n")) >= 0) { const message = JSON.parse(buffer.slice(0, newline)); buffer = buffer.slice(newline + 1); if (message.result?.modelProvider === "runtime_mock") message.result.modelProvider = "openai"; console.log(JSON.stringify(message)); }}
+ for (;;) { const {value, done} = await reader.read(); if (done) break; buffer += new TextDecoder().decode(value); let newline; while ((newline = buffer.indexOf("\\n")) >= 0) { const message = JSON.parse(buffer.slice(0, newline)); buffer = buffer.slice(newline + 1); if (message.result?.modelProvider === "runtime_mock") message.result.modelProvider = "openai"; if (message.method === "turn/completed") await candidateProbe(); console.log(JSON.stringify(message)); }}
  const code = await child.exited; server.stop(true); process.exit(code);
 }
 await Bun.write("codex-hook-config", await Bun.file(process.env.CODEX_HOME + "/config.toml").text());
 const provider = ["-c", 'model_provider="runtime_mock"', "-c", 'model_providers.runtime_mock.name="runtime_mock"', "-c", "model_providers.runtime_mock.base_url=" + JSON.stringify(server.url.href), "-c", 'model_providers.runtime_mock.wire_api="responses"', "-c", 'model_providers.runtime_mock.requires_openai_auth=false', "-c", 'model_providers.runtime_mock.stream_max_retries=0'];
 const child = Bun.spawn([${JSON.stringify(codex)}, ...args, ...provider], {env: process.env, stdin: "pipe", stdout: Bun.file("codex-hook-events"), stderr: Bun.file("codex-init-error")});
 child.stdin.write("Return ready."); child.stdin.end();
-const timer = setTimeout(() => child.kill(), 8000); await child.exited; clearTimeout(timer); server.stop(true);
+const timer = setTimeout(() => child.kill(), 8000); await child.exited; clearTimeout(timer); await candidateProbe(); server.stop(true);
 console.log(JSON.stringify({type: "thread.started", thread_id: "runtime-probe"}));
 console.log(JSON.stringify({type: "item.completed", item: {type: "agent_message", text: "ready"}}));
 console.log(JSON.stringify({type: "turn.completed"}));
@@ -782,6 +798,70 @@ test("Codex executes only selected plugin hooks under protected-root isolation",
     false,
   );
 }, 30000);
+
+test.each(["exec", "app-server"] as const)(
+  "Codex candidate reads a hook-advertised skill while private state stays denied: %s",
+  async (entrypoint) => {
+    const fixture = await hookFixture();
+    const peer = await allocateNativeState("codex-hook-read-peer-");
+    roots.push(peer);
+    await writeFile(join(peer, "secret"), "private peer");
+    await mkdir(join(fixture.workspace, ".git"));
+    const skill = "packages/allowed/skills/probe/SKILL.md";
+    const body =
+      "---\nname: probe\ndescription: Hook read probe.\n---\nFollow the hook-advertised skill.\n";
+    await mkdir(join(fixture.workspace, "packages/allowed/skills/probe"), {
+      recursive: true,
+    });
+    await writeFile(join(fixture.workspace, skill), body);
+    fixture.artifactPaths.push(skill);
+    await writeFile(
+      join(fixture.workspace, "packages/allowed/hooks/start.sh"),
+      `#!/bin/sh
+set -eu
+printf '%s' "$PLUGIN_ROOT/skills/probe/SKILL.md" > advertised-skill
+printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"Read %s/skills/probe/SKILL.md"}}' "$PLUGIN_ROOT"
+`,
+    );
+    await writeFile(
+      join(fixture.workspace, ".git/candidate-probe.sh"),
+      `set -eu
+skill=$(cat advertised-skill)
+cat "$skill"
+if (printf changed > "$skill") 2>/dev/null; then exit 11; fi
+if mkdir "$(dirname "$skill")/planted" 2>/dev/null; then exit 12; fi
+for secret in "$(dirname "$skill")/../../../../codex-home/auth.json" "$(dirname "$skill")/../../../../codex-home/config.toml" '${join(fixture.projectRoot, "private-input")}' '${join(peer, "secret")}'; do
+  if cat "$secret" >/dev/null 2>&1; then exit 13; fi
+done
+printf '\\nisolation preserved\\n'
+`,
+    );
+    await writeFile(
+      fixture.credentialFile,
+      JSON.stringify({ OPENAI_API_KEY: "synthetic-test-credential" }),
+    );
+    const result = await runCodexHookFixture(fixture, entrypoint);
+    const probe: unknown = await Bun.file(
+      join(fixture.workspace, "candidate-probe.json"),
+    ).json();
+    expect(probe, JSON.stringify(result.observations)).toEqual({
+      code: 0,
+      stderr: "",
+      stdout: body + "\nisolation preserved\n",
+    });
+    expectUnknown(result.observations).toContainEqual(
+      objectContaining({
+        id: "sevro.host.hooks",
+        completeness: "complete",
+        data: objectContaining({
+          executions: [objectContaining({ status: "completed", exitCode: 0 })],
+        }),
+      }),
+    );
+    expect(await readFile(join(peer, "secret"), "utf8")).toBe("private peer");
+  },
+  30000,
+);
 
 test.each(["exec", "app-server"] as const)(
   "Codex managed plugin hooks keep projections read-only and peers private: %s",
