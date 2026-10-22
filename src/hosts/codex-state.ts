@@ -28,6 +28,7 @@ import {
   candidateTranscriptRoots,
 } from "../native-transcripts";
 import { prepareHookMounts } from "../runtime/hooks";
+import { requireNativeHookRoots } from "../native-transcript-state";
 import {
   requireRuntimeReadRoots,
   runtimeExecutableProtection,
@@ -102,7 +103,26 @@ export async function codexHookMounts(
     await rm(root, { recursive: true });
     await cp(curated, root, { recursive: true });
   }
+  await grantCodexHookReads(state, hooks.directories);
   return hooks;
+}
+
+/** Hooks advertise paths relative to these curated copies, not the install cache. */
+async function grantCodexHookReads(
+  state: CodexState,
+  roots: string[],
+): Promise<void> {
+  if (roots.length === 0) return;
+  await requireNativeHookRoots(roots, state.codexHome);
+  const path = join(state.codexHome, "config.toml");
+  const config = await readFile(path, "utf8");
+  const header = `[permissions.${state.profileId}.filesystem]\n`;
+  const grants = roots
+    .map((root) => `${JSON.stringify(root)} = "read"\n`)
+    .join("");
+  await writeFile(path, config.replace(header, header + grants), {
+    mode: 0o600,
+  });
 }
 
 async function privateCodexDirectories(stateRoot: string) {
