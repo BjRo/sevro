@@ -64,6 +64,7 @@ function claudeSeedSources(request: Request): string[] {
 async function createClaudePrivateState(
   stateRoot: string,
   options: ClaudeHostOptions,
+  loginLifetimeMs: number,
 ) {
   await mkdir(join(stateRoot, "private"), { mode: 0o700 });
   const privateRoot = await realpath(join(stateRoot, "private"));
@@ -73,6 +74,7 @@ async function createClaudePrivateState(
   const authentication = await stageClaudeAuthentication(
     join(privateRoot, "config"),
     options.credentialFile,
+    { binary: options.binary, lifetimeMs: loginLifetimeMs },
   );
   return {
     privateRoot,
@@ -194,14 +196,16 @@ function claudeRuntimeEnvironment(
     : {};
 }
 
+/** `lifetimeMs` is the access-token lifetime the complete execution needs. */
 export async function prepareClaudeState(
   stateRoot: string,
   options: ClaudeHostOptions,
   request: Request,
   pluginDirs: string[],
+  lifetimeMs: number,
 ) {
   await requireClaudeRuntimeNamespace(request, stateRoot);
-  const state = await createClaudePrivateState(stateRoot, options);
+  const state = await createClaudePrivateState(stateRoot, options, lifetimeMs);
   const transcripts = await claudeTranscriptAccess(
     stateRoot,
     state.credential,

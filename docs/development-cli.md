@@ -270,15 +270,38 @@ sevro run --json \
 The route reuses existing Claude authentication. An explicit
 `--claude-credential-file` takes precedence over inherited credentials. Otherwise,
 it forwards `ANTHROPIC_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN` when present, leaving
-their relative precedence to Claude Code. With neither variable present, it
-copies `.credentials.json` from `CLAUDE_CONFIG_DIR` or `~/.claude`, then falls back
-to the macOS Keychain if the saved file is absent. An unreadable, empty or
-oversized selected file fails rather than falling back to another login.
-Only credentials enter private per-turn state; user rules, settings and hooks
-remain excluded. The host denies both authentication variables to sandboxed
+their relative precedence to Claude Code. With neither variable present, it uses
+the saved login where Claude Code keeps it for `CLAUDE_CONFIG_DIR` or `~/.claude`.
+On macOS that is the configuration's Keychain item, then `.credentials.json` in
+that directory when the item is absent or unreadable. On Linux it is that file.
+An unreadable, empty, oversized or non-login selected file fails rather than
+falling back to another login. Pass `--claude-credential-file` with an absolute
+path to select a separate saved login; Sevro refreshes and updates only that file.
+
+A saved login never enters per-turn state. Each turn receives only its access
+token as `CLAUDE_CODE_OAUTH_TOKEN`, so Claude Code in the trial cannot refresh or
+rotate the login. The parent refreshes when the remaining token lifetime cannot
+cover the execution budget: the Claude timeout for each turn, including a
+declared follow-up, plus five minutes. It holds Claude Code's own
+`.oauth_refresh.lock` in the login's configuration directory and reads the login
+again. It then runs `claude auth login` with Claude Code's documented
+`CLAUDE_CODE_OAUTH_REFRESH_TOKEN` in a disposable configuration. Sevro writes the
+rotated tokens back to the original Keychain item or file, preserving other fields.
+It reads that store again to verify them before a turn starts, and leaves a login
+that changed during the refresh untouched. Refresh requires Claude Code 2.1.284 or
+later; an older release fails before its refresh token is used.
+
+If the store cannot be updated, the run fails and Sevro keeps the rotated tokens in
+its private native-state directory. The next run restores them once the store is
+writable. If Claude Code cannot refresh the login, run `claude` and `/login`.
+A token that expires or is revoked during a turn fails that turn's
+authentication; the trial never refreshes it. This lifecycle is covered with a
+synthetic Claude CLI and token ledger, not against Anthropic's live endpoint.
+
+Only the access token enters private per-turn state; user rules, settings and
+hooks remain excluded. The host denies both authentication variables to sandboxed
 commands and enables Claude Code's subprocess credential scrubbing. Credential
-values are excluded from retained evidence and configuration digests. Pass
-`--claude-credential-file` with an absolute path to select a separate saved login.
+values are excluded from retained evidence and configuration digests.
 It accepts declared Claude
 plugin directories and explicit skill invocations from extension preparation.
 It runs candidate tools under Claude Code's native sandbox with private,

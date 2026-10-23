@@ -183,12 +183,23 @@ try {
     const credentialFile = join(root, "claude-credential.json");
     const claudeCase = join(project, "claude-case.json");
     await Promise.all([
-      writeFile(credentialFile, '{"test":"private-login"}', { mode: 0o600 }),
+      writeFile(
+        credentialFile,
+        JSON.stringify({
+          claudeAiOauth: {
+            accessToken: "PRIVATE_TEST_LOGIN",
+            refreshToken: "PRIVATE_TEST_REFRESH",
+            expiresAt: Date.now() + 24 * 3_600_000,
+            scopes: ["user:inference"],
+          },
+        }),
+        { mode: 0o600 },
+      ),
       writeFile(
         claudeBinary,
         [
           "#!/bin/sh",
-          'test -r "$CLAUDE_CONFIG_DIR/.credentials.json" || exit 3',
+          'test ! -e "$CLAUDE_CONFIG_DIR/.credentials.json" && test "$CLAUDE_CODE_OAUTH_TOKEN" = PRIVATE_TEST_LOGIN || exit 3',
           'test -z "${DARROW_CACHE_DIR+x}" || exit 4',
           'test "$(cat "$UV_CACHE_DIR/sentinel")" = curated || exit 5',
           'test "${HOME#*/.git/sevro-runtime/}" = host-home || exit 6',

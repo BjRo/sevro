@@ -19,6 +19,7 @@ import {
 } from "../fixtures/host-auth";
 import { defined, record } from "../fixtures/assertions";
 import { createWorkspace } from "../fixtures/native-host-fixtures";
+import { syntheticClaudeLogin } from "../fixtures/claude-login";
 
 const testDirectory = join(import.meta.dir, "..");
 
@@ -51,7 +52,7 @@ async function claudeHostFixture() {
   ]);
   await cp(join(testDirectory, "fixtures/host-claude.ts"), binary);
   await chmod(binary, 0o700);
-  await writeFile(credential, '{"login":"PRIVATE_TEST_LOGIN"}');
+  await writeFile(credential, syntheticClaudeLogin());
   const options: ClaudeHostOptions = {
     binary,
     model: "synthetic",
@@ -133,9 +134,8 @@ test("Claude explicit credential takes precedence over inherited authentication"
       requirePrivateResult(result);
       const capture = await claudeCapture(fixture);
       expect(capture).toMatchObject({
-        saved: true,
+        saved: false,
         expectedLogin: true,
-        permission: 0o600,
         userRules: false,
         userSettings: false,
         api: false,
@@ -175,16 +175,13 @@ test.each(["api", "oauth", "both"])(
   },
 );
 
-test("Claude saved configuration contributes only credentials to private state", async () => {
+test("Claude saved configuration contributes only an access token to private state", async () => {
   if (!isolatedNativeHost) return;
   const fixture = await claudeHostFixture();
   delete fixture.options.credentialFile;
   const saved = join(fixture.root, "saved");
   await mkdir(saved);
-  await writeFile(
-    join(saved, ".credentials.json"),
-    '{"login":"PRIVATE_TEST_LOGIN"}',
-  );
+  await writeFile(join(saved, ".credentials.json"), syntheticClaudeLogin());
   await writeFile(join(saved, "CLAUDE.md"), "PRIVATE_USER_RULE");
   await writeFile(
     join(saved, "settings.json"),
@@ -198,9 +195,8 @@ test("Claude saved configuration contributes only credentials to private state",
       );
       const capture = await claudeCapture(fixture);
       expect(capture).toMatchObject({
-        saved: true,
+        saved: false,
         expectedLogin: true,
-        permission: 0o600,
         userRules: false,
         userSettings: false,
       });
@@ -282,8 +278,7 @@ test.each([true, false])(
             await createClaudeHost(fixture.options).run(fixture.request),
           );
           expect(await claudeCapture(fixture)).toMatchObject({
-            saved: true,
-            permission: 0o600,
+            saved: false,
             expectedLogin: true,
           });
         });
@@ -567,7 +562,7 @@ test("Claude verifies a declared plugin invocation before the real host process"
     await createClaudeHost(fixture.options).run(fixture.request),
   );
   expect(await claudeCapture(fixture)).toMatchObject({
-    saved: true,
+    saved: false,
     expectedLogin: true,
   });
 });

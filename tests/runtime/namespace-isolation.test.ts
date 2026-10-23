@@ -19,6 +19,7 @@ import { runEvaluation } from "../../src/engine";
 import { defined } from "../fixtures/assertions";
 import { waitForNativeCommand } from "../fixtures/runtime-host-fixtures";
 import { createCodexFixture } from "../fixtures/runtime-host-fixtures";
+import { syntheticClaudeLogin } from "../fixtures/claude-login";
 
 const roots: string[] = [];
 
@@ -65,7 +66,7 @@ test.each([
       { mode: 0o700 },
     );
     const credentialFile = join(root, "claude-credential.json");
-    await writeFile(credentialFile, "{}");
+    await writeFile(credentialFile, syntheticClaudeLogin());
     const host =
       native === "Codex"
         ? codexHost
@@ -130,7 +131,7 @@ test.skipIf(process.platform !== "darwin").each([
       { mode: 0o700 },
     );
     const credentialFile = join(root, "claude-credential.json");
-    await writeFile(credentialFile, "{}");
+    await writeFile(credentialFile, syntheticClaudeLogin());
     const codexBinary = join(bin, "candidate");
     await cp(join(root, "candidate"), codexBinary);
     const host =
@@ -208,7 +209,7 @@ test.skipIf(process.platform !== "darwin").each([false, true])(
       { mode: 0o700 },
     );
     const credentialFile = join(root, "claude-credential.json");
-    await writeFile(credentialFile, "{}");
+    await writeFile(credentialFile, syntheticClaudeLogin());
     const host = createClaudeHost({
       binary,
       credentialFile,
@@ -260,7 +261,7 @@ test.skipIf(process.platform !== "darwin")(
       { mode: 0o700 },
     );
     const credentialFile = join(root, "claude-credential.json");
-    await writeFile(credentialFile, "{}");
+    await writeFile(credentialFile, syntheticClaudeLogin());
     const host = createClaudeHost({
       binary,
       credentialFile,
@@ -348,7 +349,7 @@ ${ending === "failure" ? "exit 1" : "/bin/sleep 20"}
     let host = fixture.host;
     if (native === "Claude") {
       const credentialFile = join(fixture.root, "claude-credential.json");
-      await writeFile(credentialFile, "{}");
+      await writeFile(credentialFile, syntheticClaudeLogin());
       host = createClaudeHost({
         binary,
         credentialFile,

@@ -1,3 +1,4 @@
+import { syntheticClaudeLogin } from "./fixtures/claude-login";
 import { afterEach, expect, test } from "bun:test";
 import {
   chmod,
@@ -759,7 +760,7 @@ async function localeHostArguments(
 ): Promise<string[]> {
   const binary = join(root, route);
   const credential = join(root, "credential.json");
-  await writeFile(credential, '{"test":"synthetic"}');
+  await writeFile(credential, syntheticClaudeLogin());
   if (route === "claude") {
     await writeFile(
       binary,
@@ -1377,7 +1378,7 @@ test("CLI passes declared environment to a Claude candidate", async () => {
   );
   await chmod(binary, 0o755);
   const credential = join(root, "credential.json");
-  await writeFile(credential, '{"test":"synthetic"}');
+  await writeFile(credential, syntheticClaudeLogin());
   await writeFile(
     join(project, "sevro.json"),
     JSON.stringify({
@@ -2040,7 +2041,7 @@ test("CLI separates candidate and check runtime seeds", async () => {
   );
   await chmod(binary, 0o755);
   const credential = join(root, "credential.json");
-  await writeFile(credential, '{"test":"synthetic"}');
+  await writeFile(credential, syntheticClaudeLogin());
   await writeFile(
     join(project, "sevro.json"),
     JSON.stringify({
@@ -2093,7 +2094,7 @@ test("CLI enables declared native goals in the Claude runtime policy", async () 
   );
   await chmod(binary, 0o755);
   const credential = join(root, "credential.json");
-  await writeFile(credential, '{"test":"synthetic"}');
+  await writeFile(credential, syntheticClaudeLogin());
   await writeFile(
     join(project, "sevro.json"),
     '{"format":"sevro.runtime.v1","hooks":{"nativeGoal":true}}',
