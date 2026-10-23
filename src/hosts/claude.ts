@@ -45,7 +45,10 @@ import {
   retainReturnedHostFailure,
   type HostDiagnostics,
 } from "../host-diagnostics";
-import { CLAUDE_AUTH_VARIABLES } from "./claude-credential";
+import {
+  CLAUDE_AUTH_VARIABLES,
+  CLAUDE_LOGIN_MARGIN_MS,
+} from "./claude-credential";
 import { claudeToolCallsObservation } from "./claude-tool-calls";
 import { claudeSkillActivationsObservation } from "./claude-skill-activations";
 import { claudeNativeControls } from "./native-controls";
@@ -324,6 +327,12 @@ async function runClaudeRequest(
   });
 }
 
+/** Every turn shares one access token, so it must outlive all of them. */
+function claudeLoginLifetime(timeoutMs: number, request: Request): number {
+  const turns = request.followUpPrompt === undefined ? 1 : 2;
+  return timeoutMs * turns + CLAUDE_LOGIN_MARGIN_MS;
+}
+
 async function executeClaudeRequest(
   options: ClaudeHostOptions,
   timeoutMs: number,
@@ -347,8 +356,8 @@ async function executeClaudeRequest(
       options,
       request,
       pluginDirs,
+      claudeLoginLifetime(timeoutMs, request),
     );
-    await readDiagnosticCredentials(diagnostics, state.credential);
     diagnosticCredentialEnvironment(
       diagnostics,
       state.env,

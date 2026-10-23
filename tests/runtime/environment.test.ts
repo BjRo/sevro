@@ -1,3 +1,4 @@
+import { syntheticClaudeLogin } from "../fixtures/claude-login";
 import { afterEach, expect, test } from "bun:test";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
@@ -34,7 +35,7 @@ printf '{"type":"result","subtype":"success","is_error":false,"result":"%s"}\\n'
     { mode: 0o755 },
   );
   const credentialFile = join(root, "claude-credential.json");
-  await writeFile(credentialFile, "{}");
+  await writeFile(credentialFile, syntheticClaudeLogin());
   const host = createClaudeHost({
     binary,
     credentialFile,

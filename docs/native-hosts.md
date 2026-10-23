@@ -36,7 +36,10 @@ observations require `rc.2` or later. Unsupported instrumentation is refused.
 Select `--host claude`, an absolute `--claude-bin`, and the desired model/effort.
 The route supports passive candidate turns. Explicit `--claude-credential-file`
 takes precedence. Otherwise this checkout forwards inherited API/OAuth
-credentials, then tries a saved credential file and macOS Keychain.
+credentials, then uses the saved login from the macOS Keychain or saved credential
+file. Trials receive only an access token; the parent refreshes a saved login and
+writes it back, so evaluations leave your normal Claude login working. See the
+[CLI reference](development-cli.md) for refresh and failure behavior.
 These improvements require `rc.3` or later; check the exact installed
 release before relying on them.
 

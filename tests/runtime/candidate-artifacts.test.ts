@@ -1,3 +1,4 @@
+import { syntheticClaudeLogin } from "../fixtures/claude-login";
 import { afterEach, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import {
@@ -664,7 +665,7 @@ console.log(JSON.stringify({ type: 'result', subtype: 'success', is_error: false
       { mode: 0o700 },
     );
     const credentialFile = join(root, "claude-credential.json");
-    await writeFile(credentialFile, "{}");
+    await writeFile(credentialFile, syntheticClaudeLogin());
     const host = createClaudeHost({
       binary,
       credentialFile,

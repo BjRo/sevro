@@ -1,3 +1,4 @@
+import { syntheticClaudeLogin } from "./fixtures/claude-login";
 import { afterEach, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import {
@@ -535,7 +536,8 @@ test("CLI retains Claude preparation failures with the same opt-in", async () =>
 });
 
 test("CLI retains a failed Claude process without a final response", async () => {
-  const { args, binary } = await executionFailure("exec");
+  const { args, auth, binary } = await executionFailure("exec");
+  await writeFile(auth, syntheticClaudeLogin());
   args[args.indexOf("--host") + 1] = "claude";
   args[args.indexOf("--codex-bin")] = "--claude-bin";
   args[args.indexOf("--codex-auth-file")] = "--claude-credential-file";

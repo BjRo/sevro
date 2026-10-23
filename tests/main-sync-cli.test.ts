@@ -1,3 +1,4 @@
+import { syntheticClaudeLogin } from "./fixtures/claude-login";
 import { expectUnknown } from "./fixtures/assertions";
 import {
   defined,
@@ -28,7 +29,7 @@ async function codexTimeoutArguments() {
   await chmod(binary, 0o700);
   const credential = join(root, "auth.json");
   const declaration = join(root, "case.json");
-  await writeFile(credential, "{}");
+  await writeFile(credential, syntheticClaudeLogin());
   await writeFile(
     declaration,
     JSON.stringify({
@@ -174,7 +175,7 @@ test("public CLI records goal absence at the actual user feedback boundary", asy
   await chmod(binary, 0o700);
   const credential = join(root, "auth.json"),
     declaration = join(root, "case.json");
-  await writeFile(credential, "{}");
+  await writeFile(credential, syntheticClaudeLogin());
   await writeFile(
     declaration,
     JSON.stringify({
@@ -262,7 +263,7 @@ test("public CLI retains failed app-server evidence without passing the task", a
   await chmod(binary, 0o700);
   const credential = join(root, "auth.json"),
     declaration = join(root, "case.json");
-  await writeFile(credential, "{}");
+  await writeFile(credential, syntheticClaudeLogin());
   await writeFile(
     declaration,
     JSON.stringify({
@@ -347,7 +348,7 @@ test("public CLI observes Codex native continuation without sending extra turns"
   await chmod(binary, 0o700);
   const credential = join(root, "auth.json"),
     declaration = join(root, "case.json");
-  await writeFile(credential, "{}");
+  await writeFile(credential, syntheticClaudeLogin());
   await writeFile(
     declaration,
     JSON.stringify({
@@ -435,7 +436,7 @@ test("public CLI retains Claude native goal facts without the objective", async 
   const binary = join(binRoot, "claude");
   const credential = join(root, "credential.json");
   const declaration = join(root, "case.json");
-  await writeFile(credential, "{}");
+  await writeFile(credential, syntheticClaudeLogin());
   await writeFile(
     binary,
     `#!/usr/bin/env bun

@@ -1,5 +1,7 @@
 import { spyOn } from "bun:test";
+import { userInfo } from "node:os";
 import { join } from "node:path";
+import { claudeKeychainService } from "../../src/hosts/claude-login-store";
 import { isStringArray } from "../../src/value-guards";
 
 export async function withAuthenticationEnvironment<T>(
@@ -27,15 +29,7 @@ function substitutedSecurityCommand(
   account: boolean,
 ): string[] {
   if (command[0] !== "/usr/bin/security") return command;
-  const expected = [
-    "/usr/bin/security",
-    "find-generic-password",
-    "-s",
-    "Claude Code-credentials",
-    ...(account ? ["-a", "quality-account"] : []),
-    "-w",
-  ];
-  if (JSON.stringify(command) !== JSON.stringify(expected))
+  if (!expectedKeychainCommand(command, account))
     throw new Error(
       "Unexpected security invocation; real keychain access refused",
     );
@@ -44,7 +38,18 @@ function substitutedSecurityCommand(
     join(import.meta.dir, "host-security.ts"),
     mode,
     process.env.SEVRO_QUALITY_SECURITY_PID ?? "",
+    process.env.SEVRO_QUALITY_SECURITY_STORE ?? "",
+    ...command.slice(1),
   ];
+}
+/** Only Claude's own item for the synthetic account may be addressed. */
+function expectedKeychainCommand(command: string[], account: boolean) {
+  if (JSON.stringify(command) === '["/usr/bin/security","-i"]') return true;
+  const expectedAccount = account ? "quality-account" : userInfo().username;
+  return (
+    command[command.indexOf("-a") + 1] === expectedAccount &&
+    command[command.indexOf("-s") + 1] === claudeKeychainService()
+  );
 }
 // Only the external keychain command is replaced. The authentication reader,
 // real substituted subprocess, host invocation, and all other spawns run intact.

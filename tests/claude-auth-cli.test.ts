@@ -3,6 +3,7 @@ import { afterEach, test, expect } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { syntheticClaudeLogin } from "./fixtures/claude-login";
 const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(
@@ -36,6 +37,7 @@ async function authFixture(
   const root = await mkdtemp(join(tmpdir(), "sevro-auth-parity-"));
   const binRoot = await mkdtemp(join(tmpdir(), "sevro-auth-binary-"));
   roots.push(root, binRoot);
+  await mkdir(join(root, "ledger"));
   const binary = join(binRoot, "claude"),
     caseFile = join(root, "case.json"),
     home = join(root, "home");
@@ -50,13 +52,19 @@ async function authFixture(
 import {readFile} from "node:fs/promises";
 import {join} from "node:path";
 const args = process.argv.slice(2);
+if (args[0] === "--version" || args[0] === "auth") {
+  process.env.SEVRO_TEST_OAUTH_LEDGER = ${JSON.stringify(join(root, "ledger"))};
+  await import(${JSON.stringify(join(import.meta.dir, "fixtures/claude-refresh.ts"))});
+  process.exit(0);
+}
 const settings = JSON.parse(await readFile(args[args.indexOf("--settings")+1], "utf8"));
 const prompt = args[args.indexOf("-p")+1];
 let credential = null;
 try { credential = JSON.parse(await readFile(join(process.env.CLAUDE_CONFIG_DIR, ".credentials.json"), "utf8")); } catch {}
 const api = process.env.ANTHROPIC_API_KEY, oauth = process.env.CLAUDE_CODE_OAUTH_TOKEN;
 const protectedAuth = ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"].every(name => settings.sandbox.credentials.envVars?.some(entry => entry.name === name && entry.mode === "deny")) && process.env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB === "1";
-const ready = protectedAuth && (prompt === "environment" ? (api === "AUTH_PARITY_API_SECRET" || oauth === "AUTH_PARITY_OAUTH_SECRET") : credential?.test === prompt && !api && !oauth);
+// A saved login reaches the trial only as an access token, never as a file.
+const ready = protectedAuth && (prompt === "environment" ? (api === "AUTH_PARITY_API_SECRET" || oauth === "AUTH_PARITY_OAUTH_SECRET") : credential === null && !api && oauth === (prompt === "refreshed" ? "ROTATED_ACCESS_1" : "AUTH_PARITY_ACCESS_" + prompt));
 console.log(JSON.stringify({type:"system",subtype:"init",session_id:"11111111-1111-1111-1111-111111111111"}));
 console.log(JSON.stringify({type:"result",subtype:"success",is_error:!ready,session_id:"11111111-1111-1111-1111-111111111111",result:ready?"ready":"Authentication selection mismatch"}));
 process.exitCode = ready ? 0 : 1;
@@ -134,6 +142,7 @@ async function invoke(
     ? parseRunEvidence(await readFile(result.evidencePath, "utf8"))
     : null;
   return {
+    root,
     code,
     result,
     evidence,
@@ -160,10 +169,10 @@ test("public CLI reuses existing Claude environment authentication", async () =>
     );
   }
 });
-test("public CLI reuses the saved Claude login before Keychain", async () => {
-  const credential = JSON.stringify({
-    test: "saved-login",
-    accessToken: "AUTH_PARITY_FILE_SECRET",
+test("public CLI reuses the saved Claude login file", async () => {
+  const credential = syntheticClaudeLogin({
+    accessToken: "AUTH_PARITY_ACCESS_saved-login",
+    refreshToken: "AUTH_PARITY_FILE_SECRET",
   });
   for (const [environment, files] of [
     [
@@ -191,9 +200,9 @@ test("public CLI preserves explicit credentials and refuses invalid selected fil
   const explicit = await invoke(
     environment,
     {
-      "explicit.json": JSON.stringify({
-        test: "explicit-login",
-        accessToken: "AUTH_PARITY_FILE_SECRET",
+      "explicit.json": syntheticClaudeLogin({
+        accessToken: "AUTH_PARITY_ACCESS_explicit-login",
+        refreshToken: "AUTH_PARITY_FILE_SECRET",
       }),
     },
     "explicit-login",
@@ -215,4 +224,35 @@ test("public CLI preserves explicit credentials and refuses invalid selected fil
     "home/.claude/.credentials.json": "not-a-valid-login",
   });
   expect(preferredEnvironment.code, preferredEnvironment.diagnostic).toBe(0);
+});
+test("public CLI refreshes an expiring saved login in the parent before the trial", async () => {
+  const run = await invoke(
+    { SEVRO_TEST_PROMPT: "refreshed" },
+    {
+      "home/.claude/.credentials.json": syntheticClaudeLogin({
+        accessToken: "AUTH_PARITY_EXPIRED_ACCESS",
+        refreshToken: "AUTH_PARITY_FILE_SECRET",
+        expiresInMs: -60_000,
+      }),
+    },
+  );
+  // The trial accepts only the access token the synthetic endpoint issued.
+  expect(run.code, run.diagnostic).toBe(0);
+  expect(run.result.task.verdict).toBe("passed");
+  const saved = JSON.parse(
+    await readFile(join(run.root, "home/.claude/.credentials.json"), "utf8"),
+  ) as { claudeAiOauth: Record<string, unknown> };
+  expect(saved.claudeAiOauth).toMatchObject({
+    accessToken: "ROTATED_ACCESS_1",
+    refreshToken: "ROTATED_REFRESH_1",
+  });
+  expect(
+    (await readFile(join(run.root, "ledger/requests"), "utf8")).trim(),
+  ).toBe("AUTH_PARITY_FILE_SECRET");
+  for (const secret of [
+    "AUTH_PARITY_FILE_SECRET",
+    "ROTATED_REFRESH_1",
+    "ROTATED_ACCESS_1",
+  ])
+    expect(JSON.stringify(run.evidence)).not.toContain(secret);
 });
