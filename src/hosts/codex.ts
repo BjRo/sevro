@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { candidateCodexStateRetained } from "../candidate-codex-state";
-import { lstat, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import type { HostAdapter, HostResult } from "../engine";
@@ -536,29 +536,24 @@ function requireFollowUpCompletion(
       "Codex follow-up turn did not complete in the original thread",
     );
 }
-async function appServerSummary(
-  result: AppServerResult,
-  workspace: string,
-): Promise<CodexEventSummary> {
+function appServerSummary(result: AppServerResult): CodexEventSummary {
   return {
     threadId: result.evidence.threadId ?? "",
     complete: result.code === 0,
-    finalMessage:
-      result.code === 0
-        ? await readFile(join(workspace, ".git", "last-message.md"), "utf8")
-        : null,
+    finalMessage: result.finalMessage,
+    // App-server reports cumulative thread totals, not per-turn usage. Keep
+    // usage unknown rather than count continuations or feedback more than once.
     inputTokens: null,
     outputTokens: null,
     usageComplete: false,
   };
 }
-async function initialSummary(
+function initialSummary(
   appServer: AppServerResult | null,
   execution: ProcessResult,
-  request: Request,
-): Promise<CodexEventSummary> {
+): CodexEventSummary {
   return appServer
-    ? appServerSummary(appServer, request.workspace)
+    ? appServerSummary(appServer)
     : summarizeCodexEvents(execution.out, execution.code);
 }
 class CodexTurnExecution {
@@ -574,11 +569,7 @@ class CodexTurnExecution {
         initialTurnArgs(this.context),
         this.context.request.prompt,
       ));
-    const summary = await initialSummary(
-      appServer,
-      execution,
-      this.context.request,
-    );
+    const summary = initialSummary(appServer, execution);
     requireInitialCompletion(summary, appServer);
     const follow = await this.maybeFollowUp(summary, appServer, fingerprint);
     return {

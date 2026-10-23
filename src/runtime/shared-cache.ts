@@ -48,7 +48,6 @@ export async function sharedCacheRoots(
   role: RuntimeRole = "candidate",
   protectedRoots: string[],
 ): Promise<string[]> {
-  requireSharedCachePolicy(policy);
   const roots = selectedSharedCaches(policy, role).map((cache) => cache.source);
   return requireWritableCacheRoots(roots, protectedRoots);
 }
@@ -63,7 +62,6 @@ export function requireSharedCachePolicy(
     ...(policy.seeds ?? []).map((seed) => seed.source),
   ];
   for (const cache of caches) {
-    requireCacheRoles(cache.roles);
     requireRuntimeReadRoots(
       [cache.source],
       [
@@ -74,17 +72,6 @@ export function requireSharedCachePolicy(
       ],
     );
   }
-}
-
-function requireCacheRoles(roles: RuntimeRole[]): void {
-  if (!Array.isArray(roles) || roles.length === 0)
-    throw new Error("runtime shared cache roles are invalid");
-  const allowed = ["candidate", "checks", "hooks", "semantic", "advisory"];
-  if (
-    new Set(roles).size !== roles.length ||
-    roles.some((role) => !allowed.includes(role))
-  )
-    throw new Error("runtime shared cache roles are invalid");
 }
 
 export function sharedCacheDenyRoots(

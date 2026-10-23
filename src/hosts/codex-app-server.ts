@@ -1,7 +1,5 @@
 import { redactDiagnosticText } from "../host-diagnostic-redaction";
 import { isRecord, requireRecord } from "../value-guards";
-import { writeFile } from "node:fs/promises";
-import { join } from "node:path";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
 import {
@@ -501,9 +499,9 @@ class AppServerSession {
     goals: [],
   };
   readonly out: string[] = [];
+  finalMessage: string | null = null;
   private threadId = "";
   private goalSeen = false;
-  private usage: unknown;
   private emittedItems = new Set<string>();
   private followUp?: string;
 
@@ -630,14 +628,6 @@ class AppServerSession {
         if (params.willRetry !== true)
           throw new Error("App-server reported a fatal turn error");
         break;
-      case "thread/tokenUsage/updated": {
-        const total = record(record(params.tokenUsage).total);
-        this.usage = {
-          input_tokens: total.inputTokens,
-          output_tokens: total.outputTokens,
-        };
-        break;
-      }
       case "item/completed":
         this.emitItem(params.item);
         break;
@@ -660,13 +650,10 @@ class AppServerSession {
     const turnId = this.observeTurn(turn);
     this.requireCompletedTurn(turn, turnId);
     const status = await this.completedGoal(turnId);
-    this.emit({
-      type: "turn.completed",
-      ...(this.usage ? { usage: this.usage } : {}),
-    });
+    this.emit({ type: "turn.completed" });
     if (this.followUp !== undefined)
       return this.deliverFeedback(turnId, status, this.followUp);
-    return status !== "active" && (await this.saveFinal(turnId));
+    return status !== "active" && (await this.captureFinal(turnId));
   }
 
   private requireCompletedTurn(turn: RecordValue, turnId: string): void {
@@ -695,7 +682,7 @@ class AppServerSession {
   ): Promise<boolean> {
     // User input does not require a terminal goal. Preserve the completed
     // response and actual boundary before delivering the declared follow-up.
-    if (!(await this.saveFinal(turnId, true))) return false;
+    if (!(await this.captureFinal(turnId, true))) return false;
     const boundary = protocolMessage(
       await this.options.followUpBoundary(this.threadId, {
         nativeGoalObserved: this.goalSeen,
@@ -713,7 +700,7 @@ class AppServerSession {
     return false;
   }
 
-  private async saveFinal(
+  private async captureFinal(
     turnId: string,
     forFeedback = false,
   ): Promise<boolean> {
@@ -727,10 +714,7 @@ class AppServerSession {
     if (!latestTurnReady(latest, turnId)) return false;
     const final = appServerFinal(thread, turnId);
     for (const value of turns) this.backfillItems(record(value));
-    await writeFile(
-      join(this.options.request.repoDir, ".git", "last-message.md"),
-      final,
-    );
+    this.finalMessage = final;
     this.evidence.finalTurnId = turnId;
     this.emit({
       type: "item.completed",
@@ -934,6 +918,7 @@ export async function runCodexAppServer(options: AppServerRunOptions): Promise<{
   out: string;
   err: string;
   code: number;
+  finalMessage: string | null;
   evidence: AppServerEvidence;
 }> {
   const { request, argv, env } = options;
@@ -953,6 +938,14 @@ export async function runCodexAppServer(options: AppServerRunOptions): Promise<{
     out: session.out.join("\n"),
     err: rpc.stderr,
     code: finalCode,
+    finalMessage: completedMessage(session, finalCode),
     evidence: session.evidence,
   };
+}
+
+function completedMessage(
+  session: AppServerSession,
+  code: number,
+): string | null {
+  return code === 0 ? session.finalMessage : null;
 }

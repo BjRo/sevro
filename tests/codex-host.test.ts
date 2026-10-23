@@ -1727,6 +1727,12 @@ exec '${selected.paths.fakeBinary}' "$@"
       });
       expect(result.complete).toBe(true);
       expect(result.finalMessage).toBe("ready");
+      if (entrypoint === "app-server")
+        expect(result).toMatchObject({
+          inputTokens: null,
+          outputTokens: null,
+          usageComplete: false,
+        });
       expectUnknown(result.observations).toContainEqual({
         id: "sevro.host.hooks",
         completeness: "complete",

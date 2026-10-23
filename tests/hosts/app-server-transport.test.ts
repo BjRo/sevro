@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { readFile, rm } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   runCodexAppServer,
@@ -58,6 +58,7 @@ test.each(refusedServerCases)(
     expect(result.evidence.failure).toMatch(diagnostic);
     expect(result.out).toContain('"type":"turn.failed"');
     expect(result.evidence.finalTurnId).toBeUndefined();
+    expect(result.finalMessage).toBeNull();
     expect(JSON.stringify(result.evidence)).not.toContain("PRIVATE_FATAL");
     expect(
       readFile(join(options.request.repoDir, ".git/last-message.md")),
@@ -105,12 +106,10 @@ test.each(["success", "complete-goal", "retry-errors", "many-errors"])(
     const options = await serverOptions(mode);
     const result = await runCodexAppServer(options);
     expect(result.code, result.evidence.failure).toBe(0);
+    expect(result.finalMessage).toBe("ready\n\ndone");
     expect(
-      await readFile(
-        join(options.request.repoDir, ".git/last-message.md"),
-        "utf8",
-      ),
-    ).toBe("ready\n\ndone");
+      readFile(join(options.request.repoDir, ".git/last-message.md")),
+    ).rejects.toThrow();
     expect(result.evidence).toMatchObject({
       clientTurns: 1,
       finalTurnId: "first",
@@ -122,7 +121,7 @@ test.each(["success", "complete-goal", "retry-errors", "many-errors"])(
       events.filter((event) => record(event.item ?? {}).id === "command"),
     ).toHaveLength(1);
     expect(result.out).toContain('"tool":"spawn_agent"');
-    expect(result.out).toContain('"input_tokens":0');
+    expect(result.out).not.toContain('"usage":');
     expect(result.out).not.toMatch(
       /PRIVATE_REASONING|PRIVATE_ACCOUNT|PRIVATE_COMMENTARY/,
     );
@@ -271,6 +270,7 @@ test("app-server delivers exactly one declared feedback turn", async () => {
     clientTurns: 2,
     finalTurnId: "follow-up",
   });
+  expect(result.finalMessage).toBe("ready\n\ndone");
   expect(result.out).toContain('"native_goal_observed":false');
   const requests = (
     await readFile(join(options.request.repoDir, ".git/requests.jsonl"), "utf8")
@@ -282,6 +282,16 @@ test("app-server delivers exactly one declared feedback turn", async () => {
     requests.filter((request) => request.method === "turn/start"),
   ).toHaveLength(2);
   expect(JSON.stringify(requests)).toContain("User correction");
+});
+
+test("app-server returns its final response without replacing candidate Git metadata", async () => {
+  const options = await serverOptions("success");
+  const path = join(options.request.repoDir, ".git/last-message.md");
+  await writeFile(path, "candidate-owned metadata\n");
+  const result = await runCodexAppServer(options);
+  expect(result.code, result.evidence.failure).toBe(0);
+  expect(result.finalMessage).toBe("ready\n\ndone");
+  expect(await readFile(path, "utf8")).toBe("candidate-owned metadata\n");
 });
 
 test.each([0, -1, Infinity, NaN])(
@@ -383,12 +393,7 @@ test("app-server drains oversized diagnostic stderr while retaining a valid root
   expect(result.err).toEndWith("RETAINED_DIAGNOSTIC_TAIL\n");
   expect(result.err).not.toContain("DISCARDED_DIAGNOSTIC_PREFIX");
   expect(result.out).not.toContain("RETAINED_DIAGNOSTIC_TAIL");
-  expect(
-    await readFile(
-      join(options.request.repoDir, ".git/last-message.md"),
-      "utf8",
-    ),
-  ).toBe("ready\n\ndone");
+  expect(result.finalMessage).toBe("ready\n\ndone");
 });
 
 test("app-server refuses a notification backlog within the transport byte bound", async () => {
@@ -413,12 +418,7 @@ test.each(["ignore-eof", "ignore-eof-and-term"])(
     const result = await runCodexAppServer(options);
     expect(result.code, result.evidence.failure).toBe(0);
     expect(result.evidence.finalTurnId).toBe("first");
-    expect(
-      await readFile(
-        join(options.request.repoDir, ".git/last-message.md"),
-        "utf8",
-      ),
-    ).toBe("ready\n\ndone");
+    expect(result.finalMessage).toBe("ready\n\ndone");
     const events = await peerEvents(options.request.repoDir);
     expect(events.map((event) => event.event)).toEqual([
       "client-first",

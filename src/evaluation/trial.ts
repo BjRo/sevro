@@ -121,9 +121,7 @@ interface TrialRuntimeState {
   candidateDurationMs: number | null;
   completeness: ObservationCompleteness;
   observation: TrialObservation;
-  shellObservations: TrialObservation[];
-  gitHeadObservations: TrialObservation[];
-  semanticObservations: TrialObservation[];
+  gradingObservations: TrialObservation[];
   checks: CheckOutcome[];
   extensionMetrics: EvaluationResult["metrics"];
   domainOutcomes: NonNullable<EvaluationResult["domainOutcomes"]>;
@@ -153,9 +151,7 @@ function initialTrialState(dry: boolean | undefined): TrialRuntimeState {
       completeness: "unavailable",
       data: {},
     },
-    shellObservations: [],
-    gitHeadObservations: [],
-    semanticObservations: [],
+    gradingObservations: [],
     checks: [],
     extensionMetrics: [],
     domainOutcomes: [],
@@ -424,14 +420,6 @@ class EvaluationTrial {
     if (failure) this.failGrading(failure.message, failure.cancelable);
   }
 
-  private gradingFailureEffects() {
-    return {
-      onFailure: (failure: GradingFailure) => {
-        this.acceptGradingFailure(failure);
-      },
-    };
-  }
-
   private gradeOutput(): void {
     if (this.state.execution !== "completed") return;
     const graded = gradeCandidateOutput({
@@ -471,28 +459,26 @@ class EvaluationTrial {
       this.context.prepared.checks.preparedShell.length === 0
     )
       return;
-    const graded = await gradeShellChecks(
-      {
-        checks: this.context.prepared.checks.preparedShell,
-        protectedRoots: this.shellRootRequest(),
-        execution: {
-          candidateTranscriptRoot: this.state.candidateTranscriptRoot,
-          candidateArtifactRoots: this.state.candidateArtifacts,
-          workspace: this.fixture.workspace,
-          fixtureBinDir: this.fixture.fixtureBinDir,
-          toolchainBinDir: this.options.shellIsolation?.toolchainBinDir,
-          runtimePolicy: this.options.runtimePolicy,
-          uvRuntimeCache: this.options.shellIsolation?.uvRuntimeCache,
-          privateStateRoot: join(
-            this.context.resources.stateDir,
-            "shell-sandbox",
-          ),
-          signal: this.options.signal,
-        },
+    const graded = await gradeShellChecks({
+      checks: this.context.prepared.checks.preparedShell,
+      protectedRoots: this.shellRootRequest(),
+      execution: {
+        candidateTranscriptRoot: this.state.candidateTranscriptRoot,
+        candidateArtifactRoots: this.state.candidateArtifacts,
+        workspace: this.fixture.workspace,
+        fixtureBinDir: this.fixture.fixtureBinDir,
+        toolchainBinDir: this.options.shellIsolation?.toolchainBinDir,
+        runtimePolicy: this.options.runtimePolicy,
+        uvRuntimeCache: this.options.shellIsolation?.uvRuntimeCache,
+        privateStateRoot: join(
+          this.context.resources.stateDir,
+          "shell-sandbox",
+        ),
+        signal: this.options.signal,
       },
-      this.gradingFailureEffects(),
-    );
-    this.state.shellObservations.push(...graded.observations);
+    });
+    this.acceptGradingFailure(graded.failure);
+    this.state.gradingObservations.push(...graded.observations);
     this.state.checks.push(...graded.checks);
   }
 
@@ -502,16 +488,14 @@ class EvaluationTrial {
       this.context.prepared.checks.preparedGitHead.length === 0
     )
       return;
-    const graded = await gradeGitHeadChecks(
-      {
-        checks: this.context.prepared.checks.preparedGitHead,
-        base: this.state.gitHeadBase,
-        workspace: this.fixture.workspace,
-        signal: this.options.signal,
-      },
-      this.gradingFailureEffects(),
-    );
-    this.state.gitHeadObservations.push(...graded.observations);
+    const graded = await gradeGitHeadChecks({
+      checks: this.context.prepared.checks.preparedGitHead,
+      base: this.state.gitHeadBase,
+      workspace: this.fixture.workspace,
+      signal: this.options.signal,
+    });
+    this.acceptGradingFailure(graded.failure);
+    this.state.gradingObservations.push(...graded.observations);
     this.state.checks.push(...graded.checks);
   }
 
@@ -541,21 +525,21 @@ class EvaluationTrial {
       },
       {
         evidence: this.evidence,
-        ...this.gradingFailureEffects(),
+        onFailure: (failure) => {
+          this.acceptGradingFailure(failure);
+        },
         retainWorkspace: (workspace) =>
           this.retainAuxiliaryWorkspace(workspace),
       },
     );
-    this.state.semanticObservations.push(...graded.observations);
+    this.state.gradingObservations.push(...graded.observations);
     this.state.checks.push(...graded.checks);
   }
 
   private trialObservations(): TrialObservation[] {
     return [
       this.state.observation,
-      ...this.state.shellObservations,
-      ...this.state.gitHeadObservations,
-      ...this.state.semanticObservations,
+      ...this.state.gradingObservations,
       ...this.state.additionalObservations,
       {
         id: "sevro.observation.workspaces",
@@ -601,14 +585,12 @@ class EvaluationTrial {
   private async gradeExtension(): Promise<void> {
     const extension = this.options.extension;
     if (!extension || !this.canGrade()) return;
-    const graded = await gradeExtensionChecks(
-      {
-        evaluate: (request) => extension.session.evaluate(request),
-        request: this.extensionEvaluationRequest(),
-        declarations: this.context.prepared.checks.extensionDeclarations,
-      },
-      this.gradingFailureEffects(),
-    );
+    const graded = await gradeExtensionChecks({
+      evaluate: (request) => extension.session.evaluate(request),
+      request: this.extensionEvaluationRequest(),
+      declarations: this.context.prepared.checks.extensionDeclarations,
+    });
+    this.acceptGradingFailure(graded.failure);
     this.state.checks.push(...graded.checks);
     this.state.extensionMetrics = graded.metrics;
     this.state.domainOutcomes = graded.domainOutcomes;

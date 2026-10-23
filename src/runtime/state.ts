@@ -1,10 +1,9 @@
 import { mkdir, realpath, stat } from "node:fs/promises";
 import { join } from "node:path";
 import {
-  requireRuntimeEnvironment,
+  requireRuntimePolicy,
   runtimeRoleSeeds,
   type RuntimeRole,
-  requireRuntimeSeedTargets,
   type RuntimePolicy,
 } from "./config";
 import { materializeRuntimeSeed } from "./seeds";
@@ -72,11 +71,7 @@ export async function prepareRuntimeState(
   role: RuntimeRole,
   privateRoot?: string,
 ) {
-  requireRuntimeEnvironment(policy.environment);
-  requireRuntimeSeedTargets([
-    ...(policy.seeds ?? []),
-    ...(policy.sharedCacheDirectories ?? []),
-  ]);
+  requireRuntimePolicy(policy);
   const root = await runtimeRoot(workspace, role, privateRoot);
   const writableCacheRoots = await sharedCacheRoots(policy, role, [
     workspace,

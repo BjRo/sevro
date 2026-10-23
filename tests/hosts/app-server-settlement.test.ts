@@ -41,6 +41,7 @@ test.each([
   async (mode, diagnostic) => {
     const result = await runCodexAppServer(await serverOptions(mode));
     expect(result.code).toBe(1);
+    expect(result.finalMessage).toBeNull();
     expect(result.evidence.failure).toMatch(diagnostic);
     expect(result.out).toContain('"type":"turn.failed"');
     expect(JSON.stringify(result.evidence)).not.toContain("PRIVATE_SETTLEMENT");
