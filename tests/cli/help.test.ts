@@ -42,6 +42,31 @@ test.each([[], ["--help"], ["-h"], ["help"]].map((args) => ({ args })))(
   },
 );
 
+test.each(["run", "demo", "init", "report", "prune"])(
+  "CLI command help after options bypasses input loading: %s",
+  async (command) => {
+    for (const flag of ["--help", "-h"]) {
+      const result = await information([
+        command,
+        "--run-manifest-file",
+        "missing.json",
+        flag,
+        "--json",
+      ]);
+      expect(result.code, result.stderr).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(result.stdout).toContain(`Usage: sevro ${command}`);
+    }
+  },
+);
+
+test("CLI demo recovery hint points to demo help", async () => {
+  const result = await information(["demo", "--invalid", "--json"]);
+  expect(result.code).toBe(64);
+  expect(result.stderr).toContain("Run sevro demo --help");
+  expect(result.stderr).not.toContain("sevro run --help");
+});
+
 test.each(
   [
     ["run", "--help"],

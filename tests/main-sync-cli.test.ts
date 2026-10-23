@@ -130,6 +130,7 @@ test.each([
   "-1",
   "1.5",
   "NaN",
+  "abc",
   "Infinity",
   "1800001",
   "9007199254740993",
@@ -148,7 +149,7 @@ test.each([
       cases: [],
     });
     expect(defined(rejected.result.diagnostic).message).toBe(
-      "invalid Codex host configuration",
+      "invalid --codex-timeout-ms; supply a positive integer at most 1800000 (30 minutes)",
     );
   },
 );

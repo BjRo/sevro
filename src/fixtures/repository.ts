@@ -183,23 +183,28 @@ async function boundedText(
   );
 }
 
+function gitEnvironment() {
+  return {
+    PATH: process.env.PATH ?? "/usr/bin:/bin",
+    ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null",
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_AUTHOR_NAME: "Sevro Fixture",
+    GIT_AUTHOR_EMAIL: "fixture@sevro.invalid",
+    GIT_COMMITTER_NAME: "Sevro Fixture",
+    GIT_COMMITTER_EMAIL: "fixture@sevro.invalid",
+    GIT_AUTHOR_DATE: "2000-01-01T00:00:00+00:00",
+    GIT_COMMITTER_DATE: "2000-01-01T00:00:00+00:00",
+  };
+}
+
 async function git(args: string[], cwd: string): Promise<string> {
-  const proc = Bun.spawn(["git", ...args], {
+  const proc = Bun.spawn(["git", ...disabledHooksArgs(), ...args], {
     cwd,
     stdout: "pipe",
     stderr: "pipe",
-    env: {
-      ...process.env,
-      GIT_CONFIG_NOSYSTEM: "1",
-      GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null",
-      GIT_TERMINAL_PROMPT: "0",
-      GIT_AUTHOR_NAME: "Sevro Fixture",
-      GIT_AUTHOR_EMAIL: "fixture@sevro.invalid",
-      GIT_COMMITTER_NAME: "Sevro Fixture",
-      GIT_COMMITTER_EMAIL: "fixture@sevro.invalid",
-      GIT_AUTHOR_DATE: "2000-01-01T00:00:00+00:00",
-      GIT_COMMITTER_DATE: "2000-01-01T00:00:00+00:00",
-    },
+    env: gitEnvironment(),
   });
   try {
     const [stdout, , code] = await Promise.all([
@@ -395,14 +400,13 @@ async function stageRepositoryOverlay(
   workspace: string,
   paths: string[],
 ): Promise<void> {
-  const noHooks = disabledHooksArgs();
   if (fixture.commitFiles) {
-    await git([...noHooks, "add", "--", ...paths], workspace);
+    await git(["add", "--", ...paths], workspace);
     await git(
-      [...noHooks, "commit", "--quiet", "-m", "Add evaluation scaffolding"],
+      ["commit", "--quiet", "-m", "Add evaluation scaffolding"],
       workspace,
     );
   }
   if (fixture.staged?.length)
-    await git([...noHooks, "add", "--", ...fixture.staged], workspace);
+    await git(["add", "--", ...fixture.staged], workspace);
 }

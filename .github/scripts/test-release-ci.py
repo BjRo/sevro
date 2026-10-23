@@ -2,6 +2,10 @@
 
 import copy
 import importlib.util
+import json
+import os
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -20,6 +24,79 @@ def job(name, step="Canonical TypeScript quality phase"):
         "conclusion": "success",
         "steps": [{"name": step, "conclusion": "success"}],
     }
+
+
+class ReleaseSelection(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="sevro-release-ci-")
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        previous = Path.cwd()
+        os.chdir(self.root)
+        self.addCleanup(os.chdir, previous)
+        self.git("init", "--quiet")
+        self.git("config", "user.name", "Release CI fixture")
+        self.git("config", "user.email", "release-ci@example.invalid")
+        self.package = {
+            "version": "1.0.0",
+            "publishConfig": {"tag": "latest"},
+        }
+        self.write("package.json", json.dumps(self.package))
+        self.write("docs/installing.md", "Release 1.0.0\n")
+        self.write(".github/workflows/verify.yml", "name: Verify\n")
+        self.write(".github/scripts/release-ci.py", "# Original selector\n")
+        self.source = self.commit()
+
+    def git(self, *args):
+        return subprocess.check_output(["git", *args], stderr=subprocess.PIPE).decode().strip()
+
+    def write(self, name, content):
+        path = self.root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+
+    def commit(self):
+        self.git("add", ".")
+        self.git("commit", "--quiet", "-m", "Release fixture")
+        return self.git("rev-parse", "HEAD")
+
+    def select(self, changed_path):
+        self.package["version"] = "1.0.1"
+        self.write("package.json", json.dumps(self.package))
+        self.write(changed_path, "# Changed for release 1.0.1\n")
+        candidate = self.commit()
+        self.write("event.json", json.dumps({"pull_request": {"base": {"sha": self.source}}}))
+        environment = {
+            "GITHUB_EVENT_NAME": "pull_request",
+            "GITHUB_EVENT_PATH": str(self.root / "event.json"),
+            "GITHUB_SHA": candidate,
+            "GITHUB_REPOSITORY": "fixture/sevro",
+            "GITHUB_OUTPUT": str(self.root / "output"),
+            "GITHUB_STEP_SUMMARY": str(self.root / "summary"),
+        }
+        run = {"id": 123, "head_sha": self.source, "head_branch": "main"}
+        jobs = [job("TypeScript gate (Ubuntu x64)", "Canonical TypeScript quality gate")]
+        with patch.dict(os.environ, environment), patch.object(
+            release_ci, "api", side_effect=[{"workflow_runs": [run]}, {"jobs": jobs}]
+        ):
+            release_ci.plan()
+        return (self.root / "output").read_text()
+
+    def test_workflow_changes_require_full_ci(self):
+        self.assertEqual(self.select(".github/workflows/verify.yml"), "reuse=false\n")
+        self.assertFalse((self.root / ".quality/release-ci.json").exists())
+
+    def test_selector_changes_require_full_ci(self):
+        self.assertEqual(self.select(".github/scripts/release-ci.py"), "reuse=false\n")
+        self.assertFalse((self.root / ".quality/release-ci.json").exists())
+
+    def test_release_metadata_reuses_verified_source_ci(self):
+        self.assertEqual(self.select("docs/installing.md"), "reuse=true\n")
+        record = json.loads((self.root / ".quality/release-ci.json").read_text())
+        self.assertEqual(record["candidate"], self.git("rev-parse", "HEAD"))
+        self.assertEqual(record["testedSource"], self.source)
+        self.assertEqual(record["qualityRunId"], 123)
+        self.assertFalse(record["testsRerun"])
 
 
 class FullGateEvidence(unittest.TestCase):

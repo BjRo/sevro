@@ -6,11 +6,14 @@ const version = "0.160.1";
 const claudeVersion = "2.1.284";
 const targets = {
   darwin: { arm64: "aarch64-apple-darwin", x64: "x86_64-apple-darwin" },
-  linux: { arm64: "aarch64-unknown-linux-musl", x64: "x86_64-unknown-linux-musl" },
+  linux: {
+    arm64: "aarch64-unknown-linux-musl",
+    x64: "x86_64-unknown-linux-musl",
+  },
 };
-const target = (targets as Record<string, Record<string, string>>)[process.platform]?.[
-  process.arch
-];
+const target = (targets as Record<string, Record<string, string>>)[
+  process.platform
+]?.[process.arch];
 if (!target)
   throw new Error("CI native host setup requires macOS or Linux arm64 or x64");
 const githubPath = process.env.GITHUB_PATH;

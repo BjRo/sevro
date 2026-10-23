@@ -181,7 +181,10 @@ async function invoke(
   return { result: parseCliResult(stdout), stderr, code };
 }
 
-async function executionFailure(entrypoint: "exec" | "app-server") {
+async function executionFailure(
+  entrypoint: "exec" | "app-server",
+  prompt = "Return ready.",
+) {
   const fixture = await marketplaceFailure();
   const { args, root, binary } = fixture;
   args.splice(args.indexOf("--extension-command-file"), 6);
@@ -193,7 +196,7 @@ async function executionFailure(entrypoint: "exec" | "app-server") {
         entrypoint === "exec"
           ? "guide-visual-present"
           : "goal-preflight-high-risk-routine",
-      prompt: "Return ready.",
+      prompt,
       fixture: { files: {} },
       requiredEvidence: [],
       checks: [],
@@ -294,6 +297,107 @@ test("CLI retains an early app-server failure for the goal example", async () =>
     stderr: "startup failed\n",
   });
 });
+
+async function shutdownFailure(
+  signal: string,
+  errorCode: string,
+  priorFailure: boolean,
+) {
+  const { args, root, binary } = await executionFailure("app-server");
+  const preload = join(root, "deny-signal.ts");
+  const peer = join(root, "resistant-peer.ts");
+  const pidPath = join(root, "peer.pid");
+  await writeFile(
+    preload,
+    `const kill = process.kill.bind(process);
+process.kill = (pid, signal) => {
+  if (pid < 0 && signal === ${JSON.stringify(signal)})
+    throw Object.assign(new Error("shutdown signal denied"), { code: ${JSON.stringify(errorCode)} });
+  return kill(pid, signal);
+};
+`,
+  );
+  await writeFile(
+    peer,
+    `import { mkdirSync, writeFileSync } from "node:fs";
+mkdirSync(".git", { recursive: true });
+if (${String(priorFailure)}) writeFileSync("failure.txt", "");
+writeFileSync(${JSON.stringify(pidPath)}, String(process.pid));
+process.on("SIGTERM", () => {});
+process.stdin.on("end", () => { setTimeout(() => process.exit(0), 7000); });
+await import(${JSON.stringify(join(import.meta.dir, "fixtures/app-server-peer.ts"))});
+`,
+  );
+  await writeFile(
+    binary,
+    `#!/bin/sh\nif [ "$1" = sandbox ]; then exit 0; fi\nexec '${process.execPath}' '${peer}' "$@"\n`,
+    { mode: 0o700 },
+  );
+  return { args, preload, pidPath };
+}
+
+test.each([
+  ["SIGTERM", "EPERM", false, 2, "shutdown signal denied"],
+  ["SIGKILL", "EPERM", false, 2, "shutdown signal denied"],
+  ["SIGTERM", "ESRCH", false, 0, null],
+  ["SIGTERM", "EPERM", true, 2, "App-server reported a fatal turn error"],
+] as const)(
+  "CLI reports app-server shutdown signal failures without crashing: %s %s prior failure=%s",
+  async (signal, errorCode, priorFailure, expectedCode, failureMessage) => {
+    const { args, preload, pidPath } = await shutdownFailure(
+      signal,
+      errorCode,
+      priorFailure,
+    );
+    const child = Bun.spawn(
+      [
+        defined(args[0]),
+        "--preload",
+        preload,
+        ...args.slice(1),
+        "--retain-host-diagnostics",
+      ],
+      { stdout: "pipe", stderr: "pipe" },
+    );
+    try {
+      const [stdout, stderr, code] = await Promise.all([
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+        child.exited,
+      ]);
+      expect(code, stderr).toBe(expectedCode);
+      const result = parseCliResult(stdout);
+      expect(result.execution.status).toBe(
+        expectedCode === 0 ? "completed" : "failed",
+      );
+      expect(result.task.verdict).toBe("not_assessed");
+      if (expectedCode === 0) return;
+      const evidence = parseRunEvidence(
+        await readFile(defined(result.evidencePath), "utf8"),
+      );
+      const artifact = defined(
+        defined(evidence.trials[0]).artifactRefs.find(
+          (ref) => ref.id === "sevro.host.diagnostics",
+        ),
+      );
+      expect(
+        parseRecord(await readFile(new URL(artifact.path), "utf8")),
+      ).toMatchObject({
+        stage: "app-server",
+        error: { message: failureMessage },
+      });
+    } finally {
+      child.kill();
+      const pid = Number(await readFile(pidPath, "utf8"));
+      try {
+        process.kill(-pid, "SIGKILL");
+      } catch (error) {
+        expect(record(error).code).toBe("ESRCH");
+      }
+    }
+  },
+  20000,
+);
 
 test("CLI retains an early exec failure for the guide example", async () => {
   const { args } = await executionFailure("exec");
@@ -431,41 +535,148 @@ process.exit(37);
   expect(bytes).not.toContain("public-shaped-secret");
 });
 
-test("CLI retains exec timeout termination and partial output", async () => {
-  const { args, binary } = await executionFailure("exec");
+test.each([
+  ["ordinary output", "", "Return ready."],
+  ["truncated UTF-8", "\\342\\202", "Return ready."],
+  ["blocked stdin", "", "x".repeat(2 * 1024 * 1024)],
+] as const)(
+  "CLI retains exec timeout termination and partial output: %s",
+  async (_label, trailing, prompt) => {
+    const { args, binary } = await executionFailure("exec", prompt);
+    await writeFile(
+      binary,
+      '#!/bin/sh\nif [ "$1" = sandbox ]; then exit 0; fi\n' +
+        `printf '%s\\n' '{"type":"turn.failed"}'\nprintf '${trailing}'\nprintf 'waiting for host' >&2\n/bin/sleep 10\n`,
+      { mode: 0o700 },
+    );
+    const run = await invoke([
+      ...args,
+      "--retain-host-diagnostics",
+      "--codex-timeout-ms",
+      "100",
+    ]);
+    expect(run.code).toBe(2);
+    const evidence = parseRunEvidence(
+      await readFile(defined(run.result.evidencePath), "utf8"),
+    );
+    const artifact = defined(
+      defined(evidence.trials[0]).artifactRefs.find(
+        (ref) => ref.id === "sevro.host.diagnostics",
+      ),
+    );
+    const diagnostics = parseRecord(
+      await readFile(new URL(artifact.path), "utf8"),
+    );
+    const receipt = record(defined(array(diagnostics.processes).at(-1)));
+    expect(receipt).toMatchObject({
+      stage: "exec",
+      reason: "timeout",
+      signal: "SIGKILL",
+      stdout: '{"type":"turn.failed"}\n' + (trailing ? "�" : ""),
+      stderr: "waiting for host",
+    });
+    expect(receipt.durationMs).toBeGreaterThanOrEqual(100);
+    const processArtifact = defined(
+      defined(evidence.trials[0]).artifactRefs.find(
+        (ref) => ref.id === "codex.process",
+      ),
+    );
+    expect(
+      parseRecord(await readFile(new URL(processArtifact.path), "utf8")),
+    ).toMatchObject({
+      phase: "execution",
+      reason: "timeout",
+      timeoutMs: 100,
+      signal: "SIGKILL",
+    });
+  },
+);
+
+async function cancelledCodexEvaluation() {
+  const { root, project, auth, binary } = await executionFailure("exec");
+  const marker = join(root, "exec-started");
   await writeFile(
     binary,
     '#!/bin/sh\nif [ "$1" = sandbox ]; then exit 0; fi\n' +
-      "printf '%s\\n' '{\"type\":\"turn.failed\"}'\nprintf 'waiting for host' >&2\n/bin/sleep 10\n",
+      `printf '\\342\\202'\nprintf 'cancelled host' >&2\nprintf started > '${marker}'\n/bin/sleep 10\n`,
     { mode: 0o700 },
   );
-  const run = await invoke([
-    ...args,
-    "--retain-host-diagnostics",
-    "--codex-timeout-ms",
-    "100",
-  ]);
-  expect(run.code).toBe(2);
-  const evidence = parseRunEvidence(
-    await readFile(defined(run.result.evidencePath), "utf8"),
-  );
-  const artifact = defined(
-    defined(evidence.trials[0]).artifactRefs.find(
-      (ref) => ref.id === "sevro.host.diagnostics",
-    ),
-  );
-  const diagnostics = parseRecord(
-    await readFile(new URL(artifact.path), "utf8"),
-  );
-  const receipt = record(defined(array(diagnostics.processes).at(-1)));
-  expect(receipt).toMatchObject({
-    stage: "exec",
-    reason: "timeout",
-    signal: "SIGKILL",
-    stdout: '{"type":"turn.failed"}\n',
-    stderr: "waiting for host",
+  const controller = new AbortController();
+  const pending = runEvaluation({
+    projectRoot: project,
+    resultsRoot: join(root, "results"),
+    host: createCodexHost({
+      binary,
+      authFile: auth,
+      model: "synthetic",
+      effort: "low",
+      projectRoot: project,
+      resultsRoot: join(root, "results"),
+      additionalProtectedRoots: [],
+      retainHostDiagnostics: true,
+    }),
+    signal: controller.signal,
+    case: {
+      id: "cancel",
+      prompt: "Return ready.",
+      fixture: { files: {} },
+      requiredEvidence: [],
+      checks: [],
+    },
+    runnerBuildDigest: digest,
+    projectDigest: digest,
+    condition: "passive",
+    trialCount: 1,
+    passThreshold: 1,
   });
-  expect(receipt.durationMs).toBeGreaterThanOrEqual(100);
+  return { pending, marker, controller };
+}
+
+test("evaluation retains Codex cancellation evidence after a UTF-8 drain rejection", async () => {
+  const { pending, marker, controller } = await cancelledCodexEvaluation();
+  try {
+    const deadline = Date.now() + 5000;
+    while (!existsSync(marker)) {
+      if (Date.now() > deadline) throw new Error("Codex peer did not start");
+      await Bun.sleep(10);
+    }
+    controller.abort("SIGTERM");
+    const outcome = await pending;
+    expect(outcome.result.exitCode).toBe(143);
+    expect(
+      defined(defined(outcome.result.cases[0]).trials[0]).execution.status,
+    ).toBe("cancelled");
+    const evidence = parseRunEvidence(
+      await readFile(outcome.result.evidencePath, "utf8"),
+    );
+    const trial = defined(evidence.trials[0]);
+    const processArtifact = defined(
+      trial.artifactRefs.find((ref) => ref.id === "codex.process"),
+    );
+    expect(
+      parseRecord(await readFile(new URL(processArtifact.path), "utf8")),
+    ).toMatchObject({
+      phase: "execution",
+      reason: "cancelled",
+      signal: "SIGKILL",
+    });
+    const artifact = defined(
+      trial.artifactRefs.find((ref) => ref.id === "sevro.host.diagnostics"),
+    );
+    const diagnostics = parseRecord(
+      await readFile(new URL(artifact.path), "utf8"),
+    );
+    expect(record(defined(array(diagnostics.processes).at(-1)))).toMatchObject({
+      stage: "exec",
+      reason: "cancelled",
+      signal: "SIGKILL",
+      stdout: "�",
+      stderr: "cancelled host",
+    });
+  } finally {
+    controller.abort();
+    await pending;
+  }
 });
 
 test("CLI retains subprocess evidence when exec output exceeds the event limit", async () => {
@@ -952,41 +1163,44 @@ test("Claude diagnostics redact inherited opaque credentials", async () => {
   expect(receipt.stderr).toBe("[redacted]");
 });
 
-test("CLI records an exec launch failure without inventing an exit code", async () => {
-  const { args, binary } = await executionFailure("exec");
-  await writeFile(
-    binary,
-    '#!/bin/sh\nif [ "$1" = sandbox ]; then /bin/rm "$0"; exit 0; fi\nexit 31\n',
-    { mode: 0o700 },
-  );
-  const run = await invoke([...args, "--retain-host-diagnostics"]);
-  expect(run.code).toBe(2);
-  const evidence = parseRunEvidence(
-    await readFile(defined(run.result.evidencePath), "utf8"),
-  );
-  const artifact = defined(
-    defined(evidence.trials[0]).artifactRefs.find(
-      (ref) => ref.id === "sevro.host.diagnostics",
-    ),
-  );
-  const diagnostics = parseRecord(
-    await readFile(new URL(artifact.path), "utf8"),
-  );
-  expect(diagnostics).toMatchObject({
-    stage: "exec",
-    error: { code: "ENOENT" },
-  });
-  const receipt = record(defined(array(diagnostics.processes).at(-1)));
-  expect(receipt).toMatchObject({
-    stage: "exec",
-    code: null,
-    signal: null,
-    reason: "spawn",
-    stdout: "",
-    stderr: "",
-  });
-  expect(receipt.durationMs).toBeGreaterThanOrEqual(0);
-});
+test.each(["exec", "app-server"] as const)(
+  "CLI records an %s launch failure without inventing an exit code",
+  async (entrypoint) => {
+    const { args, binary } = await executionFailure(entrypoint);
+    await writeFile(
+      binary,
+      '#!/bin/sh\nif [ "$1" = sandbox ]; then /bin/rm "$0"; exit 0; fi\nexit 31\n',
+      { mode: 0o700 },
+    );
+    const run = await invoke([...args, "--retain-host-diagnostics"]);
+    expect(run.code).toBe(2);
+    const evidence = parseRunEvidence(
+      await readFile(defined(run.result.evidencePath), "utf8"),
+    );
+    const artifact = defined(
+      defined(evidence.trials[0]).artifactRefs.find(
+        (ref) => ref.id === "sevro.host.diagnostics",
+      ),
+    );
+    const diagnostics = parseRecord(
+      await readFile(new URL(artifact.path), "utf8"),
+    );
+    expect(diagnostics).toMatchObject({
+      stage: entrypoint,
+      error: { code: "ENOENT" },
+    });
+    const receipt = record(defined(array(diagnostics.processes).at(-1)));
+    expect(receipt).toMatchObject({
+      stage: entrypoint,
+      code: null,
+      signal: null,
+      reason: "spawn",
+      stdout: "",
+      stderr: "",
+    });
+    expect(receipt.durationMs).toBeGreaterThanOrEqual(0);
+  },
+);
 
 test("CLI identifies cleanup as the stage when a completed host cannot be cleaned", async () => {
   const { args, binary, root } = await executionFailure("exec");

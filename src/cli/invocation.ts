@@ -308,14 +308,21 @@ function commonCodexOptions(
     binary: absoluteOption(values["codex-bin"], "--codex-bin"),
     authFile: absoluteOption(values["codex-auth-file"], "--codex-auth-file"),
     retainHostDiagnostics: values["retain-host-diagnostics"] === true,
-    timeoutMs:
-      values["codex-timeout-ms"] === undefined
-        ? undefined
-        : Number(values["codex-timeout-ms"]),
+    timeoutMs: codexTimeout(values["codex-timeout-ms"]),
     projectRoot: roots.projectRoot,
     resultsRoot: roots.resultsRoot,
     additionalProtectedRoots: [...privateRoots, roots.runStateRoot],
   };
+}
+
+function codexTimeout(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  const timeout = Number(value);
+  if (!Number.isSafeInteger(timeout) || timeout < 1 || timeout > 30 * 60_000)
+    throw new InvocationError(
+      "invalid --codex-timeout-ms; supply a positive integer at most 1800000 (30 minutes)",
+    );
+  return timeout;
 }
 
 function claudeHostOptions(
@@ -544,8 +551,12 @@ function invocationContext(values: Values) {
 
 /** Decode CLI flags in their documented validation order. */
 export async function parseInvocation(argv: string[]) {
+  if (argv[0] !== "run")
+    throw new InvocationError(
+      "unknown command; available commands: demo, init, run, report, prune; run sevro --help",
+    );
   const parsed = cliArguments(argv);
-  if (parsed.positionals.length !== 1 || parsed.positionals[0] !== "run")
+  if (parsed.positionals.length !== 1)
     throw new InvocationError("expected the run command");
   parsed.values = await savedRunValues(parsed.values);
   applyRunDefaults(parsed.values);

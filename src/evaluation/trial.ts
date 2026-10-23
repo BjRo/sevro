@@ -381,12 +381,25 @@ class EvaluationTrial {
     }
   }
 
+  private discardCandidateResult(): void {
+    this.state.hostResult = null;
+    this.state.appliedInstrumentation = [];
+    this.state.additionalObservations = [];
+    this.state.producedArtifacts = [];
+  }
+
   private failCandidate(error: unknown): void {
     this.stopAdmission();
-    this.state.hostResult =
-      error instanceof HostExecutionFailure ? error.result : null;
-    if (this.state.hostResult)
-      this.acceptCandidateResult(this.state.hostResult);
+    this.discardCandidateResult();
+    try {
+      if (error instanceof HostExecutionFailure) {
+        this.acceptCandidateResult(error.result);
+        this.state.hostResult = error.result;
+      }
+    } catch (validationError) {
+      this.discardCandidateResult();
+      error = validationError;
+    }
     this.state.execution = this.options.signal?.aborted
       ? "cancelled"
       : "failed";

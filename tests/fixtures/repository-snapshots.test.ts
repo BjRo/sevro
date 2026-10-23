@@ -1,5 +1,12 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, readFile, readdir, symlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  readFile,
+  readdir,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { runEvaluation } from "../../src/engine";
@@ -14,6 +21,158 @@ import { fixtureGit, createTemporaryFixtures } from "./filesystem";
 const { repositoryFixture, cleanupTemporaryFixtures } =
   createTemporaryFixtures();
 afterEach(cleanupTemporaryFixtures);
+
+async function withGitEnvironment<T>(
+  values: Record<string, string>,
+  action: () => Promise<T>,
+): Promise<T> {
+  const previous = Object.keys(values).map(
+    (key) => [key, process.env[key]] as const,
+  );
+  Object.assign(process.env, values);
+  try {
+    return await action();
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) Reflect.deleteProperty(process.env, key);
+      else process.env[key] = value;
+    }
+  }
+}
+
+async function evaluateRepositoryFixture(
+  source: Awaited<ReturnType<typeof repositoryFixture>>,
+) {
+  let calls = 0;
+  const outcome = await runEvaluation({
+    projectRoot: source.root,
+    resultsRoot: join(source.root, "results"),
+    runnerBuildDigest: "a".repeat(64),
+    projectDigest: "b".repeat(64),
+    condition: "passive",
+    trialCount: 1,
+    passThreshold: 1,
+    preparationSources: {
+      root: join(source.root, "sources"),
+      refs: { source: pathToFileURL(source.repository).href },
+    },
+    case: {
+      id: "isolated-repository",
+      prompt: "Return ready.",
+      fixture: {
+        sourceRef: "source",
+        files: { "notes.txt": "evaluation scaffolding\n" },
+        commitFiles: true,
+      },
+      checks: [],
+      requiredEvidence: [],
+    },
+    host: {
+      id: "example.host",
+      model: "fixture",
+      effort: "none",
+      async run({ workspace }) {
+        calls++;
+        expect(await readFile(join(workspace, "README.md"), "utf8")).toBe(
+          "baseline\n",
+        );
+        expect(await fixtureGit(workspace, "rev-parse", "HEAD^")).toBe(
+          source.revision,
+        );
+        expect(await fixtureGit(workspace, "show", "HEAD:notes.txt")).toBe(
+          "evaluation scaffolding",
+        );
+        expect(await fixtureGit(workspace, "remote")).toBe("");
+        expect(await fixtureGit(workspace, "status", "--porcelain")).toBe("");
+        return { finalMessage: "ready", complete: true };
+      },
+    },
+  });
+  expect(calls).toBe(1);
+  expect(outcome.result.exitCode).toBe(0);
+  return outcome;
+}
+
+test.each(["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"] as const)(
+  "repository evaluations ignore caller %s without modifying another repository",
+  async (variable) => {
+    const source = await repositoryFixture();
+    const other = await repositoryFixture();
+    await writeFile(join(other.repository, "README.md"), "other repository\n");
+    await fixtureGit(other.repository, "add", "README.md");
+    const index = await readFile(join(other.repository, ".git", "index"));
+    const values = {
+      GIT_DIR: { GIT_DIR: join(other.repository, ".git") },
+      GIT_WORK_TREE: { GIT_WORK_TREE: other.repository },
+      GIT_INDEX_FILE: {
+        GIT_INDEX_FILE: join(other.repository, ".git", "index"),
+      },
+    };
+    await withGitEnvironment(values[variable], () =>
+      evaluateRepositoryFixture(source),
+    );
+    expect(await fixtureGit(source.repository, "rev-parse", "HEAD")).toBe(
+      source.revision,
+    );
+    expect(await fixtureGit(source.repository, "status", "--porcelain")).toBe(
+      "",
+    );
+    expect(await fixtureGit(other.repository, "rev-parse", "HEAD")).toBe(
+      other.revision,
+    );
+    expect(await readFile(join(other.repository, ".git", "index"))).toEqual(
+      index,
+    );
+    expect(await readFile(join(other.repository, "README.md"), "utf8")).toBe(
+      "other repository\n",
+    );
+  },
+);
+
+test("repository evaluations suppress checkout hooks supplied by Git templates", async () => {
+  const source = await repositoryFixture();
+  const template = join(source.root, "template");
+  const marker = join(source.root, "checkout-hook-ran");
+  const quote = (value: string) => `'${value.replaceAll("'", "'\"'\"'")}'`;
+  await mkdir(join(template, "hooks"), { recursive: true });
+  await writeFile(
+    join(template, "hooks", "post-checkout"),
+    `#!/bin/sh\nprintf 'checkout hook ran\\n' > ${quote(marker)}\n`,
+    { mode: 0o700 },
+  );
+  await fixtureGit(
+    source.root,
+    "-c",
+    `init.templateDir=${template}`,
+    "clone",
+    "--quiet",
+    source.repository,
+    join(source.root, "control"),
+  );
+  expect(await readFile(marker, "utf8")).toBe("checkout hook ran\n");
+  await rm(marker);
+
+  const executable = Bun.which("git");
+  if (!executable) throw new Error("Git is required for the template fixture");
+  const bin = join(source.root, "bin");
+  await mkdir(bin);
+  // Model an installation's default template while delegating every operation to real Git.
+  await writeFile(
+    join(bin, "git"),
+    `#!/bin/sh\nexec ${quote(executable)} -c ${quote(`init.templateDir=${template}`)} "$@"\n`,
+    { mode: 0o700 },
+  );
+  await withGitEnvironment(
+    { PATH: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}` },
+    async () => {
+      expect(
+        await fixtureGit(source.root, "config", "--get", "init.templateDir"),
+      ).toBe(template);
+      await evaluateRepositoryFixture(source);
+    },
+  );
+  expect(await Bun.file(marker).exists()).toBe(false);
+});
 
 test("repository resolution refuses an undeclared source reference without changing the declared source", async () => {
   const source = await repositoryFixture();

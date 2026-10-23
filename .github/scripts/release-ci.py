@@ -16,8 +16,6 @@ RELEASE_FILES = {
     "docs/typescript-quality.md",
     "CONTRIBUTING.md",
     "AGENTS.md",
-    ".github/workflows/verify.yml",
-    ".github/scripts/release-ci.py",
 }
 VERSION = re.compile(
     r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
