@@ -315,13 +315,11 @@ function expectedRuntimeFailure(
 ): string | boolean {
   if (ending === "failure")
     return native === "Codex" ? "Codex event stream has no thread start" : true;
-  return `${native} run ${runtimeEnding(native, ending)}`;
+  return `${native} run ${runtimeEnding(ending)}`;
 }
 
-function runtimeEnding(native: string, ending: string): string {
-  if (native === "Codex" && ending === "timeout")
-    return "timed out after 0.5 s";
-  return ending === "timeout" ? "timed out" : "cancelled";
+function runtimeEnding(ending: string): string {
+  return ending === "timeout" ? "timed out after 0.5 s" : "cancelled";
 }
 
 test.each([
