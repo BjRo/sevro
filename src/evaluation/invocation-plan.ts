@@ -13,11 +13,35 @@ interface InvocationArtifacts {
 }
 
 type ClaudePluginDirectories = NonNullable<
-  NonNullable<InvocationArtifacts["extensionPreparation"]>["claudePluginDirs"]
+  PreparationResult["claudePluginDirs"]
 >;
-type CodexMarketplace = NonNullable<
-  NonNullable<InvocationArtifacts["extensionPreparation"]>["codexMarketplace"]
->;
+type CodexMarketplace = NonNullable<PreparationResult["codexMarketplace"]>;
+
+interface PackageDeclarations {
+  readonly codexMarketplace: PreparationResult["codexMarketplace"];
+  readonly claudePluginDirs: PreparationResult["claudePluginDirs"];
+}
+
+interface PackagePlan extends InvocationArtifacts, PackageDeclarations {}
+
+interface SkillDeclarations {
+  readonly codexSkillInvocation: PreparationResult["codexSkillInvocation"];
+  readonly codexRepositorySkillInvocation: PreparationResult["codexRepositorySkillInvocation"];
+  readonly claudeSkillInvocation: PreparationResult["claudeSkillInvocation"];
+  readonly claudeRepositorySkillInvocation: PreparationResult["claudeRepositorySkillInvocation"];
+}
+
+export interface PreparedInvocation
+  extends PackageDeclarations, SkillDeclarations {
+  readonly invocation:
+    | PluginSkillInvocation
+    | (RepositorySkillInvocation & { scope: "repository" })
+    | undefined;
+  readonly invocationToken: string | null;
+}
+
+export const INVOCATION_PLACEHOLDER = "{{sevro.skill_invocation}}";
+export const LEGACY_CODEX_PLACEHOLDER = "{{sevro.codex.skill_invocation}}";
 
 function uniquePluginRoots(value: unknown): value is string[] {
   return (
@@ -144,10 +168,10 @@ function validateCodexMarketplacePackage(
   );
 }
 
-function preparePackageArtifacts<T extends InvocationArtifacts>(
+function preparePackageArtifacts(
   options: EvaluationOptions,
-  state: T,
-) {
+  state: InvocationArtifacts,
+): PackagePlan {
   const codexMarketplace = state.extensionPreparation?.codexMarketplace;
   const claudePluginDirs = state.extensionPreparation?.claudePluginDirs;
   validateClaudePluginPackage(options, claudePluginDirs, state.inlineArtifacts);
@@ -159,15 +183,9 @@ function preparePackageArtifacts<T extends InvocationArtifacts>(
   return { ...state, codexMarketplace, claudePluginDirs };
 }
 
-type PackagePlan = ReturnType<
-  typeof preparePackageArtifacts<InvocationArtifacts>
->;
-const INVOCATION_PLACEHOLDER = "{{sevro.skill_invocation}}";
-const LEGACY_CODEX_PLACEHOLDER = "{{sevro.codex.skill_invocation}}";
-
 function skillInvocationDeclarations(
-  preparation: PackagePlan["extensionPreparation"],
-) {
+  preparation: PreparationResult | null,
+): SkillDeclarations {
   return {
     codexSkillInvocation: preparation?.codexSkillInvocation,
     codexRepositorySkillInvocation: preparation?.codexRepositorySkillInvocation,
@@ -177,7 +195,6 @@ function skillInvocationDeclarations(
   };
 }
 
-type SkillDeclarations = ReturnType<typeof skillInvocationDeclarations>;
 type PluginSkillInvocation = NonNullable<
   SkillDeclarations["codexSkillInvocation"]
 >;
@@ -223,14 +240,15 @@ function invocationTokenFor(declarations: SkillDeclarations): string | null {
   return null;
 }
 
-function invocationMetadata(declarations: SkillDeclarations) {
+function invocationMetadata(
+  declarations: SkillDeclarations,
+): PreparedInvocation["invocation"] {
   const repositoryInvocation =
     declarations.codexRepositorySkillInvocation ??
     declarations.claudeRepositorySkillInvocation;
-  const invocation = repositoryInvocation
+  return repositoryInvocation
     ? { ...repositoryInvocation, scope: "repository" as const }
     : (declarations.codexSkillInvocation ?? declarations.claudeSkillInvocation);
-  return { repositoryInvocation, invocation };
 }
 
 function promptPlaceholderCount(
@@ -509,12 +527,12 @@ function validateSelectedSkillInvocation(
   }
 }
 
-function prepareSkillInvocation<T extends PackagePlan>(
+function prepareSkillInvocation(
   options: EvaluationOptions,
-  state: T,
-) {
+  state: PackagePlan,
+): PreparedInvocation {
   const declarations = skillInvocationDeclarations(state.extensionPreparation);
-  const metadata = invocationMetadata(declarations);
+  const invocation = invocationMetadata(declarations);
   const invocationToken = invocationTokenFor(declarations);
   const placeholderCount =
     promptPlaceholderCount(options.case, INVOCATION_PLACEHOLDER) +
@@ -527,20 +545,18 @@ function prepareSkillInvocation<T extends PackagePlan>(
     placeholderCount,
   );
   return {
-    ...state,
+    codexMarketplace: state.codexMarketplace,
+    claudePluginDirs: state.claudePluginDirs,
     ...declarations,
-    ...metadata,
+    invocation,
     invocationToken,
-    invocationPlaceholder: INVOCATION_PLACEHOLDER,
-    legacyCodexPlaceholder: LEGACY_CODEX_PLACEHOLDER,
-    placeholderCount,
   };
 }
 
-export function prepareInvocationPlan<T extends InvocationArtifacts>(
+export function prepareInvocationPlan(
   options: EvaluationOptions,
-  state: T,
-) {
+  state: InvocationArtifacts,
+): PreparedInvocation {
   return prepareSkillInvocation(
     options,
     preparePackageArtifacts(options, state),

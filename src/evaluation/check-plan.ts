@@ -13,19 +13,23 @@ import {
 import {
   prepareGitHeadChecks,
   type GitHeadCheckDeclaration,
+  type PreparedGitHeadCheck,
 } from "../graders/git-head";
 import {
   isOutputGrader,
   prepareOutputChecks,
   type OutputCheckDeclaration,
+  type PreparedOutputCheck,
 } from "../graders/output";
 import {
   prepareSemanticChecks,
   type SemanticCheckDeclaration,
+  type PreparedSemanticCheck,
 } from "../graders/semantic";
 import {
   prepareShellChecks,
   type ShellCheckDeclaration,
+  type PreparedShellCheck,
 } from "../graders/shell";
 import { hashJson } from "../identity";
 import { fixtureParts } from "../fixtures/preparation";
@@ -35,6 +39,47 @@ import {
 } from "../fixtures/repository";
 import { resolvedFixture } from "../resolved-case";
 import { isOptionalNonblankString, isRecord } from "../value-guards";
+
+interface FixturePlan {
+  generated: GeneratedFixture | null;
+  repositoryFixture: RepositoryFixture | null;
+}
+
+interface CaseCheckDeclarations {
+  allBuiltinDeclarations: OutputCheckDeclaration[];
+  allShellDeclarations: ShellCheckDeclaration[];
+  allGitHeadDeclarations: GitHeadCheckDeclaration[];
+  allSemanticDeclarations: SemanticCheckDeclaration[];
+  extensionDeclarations: ResolvedCase["checks"];
+  replacedBuiltinGraders: string[];
+  replaced: Set<string>;
+}
+
+interface ActiveCheckDeclarations {
+  readonly builtinDeclarations: OutputCheckDeclaration[];
+  readonly shellDeclarations: ShellCheckDeclaration[];
+  readonly gitHeadDeclarations: GitHeadCheckDeclaration[];
+  readonly semanticDeclarations: SemanticCheckDeclaration[];
+}
+
+interface BuiltInCheckPlan {
+  readonly prepared: PreparedOutputCheck[];
+  readonly preparedShell: PreparedShellCheck[];
+  readonly preparedGitHead: PreparedGitHeadCheck[];
+  readonly preparedSemantic: PreparedSemanticCheck[];
+}
+
+export interface PreparedChecks
+  extends ActiveCheckDeclarations, BuiltInCheckPlan {
+  readonly extensionDeclarations: ResolvedCase["checks"];
+  readonly replacedBuiltinGraders: string[];
+  readonly replaced: ReadonlySet<string>;
+}
+
+export interface EvaluationCheckPlan extends FixturePlan {
+  readonly jobs: number;
+  readonly checks: PreparedChecks;
+}
 
 function validateRootOptions(options: EvaluationOptions): void {
   if (
@@ -139,10 +184,7 @@ function validateInlineEvaluationFixture(
     );
 }
 
-function prepareEvaluationFixture(options: EvaluationOptions): {
-  generated: GeneratedFixture | null;
-  repositoryFixture: RepositoryFixture | null;
-} {
+function prepareEvaluationFixture(options: EvaluationOptions): FixturePlan {
   const fixture = evaluationFixtureObject(options.case.fixture);
   if ("kind" in fixture)
     return {
@@ -178,10 +220,7 @@ function validateRequiredEvidence(ids: string[]): void {
     throw new EvaluationConfigurationError("invalid required evidence IDs");
 }
 
-function prepareTrialParameters(
-  options: EvaluationOptions,
-  state: ReturnType<typeof prepareEvaluationFixture>,
-) {
+function prepareTrialParameters(options: EvaluationOptions): number {
   validateTrialInteger(
     options.trialCount,
     "trial count must be a positive integer",
@@ -190,10 +229,10 @@ function prepareTrialParameters(
   validateTrialInteger(jobs, "jobs must be a positive integer");
   validatePassThreshold(options.passThreshold);
   validateRequiredEvidence(options.case.requiredEvidence);
-  return { ...state, jobs };
+  return jobs;
 }
 
-function declaredCaseChecks(options: EvaluationOptions) {
+function declaredCaseChecks(options: EvaluationOptions): CaseCheckDeclarations {
   const allBuiltinDeclarations = options.case.checks.filter((check) =>
     isOutputGrader(check.grader),
   ) as OutputCheckDeclaration[];
@@ -227,8 +266,6 @@ function declaredCaseChecks(options: EvaluationOptions) {
   };
 }
 
-type CaseCheckDeclarations = ReturnType<typeof declaredCaseChecks>;
-
 function validateBuiltInReplacements(context: CaseCheckDeclarations): void {
   const {
     allBuiltinDeclarations,
@@ -260,7 +297,9 @@ function validateBuiltInReplacements(context: CaseCheckDeclarations): void {
     );
 }
 
-function activeCheckDeclarations(context: CaseCheckDeclarations) {
+function activeCheckDeclarations(
+  context: CaseCheckDeclarations,
+): ActiveCheckDeclarations {
   const {
     allBuiltinDeclarations,
     allShellDeclarations,
@@ -287,10 +326,6 @@ function activeCheckDeclarations(context: CaseCheckDeclarations) {
     semanticDeclarations,
   };
 }
-
-type CaseCheckPlan = ReturnType<typeof prepareTrialParameters> &
-  CaseCheckDeclarations &
-  ReturnType<typeof activeCheckDeclarations>;
 
 function validateSemanticRoute(
   options: EvaluationOptions,
@@ -367,12 +402,11 @@ function validateShellRoute(
     );
 }
 
-function validateGitHeadRoute(context: CaseCheckPlan): void {
-  if (
-    context.gitHeadDeclarations.length &&
-    !context.generated &&
-    !context.repositoryFixture
-  )
+function validateGitHeadRoute(
+  fixture: FixturePlan,
+  checks: GitHeadCheckDeclaration[],
+): void {
+  if (checks.length && !fixture.generated && !fixture.repositoryFixture)
     throw new EvaluationConfigurationError(
       "Git HEAD checks require a Git fixture",
     );
@@ -443,8 +477,8 @@ function validateInlinePaths(files: ResolvedCase["fixture"]["files"]): void {
 
 function prepareBuiltInChecks(
   options: EvaluationOptions,
-  context: CaseCheckPlan,
-) {
+  context: CaseCheckDeclarations,
+): BuiltInCheckPlan {
   const {
     allBuiltinDeclarations,
     allShellDeclarations,
@@ -483,28 +517,32 @@ function prepareBuiltInChecks(
 
 function prepareCheckPlan(
   options: EvaluationOptions,
-  state: ReturnType<typeof prepareTrialParameters>,
-) {
+  fixture: FixturePlan,
+): PreparedChecks {
   const declarations = declaredCaseChecks(options);
   validateBuiltInReplacements(declarations);
-  const context = {
-    ...state,
-    ...declarations,
-    ...activeCheckDeclarations(declarations),
-  };
-  validateSemanticRoute(options, context.semanticDeclarations);
-  validateAdvisoryRoute(options, context.generated);
-  validateShellRoute(options, context.shellDeclarations);
-  validateGitHeadRoute(context);
+  const active = activeCheckDeclarations(declarations);
+  validateSemanticRoute(options, active.semanticDeclarations);
+  validateAdvisoryRoute(options, fixture.generated);
+  validateShellRoute(options, active.shellDeclarations);
+  validateGitHeadRoute(fixture, active.gitHeadDeclarations);
   validateCaseCheckIds(options.case.checks);
-  validateExtensionGraders(options, context.extensionDeclarations);
+  validateExtensionGraders(options, declarations.extensionDeclarations);
   validateResolvedExtensionCase(options);
-  return { ...context, ...prepareBuiltInChecks(options, context) };
+  return {
+    ...active,
+    ...prepareBuiltInChecks(options, declarations),
+    extensionDeclarations: declarations.extensionDeclarations,
+    replacedBuiltinGraders: declarations.replacedBuiltinGraders,
+    replaced: declarations.replaced,
+  };
 }
 
-export function prepareEvaluationChecks(options: EvaluationOptions) {
+export function prepareEvaluationChecks(
+  options: EvaluationOptions,
+): EvaluationCheckPlan {
   validateEvaluationInputs(options);
   const fixture = prepareEvaluationFixture(options);
-  const trials = prepareTrialParameters(options, fixture);
-  return prepareCheckPlan(options, trials);
+  const jobs = prepareTrialParameters(options);
+  return { ...fixture, jobs, checks: prepareCheckPlan(options, fixture) };
 }

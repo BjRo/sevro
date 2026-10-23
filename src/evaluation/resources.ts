@@ -13,6 +13,10 @@ import { fixtureParts } from "../fixtures/preparation";
 import { startRunOwner, type RunOwner } from "../run-owner";
 import { EvaluationConfigurationError, type EvaluationOptions } from "./types";
 import type { PreparedFixture, PreparedInvocation } from "./plan";
+import {
+  INVOCATION_PLACEHOLDER,
+  LEGACY_CODEX_PLACEHOLDER,
+} from "./invocation-plan";
 import type { ArtifactReference as PreparationArtifactReference } from "../contract-types";
 export type { ArtifactReference as PreparationArtifactReference } from "../contract-types";
 
@@ -161,12 +165,12 @@ function renderTrialPrompt(
   return prompt
     .replaceAll("{{sevro.workspace}}", workspace)
     .replaceAll(
-      invocation.invocationPlaceholder,
-      invocation.invocationToken ?? invocation.invocationPlaceholder,
+      INVOCATION_PLACEHOLDER,
+      invocation.invocationToken ?? INVOCATION_PLACEHOLDER,
     )
     .replaceAll(
-      invocation.legacyCodexPlaceholder,
-      invocation.invocationToken ?? invocation.legacyCodexPlaceholder,
+      LEGACY_CODEX_PLACEHOLDER,
+      invocation.invocationToken ?? LEGACY_CODEX_PLACEHOLDER,
     );
 }
 

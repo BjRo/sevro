@@ -23,10 +23,37 @@ import {
   resolveRepositorySource,
   type RepositorySource,
 } from "../fixtures/repository";
-import { prepareEvaluationChecks } from "./check-plan";
-import { prepareInvocationPlan } from "./invocation-plan";
+import {
+  prepareEvaluationChecks,
+  type EvaluationCheckPlan,
+  type PreparedChecks,
+} from "./check-plan";
+import {
+  prepareInvocationPlan,
+  type PreparedInvocation,
+} from "./invocation-plan";
+import type { PreparationResult } from "../extension-session";
 
-async function prepareEvaluationEnvironment(options: EvaluationOptions) {
+export type { PreparedChecks } from "./check-plan";
+export type { PreparedInvocation } from "./invocation-plan";
+
+interface EnvironmentPlan {
+  readonly projectRoot: string;
+  readonly repository: RepositorySource | null;
+  readonly runner: Awaited<ReturnType<typeof runnerProvenance>>;
+  readonly project: Awaited<ReturnType<typeof projectProvenance>>;
+  readonly extensionPreparation: PreparationResult | null;
+}
+
+interface ArtifactPlan {
+  readonly fixtureSetup: FixtureSetup | null;
+  readonly requestedInstrumentation: InstrumentationRequest[];
+  readonly inlineArtifacts: InlineArtifact[];
+}
+
+async function prepareEvaluationEnvironment(
+  options: EvaluationOptions,
+): Promise<EnvironmentPlan> {
   const projectRoot = await realpath(options.projectRoot).catch(() => {
     throw new EvaluationConfigurationError("project root is unreadable");
   });
@@ -72,8 +99,6 @@ async function prepareEvaluationEnvironment(options: EvaluationOptions) {
     extensionPreparation,
   };
 }
-
-type EnvironmentPlan = Awaited<ReturnType<typeof prepareEvaluationEnvironment>>;
 
 function evaluationStorageRoots(options: EvaluationOptions): string[] {
   return [options.resultsRoot, options.runStateRoot ?? options.resultsRoot];
@@ -228,8 +253,8 @@ function validateSemanticArtifactId(
 async function prepareEvaluationArtifacts(
   options: EvaluationOptions,
   state: EnvironmentPlan,
-  checks: CheckPlan,
-) {
+  checks: EvaluationCheckPlan,
+): Promise<ArtifactPlan> {
   const fixtureSetup = preparedFixtureSetup(state.extensionPreparation);
   validateSetupCapability(options, fixtureSetup);
   validateSetupFixture(fixtureSetup, checks.generated, state.repository);
@@ -248,18 +273,13 @@ async function prepareEvaluationArtifacts(
     checks.generated,
     state.repository,
   );
-  validateSemanticArtifactId(inlineArtifacts, checks.semanticDeclarations);
+  validateSemanticArtifactId(
+    inlineArtifacts,
+    checks.checks.semanticDeclarations,
+  );
   return { fixtureSetup, requestedInstrumentation, inlineArtifacts };
 }
 
-type CheckPlan = ReturnType<typeof prepareEvaluationChecks>;
-type ArtifactPlan = Awaited<ReturnType<typeof prepareEvaluationArtifacts>>;
-type InvocationPlan = ReturnType<
-  typeof prepareInvocationPlan<{
-    extensionPreparation: EnvironmentPlan["extensionPreparation"];
-    inlineArtifacts: InlineArtifact[];
-  }>
->;
 type EvaluationRouteRole = "candidate" | "semantic" | "advisory";
 interface ActiveGrader {
   id: string;
@@ -270,45 +290,11 @@ interface ActiveGrader {
 export interface PreparedFixture {
   readonly projectRoot: string;
   readonly repository: EnvironmentPlan["repository"];
-  readonly repositoryFixture: CheckPlan["repositoryFixture"];
-  readonly generated: CheckPlan["generated"];
+  readonly repositoryFixture: EvaluationCheckPlan["repositoryFixture"];
+  readonly generated: EvaluationCheckPlan["generated"];
   readonly fixtureSetup: ArtifactPlan["fixtureSetup"];
   readonly inlineArtifacts: InlineArtifact[];
 }
-
-export interface PreparedChecks extends Readonly<
-  Pick<
-    CheckPlan,
-    | "prepared"
-    | "preparedShell"
-    | "preparedGitHead"
-    | "preparedSemantic"
-    | "builtinDeclarations"
-    | "shellDeclarations"
-    | "gitHeadDeclarations"
-    | "semanticDeclarations"
-    | "extensionDeclarations"
-    | "replacedBuiltinGraders"
-  >
-> {
-  readonly replaced: ReadonlySet<string>;
-}
-
-export type PreparedInvocation = Readonly<
-  Pick<
-    InvocationPlan,
-    | "codexMarketplace"
-    | "claudePluginDirs"
-    | "codexSkillInvocation"
-    | "codexRepositorySkillInvocation"
-    | "claudeSkillInvocation"
-    | "claudeRepositorySkillInvocation"
-    | "invocation"
-    | "invocationToken"
-    | "invocationPlaceholder"
-    | "legacyCodexPlaceholder"
-  >
->;
 
 interface PreparedEvaluationInputs {
   readonly fixture: PreparedFixture;
@@ -626,7 +612,7 @@ function prepareEvaluationIdentity(
   options: EvaluationOptions,
   state: PreparedEvaluationInputs,
   preparation: EnvironmentPlan["extensionPreparation"],
-) {
+): PreparedEvaluation {
   const extensionData = extensionPreparationData(options, preparation);
   const route = evaluationRoute(options.host, "candidate");
   const routes = evaluationRoutes(
@@ -667,37 +653,6 @@ function snapshotEvaluationConfiguration(
   }
 }
 
-function preparedChecks(checks: CheckPlan): PreparedChecks {
-  return {
-    prepared: checks.prepared,
-    preparedShell: checks.preparedShell,
-    preparedGitHead: checks.preparedGitHead,
-    preparedSemantic: checks.preparedSemantic,
-    builtinDeclarations: checks.builtinDeclarations,
-    shellDeclarations: checks.shellDeclarations,
-    gitHeadDeclarations: checks.gitHeadDeclarations,
-    semanticDeclarations: checks.semanticDeclarations,
-    extensionDeclarations: checks.extensionDeclarations,
-    replacedBuiltinGraders: checks.replacedBuiltinGraders,
-    replaced: checks.replaced,
-  };
-}
-
-function preparedInvocation(invocation: InvocationPlan): PreparedInvocation {
-  return {
-    codexMarketplace: invocation.codexMarketplace,
-    claudePluginDirs: invocation.claudePluginDirs,
-    codexSkillInvocation: invocation.codexSkillInvocation,
-    codexRepositorySkillInvocation: invocation.codexRepositorySkillInvocation,
-    claudeSkillInvocation: invocation.claudeSkillInvocation,
-    claudeRepositorySkillInvocation: invocation.claudeRepositorySkillInvocation,
-    invocation: invocation.invocation,
-    invocationToken: invocation.invocationToken,
-    invocationPlaceholder: invocation.invocationPlaceholder,
-    legacyCodexPlaceholder: invocation.legacyCodexPlaceholder,
-  };
-}
-
 export async function prepareEvaluation(
   options: EvaluationOptions,
 ): Promise<PreparedEvaluation> {
@@ -721,8 +676,8 @@ export async function prepareEvaluation(
       fixtureSetup: artifacts.fixtureSetup,
       inlineArtifacts: artifacts.inlineArtifacts,
     },
-    checks: preparedChecks(checks),
-    invocation: preparedInvocation(invocation),
+    checks: checks.checks,
+    invocation,
     jobs: checks.jobs,
     requestedInstrumentation: artifacts.requestedInstrumentation,
     runner: environment.runner,
