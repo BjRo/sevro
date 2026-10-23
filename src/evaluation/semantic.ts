@@ -127,16 +127,12 @@ class SemanticGrading {
 
   private async semanticWorkspace(): Promise<string> {
     return createFixture(
-      { files: {} },
-      [],
-      undefined,
-      null,
-      null,
-      null,
-      null,
-      this.input.projectRoot,
-      this.input.signal,
-      this.input.reservedWorkspace,
+      { kind: "inline", files: {} },
+      {
+        projectRoot: this.input.projectRoot,
+        signal: this.input.signal,
+        reservedWorkspace: this.input.reservedWorkspace,
+      },
     );
   }
 

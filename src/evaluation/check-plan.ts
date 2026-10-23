@@ -39,11 +39,7 @@ import {
 } from "../fixtures/repository";
 import { resolvedFixture } from "../resolved-case";
 import { isOptionalNonblankString, isRecord } from "../value-guards";
-
-interface FixturePlan {
-  generated: GeneratedFixture | null;
-  repositoryFixture: RepositoryFixture | null;
-}
+import type { FixtureSource } from "../fixtures/create";
 
 interface CaseCheckDeclarations {
   allBuiltinDeclarations: OutputCheckDeclaration[];
@@ -76,7 +72,8 @@ export interface PreparedChecks
   readonly replaced: ReadonlySet<string>;
 }
 
-export interface EvaluationCheckPlan extends FixturePlan {
+export interface EvaluationCheckPlan {
+  readonly source: FixtureSource<null>;
   readonly jobs: number;
   readonly checks: PreparedChecks;
 }
@@ -184,20 +181,23 @@ function validateInlineEvaluationFixture(
     );
 }
 
-function prepareEvaluationFixture(options: EvaluationOptions): FixturePlan {
+function prepareEvaluationFixture(
+  options: EvaluationOptions,
+): FixtureSource<null> {
   const fixture = evaluationFixtureObject(options.case.fixture);
   if ("kind" in fixture)
     return {
-      generated: generatedEvaluationFixture(fixture),
-      repositoryFixture: null,
+      kind: "generated",
+      fixture: generatedEvaluationFixture(fixture),
     };
   if (Object.hasOwn(fixture, "sourceRef"))
     return {
-      generated: null,
-      repositoryFixture: repositoryEvaluationFixture(fixture),
+      kind: "repository",
+      fixture: repositoryEvaluationFixture(fixture),
+      repository: null,
     };
   validateInlineEvaluationFixture(fixture);
-  return { generated: null, repositoryFixture: null };
+  return { kind: "inline", files: options.case.fixture.files };
 }
 
 function validateTrialInteger(value: number, message: string): void {
@@ -341,11 +341,8 @@ function validateSemanticRoute(
     );
 }
 
-function validateAdvisoryGitFixture(
-  options: EvaluationOptions,
-  generated: GeneratedFixture | null,
-): void {
-  if (!generated && !options.case.fixture.sourceRef)
+function validateAdvisoryGitFixture(source: FixtureSource<null>): void {
+  if (source.kind === "inline")
     throw new EvaluationConfigurationError(
       "advisory review requires a Git fixture",
     );
@@ -370,7 +367,7 @@ function validateAdvisoryExclusions(paths: string[]): void {
 
 function validateAdvisoryRoute(
   options: EvaluationOptions,
-  generated: GeneratedFixture | null,
+  source: FixtureSource<null>,
 ): void {
   const host = options.advisoryHost;
   if (!host) {
@@ -380,7 +377,7 @@ function validateAdvisoryRoute(
       );
     return;
   }
-  validateAdvisoryGitFixture(options, generated);
+  validateAdvisoryGitFixture(source);
   validateAdvisoryIdentity(host);
   validateAdvisoryExclusions(options.advisoryExcludedPaths ?? []);
 }
@@ -403,10 +400,10 @@ function validateShellRoute(
 }
 
 function validateGitHeadRoute(
-  fixture: FixturePlan,
+  source: FixtureSource<null>,
   checks: GitHeadCheckDeclaration[],
 ): void {
-  if (checks.length && !fixture.generated && !fixture.repositoryFixture)
+  if (checks.length && source.kind === "inline")
     throw new EvaluationConfigurationError(
       "Git HEAD checks require a Git fixture",
     );
@@ -517,15 +514,15 @@ function prepareBuiltInChecks(
 
 function prepareCheckPlan(
   options: EvaluationOptions,
-  fixture: FixturePlan,
+  source: FixtureSource<null>,
 ): PreparedChecks {
   const declarations = declaredCaseChecks(options);
   validateBuiltInReplacements(declarations);
   const active = activeCheckDeclarations(declarations);
   validateSemanticRoute(options, active.semanticDeclarations);
-  validateAdvisoryRoute(options, fixture.generated);
+  validateAdvisoryRoute(options, source);
   validateShellRoute(options, active.shellDeclarations);
-  validateGitHeadRoute(fixture, active.gitHeadDeclarations);
+  validateGitHeadRoute(source, active.gitHeadDeclarations);
   validateCaseCheckIds(options.case.checks);
   validateExtensionGraders(options, declarations.extensionDeclarations);
   validateResolvedExtensionCase(options);
@@ -542,7 +539,7 @@ export function prepareEvaluationChecks(
   options: EvaluationOptions,
 ): EvaluationCheckPlan {
   validateEvaluationInputs(options);
-  const fixture = prepareEvaluationFixture(options);
+  const source = prepareEvaluationFixture(options);
   const jobs = prepareTrialParameters(options);
-  return { ...fixture, jobs, checks: prepareCheckPlan(options, fixture) };
+  return { source, jobs, checks: prepareCheckPlan(options, source) };
 }

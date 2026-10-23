@@ -189,19 +189,15 @@ export async function prepareTrialWorkspace(
 ) {
   const reservation = workspaces.candidate(trial);
   workspaces.retain(reservation);
-  const workspace = await createFixture(
-    options.case.fixture,
-    fixture.inlineArtifacts,
-    options.preparationSources,
-    fixture.repository,
-    fixture.repositoryFixture,
-    fixture.generated,
-    fixture.fixtureSetup,
-    fixture.projectRoot,
-    options.signal,
-    reservation,
+  const workspace = await createFixture(fixture.source, {
+    artifacts: fixture.inlineArtifacts,
+    sources: options.preparationSources,
+    setup: fixture.fixtureSetup,
+    projectRoot: fixture.projectRoot,
+    signal: options.signal,
+    reservedWorkspace: reservation,
     candidateRuntimeRoot,
-  ).catch((error: unknown) => {
+  }).catch((error: unknown) => {
     if (
       !options.signal?.aborted ||
       error instanceof EvaluationConfigurationError

@@ -1,6 +1,7 @@
 import {
   EvaluationConfigurationError,
   type EvaluationOptions,
+  type HostAdapter,
   type ResolvedCase,
 } from "./types";
 import { fixtureParts, type InlineArtifact } from "../fixtures/preparation";
@@ -31,13 +32,16 @@ interface SkillDeclarations {
   readonly claudeRepositorySkillInvocation: PreparationResult["claudeRepositorySkillInvocation"];
 }
 
-export interface PreparedInvocation
-  extends PackageDeclarations, SkillDeclarations {
-  readonly invocation:
-    | PluginSkillInvocation
-    | (RepositorySkillInvocation & { scope: "repository" })
-    | undefined;
+type CandidatePackageRequest = Pick<
+  Parameters<HostAdapter["run"]>[0],
+  "codexMarketplace" | "claudePluginDirs" | "explicitSkillInvocation"
+>;
+
+export interface PreparedInvocation extends PackageDeclarations {
+  readonly selected: SelectedSkillInvocation;
   readonly invocationToken: string | null;
+  readonly configuration: Partial<SkillDeclarations>;
+  readonly hostRequest: CandidatePackageRequest;
 }
 
 export const INVOCATION_PLACEHOLDER = "{{sevro.skill_invocation}}";
@@ -228,27 +232,96 @@ function selectedSkillInvocation(
   return { kind: "none" };
 }
 
-function invocationTokenFor(declarations: SkillDeclarations): string | null {
-  if (declarations.codexRepositorySkillInvocation)
-    return `$${declarations.codexRepositorySkillInvocation.skillName}`;
-  if (declarations.claudeRepositorySkillInvocation)
-    return `/${declarations.claudeRepositorySkillInvocation.skillName}`;
-  if (declarations.codexSkillInvocation)
-    return `$${declarations.codexSkillInvocation.pluginName}:${declarations.codexSkillInvocation.skillName}`;
-  if (declarations.claudeSkillInvocation)
-    return `/${declarations.claudeSkillInvocation.pluginName}:${declarations.claudeSkillInvocation.skillName}`;
-  return null;
+function skillInvocationConfiguration(
+  selected: SelectedSkillInvocation,
+): Partial<SkillDeclarations> {
+  switch (selected.kind) {
+    case "codex-plugin":
+      return { codexSkillInvocation: selected.value };
+    case "codex-repository":
+      return { codexRepositorySkillInvocation: selected.value };
+    case "claude-plugin":
+      return { claudeSkillInvocation: selected.value };
+    case "claude-repository":
+      return { claudeRepositorySkillInvocation: selected.value };
+    case "none":
+      return {};
+  }
 }
 
-function invocationMetadata(
-  declarations: SkillDeclarations,
-): PreparedInvocation["invocation"] {
-  const repositoryInvocation =
-    declarations.codexRepositorySkillInvocation ??
-    declarations.claudeRepositorySkillInvocation;
-  return repositoryInvocation
-    ? { ...repositoryInvocation, scope: "repository" as const }
-    : (declarations.codexSkillInvocation ?? declarations.claudeSkillInvocation);
+function candidateInvocationRequest(
+  selected: SelectedSkillInvocation,
+): CandidatePackageRequest {
+  switch (selected.kind) {
+    case "codex-plugin":
+      return {
+        explicitSkillInvocation: {
+          ...selected.value,
+          token: `$${selected.value.pluginName}:${selected.value.skillName}`,
+        },
+      };
+    case "claude-plugin":
+      return {
+        explicitSkillInvocation: {
+          ...selected.value,
+          token: `/${selected.value.pluginName}:${selected.value.skillName}`,
+        },
+      };
+    case "codex-repository":
+      return {
+        explicitSkillInvocation: {
+          ...selected.value,
+          scope: "repository",
+          token: `$${selected.value.skillName}`,
+        },
+      };
+    case "claude-repository":
+      return {
+        explicitSkillInvocation: {
+          ...selected.value,
+          scope: "repository",
+          token: `/${selected.value.skillName}`,
+        },
+      };
+    case "none":
+      return {};
+  }
+}
+
+function candidateMarketplaceRequest(
+  context: PackagePlan,
+): CandidatePackageRequest {
+  const marketplace = context.codexMarketplace;
+  if (!marketplace) return {};
+  return {
+    codexMarketplace: {
+      ...marketplace,
+      artifactPaths: context.inlineArtifacts
+        .filter((artifact) =>
+          artifact.relativePath.startsWith(`${marketplace.artifactRoot}/`),
+        )
+        .map((artifact) => artifact.relativePath),
+    },
+  };
+}
+
+function candidatePluginDirectoriesRequest(
+  context: PackagePlan,
+): CandidatePackageRequest {
+  const directories = context.claudePluginDirs;
+  if (!directories) return {};
+  return {
+    claudePluginDirs: {
+      ...directories,
+      artifactPaths: context.inlineArtifacts
+        .filter((artifact) =>
+          directories.artifactRoots.some((root) =>
+            artifact.relativePath.startsWith(`${root}/`),
+          ),
+        )
+        .map((artifact) => artifact.relativePath),
+    },
+  };
 }
 
 function promptPlaceholderCount(
@@ -532,24 +605,24 @@ function prepareSkillInvocation(
   state: PackagePlan,
 ): PreparedInvocation {
   const declarations = skillInvocationDeclarations(state.extensionPreparation);
-  const invocation = invocationMetadata(declarations);
-  const invocationToken = invocationTokenFor(declarations);
   const placeholderCount =
     promptPlaceholderCount(options.case, INVOCATION_PLACEHOLDER) +
     promptPlaceholderCount(options.case, LEGACY_CODEX_PLACEHOLDER);
   validateOnlyOneInvocation(declarations);
-  validateSelectedSkillInvocation(
-    options,
-    state,
-    selectedSkillInvocation(declarations),
-    placeholderCount,
-  );
+  const selected = selectedSkillInvocation(declarations);
+  validateSelectedSkillInvocation(options, state, selected, placeholderCount);
+  const hostRequest = {
+    ...candidateMarketplaceRequest(state),
+    ...candidatePluginDirectoriesRequest(state),
+    ...candidateInvocationRequest(selected),
+  };
   return {
     codexMarketplace: state.codexMarketplace,
     claudePluginDirs: state.claudePluginDirs,
-    ...declarations,
-    invocation,
-    invocationToken,
+    selected,
+    invocationToken: hostRequest.explicitSkillInvocation?.token ?? null,
+    configuration: skillInvocationConfiguration(selected),
+    hostRequest,
   };
 }
 

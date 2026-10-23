@@ -31,14 +31,8 @@ afterEach(cleanupTemporaryFixtures);
 test("direct fixture creation owns a real empty temporary workspace without a reservation", async () => {
   const root = await temporaryFixture();
   const workspace = await createFixture(
-    { files: {} },
-    [],
-    undefined,
-    null,
-    null,
-    null,
-    null,
-    root,
+    { kind: "inline", files: {} },
+    { projectRoot: root },
   );
   retainTemporaryFixture(workspace);
   expect(workspace).toBe(await realpath(workspace));
@@ -61,14 +55,8 @@ test("direct fixture creation copies inline bytes and verified artifacts with pr
     },
   ];
   const workspace = await createFixture(
-    fixture,
-    prepareInlineArtifacts(declarations, []),
-    undefined,
-    null,
-    null,
-    null,
-    null,
-    root,
+    { kind: "inline", files: fixture.files },
+    { artifacts: prepareInlineArtifacts(declarations, []), projectRoot: root },
   );
   retainTemporaryFixture(workspace);
   expect(await readFile(join(workspace, "nested/answer.txt"), "utf8")).toBe(
@@ -104,14 +92,8 @@ test("direct Git fixture preparation excludes bracket and space filenames litera
     [],
   );
   const workspace = await createFixture(
-    generated,
-    artifacts,
-    undefined,
-    null,
-    null,
-    generated,
-    null,
-    root,
+    { kind: "generated", fixture: generated },
+    { artifacts, projectRoot: root },
   );
   retainTemporaryFixture(workspace);
   const revision = await fixtureGit(workspace, "rev-parse", "HEAD");
@@ -153,14 +135,8 @@ process.exit(7);
   );
   const generated = prepareGeneratedFixture(generatedBaseline);
   const pending = createFixture(
-    generated,
-    [],
-    undefined,
-    null,
-    null,
-    generated,
-    setup,
-    root,
+    { kind: "generated", fixture: generated },
+    { setup, projectRoot: root },
   );
   expect(pending).rejects.toThrow("fixture setup failed (7)");
   await pending.catch(() => undefined);

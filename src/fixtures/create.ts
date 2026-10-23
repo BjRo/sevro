@@ -25,99 +25,95 @@ import {
   type ResolvedCase,
 } from "../evaluation/types";
 
+export type FixtureSource<Repository = RepositorySource> =
+  | { kind: "inline"; files: ResolvedCase["fixture"]["files"] }
+  | { kind: "generated"; fixture: GeneratedFixture }
+  | { kind: "repository"; fixture: RepositoryFixture; repository: Repository };
+
+interface FixtureOptions {
+  artifacts?: InlineArtifact[];
+  sources?: PreparationSources;
+  setup?: FixtureSetup | null;
+  projectRoot: string;
+  signal?: AbortSignal;
+  reservedWorkspace?: string;
+  candidateRuntimeRoot?: string;
+}
+
 export async function createFixture(
-  fixture: ResolvedCase["fixture"],
-  artifacts: InlineArtifact[],
-  sources: PreparationSources | undefined,
-  repository: RepositorySource | null,
-  repositoryFixture: RepositoryFixture | null,
-  generated: GeneratedFixture | null,
-  setup: FixtureSetup | null,
-  projectRoot: string,
-  signal?: AbortSignal,
-  reservedWorkspace?: string,
-  candidateRuntimeRoot?: string,
+  source: FixtureSource,
+  options: FixtureOptions,
 ): Promise<string> {
-  const paths = inlineFixturePaths(fixture, generated, repository);
-  const workspace = reservedWorkspace ?? (await allocateWorkspace());
+  const paths = inlineFixturePaths(source);
+  const artifacts = options.artifacts ?? [];
+  const workspace = options.reservedWorkspace ?? (await allocateWorkspace());
   try {
-    await initializeFixtureHistory(
-      fixture,
-      sources,
-      repository,
-      repositoryFixture,
-      generated,
-      workspace,
-    );
-    await installDeclaredFixtureTools(
-      generated ?? repositoryFixture,
-      workspace,
-    );
+    await initializeFixtureHistory(source, options.sources, workspace);
+    await installDeclaredFixtureTools(source, workspace);
     await writeInlineFixtureFiles(paths, workspace);
     await setupFixture(
-      setup,
+      options.setup,
       workspace,
-      projectRoot,
-      signal,
-      candidateRuntimeRoot,
+      options.projectRoot,
+      options.signal,
+      options.candidateRuntimeRoot,
     );
     await mountPreparationArtifacts(artifacts, workspace);
     await excludePreparationArtifacts(artifacts, workspace);
     await fixtureBinDirectory(workspace);
     return workspace;
   } catch (error) {
-    if (!reservedWorkspace) await removeWorkspace(workspace);
+    if (!options.reservedWorkspace) await removeWorkspace(workspace);
     throw error;
   }
 }
 
-function inlineFixturePaths(
-  fixture: ResolvedCase["fixture"],
-  generated: GeneratedFixture | null,
-  repository: RepositorySource | null,
-) {
+function inlineFixturePaths(source: FixtureSource) {
   return Object.entries(
-    generated || repository ? {} : (fixture.files ?? {}),
+    source.kind === "inline" ? (source.files ?? {}) : {},
   ).map(([path, content]) => ({ path, parts: fixtureParts(path), content }));
 }
 
 async function cloneFixtureRepository(
-  fixture: ResolvedCase["fixture"],
+  source: Extract<FixtureSource, { kind: "repository" }>,
   sources: PreparationSources | undefined,
-  repository: RepositorySource,
   workspace: string,
 ): Promise<void> {
-  if (!fixture.sourceRef || !sources)
+  if (!sources)
     throw new EvaluationConfigurationError(
       "repository source root is required and must be absolute",
     );
   await cloneRepositorySource(
-    fixture.sourceRef,
+    source.fixture.sourceRef,
     sources,
-    repository,
+    source.repository,
     workspace,
   );
 }
 
 async function initializeFixtureHistory(
-  fixture: ResolvedCase["fixture"],
+  source: FixtureSource,
   sources: PreparationSources | undefined,
-  repository: RepositorySource | null,
-  repositoryFixture: RepositoryFixture | null,
-  generated: GeneratedFixture | null,
   workspace: string,
 ): Promise<void> {
-  if (repository)
-    await cloneFixtureRepository(fixture, sources, repository, workspace);
-  if (generated) await materializeGeneratedFixture(generated, workspace);
-  if (repositoryFixture)
-    await applyRepositoryOverlay(repositoryFixture, workspace);
+  switch (source.kind) {
+    case "repository":
+      await cloneFixtureRepository(source, sources, workspace);
+      await applyRepositoryOverlay(source.fixture, workspace);
+      break;
+    case "generated":
+      await materializeGeneratedFixture(source.fixture, workspace);
+      break;
+    case "inline":
+      break;
+  }
 }
 
 async function installDeclaredFixtureTools(
-  fixture: GeneratedFixture | RepositoryFixture | null,
+  source: FixtureSource,
   workspace: string,
 ): Promise<void> {
+  const fixture = source.kind === "inline" ? undefined : source.fixture;
   await installFixtureBin(fixture?.bin, workspace);
   await installGitHooks(fixture?.hooks, workspace);
 }
@@ -134,7 +130,7 @@ async function writeInlineFixtureFiles(
 }
 
 async function setupFixture(
-  setup: FixtureSetup | null,
+  setup: FixtureSetup | null | undefined,
   workspace: string,
   projectRoot: string,
   signal?: AbortSignal,

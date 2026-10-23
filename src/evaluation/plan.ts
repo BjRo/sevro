@@ -6,7 +6,7 @@ import {
   type ResolvedCase,
 } from "./types";
 import { prepareFixtureSetup, type FixtureSetup } from "../fixtures/setup";
-import { type GeneratedFixture } from "../fixtures/generated";
+import type { FixtureSource } from "../fixtures/create";
 import { type SemanticCheckDeclaration } from "../graders/semantic";
 import { canonicalJson, createEvaluationIdentity, hashJson } from "../identity";
 import {
@@ -19,10 +19,7 @@ import {
   type InlineArtifact,
 } from "../fixtures/preparation";
 import { projectProvenance, runnerProvenance } from "../provenance";
-import {
-  resolveRepositorySource,
-  type RepositorySource,
-} from "../fixtures/repository";
+import { resolveRepositorySource } from "../fixtures/repository";
 import {
   prepareEvaluationChecks,
   type EvaluationCheckPlan,
@@ -39,7 +36,7 @@ export type { PreparedInvocation } from "./invocation-plan";
 
 interface EnvironmentPlan {
   readonly projectRoot: string;
-  readonly repository: RepositorySource | null;
+  readonly source: FixtureSource;
   readonly runner: Awaited<ReturnType<typeof runnerProvenance>>;
   readonly project: Awaited<ReturnType<typeof projectProvenance>>;
   readonly extensionPreparation: PreparationResult | null;
@@ -53,20 +50,12 @@ interface ArtifactPlan {
 
 async function prepareEvaluationEnvironment(
   options: EvaluationOptions,
+  source: FixtureSource<null>,
 ): Promise<EnvironmentPlan> {
   const projectRoot = await realpath(options.projectRoot).catch(() => {
     throw new EvaluationConfigurationError("project root is unreadable");
   });
-  const repository = options.case.fixture.sourceRef
-    ? await resolveRepositorySource(
-        options.case.fixture.sourceRef,
-        options.preparationSources,
-      ).catch((error: unknown) => {
-        throw new EvaluationConfigurationError(
-          error instanceof Error ? error.message : "invalid repository source",
-        );
-      })
-    : null;
+  const resolvedSource = await resolveFixtureSource(options, source);
   const [runner, project] = await Promise.all([
     runnerProvenance(
       options.runnerBuildDigest,
@@ -93,11 +82,27 @@ async function prepareEvaluationEnvironment(
     : null;
   return {
     projectRoot,
-    repository,
+    source: resolvedSource,
     runner,
     project,
     extensionPreparation,
   };
+}
+
+async function resolveFixtureSource(
+  options: EvaluationOptions,
+  source: FixtureSource<null>,
+): Promise<FixtureSource> {
+  if (source.kind !== "repository") return source;
+  const repository = await resolveRepositorySource(
+    source.fixture.sourceRef,
+    options.preparationSources,
+  ).catch((error: unknown) => {
+    throw new EvaluationConfigurationError(
+      error instanceof Error ? error.message : "invalid repository source",
+    );
+  });
+  return { ...source, repository };
 }
 
 function evaluationStorageRoots(options: EvaluationOptions): string[] {
@@ -134,10 +139,9 @@ function validateSetupCapability(
 
 function validateSetupFixture(
   setup: FixtureSetup | null,
-  generated: GeneratedFixture | null,
-  repository: RepositorySource | null,
+  source: FixtureSource,
 ): void {
-  if (setup && !generated && !repository)
+  if (setup && source.kind === "inline")
     throw new EvaluationConfigurationError(
       "fixture setup requires a Git fixture",
     );
@@ -172,28 +176,32 @@ function requestedInstrumentationPlan(
   }
 }
 
-function fixturePreparationPaths(
-  fixture: ResolvedCase["fixture"],
-  generated: GeneratedFixture | null,
-): string[] {
-  if (!generated) return Object.keys(fixture.files ?? {});
-  return [
-    ...new Set([
-      ...generated.commits.flatMap((commit) => Object.keys(commit.files)),
-      ...Object.keys(generated.files ?? {}),
-    ]),
-  ];
+function fixturePreparationPaths(source: FixtureSource): string[] {
+  switch (source.kind) {
+    case "inline":
+      return Object.keys(source.files ?? {});
+    case "repository":
+      return Object.keys(source.fixture.files ?? {});
+    case "generated":
+      return [
+        ...new Set([
+          ...source.fixture.commits.flatMap((commit) =>
+            Object.keys(commit.files),
+          ),
+          ...Object.keys(source.fixture.files ?? {}),
+        ]),
+      ];
+  }
 }
 
 async function preparedEvaluationArtifacts(
   options: EvaluationOptions,
   context: EnvironmentPlan,
-  generated: GeneratedFixture | null,
 ): Promise<InlineArtifact[]> {
   try {
     return await prepareArtifacts(
       context.extensionPreparation?.artifacts ?? [],
-      fixturePreparationPaths(options.case.fixture, generated),
+      fixturePreparationPaths(context.source),
       options.preparationSources,
     );
   } catch (cause) {
@@ -206,11 +214,10 @@ async function preparedEvaluationArtifacts(
 
 function validateArtifactMetadata(
   artifacts: InlineArtifact[],
-  generated: GeneratedFixture | null,
-  repository: RepositorySource | null,
+  source: FixtureSource,
 ): void {
   if (
-    (repository || generated) &&
+    source.kind !== "inline" &&
     artifacts.some((artifact) =>
       fixtureParts(artifact.relativePath).some(
         (part) => part.toLowerCase() === ".git",
@@ -224,12 +231,10 @@ function validateArtifactMetadata(
 
 function validateArtifactExclusions(
   artifacts: InlineArtifact[],
-  generated: GeneratedFixture | null,
-  repository: RepositorySource | null,
+  source: FixtureSource,
 ): void {
   if (
-    !repository &&
-    !generated &&
+    source.kind === "inline" &&
     artifacts.some((artifact) => artifact.gitExclude)
   )
     throw new EvaluationConfigurationError(
@@ -257,22 +262,14 @@ async function prepareEvaluationArtifacts(
 ): Promise<ArtifactPlan> {
   const fixtureSetup = preparedFixtureSetup(state.extensionPreparation);
   validateSetupCapability(options, fixtureSetup);
-  validateSetupFixture(fixtureSetup, checks.generated, state.repository);
+  validateSetupFixture(fixtureSetup, state.source);
   const requestedInstrumentation = requestedInstrumentationPlan(
     options,
     state.extensionPreparation,
   );
-  const inlineArtifacts = await preparedEvaluationArtifacts(
-    options,
-    state,
-    checks.generated,
-  );
-  validateArtifactMetadata(inlineArtifacts, checks.generated, state.repository);
-  validateArtifactExclusions(
-    inlineArtifacts,
-    checks.generated,
-    state.repository,
-  );
+  const inlineArtifacts = await preparedEvaluationArtifacts(options, state);
+  validateArtifactMetadata(inlineArtifacts, state.source);
+  validateArtifactExclusions(inlineArtifacts, state.source);
   validateSemanticArtifactId(
     inlineArtifacts,
     checks.checks.semanticDeclarations,
@@ -289,9 +286,7 @@ interface ActiveGrader {
 
 export interface PreparedFixture {
   readonly projectRoot: string;
-  readonly repository: EnvironmentPlan["repository"];
-  readonly repositoryFixture: EvaluationCheckPlan["repositoryFixture"];
-  readonly generated: EvaluationCheckPlan["generated"];
+  readonly source: FixtureSource;
   readonly fixtureSetup: ArtifactPlan["fixtureSetup"];
   readonly inlineArtifacts: InlineArtifact[];
 }
@@ -386,26 +381,6 @@ function redactedExtensionConfiguration(options: EvaluationOptions) {
   };
 }
 
-function skillInvocationConfiguration(state: PreparedInvocation) {
-  return {
-    ...(state.codexSkillInvocation
-      ? { codexSkillInvocation: state.codexSkillInvocation }
-      : {}),
-    ...(state.codexRepositorySkillInvocation
-      ? { codexRepositorySkillInvocation: state.codexRepositorySkillInvocation }
-      : {}),
-    ...(state.claudeSkillInvocation
-      ? { claudeSkillInvocation: state.claudeSkillInvocation }
-      : {}),
-    ...(state.claudeRepositorySkillInvocation
-      ? {
-          claudeRepositorySkillInvocation:
-            state.claudeRepositorySkillInvocation,
-        }
-      : {}),
-  };
-}
-
 function redactedPreparationConfiguration(state: PreparedEvaluationInputs) {
   return {
     ...(state.fixture.fixtureSetup
@@ -450,7 +425,7 @@ function redactedEvaluationConfiguration(
     ),
     ...redactedExtensionConfiguration(options),
     ...redactedPreparationConfiguration(state),
-    ...skillInvocationConfiguration(state.invocation),
+    ...state.invocation.configuration,
     ...redactedAdvisoryConfiguration(options),
   };
 }
@@ -505,14 +480,15 @@ function caseIdentityData(
   };
 }
 
-function baseFixtureIdentity(
-  state: PreparedFixture,
-  fixture: ResolvedCase["fixture"],
-) {
-  if (state.generated) return state.generated;
-  if (state.repository)
-    return { ...state.repositoryFixture, revision: state.repository.revision };
-  return { files: fixture.files };
+function baseFixtureIdentity(source: FixtureSource) {
+  switch (source.kind) {
+    case "generated":
+      return source.fixture;
+    case "repository":
+      return { ...source.fixture, revision: source.repository.revision };
+    case "inline":
+      return { files: source.files };
+  }
 }
 
 function artifactIdentityData(artifacts: InlineArtifact[]) {
@@ -527,12 +503,9 @@ function artifactIdentityData(artifacts: InlineArtifact[]) {
   );
 }
 
-function fixtureIdentityData(
-  state: PreparedEvaluationInputs,
-  fixture: ResolvedCase["fixture"],
-) {
+function fixtureIdentityData(state: PreparedEvaluationInputs) {
   return {
-    ...baseFixtureIdentity(state.fixture, fixture),
+    ...baseFixtureIdentity(state.fixture.source),
     artifacts: artifactIdentityData(state.fixture.inlineArtifacts),
     ...(state.fixture.fixtureSetup
       ? { fixtureSetup: state.fixture.fixtureSetup }
@@ -543,7 +516,7 @@ function fixtureIdentityData(
     ...(state.invocation.claudePluginDirs
       ? { claudePluginDirs: state.invocation.claudePluginDirs }
       : {}),
-    ...skillInvocationConfiguration(state.invocation),
+    ...state.invocation.configuration,
   };
 }
 
@@ -580,9 +553,7 @@ function evaluationComparisonIdentity(
       caseDigest: hashJson(
         caseIdentityData(options.case, context.extensionData),
       ),
-      fixtureDigest: hashJson(
-        fixtureIdentityData(prepared, options.case.fixture),
-      ),
+      fixtureDigest: hashJson(fixtureIdentityData(prepared)),
       checksDigest: hashJson(options.case.checks),
       requiredEvidenceDigest: hashJson(options.case.requiredEvidence),
       evaluatorDigest: hashJson(
@@ -657,7 +628,10 @@ export async function prepareEvaluation(
   options: EvaluationOptions,
 ): Promise<PreparedEvaluation> {
   const checks = prepareEvaluationChecks(options);
-  const environment = await prepareEvaluationEnvironment(options);
+  const environment = await prepareEvaluationEnvironment(
+    options,
+    checks.source,
+  );
   const artifacts = await prepareEvaluationArtifacts(
     options,
     environment,
@@ -670,9 +644,7 @@ export async function prepareEvaluation(
   const prepared: PreparedEvaluationInputs = {
     fixture: {
       projectRoot: environment.projectRoot,
-      repository: environment.repository,
-      repositoryFixture: checks.repositoryFixture,
-      generated: checks.generated,
+      source: environment.source,
       fixtureSetup: artifacts.fixtureSetup,
       inlineArtifacts: artifacts.inlineArtifacts,
     },

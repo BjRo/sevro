@@ -10,7 +10,6 @@ import { join } from "node:path";
 import { advisoryBaseRevision } from "../fixtures/advisory";
 import type { EvaluationContext } from "./context";
 import { prepareTrialWorkspace } from "./resources";
-import type { PreparedFixture, PreparedInvocation } from "./plan";
 import { hostArtifacts, hostObservations } from "../evidence/host-results";
 import {
   TrialEvidenceWriter,
@@ -64,58 +63,6 @@ import { rethrowDiagnosticPersistenceError } from "../host-diagnostics";
 import { evaluationProgress } from "./progress";
 
 const MAX_FINAL_MESSAGE_BYTES = 8 * 1024 * 1024;
-
-function candidateMarketplaceRequest(
-  invocation: PreparedInvocation,
-  artifacts: PreparedFixture["inlineArtifacts"],
-) {
-  const marketplace = invocation.codexMarketplace;
-  if (!marketplace) return {};
-  return {
-    codexMarketplace: {
-      ...marketplace,
-      artifactPaths: artifacts
-        .filter((artifact) =>
-          artifact.relativePath.startsWith(`${marketplace.artifactRoot}/`),
-        )
-        .map((artifact) => artifact.relativePath),
-    },
-  };
-}
-
-function candidatePluginDirectoriesRequest(
-  invocation: PreparedInvocation,
-  artifacts: PreparedFixture["inlineArtifacts"],
-) {
-  const directories = invocation.claudePluginDirs;
-  if (!directories) return {};
-  return {
-    claudePluginDirs: {
-      ...directories,
-      artifactPaths: artifacts
-        .filter((artifact) =>
-          directories.artifactRoots.some((root) =>
-            artifact.relativePath.startsWith(`${root}/`),
-          ),
-        )
-        .map((artifact) => artifact.relativePath),
-    },
-  };
-}
-
-function candidateInvocationRequest(invocation: PreparedInvocation) {
-  if (
-    invocation.invocation === undefined ||
-    invocation.invocationToken === null
-  )
-    return {};
-  return {
-    explicitSkillInvocation: {
-      ...invocation.invocation,
-      token: invocation.invocationToken,
-    },
-  };
-}
 
 function ensureNotCancelled(signal: AbortSignal | undefined): void {
   if (signal?.aborted) throw new Error("cancelled");
@@ -305,15 +252,7 @@ class EvaluationTrial {
       instrumentation: snapshotInstrumentation(
         this.context.prepared.requestedInstrumentation,
       ),
-      ...candidateMarketplaceRequest(
-        this.context.prepared.invocation,
-        this.context.prepared.fixture.inlineArtifacts,
-      ),
-      ...candidatePluginDirectoriesRequest(
-        this.context.prepared.invocation,
-        this.context.prepared.fixture.inlineArtifacts,
-      ),
-      ...candidateInvocationRequest(this.context.prepared.invocation),
+      ...structuredClone(this.context.prepared.invocation.hostRequest),
       signal: this.options.signal,
     };
   }
@@ -518,8 +457,8 @@ class EvaluationTrial {
         ...(this.options.preparationSources
           ? [this.options.preparationSources.root]
           : []),
-        ...(this.context.prepared.fixture.repository
-          ? [this.context.prepared.fixture.repository.path]
+        ...(this.context.prepared.fixture.source.kind === "repository"
+          ? [this.context.prepared.fixture.source.repository.path]
           : []),
         this.context.resources.runStateRoot,
       ],
