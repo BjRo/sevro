@@ -3,6 +3,7 @@ import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { runCodexProcess } from "../../src/hosts/codex-process";
 import { runClaudeProcess } from "../../src/hosts/claude-process";
+import { createHostDiagnostics } from "../../src/host-diagnostics";
 import { defined, record } from "../fixtures/assertions";
 import { peerEvents } from "../fixtures/native-host-fixtures";
 import { createWorkspace } from "../fixtures/native-host-fixtures";
@@ -27,6 +28,7 @@ const nativeProcessRunners = {
 test("Codex drains stderr while retaining a raw prefix cut inside a UTF-8 sequence", async () => {
   const root = await workspace();
   const result = await runCodexProcess({
+    diagnostics: createHostDiagnostics("codex", false, {}),
     argv: [
       process.execPath,
       "-e",
@@ -54,6 +56,7 @@ async function processBoundaryOptions(
 ) {
   const root = await workspace();
   return {
+    diagnostics: createHostDiagnostics("codex", false, {}),
     argv: [
       process.execPath,
       join(testDirectory, "fixtures/host-app-server.ts"),

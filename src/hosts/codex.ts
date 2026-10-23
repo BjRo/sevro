@@ -46,9 +46,6 @@ import {
   createHostDiagnostics,
   diagnoseHostRequest,
   diagnosticConfiguration,
-  diagnosticStage,
-  readDiagnosticCredentials,
-  retainReturnedHostFailure,
   type HostDiagnostics,
 } from "../host-diagnostics";
 export type { CodexHostOptions } from "./codex-state";
@@ -73,7 +70,7 @@ interface ExecutionContext {
   timeoutMs: number;
   hooks: HookMounts;
   skillTracking: SkillTracking;
-  diagnostics?: HostDiagnostics;
+  diagnostics: HostDiagnostics;
 }
 interface TurnResult {
   execution: ProcessResult;
@@ -195,8 +192,8 @@ async function runCodexRequest(
     request,
   );
   return diagnoseHostRequest(diagnostics, async () => {
-    diagnosticStage(diagnostics, "request-validation");
-    await readDiagnosticCredentials(diagnostics, options.authFile);
+    diagnostics.stage = "request-validation";
+    await diagnostics.readCredentials(options.authFile);
     return executeCodexRequest(options, timeoutMs, limit, request, diagnostics);
   });
 }
@@ -206,10 +203,10 @@ async function executeCodexRequest(
   timeoutMs: number,
   limit: number | null,
   request: Request,
-  diagnostics?: HostDiagnostics,
+  diagnostics: HostDiagnostics,
 ): Promise<HostResult> {
   await validateCodexRequest(options, request);
-  diagnosticStage(diagnostics, "state-allocation");
+  diagnostics.stage = "state-allocation";
   const stateRoot = await allocateCodexRequestState(request);
   const helperRoot =
     process.platform === "linux"
@@ -217,7 +214,7 @@ async function executeCodexRequest(
       : undefined;
   let activeHooks: HookMounts | undefined;
   try {
-    diagnosticStage(diagnostics, "state-preparation");
+    diagnostics.stage = "state-preparation";
     const state = await prepareCodexState(
       stateRoot,
       options,
@@ -232,7 +229,7 @@ async function executeCodexRequest(
       request,
       diagnostics,
     });
-    diagnosticStage(diagnostics, "hooks-preparation");
+    diagnostics.stage = "hooks-preparation";
     const hooks = await codexHookMounts(request, state, installedPluginRoots);
     activeHooks = hooks;
     const skillTracking = await prepareCodexSkillTracking(
@@ -251,8 +248,7 @@ async function executeCodexRequest(
       diagnostics,
     };
     const turns = await new CodexTurnExecution(context).run();
-    if (turns.summary.complete)
-      diagnosticStage(diagnostics, "result-processing");
+    if (turns.summary.complete) diagnostics.stage = "result-processing";
     return await retainCodexResult(context, turns);
   } catch (cause) {
     return await failedNativeTranscripts(
@@ -275,8 +271,7 @@ async function executeCodexRequest(
 
 async function retainCodexResult(context: ExecutionContext, turns: TurnResult) {
   const result = await codexHostResult(context, turns);
-  await retainReturnedHostFailure(
-    context.diagnostics,
+  await context.diagnostics.retainFailure(
     result,
     "Codex host execution did not complete",
   );
@@ -377,7 +372,7 @@ async function sandboxPreflight(
   state: CodexState,
   request: Request,
   command: string[],
-  diagnostics?: HostDiagnostics,
+  diagnostics: HostDiagnostics,
 ) {
   return runCodexProcess({
     diagnostics,
@@ -393,9 +388,9 @@ async function codexPreflight(
   options: CodexHostOptions,
   request: Request,
   state: CodexState,
-  diagnostics?: HostDiagnostics,
+  diagnostics: HostDiagnostics,
 ): Promise<void> {
-  diagnosticStage(diagnostics, "isolation-preflight");
+  diagnostics.stage = "isolation-preflight";
   const probe = join(state.commandTemp, "isolation-probe");
   await writeFile(probe, "probe\n", { flag: "wx", mode: 0o600 });
   const checked = await sandboxPreflight(
@@ -483,7 +478,7 @@ async function codexProcessTurn(
   argv: string[],
   input: string,
 ): Promise<ProcessResult> {
-  diagnosticStage(context.diagnostics, "exec");
+  context.diagnostics.stage = "exec";
   const result = await runCodexProcess({
     diagnostics: context.diagnostics,
     argv,
@@ -599,7 +594,7 @@ class CodexTurnExecution {
   ): Promise<AppServerResult | null> {
     const { options, request, state, timeoutMs } = this.context;
     if (options.entrypoint !== "app-server") return null;
-    diagnosticStage(this.context.diagnostics, "app-server");
+    this.context.diagnostics.stage = "app-server";
     return runCodexAppServer({
       diagnostics: this.context.diagnostics,
       argv: [

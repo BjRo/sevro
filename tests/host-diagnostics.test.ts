@@ -427,6 +427,58 @@ test("CLI retains an early exec failure for the guide example", async () => {
   });
 });
 
+test.each([
+  ["exec", false],
+  ["exec", true],
+  ["app-server", false],
+  ["app-server", true],
+  ["claude", false],
+  ["claude", true],
+] as const)(
+  "disabled diagnostics preserve %s failure output; transcripts=%s",
+  async (route, nativeTranscripts) => {
+    const { args, project, auth, binary } = await executionFailure(
+      route === "app-server" ? "app-server" : "exec",
+    );
+    await writeFile(
+      join(project, "sevro.json"),
+      JSON.stringify({ format: "sevro.runtime.v1", nativeTranscripts }),
+    );
+    if (route === "claude") {
+      await writeFile(auth, syntheticClaudeLogin());
+      args[args.indexOf("--host") + 1] = "claude";
+      args[args.indexOf("--codex-bin")] = "--claude-bin";
+      args[args.indexOf("--codex-auth-file")] = "--claude-credential-file";
+      args.splice(args.indexOf("--codex-entrypoint"), 2);
+      await writeFile(
+        binary,
+        '#!/bin/sh\nprintf \'%s\\n\' \'{"type":"result","subtype":"error_during_execution","is_error":true,"result":"model unavailable"}\'\nprintf \'private failure body\' >&2\nexit 29\n',
+        { mode: 0o700 },
+      );
+    }
+    const run = await invoke([...args, "--no-retain-host-diagnostics"]);
+    expect(run.code).toBe(2);
+    const evidence = parseRunEvidence(
+      await readFile(defined(run.result.evidencePath), "utf8"),
+    );
+    const trial = defined(evidence.trials[0]);
+    expect(run.result.execution.status).toBe("failed");
+    expect(run.result.grading.status).toBe("not_requested");
+    expect(run.result.task.verdict).toBe("not_assessed");
+    expect(
+      trial.artifactRefs.some((ref) => ref.id === "sevro.host.diagnostics"),
+    ).toBe(false);
+    expect(
+      trial.artifactRefs.some(
+        (ref) => ref.id === "sevro.native-transcripts.bundle",
+      ),
+    ).toBe(nativeTranscripts);
+    expect(JSON.stringify(run.result) + run.stderr).not.toContain(
+      "private failure body",
+    );
+  },
+);
+
 test("CLI retains the original preparation error and cause without transcript opt-in", async () => {
   const { args, project, auth } = await marketplaceFailure();
   await rm(auth);

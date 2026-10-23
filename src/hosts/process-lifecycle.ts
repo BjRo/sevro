@@ -113,7 +113,7 @@ export class HostProcessFailure extends HostExecutionFailure {
 
 export interface HostProcessOptions {
   host: "Codex" | "Claude";
-  diagnostics?: HostDiagnostics;
+  diagnostics: HostDiagnostics;
   argv: string[];
   cwd: string;
   env: Record<string, string>;

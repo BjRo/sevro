@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type AppServerRunOptions } from "../../src/hosts/codex-app-server";
+import { createHostDiagnostics } from "../../src/host-diagnostics";
 import { record } from "./assertions";
 
 const testDirectory = join(import.meta.dir, "..");
@@ -24,6 +25,7 @@ export function createServerOptions(
   async function serverOptions(mode: string): Promise<AppServerRunOptions> {
     const root = await workspace();
     return {
+      diagnostics: createHostDiagnostics("codex", false, {}),
       request: {
         repoDir: root,
         prompt: "Return ready",

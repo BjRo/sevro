@@ -33,10 +33,6 @@ import {
   createHostDiagnostics,
   diagnoseHostRequest,
   diagnosticConfiguration,
-  diagnosticCredentialEnvironment,
-  diagnosticStage,
-  readDiagnosticCredentials,
-  retainReturnedHostFailure,
   type HostDiagnostics,
 } from "../host-diagnostics";
 import {
@@ -292,8 +288,8 @@ async function runClaudeRequest(
     request,
   );
   return diagnoseHostRequest(diagnostics, async () => {
-    diagnosticStage(diagnostics, "request-validation");
-    await readDiagnosticCredentials(diagnostics, options.credentialFile);
+    diagnostics.stage = "request-validation";
+    await diagnostics.readCredentials(options.credentialFile);
     return executeClaudeRequest(options, timeoutMs, request, diagnostics);
   });
 }
@@ -308,20 +304,20 @@ async function executeClaudeRequest(
   options: ClaudeHostOptions,
   timeoutMs: number,
   request: Request,
-  diagnostics?: HostDiagnostics,
+  diagnostics: HostDiagnostics,
 ): Promise<HostResult> {
   const { pluginDirs, repositoryInvocation } = await validateClaudeRequest(
     options,
     request,
   );
-  diagnosticStage(diagnostics, "state-allocation");
+  diagnostics.stage = "state-allocation";
   const stateRoot = await allocateNativeState(
     "claude-",
     request.runtimePolicy ? request.workspace : undefined,
   );
   let hooks: HookMounts | undefined;
   try {
-    diagnosticStage(diagnostics, "state-preparation");
+    diagnostics.stage = "state-preparation";
     const state = await prepareClaudeState(
       stateRoot,
       options,
@@ -329,11 +325,7 @@ async function executeClaudeRequest(
       pluginDirs,
       claudeLoginLifetime(timeoutMs, request),
     );
-    diagnosticCredentialEnvironment(
-      diagnostics,
-      state.env,
-      CLAUDE_AUTH_VARIABLES,
-    );
+    diagnostics.registerCredentials(state.env, CLAUDE_AUTH_VARIABLES);
     hooks = state.hooks;
     const run = claudeProcessRunner(
       options,
@@ -354,8 +346,7 @@ async function executeClaudeRequest(
       request,
       repositoryInvocation,
     );
-    await retainReturnedHostFailure(
-      diagnostics,
+    await diagnostics.retainFailure(
       result,
       "Claude host execution did not complete",
     );
@@ -390,10 +381,10 @@ function claudeProcessRunner(
   timeoutMs: number,
   request: Request,
   state: Awaited<ReturnType<typeof prepareClaudeState>>,
-  diagnostics: HostDiagnostics | undefined,
+  diagnostics: HostDiagnostics,
 ) {
   return (prompt: string, session?: ClaudeSession) => {
-    diagnosticStage(diagnostics, "claude-execution");
+    diagnostics.stage = "claude-execution";
     return runClaudeProcess({
       diagnostics,
       argv: claudeTurnArgs(

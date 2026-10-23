@@ -156,7 +156,7 @@ class AppServerRpc {
     argv: string[],
     cwd: string,
     env: Record<string, string>,
-    diagnostics?: HostDiagnostics,
+    diagnostics: HostDiagnostics,
   ) {
     this.capture = new HostProcessDiagnostics(diagnostics);
     this.process = spawn(identifier(argv[0]), argv.slice(1), {
@@ -479,7 +479,7 @@ function requireGoalObjective(objective: unknown): void {
 }
 
 export interface AppServerRunOptions {
-  diagnostics?: HostDiagnostics;
+  diagnostics: HostDiagnostics;
   vettedHooks?: boolean;
   request: HarnessRunRequest;
   argv: string[];
@@ -870,7 +870,7 @@ function requireAppServerRun(request: HarnessRunRequest, bound: number): void {
     throw new Error("Invalid app-server time bound");
 }
 function sessionFailure(session: AppServerSession, error: unknown): void {
-  if (session.options.diagnostics) session.options.diagnostics.failure = error;
+  session.options.diagnostics.failure = error;
   session.evidence.failure =
     error instanceof Error ? error.message : String(error);
   session.emit({ type: "turn.failed" });
