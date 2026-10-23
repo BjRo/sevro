@@ -4,6 +4,7 @@ import { canonicalJson } from "../identity";
 import { prepareFixtureBin } from "./bin";
 import { prepareGitHooks } from "./git-hooks";
 import { fixtureParts } from "./preparation";
+import { runGit } from "../git";
 
 const MAX_COMMITS = 128;
 const MAX_FILES = 1024;
@@ -197,60 +198,16 @@ export function prepareGeneratedFixture(value: unknown): GeneratedFixture {
   return JSON.parse(canonicalJson(fixture)) as GeneratedFixture;
 }
 
-function gitEnvironment() {
-  const nullDevice = process.platform === "win32" ? "NUL" : "/dev/null";
-  return {
-    PATH: process.env.PATH ?? "/usr/bin:/bin",
-    ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
-    GIT_CONFIG_NOSYSTEM: "1",
-    GIT_CONFIG_GLOBAL: nullDevice,
-    GIT_TERMINAL_PROMPT: "0",
-    GIT_AUTHOR_NAME: "Sevro Fixture",
-    GIT_AUTHOR_EMAIL: "fixture@sevro.invalid",
-    GIT_COMMITTER_NAME: "Sevro Fixture",
-    GIT_COMMITTER_EMAIL: "fixture@sevro.invalid",
-    GIT_AUTHOR_DATE: "2000-01-01T00:00:00+00:00",
-    GIT_COMMITTER_DATE: "2000-01-01T00:00:00+00:00",
-  };
-}
-
 async function git(workspace: string, args: string[]): Promise<void> {
-  async function bounded(stream: ReadableStream<Uint8Array>): Promise<void> {
-    let size = 0;
-    for await (const chunk of stream) {
-      size += chunk.byteLength;
-      if (size > MAX_GIT_OUTPUT)
-        throw new Error("generated fixture Git output is too large");
-    }
-  }
-  const proc = Bun.spawn(
-    [
-      "git",
-      "-c",
-      `core.hooksPath=${process.platform === "win32" ? "NUL" : "/dev/null"}`,
-      ...args,
-    ],
-    {
-      cwd: workspace,
-      stdout: "pipe",
-      stderr: "pipe",
-      env: gitEnvironment(),
-    },
-  );
   try {
-    const [, , code] = await Promise.all([
-      bounded(proc.stdout),
-      bounded(proc.stderr),
-      proc.exited,
-    ]);
-    if (code !== 0) throw new Error();
+    await runGit({
+      cwd: workspace,
+      args,
+      identity: "fixture",
+      label: "generated fixture",
+      maxOutputBytes: MAX_GIT_OUTPUT,
+    });
   } catch (cause) {
-    try {
-      proc.kill("SIGKILL");
-    } catch {
-      // The process may have exited before the failure was observed.
-    }
-    await proc.exited;
     throw new Error("generated fixture Git operation failed", { cause });
   }
 }

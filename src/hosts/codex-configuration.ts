@@ -1,7 +1,8 @@
 import type { Stats } from "node:fs";
 import { isRecord } from "../value-guards";
 import { lstat, readFile, realpath, stat } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative, sep } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
+import { insideRoot } from "../paths";
 import { parse } from "smol-toml";
 
 export async function configurationRoot(root: string): Promise<string> {
@@ -52,7 +53,7 @@ async function readConfiguration(
     const info = await lstat(configPath);
     declared = true;
     const canonical = await realpath(configPath);
-    validateConfigurationFile(info, relative(root, canonical));
+    validateConfigurationFile(info, insideRoot(root, canonical));
     source = await readFile(configPath, "utf8");
   } catch (error) {
     if (!declared && (error as NodeJS.ErrnoException).code === "ENOENT")
@@ -97,15 +98,9 @@ function concurrencyLimit(limit: unknown, configPath: string): number | null {
   return Number(limit);
 }
 
-function validateConfigurationFile(info: Stats, location: string): void {
-  if (!info.isFile() || info.size > 64 * 1024 || escapedRoot(location))
+function validateConfigurationFile(info: Stats, contained: boolean): void {
+  if (!info.isFile() || info.size > 64 * 1024 || !contained)
     throw new Error(
       "configuration must be a contained regular file up to 64 KiB",
     );
-}
-
-function escapedRoot(location: string): boolean {
-  return (
-    location === ".." || location.startsWith(`..${sep}`) || isAbsolute(location)
-  );
 }

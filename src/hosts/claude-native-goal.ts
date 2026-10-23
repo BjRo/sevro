@@ -1,12 +1,11 @@
 import { parseClaudeEvents, type ClaudeEvents } from "./claude-events";
 import { lstat, readdir, readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
+import { requireRecord } from "../value-guards";
 
 type RecordValue = Record<string, unknown>;
 function record(value: unknown): RecordValue {
-  if (!value || typeof value !== "object" || Array.isArray(value))
-    throw new Error("Malformed native session record");
-  return value as RecordValue;
+  return requireRecord(value, "Malformed native session record");
 }
 function records(text: string | ClaudeEvents): RecordValue[] {
   return parseClaudeEvents(text).lines.map((line) => {

@@ -1,5 +1,6 @@
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { shellQuote as quote } from "../shell";
 import { fileURLToPath } from "node:url";
 import { isRecord, isUnknownArray } from "../value-guards";
 import { skillHookCatalog, type SkillCatalogRoot } from "./skill-hook-catalog";
@@ -16,10 +17,6 @@ export interface SkillTracking {
   configuration: SkillHookConfiguration;
   hooks: Record<string, unknown>;
   command: string;
-}
-
-function quote(value: string): string {
-  return `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
 /** Install the runner's silent observer separately from authorized plugin hooks. */

@@ -1,4 +1,5 @@
 import { join, resolve } from "node:path";
+import { validQualifiedId } from "../value-guards";
 import { canonicalRuntimeRoot } from "../runtime/paths";
 import { PATH_OPTIONS, runArguments } from "./run-options";
 import { savedRunValues } from "./run-manifest";
@@ -198,10 +199,6 @@ function rootParameters(values: Values) {
 }
 
 type Roots = ReturnType<typeof rootParameters>;
-
-function validQualifiedId(id: string): boolean {
-  return /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$/.test(id);
-}
 
 function validateExtensionSelection(values: Values): void {
   const policy = values["task-verdict-policy"];

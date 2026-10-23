@@ -1,6 +1,7 @@
 import type { Dirent } from "node:fs";
 import { readFile, readdir, realpath, stat } from "node:fs/promises";
-import { isAbsolute, join, relative, sep } from "node:path";
+import { join, relative, sep } from "node:path";
+import { insideRoot as inside } from "../paths";
 import { fixtureParts } from "../fixtures/preparation";
 import type { HostAdapter } from "../engine";
 import { runCodexProcess } from "./codex-process";
@@ -16,13 +17,6 @@ interface InstallContext {
   diagnostics?: HostDiagnostics;
 }
 
-function inside(root: string, path: string): boolean {
-  const child = relative(root, path);
-  return (
-    child === "" ||
-    (child !== ".." && !child.startsWith(`..${sep}`) && !isAbsolute(child))
-  );
-}
 function validPluginNames(declaration: Declaration): boolean {
   const names = declaration.pluginNames;
   return (

@@ -1,4 +1,5 @@
 import { lstat, readdir, realpath, rm } from "node:fs/promises";
+import { containsControl } from "./value-guards";
 import { join, relative, sep } from "node:path";
 import {
   allocateCodexStateLease,
@@ -56,10 +57,7 @@ function requireArtifactDirectory(directory: RuntimeArtifactDirectory): void {
 function validArtifactPath(path: string): boolean {
   if (typeof path !== "string" || path.length > 4096 || path.includes("\\"))
     return false;
-  return !Array.from(path).some(
-    (character) =>
-      character.charCodeAt(0) < 0x20 || character.charCodeAt(0) === 0x7f,
-  );
+  return !containsControl(path);
 }
 
 /** Allocate before host execution so exceptions cannot lose cleanup ownership. */

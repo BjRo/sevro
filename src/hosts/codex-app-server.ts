@@ -1,5 +1,5 @@
 import { redactDiagnosticText } from "../host-diagnostic-redaction";
-import { isRecord } from "../value-guards";
+import { isRecord, requireRecord } from "../value-guards";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
@@ -19,9 +19,7 @@ interface HarnessRunRequest {
 
 type RecordValue = Record<string, unknown>;
 function record(value: unknown): RecordValue {
-  if (!value || typeof value !== "object" || Array.isArray(value))
-    throw new Error("Malformed app-server object");
-  return value as RecordValue;
+  return requireRecord(value, "Malformed app-server object");
 }
 function identifier(value: unknown): string {
   if (typeof value !== "string" || !value)

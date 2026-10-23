@@ -11,7 +11,9 @@ import {
   copyFile,
 } from "node:fs/promises";
 import { allocateWorkspace, removeWorkspace } from "./workspace-state";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
+import { insideRoot as contained } from "../paths";
+import { runGit } from "../git";
 import { fixtureParts } from "./preparation";
 
 const MAX_GIT_OUTPUT = 16 * 1024 * 1024;
@@ -19,47 +21,8 @@ const MAX_UNTRACKED_BYTES = 32 * 1024 * 1024;
 const MAX_UNTRACKED_FILES = 1024;
 const HIDDEN_ROOTS = [".agents", ".claude", ".codex", ".git"];
 
-function contained(root: string, path: string): boolean {
-  const child = relative(root, path);
-  return (
-    child === "" ||
-    (child !== ".." && !child.startsWith(`..${sep}`) && !isAbsolute(child))
-  );
-}
-
 function excluded(path: string, roots: string[]): boolean {
   return roots.some((root) => path === root || path.startsWith(`${root}/`));
-}
-
-async function bounded(stream: ReadableStream<Uint8Array>): Promise<Buffer> {
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  for await (const chunk of stream) {
-    size += chunk.byteLength;
-    if (size > MAX_GIT_OUTPUT)
-      throw new Error("advisory fixture Git output is too large");
-    chunks.push(chunk);
-  }
-  return Buffer.concat(chunks);
-}
-
-function nullGitConfig(): string {
-  return process.platform === "win32" ? "NUL" : "/dev/null";
-}
-function gitEnvironment(): Record<string, string> {
-  return {
-    PATH: process.env.PATH ?? "/usr/bin:/bin",
-    ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
-    GIT_CONFIG_NOSYSTEM: "1",
-    GIT_CONFIG_GLOBAL: nullGitConfig(),
-    GIT_TERMINAL_PROMPT: "0",
-    GIT_AUTHOR_NAME: "Sevro Advisory",
-    GIT_AUTHOR_EMAIL: "advisory@sevro.invalid",
-    GIT_COMMITTER_NAME: "Sevro Advisory",
-    GIT_COMMITTER_EMAIL: "advisory@sevro.invalid",
-    GIT_AUTHOR_DATE: "2000-01-01T00:00:00+00:00",
-    GIT_COMMITTER_DATE: "2000-01-01T00:00:00+00:00",
-  };
 }
 
 async function git(
@@ -67,39 +30,16 @@ async function git(
   args: string[],
   input?: Uint8Array,
 ): Promise<Buffer> {
-  const proc = Bun.spawn(
-    ["git", "-c", `core.hooksPath=${nullGitConfig()}`, ...args],
-    {
-      cwd,
-      stdin: input ? "pipe" : "ignore",
-      stdout: "pipe",
-      stderr: "pipe",
-      env: gitEnvironment(),
-    },
-  );
   try {
-    const write = (async () => {
-      if (!input) return;
-      if (!proc.stdin || typeof proc.stdin === "number")
-        throw new Error("advisory fixture Git input unavailable");
-      await proc.stdin.write(input);
-      await proc.stdin.end();
-    })();
-    const [out, , code] = await Promise.all([
-      bounded(proc.stdout),
-      bounded(proc.stderr),
-      proc.exited,
-      write,
-    ]);
-    if (code !== 0) throw new Error("advisory fixture Git operation failed");
-    return out;
+    return await runGit({
+      cwd,
+      args,
+      input,
+      identity: "advisory",
+      label: "advisory fixture",
+      maxOutputBytes: MAX_GIT_OUTPUT,
+    });
   } catch (cause) {
-    try {
-      proc.kill("SIGKILL");
-    } catch {
-      // The process may already have exited.
-    }
-    await proc.exited;
     throw new Error("advisory fixture Git operation failed", { cause });
   }
 }

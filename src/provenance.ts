@@ -1,7 +1,8 @@
 import type { Stats } from "node:fs";
 import { lstat, readFile, readdir, readlink, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
+import { insideRoot } from "./paths";
 import { pathToFileURL } from "node:url";
 import packageJson from "../package.json";
 import { hashJson, sha256 } from "./identity";
@@ -185,8 +186,7 @@ async function dirtyPatchDigest(
 }
 
 function requireSafeUntrackedPath(root: string, absolute: string): void {
-  const path = relative(root, absolute);
-  if (isAbsolute(path) || path === ".." || path.startsWith(`..${sep}`))
+  if (!insideRoot(root, absolute))
     throw new Error("Git checkout has an unsafe untracked path");
 }
 async function untrackedIdentityBytes(

@@ -1,4 +1,6 @@
 import { isAbsolute, join, sep } from "node:path";
+import { minimalRoots as minimalProtectedRoots } from "../paths";
+import { containsControl } from "../value-guards";
 import { insideRuntimeRoot, isRuntimeHomeRoot } from "../runtime/paths";
 import { workspaceBoundaryException } from "../fixtures/workspace-state";
 import {
@@ -18,12 +20,7 @@ const LINUX_MINIMAL_READ_ROOTS = [
 ];
 
 function toml(value: string): string {
-  if (
-    Array.from(value).some(
-      (character) =>
-        character.charCodeAt(0) < 0x20 || character.charCodeAt(0) === 0x7f,
-    )
-  )
+  if (containsControl(value))
     throw new Error("Codex profile value contains a control character");
   return JSON.stringify(value);
 }
@@ -216,15 +213,6 @@ function implicitLinuxHomeBoundary(
   return (
     descendant &&
     !baselines.some((baseline) => insideRuntimeRoot(baseline, root))
-  );
-}
-
-function minimalProtectedRoots(roots: string[]): string[] {
-  return [...new Set(roots)].filter(
-    (root) =>
-      !roots.some(
-        (other) => other !== root && root.startsWith(`${other}${sep}`),
-      ),
   );
 }
 

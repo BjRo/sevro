@@ -7,6 +7,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
+import { shellQuote as quote } from "../shell";
 import type { RuntimePolicy } from "./config";
 import { insideRuntimeRoot, requireRuntimeReadRoots } from "./paths";
 import { runtimeSeedDigest } from "./seeds";
@@ -60,10 +61,6 @@ export function runtimeHooksEnabled(
 function object(value: unknown): Record<string, unknown> {
   if (!isRecord(value)) throw new Error("invalid runtime hook declaration");
   return value;
-}
-
-function quote(value: string): string {
-  return `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
 /** Materialize immutable mounts; only declared plugin hooks reach the host. */

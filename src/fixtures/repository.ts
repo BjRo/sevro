@@ -1,7 +1,9 @@
 import { isRecord, isStringArray } from "../value-guards";
 import { isMissingFile } from "./tools";
 import { lstat, mkdir, realpath, stat, writeFile } from "node:fs/promises";
-import { isAbsolute, join, relative, sep } from "node:path";
+import { isAbsolute, join } from "node:path";
+import { insideRoot } from "../paths";
+import { runGit } from "../git";
 import { fileURLToPath } from "node:url";
 import { canonicalJson } from "../identity";
 import { prepareFixtureBin } from "./bin";
@@ -167,58 +169,16 @@ export interface RepositorySource {
   revision: string;
 }
 
-async function boundedText(
-  stream: ReadableStream<Uint8Array>,
-): Promise<string> {
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  for await (const chunk of stream) {
-    size += chunk.byteLength;
-    if (size > MAX_GIT_OUTPUT_BYTES)
-      throw new Error("repository fixture Git output is too large");
-    chunks.push(chunk);
-  }
-  return new TextDecoder("utf-8", { fatal: true }).decode(
-    Buffer.concat(chunks),
-  );
-}
-
-function gitEnvironment() {
-  return {
-    PATH: process.env.PATH ?? "/usr/bin:/bin",
-    ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
-    GIT_CONFIG_NOSYSTEM: "1",
-    GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null",
-    GIT_TERMINAL_PROMPT: "0",
-    GIT_AUTHOR_NAME: "Sevro Fixture",
-    GIT_AUTHOR_EMAIL: "fixture@sevro.invalid",
-    GIT_COMMITTER_NAME: "Sevro Fixture",
-    GIT_COMMITTER_EMAIL: "fixture@sevro.invalid",
-    GIT_AUTHOR_DATE: "2000-01-01T00:00:00+00:00",
-    GIT_COMMITTER_DATE: "2000-01-01T00:00:00+00:00",
-  };
-}
-
 async function git(args: string[], cwd: string): Promise<string> {
-  const proc = Bun.spawn(["git", ...disabledHooksArgs(), ...args], {
+  const stdout = await runGit({
     cwd,
-    stdout: "pipe",
-    stderr: "pipe",
-    env: gitEnvironment(),
+    args,
+    identity: "fixture",
+    label: "repository fixture",
+    maxOutputBytes: MAX_GIT_OUTPUT_BYTES,
+    validateUtf8: true,
   });
-  try {
-    const [stdout, , code] = await Promise.all([
-      boundedText(proc.stdout),
-      boundedText(proc.stderr),
-      proc.exited,
-    ]);
-    if (code !== 0) throw new Error("repository fixture Git operation failed");
-    return stdout.trim();
-  } catch (error) {
-    proc.kill("SIGKILL");
-    await proc.exited;
-    throw error;
-  }
+  return new TextDecoder("utf-8", { fatal: true }).decode(stdout).trim();
 }
 
 /** Resolve a declared local repository without accepting a dirty source tree. */
@@ -266,8 +226,7 @@ async function canonicalRepositorySource(selected: {
   }
 }
 function requireContainedRepository(root: string, path: string): void {
-  const child = relative(root, path);
-  if (child === ".." || child.startsWith(`..${sep}`) || isAbsolute(child))
+  if (!insideRoot(root, path))
     throw new Error("repository source escapes its declared root");
 }
 async function repositoryCommit(path: string): Promise<string> {
@@ -388,12 +347,6 @@ export async function applyRepositoryOverlay(
       mode: 0o600,
     });
   await stageRepositoryOverlay(fixture, workspace, Object.keys(files));
-}
-function disabledHooksArgs(): string[] {
-  return [
-    "-c",
-    `core.hooksPath=${process.platform === "win32" ? "NUL" : "/dev/null"}`,
-  ];
 }
 async function stageRepositoryOverlay(
   fixture: RepositoryFixture,

@@ -1,6 +1,7 @@
 import { isRecord } from "../value-guards";
 import { lstat } from "node:fs/promises";
 import { join } from "node:path";
+import { gitArguments, gitEnvironment } from "../git";
 import {
   captureBoundedText,
   ProcessDeadline,
@@ -48,17 +49,6 @@ function validGitHeadConfiguration(
     !Object.keys(value).some((key) => key !== "kind") &&
     validGitHeadKind(value.kind)
   );
-}
-
-function gitEnvironment() {
-  return {
-    PATH: process.env.PATH ?? "/usr/bin:/bin",
-    ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
-    GIT_CONFIG_NOSYSTEM: "1",
-    GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null",
-    GIT_NO_REPLACE_OBJECTS: "1",
-    GIT_TERMINAL_PROMPT: "0",
-  };
 }
 
 async function validateGitMetadata(workspace: string): Promise<void> {
@@ -116,7 +106,7 @@ async function git(
 ): Promise<{ code: number; output: string }> {
   if (signal?.aborted) throw new Error("Git HEAD check cancelled");
   await validateGitMetadata(workspace);
-  const proc = Bun.spawn(["git", ...args], {
+  const proc = Bun.spawn(gitArguments(args), {
     cwd: workspace,
     stdin: "ignore",
     stdout: "pipe",

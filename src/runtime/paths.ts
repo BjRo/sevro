@@ -10,24 +10,17 @@ import { constants, lstatSync, readlinkSync, realpathSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import { nativeStateProtectedRoots } from "../native-transcript-state";
 import { workspaceStatePath } from "../fixtures/workspace-state";
+import { insideRoot as insideRuntimeRoot } from "../paths";
+import { containsControl } from "../value-guards";
+export { insideRoot as insideRuntimeRoot } from "../paths";
 import {
   basename,
   delimiter,
   dirname,
   isAbsolute,
   join,
-  relative,
   resolve,
-  sep,
 } from "node:path";
-
-export function insideRuntimeRoot(root: string, path: string): boolean {
-  const child = relative(root, path);
-  return (
-    child === "" ||
-    (!child.startsWith(`..${sep}`) && child !== ".." && !isAbsolute(child))
-  );
-}
 
 export function isRuntimeHomeRoot(root: string): boolean {
   return [homedir(), userInfo().homedir]
@@ -193,13 +186,6 @@ export async function runtimePathDirectories(
     roots.push(...(await pathEntryRoots(entry)));
   }
   return [...new Set(roots)].sort();
-}
-
-function containsControl(value: string): boolean {
-  return Array.from(value).some(
-    (character) =>
-      character.charCodeAt(0) < 0x20 || character.charCodeAt(0) === 0x7f,
-  );
 }
 
 function requirePathEntry(entry: string): void {

@@ -1,4 +1,5 @@
 import { isAbsolute } from "node:path";
+import { validQualifiedId } from "../value-guards";
 import { validInlineFixture } from "../case-validation";
 import {
   EvaluationConfigurationError,
@@ -215,7 +216,7 @@ function validatePassThreshold(value: number): void {
 function validateRequiredEvidence(ids: string[]): void {
   if (
     new Set(ids).size !== ids.length ||
-    ids.some((id) => !/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$/.test(id))
+    ids.some((id) => !validQualifiedId(id))
   )
     throw new EvaluationConfigurationError("invalid required evidence IDs");
 }
