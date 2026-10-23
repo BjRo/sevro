@@ -52,7 +52,7 @@ if (mode === "relogin" && process.env.SEVRO_TEST_CANONICAL)
       },
     }),
   );
-appendFileSync(join(ledger, "proxy"), `${process.env.HTTPS_PROXY ?? ""}\n`);
+appendFileSync(join(ledger, "proxy"), `${process.env.NO_PROXY ?? ""}\n`);
 if (mode === "consume-only") process.exit(1);
 if (mode === "oversized")
   writeFileSync(join(config, ".credentials.json"), "x".repeat(1024 * 1024 + 1));

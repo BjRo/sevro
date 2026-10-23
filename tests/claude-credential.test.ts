@@ -431,15 +431,17 @@ test("the refresh helper receives the operator's network settings only", async (
     syntheticClaudeLogin({ expiresInMs: -60_000 }),
   );
   await withAuthenticationEnvironment(
-    { HTTPS_PROXY: "http://127.0.0.1:9", SEVRO_UNRELATED: "unrelated" },
+    { NO_PROXY: "synthetic.invalid", SEVRO_UNRELATED: "unrelated" },
     async () => {
       expect(await access(fixture.file, fixture.binary)).toBe(
         "ROTATED_ACCESS_1",
       );
     },
   );
+  // NO_PROXY stands in for every forwarded network setting; unlike a proxy
+  // URL, it cannot break later tests' network access if inherited.
   expect(await ledgerLines(fixture.ledger, "proxy")).toEqual([
-    "http://127.0.0.1:9",
+    "synthetic.invalid",
   ]);
 });
 
