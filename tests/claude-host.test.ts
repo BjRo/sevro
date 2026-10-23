@@ -1,3 +1,4 @@
+import { syntheticClaudeLogin } from "./fixtures/claude-login";
 import { expectUnknown } from "./fixtures/assertions";
 import { defined, parseRunEvidence } from "./fixtures/assertions";
 import { afterEach, test, expect } from "bun:test";
@@ -61,7 +62,7 @@ async function nativeGoalHostFixture() {
     [workspace, projectRoot, resultsRoot].map((path) => mkdir(path)),
   );
   const credentialFile = join(root, "credential.json");
-  await writeFile(credentialFile, '{"test":"private-login"}');
+  await writeFile(credentialFile, syntheticClaudeLogin());
   const binary = join(root, "fake-claude");
   await writeFile(binary, nativeGoalFixtureScript(), { mode: 0o755 });
   const host = createClaudeHost({
@@ -183,7 +184,7 @@ test("failed Claude execution retains private evidence without grading", async (
   const credentialFile = join(root, "credential.json");
   const binary = join(root, "fake-claude");
   await mkdir(projectRoot);
-  await writeFile(credentialFile, '{"test":"private-login"}');
+  await writeFile(credentialFile, syntheticClaudeLogin());
   const event = JSON.stringify({
     type: "result",
     subtype: "error_during_execution",
@@ -281,7 +282,7 @@ test("Claude host runs with native sandbox settings and declared plugins", async
       toolchainBinDir,
     ].map((path) => mkdir(path, { recursive: true })),
   );
-  await writeFile(credentialFile, '{"test":"private-login"}');
+  await writeFile(credentialFile, syntheticClaudeLogin());
   await writeFile(join(uvCacheDir, "sentinel"), "cache ready\n");
   await writeFile(join(toolchainBinDir, "sevro-tool"), "#!/bin/sh\nexit 0\n");
   await chmod(join(toolchainBinDir, "sevro-tool"), 0o755);
@@ -298,7 +299,7 @@ test("Claude host runs with native sandbox settings and declared plugins", async
     binary,
     [
       "#!/bin/sh",
-      'test -r "$CLAUDE_CONFIG_DIR/.credentials.json" || exit 3',
+      'test ! -e "$CLAUDE_CONFIG_DIR/.credentials.json" && test "$CLAUDE_CODE_OAUTH_TOKEN" = PRIVATE_TEST_LOGIN || exit 3',
       'test "$(cat "$UV_CACHE_DIR/sentinel")" = "cache ready" || exit 6',
       'test "$UV_OFFLINE" = 1 || exit 7',
       'test "$PYTHONDONTWRITEBYTECODE" = 1 || exit 10',
@@ -383,7 +384,7 @@ test("Claude host observes a bound native repository command without a plugin", 
       (path) => mkdir(path, { recursive: true }),
     ),
   );
-  await writeFile(credentialFile, '{"test":"private-login"}');
+  await writeFile(credentialFile, syntheticClaudeLogin());
   await writeFile(
     join(workspace, ".claude/skills/probe/SKILL.md"),
     "---\nname: probe\ndescription: Probe\n---\nReturn ready.\n",

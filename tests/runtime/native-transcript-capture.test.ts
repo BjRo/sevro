@@ -1,3 +1,4 @@
+import { syntheticClaudeLogin } from "../fixtures/claude-login";
 import { afterEach, expect, test } from "bun:test";
 import {
   chmod,
@@ -107,7 +108,7 @@ console.log(JSON.stringify({type:'result',subtype:'success',is_error:false,resul
       { mode: 0o700 },
     );
     const credentialFile = join(root, "credential.json");
-    await writeFile(credentialFile, "{}");
+    await writeFile(credentialFile, syntheticClaudeLogin());
     const host = createClaudeHost({
       binary,
       credentialFile,
@@ -288,7 +289,7 @@ console.log(JSON.stringify({type: 'result', subtype: 'success', is_error: false,
     { mode: 0o700 },
   );
   const credentialFile = join(root, "claude-credential.json");
-  await writeFile(credentialFile, "{}");
+  await writeFile(credentialFile, syntheticClaudeLogin());
   const host = createClaudeHost({
     binary,
     credentialFile,
@@ -325,7 +326,7 @@ test("Claude opt-in reports unavailable native transcript evidence after cleanup
     { mode: 0o700 },
   );
   const credentialFile = join(root, "credential.json");
-  await writeFile(credentialFile, "{}");
+  await writeFile(credentialFile, syntheticClaudeLogin());
   const host = createClaudeHost({
     binary,
     credentialFile,
@@ -362,7 +363,7 @@ test("native capture leaves an unbound root session partial", async () => {
     { mode: 0o700 },
   );
   const credentialFile = join(root, "credential.json");
-  await writeFile(credentialFile, "{}");
+  await writeFile(credentialFile, syntheticClaudeLogin());
   const host = createClaudeHost({
     binary,
     credentialFile,
@@ -408,7 +409,7 @@ console.log(JSON.stringify({type:'result',session_id:'11111111-1111-4111-8111-11
     { mode: 0o700 },
   );
   const credentialFile = join(root, "credential.json");
-  await writeFile(credentialFile, "{}");
+  await writeFile(credentialFile, syntheticClaudeLogin());
   const host = createClaudeHost({
     binary,
     credentialFile,
@@ -450,7 +451,7 @@ test("Claude opt-in preserves partial native transcripts on stream failure", asy
     { mode: 0o700 },
   );
   const credentialFile = join(root, "credential.json");
-  await writeFile(credentialFile, "{}");
+  await writeFile(credentialFile, syntheticClaudeLogin());
   const host = createClaudeHost({
     binary,
     credentialFile,

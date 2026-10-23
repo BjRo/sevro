@@ -1,3 +1,4 @@
+import { syntheticClaudeLogin } from "./fixtures/claude-login";
 import { afterEach, expect, test } from "bun:test";
 import {
   chmod,
@@ -98,7 +99,7 @@ async function hookFixture() {
   }
   const binary = await nativeClaudeInit(root);
   const credentialFile = join(root, "credential.json");
-  await writeFile(credentialFile, '{"test":"synthetic"}');
+  await writeFile(credentialFile, syntheticClaudeLogin());
   return {
     root,
     workspace,

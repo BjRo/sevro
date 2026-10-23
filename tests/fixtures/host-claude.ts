@@ -1,11 +1,5 @@
 #!/usr/bin/env bun
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 const mode = process.argv[process.argv.indexOf("-p") + 1] ?? "ready";
 const config = process.env.CLAUDE_CONFIG_DIR;
@@ -16,9 +10,8 @@ const capture = {
   config,
   saved,
   permission: saved ? statSync(credential).mode & 0o777 : null,
-  expectedLogin: saved
-    ? readFileSync(credential, "utf8").includes("PRIVATE_TEST_LOGIN")
-    : false,
+  // A saved login reaches Claude only as its access token.
+  expectedLogin: process.env.CLAUDE_CODE_OAUTH_TOKEN === "PRIVATE_TEST_LOGIN",
   api: process.env.ANTHROPIC_API_KEY === "PRIVATE_API_KEY",
   oauth: process.env.CLAUDE_CODE_OAUTH_TOKEN === "PRIVATE_OAUTH_TOKEN",
   scrub: process.env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB,

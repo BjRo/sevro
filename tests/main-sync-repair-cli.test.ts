@@ -1,3 +1,4 @@
+import { syntheticClaudeLogin } from "./fixtures/claude-login";
 import {
   defined,
   parseCliResult,
@@ -54,7 +55,7 @@ async function configureNativePeer(
     await cp(join(import.meta.dir, "fixtures", defined(options.peer)), binary);
   await chmod(binary, 0o700);
   const credential = join(root, "auth.json");
-  await writeFile(credential, "{}");
+  await writeFile(credential, syntheticClaudeLogin());
   argv.push(
     "--host",
     "codex",

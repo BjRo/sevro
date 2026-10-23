@@ -1,3 +1,4 @@
+import { syntheticClaudeLogin } from "../fixtures/claude-login";
 import { expectUnknown } from "../fixtures/assertions";
 import {
   defined,
@@ -51,7 +52,7 @@ async function claudeContinuationFixture(scenario = "pass") {
   };
   definition.followUpPrompt = "Resume the same task and return ready.";
   await writeFile(caseFile, JSON.stringify(definition));
-  await writeFile(credentialFile, '{"test":"synthetic-login"}', {
+  await writeFile(credentialFile, syntheticClaudeLogin(), {
     mode: 0o600,
   });
   await writeFile(

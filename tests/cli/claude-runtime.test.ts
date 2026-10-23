@@ -1,3 +1,4 @@
+import { syntheticClaudeLogin } from "../fixtures/claude-login";
 import { expectUnknown } from "../fixtures/assertions";
 import {
   defined,
@@ -33,7 +34,7 @@ async function claudeCacheFixture() {
   const uvCacheDir = join(binaryRoot, "uv-cache");
   await mkdir(uvCacheDir);
   await writeFile(join(uvCacheDir, "sentinel"), "curated");
-  await writeFile(credentialFile, '{"test":"synthetic-login"}', {
+  await writeFile(credentialFile, syntheticClaudeLogin(), {
     mode: 0o600,
   });
   const definition = fixtureCase();
@@ -140,14 +141,14 @@ test("CLI runs its bundled Claude route with isolated credentials", async () => 
   const binRoot = await mkdtemp(join(tmpdir(), "sevro-claude-bin-"));
   roots.push(binRoot);
   const binary = join(binRoot, "claude-wrapper");
-  await writeFile(credentialFile, '{"test":"private-login"}', {
+  await writeFile(credentialFile, syntheticClaudeLogin(), {
     mode: 0o600,
   });
   await writeFile(
     binary,
     [
       "#!/bin/sh",
-      'test -r "$CLAUDE_CONFIG_DIR/.credentials.json" || exit 3',
+      'test ! -e "$CLAUDE_CONFIG_DIR/.credentials.json" && test "$CLAUDE_CODE_OAUTH_TOKEN" = PRIVATE_TEST_LOGIN || exit 3',
       'printf \'%s\\n\' \'{"type":"result","subtype":"success","is_error":false,"result":"ready","usage":{"input_tokens":1,"output_tokens":2},"total_cost_usd":0.01}\'',
     ].join("\n") + "\n",
     { mode: 0o700 },
