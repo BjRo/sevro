@@ -1,13 +1,92 @@
 import { expect, test } from "bun:test";
-import { resolve } from "node:path";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
+import { stripVTControlCharacters } from "node:util";
 import { isRecord, isStringArray } from "../src/value-guards";
 import { copySnapshot } from "../scripts/coverage/prepare";
 import { platformCoverageScope } from "../scripts/coverage/platform-scope";
 import { platformBranchCoverage } from "../scripts/coverage/platform-branches";
 import { createInstrumenter } from "istanbul-lib-instrument";
 import { createCoverageMap, type CoverageMapData } from "istanbul-lib-coverage";
+
+function prepareFormatFixture(project: string, files: string[]) {
+  const repo = resolve(import.meta.dir, "..");
+  writeFileSync(
+    resolve(project, "package.json"),
+    readFileSync(resolve(repo, "package.json")),
+  );
+  symlinkSync(resolve(repo, "node_modules"), resolve(project, "node_modules"));
+  for (const file of [
+    ...files,
+    "README.md",
+    "CONTRIBUTING.md",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "docs/probe.md",
+    ".agents/probe.md",
+    ".agents/probe.json",
+    ".claude/probe.md",
+    "scripts/probe.md",
+    "scripts/probe.json",
+    "schemas/probe.json",
+    "eslint.config.mjs",
+    "tsconfig.json",
+    "typescript-sources.json",
+    ".github/workflows/probe.yml",
+  ]) {
+    const path = resolve(project, file);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, "");
+  }
+}
+
+test("format:check detects unformatted files across roots and nesting depths", () => {
+  const project = mkdtempSync(resolve(tmpdir(), "sevro-format-check-"));
+  try {
+    const files = [
+      "src/cli.ts",
+      "src/runtime/hooks.ts",
+      "tests/typescript-quality.test.ts",
+      "tests/fixtures/schema/boundaries.ts",
+      "scripts/setup-ci-codex.ts",
+      "scripts/coverage/capture.cjs",
+      "examples/basic/host.ts",
+      "examples/templates/repository-skill/extension.ts",
+      "examples/basic/prompt-only.json",
+      "examples/templates/coding/case.json",
+    ];
+    prepareFormatFixture(project, files);
+    for (const file of files)
+      writeFileSync(
+        resolve(project, file),
+        file.endsWith(".json") ? '{"value":1}\n' : "const value=1;\n",
+      );
+    const unformatted = Bun.spawnSync(
+      [process.execPath, "run", "format:check"],
+      { cwd: project, stdout: "pipe", stderr: "pipe" },
+    );
+    expect(unformatted.exitCode).toBe(1);
+    const diagnostics = stripVTControlCharacters(unformatted.stderr.toString());
+    for (const file of files) expect(diagnostics).toContain(`[warn] ${file}`);
+    for (const file of files) writeFileSync(resolve(project, file), "");
+    const formatted = Bun.spawnSync([process.execPath, "run", "format:check"], {
+      cwd: project,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(formatted.exitCode, formatted.stderr.toString()).toBe(0);
+  } finally {
+    rmSync(project, { recursive: true, force: true });
+  }
+}, 30000);
 
 test("release CI evidence controls require complete fresh phases and test shards", () => {
   const child = Bun.spawnSync(
