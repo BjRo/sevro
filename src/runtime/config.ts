@@ -1,5 +1,6 @@
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import type { ErrorObject } from "ajv";
 import {
   declaredRuntimeRoots,
   optionalRuntimeRoots,
@@ -130,7 +131,23 @@ function freezeArtifactDirectories(snapshot: RuntimePolicy): void {
 function assertRuntimeConfiguration(
   value: unknown,
 ): asserts value is RuntimeConfiguration {
-  if (!validate(value)) throw new Error("invalid runtime configuration schema");
+  if (!validate(value)) {
+    // Ajv always populates errors when validation fails.
+    const issue = (validate.errors as [ErrorObject, ...ErrorObject[]])[0];
+    throw new Error(
+      `runtime configuration schema ${runtimeSchemaPath(issue)}: ${issue.message}`,
+    );
+  }
+}
+
+function runtimeSchemaPath(issue: ErrorObject): string {
+  const params = issue.params as Record<string, unknown>;
+  const property = params.additionalProperty ?? params.missingProperty;
+  const suffix =
+    typeof property === "string"
+      ? "/" + property.replaceAll("~", "~0").replaceAll("/", "~1")
+      : "";
+  return safeFilesystemPath(issue.instancePath + suffix || "/");
 }
 
 const RESERVED_ENVIRONMENT =
@@ -203,12 +220,26 @@ export async function loadRuntimeConfiguration(
     if (Buffer.byteLength(source) > 65536)
       throw new Error("runtime configuration exceeds 64 KiB");
     return await resolveRuntimeConfiguration(
-      JSON.parse(source),
+      parseRuntimeConfiguration(source),
       dirname(canonical),
       protectedRoots,
     );
   } catch (cause) {
-    throw new Error(runtimeConfigurationDiagnostic(cause), { cause });
+    throw new Error(
+      `${runtimeConfigurationDiagnostic(cause)} at ${safeFilesystemPath(path)}`,
+      { cause },
+    );
+  }
+}
+
+function parseRuntimeConfiguration(source: string): unknown {
+  try {
+    return JSON.parse(source);
+  } catch (cause) {
+    throw new Error(
+      "runtime configuration $: invalid JSON; check the JSON syntax",
+      { cause },
+    );
   }
 }
 

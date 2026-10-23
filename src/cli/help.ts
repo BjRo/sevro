@@ -208,7 +208,9 @@ const HELP_REQUESTS: Record<string, string> = {
 
 /** Handle informational commands before loading inputs or creating run state. */
 export function informationCommand(argv: string[]): boolean {
-  const request = argv.join(" ");
+  const request = argv.slice(1).some((arg) => ["--help", "-h"].includes(arg))
+    ? [argv[0], "--help"].join(" ")
+    : argv.join(" ");
   if (["--version", "-v"].includes(request)) {
     process.stdout.write(`sevro ${version}\n`);
     return true;

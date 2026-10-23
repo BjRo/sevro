@@ -823,14 +823,66 @@ for (const route of ["codex", "claude"] as const) {
   );
 }
 
-test("CLI rejects malformed repository runtime configuration before execution", async () => {
-  const { project, args } = await fixture();
-  await writeFile(join(project, "sevro.json"), "{");
-  const run = await invoke(args);
-  expect(run.code).toBe(64);
-  expect(run.result.execution.status).toBe("not_run");
-  expect(run.result.diagnostic?.message).toContain("runtime configuration");
-});
+test.each([
+  [[], "/", "must be object"],
+  [
+    { format: "sevro.runtime.v1", "extra/~": "PRIVATE_VALUE" },
+    "/extra~1~0",
+    "must NOT have additional properties",
+  ],
+  [
+    { format: "sevro.runtime.v1", unexpected: "PRIVATE_VALUE" },
+    "/unexpected",
+    "must NOT have additional properties",
+  ],
+  [
+    { format: "sevro.runtime.v1", network: { localHttp: "PRIVATE_VALUE" } },
+    "/network/localHttp",
+    "must be boolean",
+  ],
+  [
+    { format: "sevro.runtime.v1", environment: { inherit: [42] } },
+    "/environment/inherit/0",
+    "must be string",
+  ],
+  [{}, "/format", "must have required property"],
+] as const)(
+  "CLI names the runtime schema problem in %j",
+  async (configuration, field, problem) => {
+    const { project, args } = await fixture();
+    const path = join(project, "sevro.json");
+    await writeFile(path, JSON.stringify(configuration));
+    const run = await invoke(args);
+    expect(run.code).toBe(64);
+    expect(run.result.execution.status).toBe("not_run");
+    const message = defined(run.result.diagnostic).message;
+    expect(message).toContain(path);
+    expect(message).toContain(field);
+    expect(message).toContain(problem);
+    expect(message).not.toContain("PRIVATE_VALUE");
+  },
+);
+
+test.each([false, true])(
+  "CLI rejects malformed repository runtime configuration before execution; explicit=%s",
+  async (explicit) => {
+    const { root, project, args } = await fixture();
+    const path = explicit
+      ? join(root, "selected-runtime.json")
+      : join(project, "sevro.json");
+    await writeFile(path, '{"PRIVATE_VALUE":');
+    const run = await invoke([
+      ...args,
+      ...(explicit ? ["--runtime-config-file", path] : []),
+    ]);
+    expect(run.code).toBe(64);
+    expect(run.result.execution.status).toBe("not_run");
+    const message = defined(run.result.diagnostic).message;
+    expect(message).toContain(path);
+    expect(message).toContain("$: invalid JSON");
+    expect(message).not.toContain("PRIVATE_VALUE");
+  },
+);
 
 test.skipIf(process.getuid?.() === 0)(
   "CLI reports operation and path for an unreadable selected PATH directory",

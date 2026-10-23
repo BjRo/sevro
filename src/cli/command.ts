@@ -18,7 +18,13 @@ export async function main(
     prepared = await prepareRunInvocation(argv);
   } catch (error) {
     await releaseBeforeDisplay(release, 64);
-    displayFailure(error, json, 64, "invalid invocation");
+    displayFailure(
+      error,
+      json,
+      64,
+      "invalid invocation",
+      argv[0] === "run" ? "run" : "",
+    );
     return;
   }
   const cancellation = new CommandCancellation();

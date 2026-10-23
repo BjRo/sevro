@@ -17,6 +17,24 @@ afterEach(async () => {
 const fixture = createFixture(roots);
 const fixtureExtensionCommand = extensionFixtureCommand();
 
+test("CLI unknown command lists available commands before reading inputs", async () => {
+  const { args } = await fixture();
+  args[2] = "frobnicate";
+  const invalid = await invoke(args);
+  expect(invalid.code).toBe(64);
+  expect(invalid.result.evidencePath).toBeNull();
+  expect(defined(invalid.result.diagnostic).message).toContain(
+    "available commands: demo, init, run, report, prune",
+  );
+  expect(invalid.stderr).toContain("sevro --help");
+  expect(invalid.stderr).not.toContain("sevro run --help");
+  const withHelp = await invoke([...args, "--help"]);
+  expect(withHelp.code).toBe(64);
+  expect(defined(withHelp.result.diagnostic).message).toContain(
+    "available commands:",
+  );
+});
+
 test("CLI reports invalid invocation as versioned JSON without a run", async () => {
   const { args, caseFile } = await fixture();
   const invalid = await invoke(

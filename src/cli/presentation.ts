@@ -77,14 +77,16 @@ export function displayFailure(
   json: boolean,
   code: 64 | 70,
   fallback: string,
+  helpCommand = "run",
 ): void {
   display(
     failure(code, error instanceof Error ? error.message : fallback),
     json,
   );
+  const help = helpCommand ? `sevro ${helpCommand} --help` : "sevro --help";
   process.stderr.write(
     code === 64
-      ? "Correct the named option or input and retry. Run sevro run --help for examples and required options.\n"
+      ? `Correct the named option or input and retry. Run ${help} for examples and required options.\n`
       : "Check the reported path and ensure --results-root and --run-state-root are writable directories, then retry.\n",
   );
   process.exitCode = code;

@@ -14,6 +14,7 @@ export async function demoCommand(argv: string[]): Promise<void> {
       json,
       64,
       "invalid demo invocation",
+      "demo",
     );
     return;
   }
