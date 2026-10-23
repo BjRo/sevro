@@ -435,7 +435,7 @@ async function rewriteMarkdown(
   else delete metadata.hooks;
   await writeFile(
     path,
-    `---\n${Bun.YAML.stringify(metadata)}---\n${body.slice(header[0].length)}`,
+    `---\n${Bun.YAML.stringify(metadata)}\n---\n${body.slice(header[0].length)}`,
   );
 }
 

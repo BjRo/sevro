@@ -14,11 +14,13 @@ import { join } from "node:path";
 import { createClaudeHost } from "../src/hosts/claude";
 import { createCodexHost } from "../src/hosts/codex";
 import { runtimeSeedDigest } from "../src/runtime/seeds";
+import { prepareHookMounts, releaseRuntimeHooks } from "../src/runtime/hooks";
 import { loadRuntimeConfiguration } from "../src/engine";
 import {
   defined,
   expectUnknown,
   objectContaining,
+  stringMatching,
 } from "./fixtures/assertions";
 import {
   allocateWorkspace,
@@ -686,6 +688,70 @@ test("Claude safely processes skill hook frontmatter alongside ordinary Markdown
   expect(await Bun.file(join(fixture.workspace, "denied.txt")).exists()).toBe(
     false,
   );
+});
+
+test("prepared skill hook frontmatter remains parseable for allowed and denied plugins", async () => {
+  const fixture = await hookFixture();
+  const skill = "skills/probe/SKILL.md";
+  for (const name of ["allowed", "denied"]) {
+    const plugin = join(fixture.workspace, "packages", name);
+    await rm(join(plugin, "hooks/hooks.json"));
+    await mkdir(join(plugin, "skills/probe"), { recursive: true });
+    await writeFile(
+      join(plugin, skill),
+      "---\r\nname: probe\r\ndescription: Probe.\r\nhooks:\r\n  PreToolUse:\r\n    - matcher: Bash\r\n      hooks:\r\n        - type: command\r\n          command: /bin/true\r\n          timeout: 10\r\n---\r\nReturn ready.\r\n",
+    );
+  }
+  const mounts = await prepareHookMounts({
+    ...fixture,
+    stateRoot: join(fixture.root, "state"),
+    privateRoot: join(fixture.root, "private"),
+    pluginRoots: fixture.artifactRoots.map((path) =>
+      join(fixture.workspace, path),
+    ),
+    protectedRoots: [fixture.projectRoot, fixture.resultsRoot],
+    policy: {
+      format: "sevro.runtime.v1",
+      environment: {},
+      readOnlyRoots: [],
+      hooks: { plugins: ["allowed"] },
+    },
+  });
+  try {
+    for (const [index, name] of ["allowed", "denied"].entries()) {
+      const body = await readFile(
+        join(defined(mounts.directories[index]), skill),
+        "utf8",
+      );
+      const header = defined(
+        /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(body),
+      );
+      expect(body.slice(header[0].length)).toBe("Return ready.\r\n");
+      const metadata: unknown = Bun.YAML.parse(defined(header[1]));
+      const expected: Record<string, unknown> = {
+        name: "probe",
+        description: "Probe.",
+      };
+      if (name === "allowed")
+        expected.hooks = {
+          PreToolUse: [
+            {
+              matcher: "Bash",
+              hooks: [
+                {
+                  type: "command",
+                  command: stringMatching(/^\/bin\/sh /),
+                  timeout: 10,
+                },
+              ],
+            },
+          ],
+        };
+      expectUnknown(metadata).toEqual(expected);
+    }
+  } finally {
+    await releaseRuntimeHooks(mounts);
+  }
 });
 
 function codexCandidateProbe(codex: string): string {
