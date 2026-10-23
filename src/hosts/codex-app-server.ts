@@ -1,3 +1,4 @@
+import { redactDiagnosticText } from "../host-diagnostic-redaction";
 import { isRecord } from "../value-guards";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -74,15 +75,7 @@ function publicErrorMessage(value: unknown): {
   messageTruncated?: boolean;
 } {
   if (typeof value !== "string") return { message: null };
-  const redacted = value
-    .slice(0, 20000)
-    .replace(/(authorization\s*:\s*)[^\r\n]+/gi, "$1[redacted]")
-    .replace(/\bBearer\s+\S+/gi, "Bearer [redacted]")
-    .replace(/\bsk-[A-Za-z0-9_-]+/g, "[redacted]")
-    .replace(
-      /((?:api[_-]?key|access[_-]?token|refresh[_-]?token)\s*[=:]\s*)\S+/gi,
-      "$1[redacted]",
-    );
+  const redacted = redactDiagnosticText(value.slice(0, 20000), []);
   return {
     message: redacted.slice(0, 2000),
     ...(value.length > 20000 || redacted.length > 2000

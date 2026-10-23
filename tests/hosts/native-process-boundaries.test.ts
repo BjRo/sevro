@@ -95,15 +95,13 @@ test.each([
     const options = await processBoundaryOptions(
       stream,
       limit + Number(overflow),
-      overflow,
+      overflow && stream === "stdout",
     );
     const pending = nativeProcessRunners[host](options);
-    if (overflow) {
-      const diagnostic =
-        host === "Codex"
-          ? "Codex event stream exceeds the size limit"
-          : "Claude process output exceeds its limit";
-      expect(pending).rejects.toThrow(diagnostic);
+    if (overflow && stream === "stdout") {
+      expect(pending).rejects.toThrow(
+        `${host} event stream exceeds the size limit`,
+      );
     } else {
       const result = await pending;
       expect(result.code).toBe(0);

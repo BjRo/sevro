@@ -101,6 +101,7 @@
     "src/hosts/linux-sandbox.ts",
     "src/hosts/mac-sandbox.ts",
     "src/hosts/native-controls.ts",
+    "src/hosts/native-request.ts",
     "src/hosts/process-lifecycle.ts",
     "src/hosts/protected-worktrees.ts",
     "src/hosts/skill-hook-catalog.ts",

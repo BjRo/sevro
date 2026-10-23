@@ -1,6 +1,11 @@
 import { sha256 } from "../identity";
 import { isRecord } from "../value-guards";
-import { summarizeClaudeEvents } from "./claude-events";
+import {
+  summarizeClaudeEvents,
+  parseClaudeEvents,
+  type ClaudeEvents,
+  type ClaudeEventLine,
+} from "./claude-events";
 
 const MAX_RETAINED_CALLS = 128;
 type Entry = Record<string, unknown>;
@@ -51,18 +56,18 @@ type Actor = { actor: "parent" | "nested"; parentToolUseId: string | null };
 
 /** Retain ordered host call metadata, never tool prompts or results. */
 export function claudeToolCallsObservation(
-  stream: string,
+  stream: string | ClaudeEvents,
   exitCode: number,
 ): ClaudeToolCallsObservation {
-  const summary = summarizeClaudeEvents(stream, exitCode);
+  const events = parseClaudeEvents(stream);
+  const summary = summarizeClaudeEvents(events, exitCode);
   const state: CallState = {
     calls: [],
     malformed: false,
     truncated: false,
     ordinal: 0,
   };
-  for (const line of stream.split("\n")) {
-    if (!line.trim()) continue;
+  for (const line of events.lines) {
     collectEvent(line, state);
     if (state.truncated) break;
   }
@@ -86,14 +91,12 @@ function callCompleteness(
     : "partial";
 }
 
-function collectEvent(line: string, state: CallState): void {
-  let event: unknown;
-  try {
-    event = JSON.parse(line);
-  } catch {
+function collectEvent(line: ClaudeEventLine, state: CallState): void {
+  if (!line.parsed) {
     state.malformed = true;
     return;
   }
+  const event = line.value;
   if (!isRecord(event) || event.type !== "assistant") return;
   collectAssistant(event, state);
 }

@@ -1391,7 +1391,10 @@ test.each(["missing", "directory", "oversized"])(
 test.each([
   ["empty follow-up", "Codex follow-up prompt must be nonempty"],
   ["whitespace follow-up", "Codex follow-up prompt must be nonempty"],
-  ["unsupported instrumentation", "Codex instrumentation is unavailable"],
+  [
+    "unsupported instrumentation",
+    "Codex enforcement instrumentation is unavailable",
+  ],
   ["external fixture tools", "fixture binary path is outside the workspace"],
   ["fixture configuration", "fixture Codex configuration is unsupported"],
 ])(

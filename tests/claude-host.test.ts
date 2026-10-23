@@ -16,6 +16,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runEvaluation } from "../src/engine";
 import { createClaudeHost } from "../src/hosts/claude";
+import { HostExecutionFailure } from "../src/evaluation/types";
 const roots: string[] = [];
 const isolatedNativeHost =
   process.platform === "darwin" ||
@@ -52,7 +53,7 @@ for(const entry of [{type:"system",subtype:"init",session_id:session},{type:"res
 `;
 }
 
-async function nativeGoalHostFixture() {
+async function nativeGoalHostFixture(timeoutMs?: number) {
   const root = await mkdtemp(join(tmpdir(), "sevro-claude-goal-retention-"));
   roots.push(root);
   const workspace = join(root, "workspace");
@@ -73,9 +74,104 @@ async function nativeGoalHostFixture() {
     resultsRoot,
     additionalProtectedRoots: [],
     credentialFile,
+    timeoutMs,
   });
   return { host, workspace };
 }
+
+test("Claude timeout retains structured process failure evidence", async () => {
+  const { host, workspace } = await nativeGoalHostFixture(500);
+  await writeFile(
+    join(dirname(workspace), "fake-claude"),
+    `#!${process.execPath}\nprocess.stderr.write("private timeout diagnosis");\nsetInterval(() => {}, 1000);\n`,
+    { mode: 0o755 },
+  );
+  const failure: unknown = await host
+    .run({ workspace, prompt: "Wait.", condition: "passive" })
+    .catch((error: unknown) => error);
+  expect(failure).toBeInstanceOf(HostExecutionFailure);
+  if (!(failure instanceof HostExecutionFailure))
+    throw new Error("Expected structured host failure");
+  expect(failure.message).toBe("Claude run timed out after 0.5 s");
+  expect(failure.result).toMatchObject({
+    complete: false,
+    executionFailed: true,
+    processFailure: { phase: "execution", reason: "timeout", timeoutMs: 500 },
+  });
+  const stderr = defined(
+    failure.result.artifacts?.find((item) => item.id === "claude.stderr"),
+  );
+  expect(Buffer.from(stderr.bytes).toString()).toBe(
+    "private timeout diagnosis",
+  );
+});
+
+test("Claude drains excess stderr and completes with a bounded prefix", async () => {
+  const { host, workspace } = await nativeGoalHostFixture();
+  await writeFile(
+    join(dirname(workspace), "fake-claude"),
+    `#!${process.execPath}
+await new Promise(resolve => process.stderr.write("x".repeat(200000), resolve));
+process.stdout.write(JSON.stringify({type:"result",subtype:"success",is_error:false,result:"ready"}) + "\\n");
+`,
+    { mode: 0o755 },
+  );
+  const result = await host.run({
+    workspace,
+    prompt: "Return ready.",
+    condition: "passive",
+  });
+  expect(result.complete).toBe(true);
+  expect(result.finalMessage).toBe("ready");
+  const stderr = defined(
+    result.artifacts?.find((item) => item.id === "sevro.claude.stderr"),
+  );
+  expect(Buffer.from(stderr.bytes).toString()).toBe("x".repeat(65536));
+});
+
+test.each([
+  ["ASCII", "x".repeat(200000), "x".repeat(65536)],
+  ["BOM", "\uFEFF" + "x".repeat(200000), "\uFEFF" + "x".repeat(65533)],
+  ["UTF-8 boundary", "€".repeat(70000), "€".repeat(21845)],
+])(
+  "Claude continuation drains excess stderr across successful turns: %s",
+  async (_label, stderrText, retainedPrefix) => {
+    const { host, workspace } = await nativeGoalHostFixture();
+    await writeFile(
+      join(dirname(workspace), "fake-claude"),
+      `#!${process.execPath}
+const sessionOption = process.argv.includes("--resume") ? "--resume" : "--session-id";
+const session_id = process.argv[process.argv.indexOf(sessionOption) + 1];
+await new Promise(resolve => process.stderr.write(${JSON.stringify(stderrText)}, resolve));
+process.stdout.write(JSON.stringify({type:"result",subtype:"success",is_error:false,session_id,result:"ready"}) + "\\n");
+`,
+      { mode: 0o755 },
+    );
+    const result = await host.run({
+      workspace,
+      prompt: "Return ready.",
+      followUpPrompt: "Return ready again.",
+      condition: "passive",
+    });
+    expect(result.complete).toBe(true);
+    expect(result.finalMessage).toBe("ready");
+    expectUnknown(
+      defined(
+        result.observations?.find(
+          (item) => item.id === "sevro.claude.continuation",
+        ),
+      ),
+    ).toMatchObject({
+      completeness: "complete",
+      data: { method: "same_session_resume" },
+    });
+    const stderr = defined(
+      result.artifacts?.find((item) => item.id === "sevro.claude.stderr"),
+    );
+    expect(Buffer.from(stderr.bytes).toString()).toBe(retainedPrefix);
+    expect(stderr.bytes.byteLength).toBeLessThanOrEqual(65536);
+  },
+);
 
 test("Claude managed workspaces remain usable under the namespace policy", async () => {
   const { host, workspace } = await nativeGoalHostFixture();

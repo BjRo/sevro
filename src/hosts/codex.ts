@@ -1,17 +1,10 @@
 import { existsSync } from "node:fs";
-import {
-  requireCandidateRuntime,
-  requireCandidateArtifactRoots,
-} from "../candidate-artifacts";
 import { candidateCodexStateRetained } from "../candidate-codex-state";
 import { lstat, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import type { HostAdapter, HostResult } from "../engine";
-import {
-  allocateNativeState,
-  requireNativeTranscriptView,
-} from "../native-transcript-state";
+import { allocateNativeState } from "../native-transcript-state";
 import {
   failedNativeTranscripts,
   retainEnabledNativeTranscripts,
@@ -23,7 +16,7 @@ import {
   type HookMounts,
 } from "../runtime/hooks";
 import { runtimeObservations } from "../runtime/state";
-import { isOptionalNonblankString } from "../value-guards";
+import { validateNativeHostRequest, validHostTimeout } from "./native-request";
 import { runCodexAppServer } from "./codex-app-server";
 import { summarizeCodexEvents, type CodexEventSummary } from "./codex-events";
 import { verifyCodexInvocation } from "./codex-invocation";
@@ -60,7 +53,6 @@ import {
 } from "../host-diagnostics";
 export type { CodexHostOptions } from "./codex-state";
 const DEFAULT_TIMEOUT_MS = 10 * 60_000;
-const MAX_TIMEOUT_MS = 30 * 60_000;
 
 type Request = Parameters<HostAdapter["run"]>[0];
 type ProcessResult = Pick<
@@ -112,13 +104,7 @@ function validEntrypoint(entrypoint: CodexHostOptions["entrypoint"]): boolean {
     entrypoint === undefined || ["exec", "app-server"].includes(entrypoint)
   );
 }
-function validCodexTimeout(timeoutMs: number): boolean {
-  return (
-    Number.isSafeInteger(timeoutMs) &&
-    timeoutMs >= 1 &&
-    timeoutMs <= MAX_TIMEOUT_MS
-  );
-}
+
 function validCodexIdentity(
   options: CodexHostOptions,
   limit: number | null,
@@ -129,7 +115,7 @@ function validCodexIdentity(
     !!options.effort &&
     validEntrypoint(options.entrypoint) &&
     validConcurrencyLimit(limit) &&
-    validCodexTimeout(timeoutMs)
+    validHostTimeout(timeoutMs)
   );
 }
 function codexCapabilities(
@@ -190,23 +176,6 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
   };
 }
 
-function requireCodexFollowUp(request: Request): void {
-  if (!isOptionalNonblankString(request.followUpPrompt))
-    throw new Error("Codex follow-up prompt must be nonempty");
-}
-function requireCodexFixtureBin(request: Request): void {
-  if (
-    request.fixtureBinDir !== undefined &&
-    request.fixtureBinDir !== join(request.workspace, ".git", "fixture-bin")
-  )
-    throw new Error("fixture binary path is outside the workspace");
-}
-function requirePassiveCodexRequest(request: Request): void {
-  if (request.instrumentation?.length)
-    throw new Error("Codex instrumentation is unavailable");
-  if (request.condition !== "passive")
-    throw new Error("Codex enforcement instrumentation is unavailable");
-}
 function allocateCodexRequestState(request: Request): Promise<string> {
   return allocateNativeState(
     "codex-",
@@ -362,15 +331,7 @@ async function validateCodexRequest(
   options: CodexHostOptions,
   request: Request,
 ): Promise<void> {
-  requireCodexFollowUp(request);
-  await requireNativeTranscriptView(request.candidateTranscriptRoot);
-  await requireCandidateRuntime(
-    request.candidateRuntimeRoot,
-    request.runtimeRole,
-  );
-  await requireCandidateArtifactRoots(request.candidateArtifactRoots);
-  requireCodexFixtureBin(request);
-  requirePassiveCodexRequest(request);
+  await validateNativeHostRequest(request, "Codex");
   requireCodexGoalRoute(request, options);
   await verifyCodexInvocation(request);
   await requireCodexFixtureConfiguration(request);

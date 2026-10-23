@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { HostAdapter } from "../engine";
 import { isRecord } from "../value-guards";
 import type { ClaudeToolCallsObservation } from "./claude-tool-calls";
+import { parseClaudeEvents, type ClaudeEvents } from "./claude-events";
 
 type Entry = Record<string, unknown>;
 export interface ClaudeRepositoryInvocation {
@@ -13,15 +14,12 @@ export interface ClaudeRepositoryInvocation {
   prompt: string;
 }
 
-function entries(text: string): Entry[] {
-  return text
-    .split(/\r?\n/)
-    .filter((line) => line.trim())
-    .map((line) => {
-      const value: unknown = JSON.parse(line);
-      if (!isRecord(value)) throw new Error("invalid Claude session entry");
-      return value;
-    });
+function entries(text: string | ClaudeEvents): Entry[] {
+  return parseClaudeEvents(text).lines.map((line) => {
+    if (!line.parsed) throw line.error;
+    if (!isRecord(line.value)) throw new Error("invalid Claude session entry");
+    return line.value;
+  });
 }
 
 function content(entry: Entry): string {
@@ -250,7 +248,7 @@ function bodyCorrelated(
 /** Read only the completed bound native session; retain no arguments or body. */
 export async function claudeRepositoryInvocationObservation(input: {
   invocation: ClaudeRepositoryInvocation;
-  stream: string;
+  stream: string | ClaudeEvents;
   configRoot: string;
   workspace: string;
   tools: ClaudeToolCallsObservation;
@@ -278,7 +276,7 @@ export async function claudeRepositoryInvocationObservation(input: {
   };
 }
 
-function repositorySessionId(stream: string): string | null {
+function repositorySessionId(stream: string | ClaudeEvents): string | null {
   const sessions = [
     ...new Set(
       entries(stream)
