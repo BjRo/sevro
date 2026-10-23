@@ -43,6 +43,7 @@ const sidechain = {type:"attachment",sessionId:session,isSidechain:true,attachme
 let transcript = JSON.stringify(user);
 if (mode === "sidechain-only") transcript += "\\n" + JSON.stringify(sidechain);
 if (mode === "empty-transcript") transcript = "";
+if (mode === "nonobject-transcript") transcript = "null";
 if (mode === "oversized-transcript") transcript = JSON.stringify({...user,message:{content:"PRIVATE_TRANSCRIPT_TEXT" + "x".repeat(8*1024*1024)}});
 await writeFile(join(directory, session + ".jsonl"), transcript);
 if (mode === "metadata-file") await writeFile(join(directory,"index.txt"),"retained session index");
@@ -173,6 +174,66 @@ process.stdout.write(JSON.stringify({type:"result",subtype:"success",is_error:fa
   },
 );
 
+test("Claude continuation keeps malformed initial events incomplete without resuming", async () => {
+  const { host, workspace } = await nativeGoalHostFixture();
+  await writeFile(
+    join(dirname(workspace), "fake-claude"),
+    `#!${process.execPath}
+import { writeFile } from "node:fs/promises";
+if (process.argv.includes("--resume")) await writeFile("unexpected-resume", "resumed");
+const session_id = process.argv[process.argv.indexOf("--session-id") + 1];
+process.stdout.write("{broken\\n" + JSON.stringify({type:"result",subtype:"success",is_error:false,session_id,result:"ready",usage:{input_tokens:1,output_tokens:1}}) + "\\n");
+`,
+    { mode: 0o755 },
+  );
+  const result = await host.run({
+    workspace,
+    prompt: "Return ready.",
+    followUpPrompt: "Continue.",
+    condition: "passive",
+  });
+  expect(result).toMatchObject({
+    complete: false,
+    executionFailed: true,
+    finalMessage: "ready",
+    usageComplete: false,
+    inputTokens: null,
+    outputTokens: null,
+  });
+  for (const id of [
+    "sevro.claude.tool-calls",
+    "sevro.host.native-controls",
+    "sevro.host.skill-activations",
+  ])
+    expectUnknown(
+      defined(result.observations?.find((item) => item.id === id)),
+    ).toMatchObject({ completeness: "partial" });
+  expect(readFile(join(workspace, "unexpected-resume"))).rejects.toThrow(
+    /ENOENT/,
+  );
+});
+
+test("Claude continuation rejects combined stdout beyond the event limit", async () => {
+  const { host, workspace } = await nativeGoalHostFixture();
+  await writeFile(
+    join(dirname(workspace), "fake-claude"),
+    `#!${process.execPath}
+const sessionOption = process.argv.includes("--resume") ? "--resume" : "--session-id";
+const session_id = process.argv[process.argv.indexOf(sessionOption) + 1];
+process.stdout.write(JSON.stringify({type:"result",subtype:"success",is_error:false,session_id,result:"x".repeat(5*1024*1024)}) + "\\n");
+`,
+    { mode: 0o755 },
+  );
+  expect(
+    host.run({
+      workspace,
+      prompt: "Return text.",
+      followUpPrompt: "Continue.",
+      condition: "passive",
+    }),
+  ).rejects.toThrow("Claude combined process output exceeds its limit");
+});
+
 test("Claude managed workspaces remain usable under the namespace policy", async () => {
   const { host, workspace } = await nativeGoalHostFixture();
   const root = dirname(workspace);
@@ -244,6 +305,7 @@ test.each(["no-goal", "sidechain-only", "metadata-file"])(
 
 test.each([
   ["empty-transcript", "Original native session not retained"],
+  ["nonobject-transcript", "Malformed native session record"],
   ["oversized-transcript", "Native transcript is unsafe or oversized"],
   ["linked-tree", "Native transcript tree contains a symlink"],
   ["many-files", "Native transcript tree exceeds limit"],
