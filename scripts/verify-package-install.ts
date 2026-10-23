@@ -107,7 +107,6 @@ try {
   );
   await run([process.execPath, "add", archive], consumer);
   const installed = join(consumer, "node_modules", "@bjoernrochel", "sevro");
-  verifyReferenceContents(installed);
   const installedCommand = join(
     consumer,
     "node_modules",
@@ -136,6 +135,7 @@ try {
     await checkReleaseDocumentation(installed);
   if (installedDocumentationErrors.length)
     throw new Error(installedDocumentationErrors.join("\n"));
+  verifyReferenceContents(installed);
   await verifyPackageWorkflow(installedCommand, consumer);
   async function installedRun(caseName: string) {
     const output = await run(
