@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cli } from "../fixtures/cli-fixtures";
 import { version } from "../../package.json";
+import { RUN_OPTIONS } from "../../src/cli/run-options";
 
 async function information(args: string[]) {
   const cwd = await mkdtemp(join(tmpdir(), "sevro-cli-help-"));
@@ -82,18 +83,8 @@ test.each(
     expect(result.stdout.indexOf("Examples:")).toBeLessThan(
       result.stdout.indexOf("Required:"),
     );
-    for (const option of [
-      "--case-file",
-      "--extension-command-file",
-      "--host",
-      "--adapter-module",
-      "--project-root",
-      "--results-root",
-      "--condition",
-      "--trials",
-      "--threshold",
-    ])
-      expect(result.stdout).toContain(option);
+    for (const option of Object.keys(RUN_OPTIONS))
+      expect(result.stdout).toContain(`--${option}`);
     expect(result.stdout).toContain("--jobs <integer> (default: 3)");
     expect(result.stdout).toContain(
       "--config-root <path> (default: --project-root)",

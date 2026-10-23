@@ -17,6 +17,7 @@ import {
   parseRunEvidence,
 } from "../fixtures/assertions";
 import baseline from "../../examples/basic/graded.json";
+import { parseInvocation } from "../../src/cli/invocation";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -53,6 +54,81 @@ async function run(
   ]);
   return { stdout, stderr, code };
 }
+
+test("native and shell routes protect the complete private extension input closure", async () => {
+  const root = await project();
+  const manifest = join(root, "run.json");
+  await writeFile(
+    manifest,
+    JSON.stringify({ format: "sevro.run.v1", settings: {} }),
+  );
+  const privateFiles: [string, string][] = [
+    ["run-manifest-file", manifest],
+    ["extension-command-file", join(root, "command.json")],
+    ["extension-source-file", join(root, "source-a.ts")],
+    ["extension-source-file", join(root, "source-b.ts")],
+    ["extension-configuration-file", join(root, "private.json")],
+    ["extension-redacted-configuration-file", join(root, "redacted.json")],
+    ["case-source-root", join(root, "sources")],
+    ["case-source-map-file", join(root, "map.json")],
+    ["runtime-config-file", join(root, "runtime.json")],
+    ["codex-auth-file", join(root, "auth.json")],
+    ["claude-credential-file", join(root, "credential.json")],
+  ];
+  const invocation = await parseInvocation([
+    "run",
+    "--host",
+    "claude",
+    "--claude-bin",
+    process.execPath,
+    "--model",
+    "candidate",
+    "--effort",
+    "low",
+    "--semantic-host",
+    "codex",
+    "--semantic-model",
+    "semantic",
+    "--semantic-effort",
+    "high",
+    "--advisory-host",
+    "codex",
+    "--advisory-model",
+    "advisory",
+    "--advisory-effort",
+    "medium",
+    "--codex-bin",
+    process.execPath,
+    "--project-root",
+    root,
+    "--results-root",
+    join(root, "results"),
+    "--protected-root",
+    join(root, "extra-private"),
+    "--shell-isolation",
+    "--case-id",
+    "private-extension",
+    ...privateFiles.flatMap(([name, path]) => [
+      `--${defined(name)}`,
+      defined(path),
+    ]),
+  ]);
+  const expected = [
+    root,
+    join(root, "extra-private"),
+    ...privateFiles.map(([, path]) => path),
+  ];
+  for (const path of expected) {
+    expect(defined(invocation.claude).additionalProtectedRoots).toContain(path);
+    expect(
+      defined(invocation.semanticCodex).additionalProtectedRoots,
+    ).toContain(path);
+    expect(
+      defined(invocation.advisoryCodex).additionalProtectedRoots,
+    ).toContain(path);
+    expect(defined(invocation.shellIsolation).protectedRoots).toContain(path);
+  }
+});
 
 test("ordinary run defaults assess one passive trial with all trials required to pass", async () => {
   const root = await project();

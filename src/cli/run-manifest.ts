@@ -1,22 +1,17 @@
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { isRecord, isStringArray } from "../value-guards";
-import { PATH_OPTIONS, RUN_OPTIONS, type RunValues } from "./run-options";
+import {
+  CLI_ONLY,
+  LIST_OPTIONS,
+  NUMBER_OPTIONS,
+  PATH_OPTIONS,
+  PATH_LIST_OPTIONS,
+  RUN_OPTIONS,
+  type RunValues,
+} from "./run-options";
 import { overrideRunSelections } from "./run-overrides";
 
-const NUMBER_OPTIONS = new Set([
-  "trials",
-  "jobs",
-  "threshold",
-  "codex-timeout-ms",
-]);
-const CLI_ONLY = new Set(["json", "run-manifest-file"]);
-const LIST_OPTIONS = new Set([
-  "extension-source-file",
-  "replace-builtin-grader",
-  "advisory-exclude",
-  "protected-root",
-]);
 const FILE_LIMIT = 64 * 1024;
 
 function fieldError(field: string, requirement: string): never {
@@ -86,7 +81,7 @@ function validateScalar(name: string, value: unknown, type: string): void {
 function resolvedSetting(name: string, value: unknown, base: string) {
   const pathOption = (PATH_OPTIONS as readonly string[]).includes(name);
   if (pathOption) return resolve(base, value as string);
-  if (["extension-source-file", "protected-root"].includes(name))
+  if ((PATH_LIST_OPTIONS as readonly string[]).includes(name))
     return (value as string[]).map((path) => resolve(base, path));
   return NUMBER_OPTIONS.has(name) ? String(value) : value;
 }

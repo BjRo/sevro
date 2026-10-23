@@ -2,18 +2,14 @@ import type { HostAdapter } from "../engine";
 import { createClaudeHost } from "../hosts/claude";
 import { createCodexHost } from "../hosts/codex";
 import { codexAgentConcurrency } from "../hosts/codex-configuration";
-import { InvocationError, type Invocation } from "./invocation";
+import { InvocationError, nativeRoutes, type Invocation } from "./invocation";
 import { loadHost } from "./loading";
 
 export async function selectedConcurrency(
   invocation: Invocation,
   configRoot: string,
 ): Promise<number | null> {
-  return [
-    invocation.codex,
-    invocation.semanticCodex,
-    invocation.advisoryCodex,
-  ].some(Boolean)
+  return nativeRoutes({ ...invocation, claude: undefined }).length
     ? codexAgentConcurrency(configRoot)
     : null;
 }

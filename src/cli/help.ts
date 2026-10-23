@@ -1,3 +1,4 @@
+import { RUN_OPTIONS, optionsWith, type RunOptionName } from "./run-options";
 import { version } from "../../package.json";
 
 const TOP_LEVEL_HELP = `Usage: sevro <command> [options]
@@ -34,69 +35,42 @@ Examples:
   Add --json to save a sevro.cli-result.v1 result from stdout.
 
 Required:
-  --case-file <path> OR --extension-command-file <path>  Select one case source.
-  --adapter-module <path> OR --host <codex|claude>      Select one candidate route.
+${runOptionHelp("required")}
 
 Common options and defaults:
-  --run-manifest-file <path>  Saved sevro.run.v1 settings; explicit flags override them.
+${runOptionHelp("common")}
   Precedence: built-in defaults, saved settings, then explicit CLI options.
   Manifest paths use its own directory; CLI paths use the current directory.
   --no-dry, --no-shell-isolation and other --no-<boolean> flags override saved true.
-  --project-root <path> (default: current directory)  Project identity; does not copy its files into the fixture.
-  --results-root <path> (default: <project-root>/.sevro/results)  Retained evidence.
-  --condition <passive|enforced> (default: passive)  Bundled hosts use passive.
-  --trials <integer> (default: 1)  Positive number of trials.
-  --threshold <number> (default: 1)  All assessed trials must pass; range (0, 1].
   Relative run paths resolve from the current directory and are canonicalized before protection checks.
-  --jobs <integer> (default: 3)  Maximum parallel trials, positive integer.
-  --config-root <path> (default: --project-root)  Native concurrency configuration.
-  --run-state-root <path> (default: --results-root)  Active records/checkpoints.
-  --runtime-config-file <path>  Runtime policy; otherwise discover project sevro.json.
-  --dry                       Prepare only (default: false).
-  --json                      One versioned JSON result on stdout (default: false).
-                              Human diagnostics go to stderr in both modes.
-  --retain-host-diagnostics   Retain private native diagnostics (default: false).
-  --shell-isolation          Isolate shell checks (default: false).
-  --protected-root <path>    Extra protected source/private root; repeatable.
 
 Bundled hosts:
-  --model <name> --effort <level>  Required for a bundled candidate host.
-  --codex-bin <path> (default: codex on PATH)  Explicit binary override.
-  --codex-auth-file <path>     Required for every Codex route.
-  --codex-entrypoint <exec|app-server>  Candidate transport (default: exec).
-  --codex-timeout-ms <integer>  1..1800000 milliseconds (default: 600000).
-  --claude-bin <path> (default: claude on PATH)  Explicit binary override.
+${runOptionHelp("native")}
   Native timeout defaults to 600000 ms; shell checks expect exit 0 within 30000 ms.
-  --claude-credential-file <path>  Optional credential override; otherwise use native auth.
-  --claude-project-settings   Allow fixture project settings (default: false).
 
 Extension cases:
-  --case-id <id>              Required with --extension-command-file.
-  --extension-source-file <path>  Required source closure; repeatable.
-  --extension-configuration-file <path>  Private JSON object; supply with
-  --extension-redacted-configuration-file <path>  Redacted retained configuration.
-  --task-verdict-policy <id>  Select an advertised namespaced extension policy.
-  --replace-builtin-grader <id>  Explicit replacement; repeatable.
-  --case-source-root <path> --case-source-map-file <path>  Supply both for mapped sources.
+${runOptionHelp("extension")}
 
 Optional grading routes (none selected by default):
-  --semantic-adapter-module <path> OR --semantic-host codex
-  --semantic-model <name> --semantic-effort <level>  Required for native semantic route.
-  --advisory-adapter-module <path> OR --advisory-host codex
-  --advisory-model <name> --advisory-effort <level>  Required for native advisory route.
-  --advisory-exclude <relative-path>  Exclude an evaluator path; repeatable.
+${runOptionHelp("grading")}
 
 Provenance overrides (normally derived automatically):
-  --runner-build-digest <sha256> --project-digest <sha256>  64 lowercase hex characters.
-  --runner-checkout-root <path>  Record the running checkout's revision/dirty digest.
+${runOptionHelp("provenance")}
 
 Deprecated runtime options:
-  --toolchain-bin-dir <path> --claude-uv-cache-dir <path>
-  Migrate to sevro.json; these cannot be combined with a runtime policy.
+${runOptionHelp("deprecated")}
 
   -h, --help                 Show this help without preparing a run.
 Reference: docs/development-cli.md, docs/run-settings-v1.md and docs/results-v1.md in the installed package.
 `;
+
+function runOptionHelp(
+  section: (typeof RUN_OPTIONS)[RunOptionName]["section"],
+): string {
+  return optionsWith("section", section)
+    .map((name) => `  --${name} ${RUN_OPTIONS[name].help}`)
+    .join("\n");
+}
 
 const DEMO_HELP = `Usage: sevro demo [--json]
 

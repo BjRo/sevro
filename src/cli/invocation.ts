@@ -1,7 +1,14 @@
 import { join, resolve } from "node:path";
 import { validQualifiedId } from "../value-guards";
 import { canonicalRuntimeRoot } from "../runtime/paths";
-import { PATH_OPTIONS, runArguments } from "./run-options";
+import {
+  PATH_OPTIONS,
+  PATH_LIST_OPTIONS,
+  EXTENSION_OPTIONS,
+  RUN_OPTIONS,
+  optionsWith,
+  runArguments,
+} from "./run-options";
 import { savedRunValues } from "./run-manifest";
 
 export class InvocationError extends Error {}
@@ -10,17 +17,6 @@ function requiredOption(value: string | undefined, name: string): string {
   if (!value)
     throw new InvocationError(`missing ${name}; supply ${name} with a value`);
   return value;
-}
-
-function absoluteOption(value: string | undefined, name: string): string {
-  return requiredOption(value, name);
-}
-
-function optionalAbsolute(
-  value: string | undefined,
-  name: string,
-): string | undefined {
-  return value ? absoluteOption(value, name) : undefined;
 }
 
 function optionalDigest(value: string | undefined, name: string) {
@@ -73,12 +69,15 @@ function positiveInteger(value: number, option: string): void {
 function hostRoutes(values: Values) {
   const codex = values.host === "codex";
   const claude = values.host === "claude";
+  const semanticCodex = values["semantic-host"] === "codex";
+  const advisoryCodex = values["advisory-host"] === "codex";
   return {
     codex,
     claude,
     builtinHost: codex || claude,
-    semanticCodex: values["semantic-host"] === "codex",
-    advisoryCodex: values["advisory-host"] === "codex",
+    semanticCodex,
+    advisoryCodex,
+    anyCodex: codex || semanticCodex || advisoryCodex,
   };
 }
 
@@ -144,24 +143,11 @@ const HOST_COMPATIBILITY: CompatibilityRule[] = [
     message: "--advisory-exclude requires an advisory route",
   },
   {
-    invalid: (v, r) =>
-      !r.codex &&
-      !r.semanticCodex &&
-      !r.advisoryCodex &&
-      [
-        v["codex-bin"],
-        v["codex-auth-file"],
-        v["codex-timeout-ms"] !== undefined,
-      ].some(Boolean),
+    invalid: (v, r) => !r.anyCodex && hasRouteOptions(v, "codex"),
     message: "Codex options require a Codex host route",
   },
   {
-    invalid: (v, r) =>
-      !r.claude &&
-      (v["claude-bin"] ||
-        v["claude-credential-file"] ||
-        v["claude-uv-cache-dir"] ||
-        v["claude-project-settings"]),
+    invalid: (v, r) => !r.claude && hasRouteOptions(v, "claude"),
     message: "Claude options require --host claude",
   },
   {
@@ -175,6 +161,13 @@ const HOST_COMPATIBILITY: CompatibilityRule[] = [
   },
 ];
 
+function hasRouteOptions(values: Values, route: "codex" | "claude"): boolean {
+  return optionsWith("route", route).some((name) => {
+    if (RUN_OPTIONS[name].kind === "number") return values[name] !== undefined;
+    return Boolean(values[name]);
+  });
+}
+
 function validateHostCompatibility(
   values: Values,
   routes: Routes,
@@ -186,14 +179,14 @@ function validateHostCompatibility(
 }
 
 function rootParameters(values: Values) {
-  const projectRoot = absoluteOption(values["project-root"], "--project-root");
+  const projectRoot = requiredOption(values["project-root"], "--project-root");
   const configRoot =
     values["config-root"] !== undefined
-      ? absoluteOption(values["config-root"], "--config-root")
+      ? requiredOption(values["config-root"], "--config-root")
       : projectRoot;
-  const resultsRoot = absoluteOption(values["results-root"], "--results-root");
+  const resultsRoot = requiredOption(values["results-root"], "--results-root");
   const runStateRoot = values["run-state-root"]
-    ? absoluteOption(values["run-state-root"], "--run-state-root")
+    ? requiredOption(values["run-state-root"], "--run-state-root")
     : resultsRoot;
   return { projectRoot, configRoot, resultsRoot, runStateRoot };
 }
@@ -225,16 +218,12 @@ function validateReplacements(replacements: string[]): void {
 }
 
 function hasExtensionArguments(values: Values): boolean {
-  return (
-    [
-      values["case-id"],
-      values["extension-source-file"]?.length,
-      values["extension-configuration-file"],
-      values["extension-redacted-configuration-file"],
-    ].some(Boolean) ||
-    values["task-verdict-policy"] !== undefined ||
-    (values["replace-builtin-grader"] ?? []).length > 0
-  );
+  return EXTENSION_OPTIONS.some((name) => {
+    const value = values[name];
+    if (Array.isArray(value)) return value.length > 0;
+    if (name === "task-verdict-policy") return value !== undefined;
+    return Boolean(value);
+  });
 }
 
 function extensionSources(values: Values): string[] {
@@ -277,33 +266,18 @@ function privateRootDeclarations(
   return [
     configRoot,
     ...protectedRoots,
-    values["claude-credential-file"],
-    values["codex-auth-file"],
-    values["runtime-config-file"],
-    values["run-manifest-file"],
-    values["case-file"],
-    values["extension-command-file"],
-    ...(values["extension-source-file"] ?? []),
-    values["extension-configuration-file"],
-    values["extension-redacted-configuration-file"],
-    values["case-source-root"],
-    values["case-source-map-file"],
-    values["semantic-adapter-module"],
-    values["advisory-adapter-module"],
+    ...optionsWith("private", true).flatMap((name) => values[name] ?? []),
   ].filter((value): value is string => Boolean(value));
 }
 
 function commonCodexOptions(
   values: Values,
-  routes: Routes,
   roots: Roots,
   privateRoots: string[],
 ) {
-  if (![routes.codex, routes.semanticCodex, routes.advisoryCodex].some(Boolean))
-    return undefined;
   return {
-    binary: absoluteOption(values["codex-bin"], "--codex-bin"),
-    authFile: absoluteOption(values["codex-auth-file"], "--codex-auth-file"),
+    binary: requiredOption(values["codex-bin"], "--codex-bin"),
+    authFile: requiredOption(values["codex-auth-file"], "--codex-auth-file"),
     retainHostDiagnostics: values["retain-host-diagnostics"] === true,
     timeoutMs: codexTimeout(values["codex-timeout-ms"]),
     projectRoot: roots.projectRoot,
@@ -332,10 +306,10 @@ function claudeHostOptions(
   if (!routes.claude) return undefined;
   return {
     retainHostDiagnostics: values["retain-host-diagnostics"] === true,
-    binary: absoluteOption(values["claude-bin"], "--claude-bin"),
+    binary: requiredOption(values["claude-bin"], "--claude-bin"),
     ...(values["claude-credential-file"]
       ? {
-          credentialFile: absoluteOption(
+          credentialFile: requiredOption(
             values["claude-credential-file"],
             "--claude-credential-file",
           ),
@@ -343,7 +317,7 @@ function claudeHostOptions(
       : {}),
     ...(values["claude-uv-cache-dir"]
       ? {
-          uvCacheDir: absoluteOption(
+          uvCacheDir: requiredOption(
             values["claude-uv-cache-dir"],
             "--claude-uv-cache-dir",
           ),
@@ -363,17 +337,11 @@ function extensionInvocation(values: Values) {
   const command = values["extension-command-file"];
   if (!command) return undefined;
   return {
-    commandFile: absoluteOption(command, "--extension-command-file"),
+    commandFile: requiredOption(command, "--extension-command-file"),
     sourceFiles: extensionSources(values),
     caseId: requiredOption(values["case-id"], "--case-id"),
-    configurationFile: optionalAbsolute(
-      values["extension-configuration-file"],
-      "--extension-configuration-file",
-    ),
-    redactedConfigurationFile: optionalAbsolute(
-      values["extension-redacted-configuration-file"],
-      "--extension-redacted-configuration-file",
-    ),
+    configurationFile: values["extension-configuration-file"],
+    redactedConfigurationFile: values["extension-redacted-configuration-file"],
     taskVerdictPolicy: values["task-verdict-policy"],
     replaceBuiltinGraders: values["replace-builtin-grader"] ?? [],
   };
@@ -388,16 +356,15 @@ const CODEX_MODEL_KEYS = {
 function codexRoleOptions(
   values: Values,
   common: ReturnType<typeof commonCodexOptions>,
-  enabled: boolean,
   role: keyof typeof CODEX_MODEL_KEYS,
 ) {
-  if (!enabled) return undefined;
-  if (!common)
-    throw new InvocationError("Codex options require a Codex host route");
   const [modelKey, effortKey] = CODEX_MODEL_KEYS[role];
   return {
     ...(role === "candidate"
-      ? { entrypoint: codexEntrypoint(values["codex-entrypoint"]) }
+      ? {
+          entrypoint: values["codex-entrypoint"] as
+            "exec" | "app-server" | undefined,
+        }
       : {}),
     ...common,
     model: requiredOption(values[modelKey], `--${modelKey}`),
@@ -405,15 +372,25 @@ function codexRoleOptions(
   };
 }
 
-function codexEntrypoint(
-  value: string | undefined,
-): "exec" | "app-server" | undefined {
-  if (value === undefined) return undefined;
-  if (value !== "exec" && value !== "app-server")
-    throw new InvocationError(
-      "--codex-entrypoint requires --host codex and exec or app-server",
-    );
-  return value;
+function selectedCodexOptions(
+  values: Values,
+  routes: Routes,
+  roots: Roots,
+  privateRoots: string[],
+) {
+  if (!routes.anyCodex) return {};
+  const common = commonCodexOptions(values, roots, privateRoots);
+  return {
+    codex: routes.codex
+      ? codexRoleOptions(values, common, "candidate")
+      : undefined,
+    semanticCodex: routes.semanticCodex
+      ? codexRoleOptions(values, common, "semantic")
+      : undefined,
+    advisoryCodex: routes.advisoryCodex
+      ? codexRoleOptions(values, common, "advisory")
+      : undefined,
+  };
 }
 
 function invocationInputs(
@@ -425,7 +402,7 @@ function invocationInputs(
     roots,
     privateRoots,
     toolchainBinDir,
-    codexCommon,
+    codexOptions,
     claudeOptions,
     trials,
   } = context;
@@ -433,49 +410,22 @@ function invocationInputs(
     json: values.json ?? false,
     runManifestFile: values["run-manifest-file"],
     protectedRoots: context.protectedRoots,
-    deprecatedRuntimeOptions: (
-      ["toolchain-bin-dir", "claude-uv-cache-dir"] as const
-    ).filter((name) => values[name] !== undefined),
+    deprecatedRuntimeOptions: optionsWith("section", "deprecated").filter(
+      (name) => values[name] !== undefined,
+    ),
     dry: values.dry ?? false,
-    runtimeConfigFile: optionalAbsolute(
-      values["runtime-config-file"],
-      "--runtime-config-file",
-    ),
-    caseFile: optionalAbsolute(values["case-file"], "--case-file"),
+    runtimeConfigFile: values["runtime-config-file"],
+    caseFile: values["case-file"],
     extension: extensionInvocation(values),
-    caseSourceRoot: optionalAbsolute(
-      values["case-source-root"],
-      "--case-source-root",
-    ),
-    caseSourceMapFile: optionalAbsolute(
-      values["case-source-map-file"],
-      "--case-source-map-file",
-    ),
+    caseSourceRoot: values["case-source-root"],
+    caseSourceMapFile: values["case-source-map-file"],
     adapterModule: routes.builtinHost
       ? undefined
-      : absoluteOption(values["adapter-module"], "--adapter-module"),
-    semanticAdapterModule: optionalAbsolute(
-      values["semantic-adapter-module"],
-      "--semantic-adapter-module",
-    ),
-    semanticCodex: codexRoleOptions(
-      values,
-      codexCommon,
-      routes.semanticCodex,
-      "semantic",
-    ),
-    advisoryAdapterModule: optionalAbsolute(
-      values["advisory-adapter-module"],
-      "--advisory-adapter-module",
-    ),
-    advisoryCodex: codexRoleOptions(
-      values,
-      codexCommon,
-      routes.advisoryCodex,
-      "advisory",
-    ),
+      : requiredOption(values["adapter-module"], "--adapter-module"),
+    semanticAdapterModule: values["semantic-adapter-module"],
+    advisoryAdapterModule: values["advisory-adapter-module"],
     advisoryExcludedPaths: values["advisory-exclude"] ?? [],
-    codex: codexRoleOptions(values, codexCommon, routes.codex, "candidate"),
+    ...codexOptions,
     claude: claudeOptions,
     shellIsolation: shellIsolationOptions(
       values,
@@ -487,10 +437,7 @@ function invocationInputs(
       values["runner-build-digest"],
       "--runner-build-digest",
     ),
-    runnerCheckoutRoot: optionalAbsolute(
-      values["runner-checkout-root"],
-      "--runner-checkout-root",
-    ),
+    runnerCheckoutRoot: values["runner-checkout-root"],
     projectDigest: optionalDigest(values["project-digest"], "--project-digest"),
     ...trials,
   };
@@ -513,12 +460,8 @@ function shellIsolationOptions(
 function invocationContext(values: Values) {
   const trials = trialParameters(values);
   const protectedRoots = values["protected-root"] ?? [];
-  const toolchainBinDir = optionalAbsolute(
-    values["toolchain-bin-dir"],
-    "--toolchain-bin-dir",
-  );
+  const toolchainBinDir = values["toolchain-bin-dir"];
   const routes = hostRoutes(values);
-  validateHostCompatibility(values, routes, protectedRoots);
   const roots = rootParameters(values);
   validateExtensionSelection(values);
   const privateRoots = privateRootDeclarations(
@@ -526,7 +469,12 @@ function invocationContext(values: Values) {
     roots.configRoot,
     protectedRoots,
   );
-  const codexCommon = commonCodexOptions(values, routes, roots, privateRoots);
+  const codexOptions = selectedCodexOptions(
+    values,
+    routes,
+    roots,
+    privateRoots,
+  );
   const claudeOptions = claudeHostOptions(
     values,
     routes,
@@ -540,7 +488,7 @@ function invocationContext(values: Values) {
     protectedRoots,
     privateRoots,
     toolchainBinDir,
-    codexCommon,
+    codexOptions,
     claudeOptions,
     trials,
   };
@@ -570,8 +518,7 @@ export async function parseInvocation(argv: string[]) {
 
 function resolveNativeBinaries(values: Values): void {
   const routes = hostRoutes(values);
-  if ([routes.codex, routes.semanticCodex, routes.advisoryCodex].some(Boolean))
-    values["codex-bin"] ??= nativeBinary("codex");
+  if (routes.anyCodex) values["codex-bin"] ??= nativeBinary("codex");
   if (routes.claude) values["claude-bin"] ??= nativeBinary("claude");
 }
 
@@ -585,6 +532,21 @@ function nativeBinary(host: "codex" | "claude"): string {
 }
 
 export type Invocation = Awaited<ReturnType<typeof parseInvocation>>;
+
+/** Keep all selected native roles visible to protection and evidence callers. */
+export function nativeRoutes(
+  invocation: Pick<
+    Invocation,
+    "codex" | "claude" | "semanticCodex" | "advisoryCodex"
+  >,
+) {
+  return [
+    invocation.codex,
+    invocation.claude,
+    invocation.semanticCodex,
+    invocation.advisoryCodex,
+  ].filter((host) => host !== undefined);
+}
 
 function applyRunDefaults(values: Values): void {
   values.condition ??= "passive";
@@ -623,7 +585,7 @@ async function canonicalizePaths(values: Values): Promise<void> {
         name,
       );
   }
-  for (const name of ["extension-source-file", "protected-root"] as const) {
+  for (const name of PATH_LIST_OPTIONS) {
     const paths = values[name];
     if (paths)
       values[name] = await Promise.all(

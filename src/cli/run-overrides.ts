@@ -1,4 +1,4 @@
-import type { RunValues } from "./run-options";
+import { EXTENSION_OPTIONS, optionsWith, type RunValues } from "./run-options";
 
 type Key = keyof RunValues;
 
@@ -6,15 +6,6 @@ function removeSaved(saved: RunValues, keys: readonly Key[]): void {
   for (const key of keys) Reflect.deleteProperty(saved, key);
 }
 
-const EXTENSION_OPTIONS = [
-  "extension-command-file",
-  "case-id",
-  "extension-source-file",
-  "extension-configuration-file",
-  "extension-redacted-configuration-file",
-  "task-verdict-policy",
-  "replace-builtin-grader",
-] as const;
 const CANDIDATE_OPTIONS = [
   "host",
   "model",
@@ -48,14 +39,9 @@ function removeUnusedNativeOptions(saved: RunValues, merged: RunValues): void {
       "codex",
     )
   )
-    removeSaved(saved, ["codex-bin", "codex-auth-file", "codex-timeout-ms"]);
+    removeSaved(saved, optionsWith("route", "codex"));
   if (merged.host !== "claude")
-    removeSaved(saved, [
-      "claude-bin",
-      "claude-credential-file",
-      "claude-uv-cache-dir",
-      "claude-project-settings",
-    ]);
+    removeSaved(saved, optionsWith("route", "claude"));
 }
 
 export function overrideRunSelections(

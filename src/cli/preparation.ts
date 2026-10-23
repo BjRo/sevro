@@ -4,6 +4,7 @@ import { configurationRoot } from "../hosts/codex-configuration";
 import {
   InvocationError,
   parseInvocation,
+  nativeRoutes,
   type Invocation,
 } from "./invocation";
 import {
@@ -24,17 +25,11 @@ function protectMappedSources(
   preparationSources: PreparationSources,
 ): void {
   const sourceRoots = mappedSourceRoots(preparationSources);
-  for (const native of [
-    invocation.codex,
-    invocation.claude,
-    invocation.semanticCodex,
-    invocation.advisoryCodex,
-  ]) {
-    if (native)
-      native.additionalProtectedRoots = [
-        ...native.additionalProtectedRoots,
-        ...sourceRoots,
-      ];
+  for (const native of nativeRoutes(invocation)) {
+    native.additionalProtectedRoots = [
+      ...native.additionalProtectedRoots,
+      ...sourceRoots,
+    ];
   }
   invocation.shellIsolation?.protectedRoots.push(...sourceRoots);
 }
@@ -44,15 +39,16 @@ export async function prepareRunInvocation(argv: string[]) {
   warnDeprecatedRuntimeOptions(invocation);
   const preparationSources = await loadPreparationSources(invocation);
   protectMappedSources(invocation, preparationSources);
+  const protectedRoots = await invocationProtectedRuntimeRoots(invocation);
   const runtimePolicy = await loadRuntimeConfiguration(
     invocation.projectRoot,
     invocation.runtimeConfigFile,
-    await invocationProtectedRuntimeRoots(invocation),
+    protectedRoots,
   );
   requireRuntimeOptionCompatibility(invocation, runtimePolicy);
   selectRuntimeTransport(invocation, runtimePolicy);
   const configRoot = await configurationRoot(invocation.configRoot);
-  await validateInvocationRuntime(invocation, runtimePolicy);
+  validateInvocationRuntime(protectedRoots, runtimePolicy);
   const agentConcurrencyLimit = await selectedConcurrency(
     invocation,
     configRoot,
@@ -122,12 +118,11 @@ export type PreparedInvocation = Awaited<
   ReturnType<typeof prepareRunInvocation>
 >;
 
-async function validateInvocationRuntime(
-  invocation: Invocation,
+function validateInvocationRuntime(
+  protectedRoots: string[],
   policy: Awaited<ReturnType<typeof loadRuntimeConfiguration>>,
-): Promise<void> {
+): void {
   if (!policy) return;
-  const protectedRoots = await invocationProtectedRuntimeRoots(invocation);
   requireRuntimeReadRoots(policy.readOnlyRoots, protectedRoots);
   requireRuntimeReadRoots(
     (policy.seeds ?? []).map((seed) => seed.source),
@@ -138,19 +133,15 @@ async function validateInvocationRuntime(
 async function invocationProtectedRuntimeRoots(
   invocation: Invocation,
 ): Promise<string[]> {
-  const native = [
-    invocation.codex,
-    invocation.claude,
-    invocation.semanticCodex,
-    invocation.advisoryCodex,
-  ];
   const protectedRoots = [
     join(import.meta.dir, "..", ".."),
     invocation.projectRoot,
     invocation.configRoot,
     invocation.resultsRoot,
     invocation.runStateRoot,
-    ...native.flatMap((host) => host?.additionalProtectedRoots ?? []),
+    ...nativeRoutes(invocation).flatMap(
+      (host) => host.additionalProtectedRoots,
+    ),
     ...(invocation.shellIsolation?.protectedRoots ?? []),
   ];
   return Promise.all(protectedRoots.map(canonicalRuntimeRoot));
