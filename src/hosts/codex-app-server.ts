@@ -177,6 +177,7 @@ class AppServerRpc {
     this.exited = new Promise((resolve) => {
       this.process.once("exit", resolve);
       this.process.once("error", (error) => {
+        if (this.process.pid === undefined) this.capture.recordUnstarted();
         this.fail(error);
         resolve(null);
       });
@@ -345,11 +346,13 @@ class AppServerRpc {
   async close(): Promise<void> {
     this.closing = true;
     this.process.stdin.end();
+    let shutdownError: NodeJS.ErrnoException | undefined;
     const terminate = (signal: NodeJS.Signals) => {
       try {
         if (this.process.pid) process.kill(-this.process.pid, signal);
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+        if ((error as NodeJS.ErrnoException).code !== "ESRCH")
+          shutdownError ??= error as NodeJS.ErrnoException;
       }
     };
     const term = setTimeout(() => {
@@ -366,6 +369,7 @@ class AppServerRpc {
       clearTimeout(term);
       clearTimeout(kill);
     }
+    if (shutdownError !== undefined) throw shutdownError;
   }
 }
 
@@ -898,17 +902,30 @@ async function completeSession(
   const deadline = setTimeout(() => {
     rpc.fail(new Error(timeBoundFailure(rpc.pendingMethods())));
   }, bound);
+  let code = 0;
   try {
     await session.run();
     session.assertSettled();
-    return 0;
   } catch (error) {
     sessionFailure(session, error);
-    return 1;
+    code = 1;
   } finally {
     clearTimeout(deadline);
     request.signal?.removeEventListener("abort", cancel);
+  }
+  return closeSession(session, rpc, code);
+}
+async function closeSession(
+  session: AppServerSession,
+  rpc: AppServerRpc,
+  code: number,
+): Promise<number> {
+  try {
     await rpc.close();
+    return code;
+  } catch (error) {
+    if (code === 0) sessionFailure(session, error);
+    return 1;
   }
 }
 function settlementCode(session: AppServerSession, code: number): number {
@@ -936,10 +953,11 @@ export async function runCodexAppServer(options: AppServerRunOptions): Promise<{
   const code = await completeSession(session, rpc, request, bound);
   // Flush stdout before accepting success, including trailing data and terminal errors.
   const finalCode = settlementCode(session, code);
-  await rpc.capture.record(
-    { exited: rpc.exited, signalCode: rpc.process.signalCode },
-    finalCode === 0 ? "exit" : "error",
-  );
+  if (rpc.process.pid !== undefined)
+    await rpc.capture.record(
+      { exited: rpc.exited, signalCode: rpc.process.signalCode },
+      finalCode === 0 ? "exit" : "error",
+    );
   return {
     out: session.out.join("\n"),
     err: rpc.stderr,

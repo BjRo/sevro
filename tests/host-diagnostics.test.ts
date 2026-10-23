@@ -295,6 +295,107 @@ test("CLI retains an early app-server failure for the goal example", async () =>
   });
 });
 
+async function shutdownFailure(
+  signal: string,
+  errorCode: string,
+  priorFailure: boolean,
+) {
+  const { args, root, binary } = await executionFailure("app-server");
+  const preload = join(root, "deny-signal.ts");
+  const peer = join(root, "resistant-peer.ts");
+  const pidPath = join(root, "peer.pid");
+  await writeFile(
+    preload,
+    `const kill = process.kill.bind(process);
+process.kill = (pid, signal) => {
+  if (pid < 0 && signal === ${JSON.stringify(signal)})
+    throw Object.assign(new Error("shutdown signal denied"), { code: ${JSON.stringify(errorCode)} });
+  return kill(pid, signal);
+};
+`,
+  );
+  await writeFile(
+    peer,
+    `import { mkdirSync, writeFileSync } from "node:fs";
+mkdirSync(".git", { recursive: true });
+if (${String(priorFailure)}) writeFileSync("failure.txt", "");
+writeFileSync(${JSON.stringify(pidPath)}, String(process.pid));
+process.on("SIGTERM", () => {});
+process.stdin.on("end", () => { setTimeout(() => process.exit(0), 7000); });
+await import(${JSON.stringify(join(import.meta.dir, "fixtures/app-server-peer.ts"))});
+`,
+  );
+  await writeFile(
+    binary,
+    `#!/bin/sh\nif [ "$1" = sandbox ]; then exit 0; fi\nexec '${process.execPath}' '${peer}' "$@"\n`,
+    { mode: 0o700 },
+  );
+  return { args, preload, pidPath };
+}
+
+test.each([
+  ["SIGTERM", "EPERM", false, 2, "shutdown signal denied"],
+  ["SIGKILL", "EPERM", false, 2, "shutdown signal denied"],
+  ["SIGTERM", "ESRCH", false, 0, null],
+  ["SIGTERM", "EPERM", true, 2, "App-server reported a fatal turn error"],
+] as const)(
+  "CLI reports app-server shutdown signal failures without crashing: %s %s prior failure=%s",
+  async (signal, errorCode, priorFailure, expectedCode, failureMessage) => {
+    const { args, preload, pidPath } = await shutdownFailure(
+      signal,
+      errorCode,
+      priorFailure,
+    );
+    const child = Bun.spawn(
+      [
+        defined(args[0]),
+        "--preload",
+        preload,
+        ...args.slice(1),
+        "--retain-host-diagnostics",
+      ],
+      { stdout: "pipe", stderr: "pipe" },
+    );
+    try {
+      const [stdout, stderr, code] = await Promise.all([
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+        child.exited,
+      ]);
+      expect(code, stderr).toBe(expectedCode);
+      const result = parseCliResult(stdout);
+      expect(result.execution.status).toBe(
+        expectedCode === 0 ? "completed" : "failed",
+      );
+      expect(result.task.verdict).toBe("not_assessed");
+      if (expectedCode === 0) return;
+      const evidence = parseRunEvidence(
+        await readFile(defined(result.evidencePath), "utf8"),
+      );
+      const artifact = defined(
+        defined(evidence.trials[0]).artifactRefs.find(
+          (ref) => ref.id === "sevro.host.diagnostics",
+        ),
+      );
+      expect(
+        parseRecord(await readFile(new URL(artifact.path), "utf8")),
+      ).toMatchObject({
+        stage: "app-server",
+        error: { message: failureMessage },
+      });
+    } finally {
+      child.kill();
+      const pid = Number(await readFile(pidPath, "utf8"));
+      try {
+        process.kill(-pid, "SIGKILL");
+      } catch (error) {
+        expect(record(error).code).toBe("ESRCH");
+      }
+    }
+  },
+  20000,
+);
+
 test("CLI retains an early exec failure for the guide example", async () => {
   const { args } = await executionFailure("exec");
   const run = await invoke([...args, "--retain-host-diagnostics"]);
@@ -952,41 +1053,44 @@ test("Claude diagnostics redact inherited opaque credentials", async () => {
   expect(receipt.stderr).toBe("[redacted]");
 });
 
-test("CLI records an exec launch failure without inventing an exit code", async () => {
-  const { args, binary } = await executionFailure("exec");
-  await writeFile(
-    binary,
-    '#!/bin/sh\nif [ "$1" = sandbox ]; then /bin/rm "$0"; exit 0; fi\nexit 31\n',
-    { mode: 0o700 },
-  );
-  const run = await invoke([...args, "--retain-host-diagnostics"]);
-  expect(run.code).toBe(2);
-  const evidence = parseRunEvidence(
-    await readFile(defined(run.result.evidencePath), "utf8"),
-  );
-  const artifact = defined(
-    defined(evidence.trials[0]).artifactRefs.find(
-      (ref) => ref.id === "sevro.host.diagnostics",
-    ),
-  );
-  const diagnostics = parseRecord(
-    await readFile(new URL(artifact.path), "utf8"),
-  );
-  expect(diagnostics).toMatchObject({
-    stage: "exec",
-    error: { code: "ENOENT" },
-  });
-  const receipt = record(defined(array(diagnostics.processes).at(-1)));
-  expect(receipt).toMatchObject({
-    stage: "exec",
-    code: null,
-    signal: null,
-    reason: "spawn",
-    stdout: "",
-    stderr: "",
-  });
-  expect(receipt.durationMs).toBeGreaterThanOrEqual(0);
-});
+test.each(["exec", "app-server"] as const)(
+  "CLI records an %s launch failure without inventing an exit code",
+  async (entrypoint) => {
+    const { args, binary } = await executionFailure(entrypoint);
+    await writeFile(
+      binary,
+      '#!/bin/sh\nif [ "$1" = sandbox ]; then /bin/rm "$0"; exit 0; fi\nexit 31\n',
+      { mode: 0o700 },
+    );
+    const run = await invoke([...args, "--retain-host-diagnostics"]);
+    expect(run.code).toBe(2);
+    const evidence = parseRunEvidence(
+      await readFile(defined(run.result.evidencePath), "utf8"),
+    );
+    const artifact = defined(
+      defined(evidence.trials[0]).artifactRefs.find(
+        (ref) => ref.id === "sevro.host.diagnostics",
+      ),
+    );
+    const diagnostics = parseRecord(
+      await readFile(new URL(artifact.path), "utf8"),
+    );
+    expect(diagnostics).toMatchObject({
+      stage: entrypoint,
+      error: { code: "ENOENT" },
+    });
+    const receipt = record(defined(array(diagnostics.processes).at(-1)));
+    expect(receipt).toMatchObject({
+      stage: entrypoint,
+      code: null,
+      signal: null,
+      reason: "spawn",
+      stdout: "",
+      stderr: "",
+    });
+    expect(receipt.durationMs).toBeGreaterThanOrEqual(0);
+  },
+);
 
 test("CLI identifies cleanup as the stage when a completed host cannot be cleaned", async () => {
   const { args, binary, root } = await executionFailure("exec");
