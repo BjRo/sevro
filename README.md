@@ -1,7 +1,7 @@
 # Sevro
 
 <p align="center">
-  <img src="docs/assets/sevro-logo.png" alt="Sevro logo: a black S-shaped track with red segments above the sevro wordmark" width="360">
+  <img src="https://raw.githubusercontent.com/BjRo/sevro/main/docs/assets/sevro-logo.png" alt="Sevro logo: a black S-shaped track with red segments above the sevro wordmark" width="360">
 </p>
 
 Sevro runs repeatable evaluations of coding agents. Give it a case, a host

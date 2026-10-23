@@ -12,6 +12,26 @@ Published `rc.1` and `rc.2` retain their original BSL grants. Always select a ne
 version for publication; a local development tarball does not replace an
 already published artifact.
 
+## Unreleased: smaller npm package
+
+The npm package omits logo images, historical validation and usability pages,
+and raw evidence, including the Darrow migration patch and old guide verification
+record. All remain in the repository; packaged pages link to their online copies.
+The current `LICENSE`, contribution terms, branding permissions and retained
+earlier-release license text still ship. No licensing or branding grants change.
+
+For this cleanup, `npm pack --dry-run --ignore-scripts --json` measured the
+development tarball at about 0.39 MB compressed, down from 3,545,849 bytes, and
+about 1.86 MB unpacked, down from 6,632,891 bytes (about 89% and 72% smaller).
+These are candidate measurements, not a newly published release.
+
+`runnerBuildDigest` hashes packaged paths and bytes under `docs/` as well as the
+runtime and other package inputs. This packaging change therefore causes a
+one-time digest change even without runner behavior changes. Existing evidence
+keeps its original identity; exact-repeat comparisons across this boundary
+will differ on `runnerBuildDigest`. The identity format and hashing rules stay
+unchanged.
+
 ## Candidate contract
 
 Prepare one candidate from the intended release tag and package metadata. The

@@ -200,7 +200,7 @@ Setting `allow_local_binding` while leaving command networking disabled still
 denies `listen()` on macOS. Integration tests execute the installed native
 Codex sandbox, a wildcard HTTP listener and loopback client, and an outbound TCP
 denial probe. Host versions and actual upstream evaluation outcomes belong in
-[validation evidence](evidence.md), rather than being inferred from a profile's
+[validation evidence](https://github.com/BjRo/sevro/blob/main/docs/evidence.md), rather than being inferred from a profile's
 text. An unsupported host must not be interpreted as a passing behavior test.
 
 ## macOS ancestor metadata

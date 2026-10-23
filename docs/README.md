@@ -1,6 +1,6 @@
 # Sevro documentation
 
-<img src="assets/sevro-wordmark.svg" alt="Sevro wordmark" width="220">
+<img src="https://raw.githubusercontent.com/BjRo/sevro/main/docs/assets/sevro-wordmark.svg" alt="Sevro wordmark" width="220">
 
 Start with the task you want to complete. These pages work without an agent.
 
@@ -33,12 +33,12 @@ It belongs to this repository, not an npm installation.
 
 [Current contracts](contracts.md) define interfaces. The
 [guide specification](specs/repository-guide.md) defines the repository assistant.
-[Historical validation](evidence.md) records observations, not current guarantees.
+[Historical validation](https://github.com/BjRo/sevro/blob/main/docs/evidence.md) records observations, not current guarantees.
 There is no accepted Rust migration decision here;
 [issue #2](https://github.com/BjRo/sevro/issues/2) tracks research.
 
 Read [documentation quality](documentation-quality.md),
-[the usability study protocol](usability-study.md),
+[the usability study protocol](https://github.com/BjRo/sevro/blob/main/docs/usability-study.md),
 [guide evaluation](guide-evaluation.md), [releases](releases.md), and
 [acknowledgements](acknowledgements.md) for maintenance.
 Return to the [Sevro introduction](../README.md).

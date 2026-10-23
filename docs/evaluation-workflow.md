@@ -105,6 +105,6 @@ advisory model choices remain independent. Deterministic adapters measure wiring
 they do not measure model ability. Native runs may incur provider charges.
 Automated package checks run response/coding pass/fail and native skill preparation;
 authenticated native behavior and human usability remain unmeasured. The
-[study protocol](usability-study.md) records deferred human measurements.
+[study protocol](https://github.com/BjRo/sevro/blob/main/docs/usability-study.md) records deferred human measurements.
 [Runnable recipes](recipes.md) cover Claude, plugins/hooks, goals, semantic grading
 and host tools.

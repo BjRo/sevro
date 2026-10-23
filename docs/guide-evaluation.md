@@ -79,7 +79,7 @@ successful native `Skill` calls. The evaluator does not fall back to command
 patterns, direct Claude file reads, or retired skill-read observations.
 See the [guide contract](specs/repository-guide.md).
 
-The [earlier verification record](guide-verification.json) describes historical
+The [earlier verification record](https://github.com/BjRo/sevro/blob/main/docs/guide-verification.json) describes historical
 trials of the previous harness. Its outputs and recheck observations are preserved
 as history; they do not validate this conversion. The old `--recheck` command
 and custom evidence format have been removed. Rerun changed cases through Sevro

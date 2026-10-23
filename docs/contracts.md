@@ -16,4 +16,4 @@ Read these human contracts and their schemas together:
 [TypeScript quality contract](typescript-quality.md) defines source inventories,
 development checks, and coverage policy.
 [Architecture](architecture.md) explains implementation context;
-[historical validation](evidence.md) records past observations. Return to the [hub](README.md).
+[historical validation](https://github.com/BjRo/sevro/blob/main/docs/evidence.md) records past observations. Return to the [hub](README.md).

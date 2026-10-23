@@ -1,11 +1,12 @@
 # Sevro brand assets
 
 Björn Rochel created the supplied logo in 2026. Its original artwork and white
-background are preserved in `sevro-logo.png`.
+background are preserved in `sevro-logo.png` in the repository. The npm package
+retains these permissions; download the artwork from the links below.
 
-- [Full logo](sevro-logo.png): supplied 1254 × 1254 PNG including the wordmark.
-- [Compact symbol](sevro-symbol.svg): the same artwork framed around the S track.
-- [Wordmark](sevro-wordmark.svg): the same artwork framed around the name.
+- [Full logo](https://raw.githubusercontent.com/BjRo/sevro/main/docs/assets/sevro-logo.png): supplied 1254 × 1254 PNG including the wordmark.
+- [Compact symbol](https://raw.githubusercontent.com/BjRo/sevro/main/docs/assets/sevro-symbol.svg): the same artwork framed around the S track.
+- [Wordmark](https://raw.githubusercontent.com/BjRo/sevro/main/docs/assets/sevro-wordmark.svg): the same artwork framed around the name.
 
 SVG variants embed the supplied PNG; they are not traced vector redrawings.
 Keep a white backing on dark pages; no transparent variant is claimed. Use the
