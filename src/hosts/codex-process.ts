@@ -166,7 +166,7 @@ function codexCompletion(
       durationMs: performance.now() - started,
     }),
   );
-  return { completed, drains: [stdout, stderr, input] };
+  return { completed, drains: [stdout, stderr, input], started };
 }
 
 export async function runCodexProcess(
@@ -175,7 +175,11 @@ export async function runCodexProcess(
   requireCodexProcess(options);
   const capture = new HostProcessDiagnostics(options.diagnostics);
   const proc = spawnCodexProcess(options, capture);
-  const { completed, drains } = codexCompletion(proc, options, capture);
+  const { completed, drains, started } = codexCompletion(
+    proc,
+    options,
+    capture,
+  );
   try {
     const result = await awaitHostProcess(proc, completed, {
       ...options,
@@ -185,16 +189,22 @@ export async function runCodexProcess(
     await capture.record(proc);
     return result;
   } catch (cause) {
+    await Promise.allSettled(drains);
     if (!(cause instanceof HostProcessInterruption)) {
-      await Promise.allSettled(drains);
       await capture.record(proc, "error");
       throw cause;
     }
-    const result = await completed;
     await capture.record(proc, cause.reason);
     throw new CodexProcessFailure(
       processPhase(options),
-      result,
+      {
+        code: await proc.exited,
+        out: capture.stdout.bytes().toString("utf8"),
+        stderr: capture.stderr.bytes(),
+        stderrTruncated: capture.stderr.truncated,
+        signal: proc.signalCode ?? null,
+        durationMs: performance.now() - started,
+      },
       cause.reason,
       options.timeoutMs,
     );
