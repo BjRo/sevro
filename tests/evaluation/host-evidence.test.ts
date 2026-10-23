@@ -5,10 +5,11 @@ import { openExtensionSession } from "../../src/extension-session";
 import { wireOptions } from "../fixtures/engine-session";
 import {
   runEvaluation,
+  HostExecutionFailure,
   type EvaluationOptions,
   type HostResult,
 } from "../../src/engine";
-import { defined, parseRunEvidence } from "../fixtures/assertions";
+import { defined, parseRunEvidence, parseTrial } from "../fixtures/assertions";
 import { observation } from "../fixtures/evaluation-fixtures";
 import { createEvaluation } from "../fixtures/evaluation-fixtures";
 
@@ -79,29 +80,139 @@ async function instrumentedEvaluation(): Promise<EvaluationOptions> {
   return options;
 }
 
-test("refuses applied instrumentation changed by an adapter from the prepared request", async () => {
-  const options = await instrumentedEvaluation();
-  options.host.run = (request) => {
-    const appliedInstrumentation = defined(request.instrumentation);
-    defined(appliedInstrumentation[0]).configuration.enabled = false;
-    return Promise.resolve({
+test.each(["returned", "thrown"])(
+  "refuses changed instrumentation in a %s host result",
+  async (delivery) => {
+    const options = await instrumentedEvaluation();
+    options.host.run = (request) => {
+      const appliedInstrumentation = defined(request.instrumentation);
+      defined(appliedInstrumentation[0]).configuration.enabled = false;
+      const result: HostResult = {
+        finalMessage: "ready",
+        complete: true,
+        actualCondition: "passive",
+        appliedInstrumentation,
+        observations: [observation("example.evidence")],
+      };
+      if (delivery === "thrown")
+        throw new HostExecutionFailure("adapter stopped", result);
+      return Promise.resolve(result);
+    };
+    const { result } = await runEvaluation(options);
+    expect(result.execution.status).toBe("failed");
+    expect(result.exitCode).toBe(2);
+    expect(result.task.verdict).toBe("not_assessed");
+    expect(result.diagnostic?.code).toBe("sevro.instrumentation.mismatch");
+    const evidence = parseRunEvidence(
+      await readFile(result.evidencePath, "utf8"),
+    );
+    expect(evidence.condition.requestedInstrumentation).toEqual([
+      { id: "example.instrumentation", configuration: { enabled: true } },
+    ]);
+  },
+);
+
+test("retains valid evidence carried by a thrown host failure", async () => {
+  const options = await evaluation({ finalMessage: null, complete: false });
+  options.host.run = () => {
+    throw new HostExecutionFailure("adapter stopped", {
       finalMessage: "ready",
-      complete: true,
-      actualCondition: "passive",
-      appliedInstrumentation,
-      observations: [observation("example.evidence")],
+      complete: false,
+      observations: [observation("example.trace")],
+      artifacts: [
+        { id: "example.log", bytes: Buffer.from("bounded evidence") },
+      ],
+    });
+  };
+  const { result } = await runEvaluation(options);
+  expect(result.exitCode).toBe(2);
+  expect(result.execution.status).toBe("failed");
+  expect(result.task.verdict).toBe("not_assessed");
+  expect(result.diagnostic).toEqual({
+    code: "sevro.host.failed",
+    message: "adapter stopped",
+  });
+  const evidence = parseRunEvidence(
+    await readFile(result.evidencePath, "utf8"),
+  );
+  const trial = defined(evidence.trials[0]);
+  expect(await readFile(new URL(defined(trial.rawResult.path)), "utf8")).toBe(
+    "ready",
+  );
+  expect(trial.observationCompleteness).toBe("partial");
+  expect(trial.observations).toContainEqual({
+    ...observation("example.trace"),
+    source: "example.host",
+  });
+  const artifact = defined(trial.artifactRefs[0]);
+  expect(artifact.id).toBe("example.log");
+  expect(await readFile(new URL(artifact.path), "utf8")).toBe(
+    "bounded evidence",
+  );
+});
+
+test("persists a failed trial when a thrown host failure carries an oversized result", async () => {
+  const options = await evaluation({ finalMessage: null, complete: false });
+  options.host.run = () => {
+    throw new HostExecutionFailure("adapter stopped", {
+      finalMessage: "x".repeat(8 * 1024 * 1024 + 1),
+      complete: false,
     });
   };
   const { result } = await runEvaluation(options);
   expect(result.execution.status).toBe("failed");
-  expect(result.exitCode).toBe(2);
   expect(result.task.verdict).toBe("not_assessed");
+  expect(result.exitCode).toBe(2);
+  expect(result.diagnostic).toEqual({
+    code: "sevro.host.failed",
+    message: "host execution did not complete",
+  });
+  const trial = defined(defined(result.cases[0]).trials[0]);
+  const persisted = parseTrial(await readFile(trial.artifactPath, "utf8"));
+  expect(persisted.result.execution.status).toBe("failed");
   const evidence = parseRunEvidence(
     await readFile(result.evidencePath, "utf8"),
   );
-  expect(evidence.condition.requestedInstrumentation).toEqual([
-    { id: "example.instrumentation", configuration: { enabled: true } },
+  expect(evidence.trials).toHaveLength(1);
+  expect(defined(evidence.trials[0])).toMatchObject({
+    rawResult: { path: null, sha256: null },
+    observationCompleteness: "unavailable",
+    artifactRefs: [],
+  });
+});
+
+test("discards partially validated evidence from a thrown host failure", async () => {
+  const options = await instrumentedEvaluation();
+  options.host.run = (request) => {
+    throw new HostExecutionFailure("adapter stopped", {
+      finalMessage: "ready",
+      complete: true,
+      actualCondition: "passive",
+      appliedInstrumentation: request.instrumentation,
+      observations: [observation("example.evidence")],
+      artifacts: [{ id: "example.evidence", bytes: Buffer.from("collision") }],
+    });
+  };
+  const { result } = await runEvaluation(options);
+  expect(result.execution.status).toBe("failed");
+  expect(result.task.verdict).toBe("not_assessed");
+  expect(result.exitCode).toBe(2);
+  const evidence = parseRunEvidence(
+    await readFile(result.evidencePath, "utf8"),
+  );
+  const trial = defined(evidence.trials[0]);
+  expect(trial.condition).toEqual({
+    requested: "passive",
+    actual: "unknown",
+    appliedInstrumentation: [],
+  });
+  expect(trial.observations.map((item) => item.id)).toEqual([
+    "sevro.observation.final-message",
+    "sevro.observation.workspaces",
   ]);
+  expect(trial.rawResult.path).toBeNull();
+  expect(trial.observationCompleteness).toBe("unavailable");
+  expect(trial.artifactRefs).toEqual([]);
 });
 
 const invalidReceipts: { name: string; result: HostResult }[] = [
@@ -239,19 +350,26 @@ const invalidReceipts: { name: string; result: HostResult }[] = [
 ];
 
 for (const receipt of invalidReceipts) {
-  test(`rejects ${receipt.name} without assessing the candidate`, async () => {
-    const options = await evaluation(receipt.result);
-    const outcome = await runEvaluation(options);
-    expect(outcome.result.execution.status).toBe("failed");
-    expect(outcome.result.task.verdict).toBe("not_assessed");
-    expect(outcome.result.exitCode).toBe(2);
-    const evidence = parseRunEvidence(
-      await readFile(outcome.result.evidencePath, "utf8"),
-    );
-    const trial = defined(evidence.trials[0]);
-    expect(trial.rawResult.path).toBeNull();
-    expect(trial.observationCompleteness).toBe("unavailable");
-    expect(trial.artifactRefs).toEqual([]);
-    expect(defined(outcome.result.cases[0]).trials).toHaveLength(1);
-  });
+  test.each(["returned", "thrown"])(
+    `rejects ${receipt.name} in a %s host result without assessing the candidate`,
+    async (delivery) => {
+      const options = await evaluation(receipt.result);
+      if (delivery === "thrown")
+        options.host.run = () => {
+          throw new HostExecutionFailure("adapter stopped", receipt.result);
+        };
+      const outcome = await runEvaluation(options);
+      expect(outcome.result.execution.status).toBe("failed");
+      expect(outcome.result.task.verdict).toBe("not_assessed");
+      expect(outcome.result.exitCode).toBe(2);
+      const evidence = parseRunEvidence(
+        await readFile(outcome.result.evidencePath, "utf8"),
+      );
+      const trial = defined(evidence.trials[0]);
+      expect(trial.rawResult.path).toBeNull();
+      expect(trial.observationCompleteness).toBe("unavailable");
+      expect(trial.artifactRefs).toEqual([]);
+      expect(defined(outcome.result.cases[0]).trials).toHaveLength(1);
+    },
+  );
 }
