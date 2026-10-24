@@ -1,12 +1,16 @@
-import { readFile, readdir, realpath, rm, stat } from "node:fs/promises";
-import { basename, join, resolve } from "node:path";
+import { lstat, readFile, readdir, realpath, rm, stat } from "node:fs/promises";
+import { basename, dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { assertCliResult, assertRunEvidence } from "./schema";
 import type { CliResultData, RunEvidenceData } from "./schema-types";
 import { createReport } from "./report";
 import { atomicWriteJson } from "./storage";
 import { isRecord } from "./value-guards";
-import { retainedFile, withResultsLock } from "./results-lock";
+import {
+  acquireResultsLock,
+  retainedFile,
+  withResultsLock,
+} from "./results-lock";
 import { pruneNativeTranscripts } from "./transcript-retention";
 
 interface RetainedResult {
@@ -14,6 +18,12 @@ interface RetainedResult {
   result: CliResultData;
   evidence: RunEvidenceData;
   time: number;
+}
+
+interface RetainedStorage {
+  directories: string[];
+  roots: string[];
+  releases: (() => void)[];
 }
 
 type RetentionPolicy =
@@ -88,14 +98,17 @@ function invocation(args: string[]) {
   };
 }
 
-async function retainedResults(root: string): Promise<RetainedResult[]> {
+async function retainedResults(
+  root: string,
+  directories: string[],
+): Promise<RetainedResult[]> {
   const results: RetainedResult[] = [];
-  for (const directory of await resultDirectories(root)) {
+  for (const directory of directories) {
     const path = join(directory, "result.json");
     await retainedFile(path);
     const result: unknown = JSON.parse(await readFile(path, "utf8"));
     assertCliResult(result);
-    if (!(await finalized(root, result.runId))) continue;
+    if (!(await finalizedAncestors(root, directory, result.runId))) continue;
     if (result.evidencePath !== join(directory, "run.json"))
       throw new Error(
         `retained result references evidence outside its directory: ${path}`,
@@ -119,16 +132,52 @@ async function retainedResults(root: string): Promise<RetainedResult[]> {
   );
 }
 
-async function resultDirectories(parent: string): Promise<string[]> {
-  const paths: string[] = [];
-  for (const entry of await readdir(parent, { withFileTypes: true })) {
+async function resultDirectories(
+  parent: string,
+  storage: RetainedStorage,
+): Promise<void> {
+  let children = await resultChildren(parent);
+  if (
+    !storage.roots.includes(parent) &&
+    ((await resultsRoot(parent)) || children.results.length > 0)
+  ) {
+    storage.releases.push(await acquireResultsLock(parent));
+    storage.roots.push(parent);
+    children = await resultChildren(parent);
+  }
+  storage.directories.push(...children.results);
+  for (const directory of children.containers)
+    await resultDirectories(directory, storage);
+}
+
+async function resultChildren(parent: string) {
+  const results: string[] = [];
+  const containers: string[] = [];
+  const entries = await readdir(parent, { withFileTypes: true });
+  for (const entry of entries.sort((left, right) =>
+    left.name.localeCompare(right.name),
+  )) {
     if (!entry.isDirectory()) continue;
     const directory = join(parent, entry.name);
     if (await retainedFile(join(directory, "result.json")))
-      paths.push(directory);
-    else paths.push(...(await resultDirectories(directory)));
+      results.push(directory);
+    else containers.push(directory);
   }
-  return paths;
+  return { results, containers };
+}
+
+async function resultsRoot(directory: string): Promise<boolean> {
+  const active = await lstat(join(directory, "active")).catch(
+    (cause: unknown) => {
+      if ((cause as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw cause;
+    },
+  );
+  if (active && !active.isDirectory())
+    throw new Error(`retained ownership must be a directory: ${directory}`);
+  return Boolean(
+    active || (await retainedFile(join(directory, ".retention-lock.sqlite"))),
+  );
 }
 
 async function finalized(root: string, runId: string | null): Promise<boolean> {
@@ -138,6 +187,19 @@ async function finalized(root: string, runId: string | null): Promise<boolean> {
   const value: unknown = JSON.parse(await readFile(path, "utf8"));
   if (!isRecord(value)) return false;
   return finalizedRecord(value, runId);
+}
+
+async function finalizedAncestors(
+  root: string,
+  directory: string,
+  runId: string | null,
+): Promise<boolean> {
+  let ancestor = dirname(directory);
+  while (ancestor !== dirname(root)) {
+    if (!(await finalized(ancestor, runId))) return false;
+    ancestor = dirname(ancestor);
+  }
+  return true;
 }
 
 function finalizedRecord(
@@ -158,19 +220,32 @@ function retainedByPolicy(results: RetainedResult[], policy: RetentionPolicy) {
     : results.filter((result) => result.time >= cutoff);
 }
 
-async function pruneResults(root: string, policy: RetentionPolicy) {
-  const results = await retainedResults(root);
+async function pruneResults(
+  root: string,
+  policy: RetentionPolicy,
+  storage: RetainedStorage,
+) {
+  const results = await retainedResults(root, storage.directories);
   const remaining = retainedByPolicy(results, policy);
-  const latest = remaining[0];
-  if (latest) await atomicWriteJson(join(root, "latest.json"), latest.result);
-  else await rm(join(root, "latest.json"), { force: true });
+  for (const resultsRoot of storage.roots) {
+    const latest = remaining.find((item) =>
+      item.directory.startsWith(`${resultsRoot}/`),
+    );
+    if (latest)
+      await atomicWriteJson(join(resultsRoot, "latest.json"), latest.result);
+    else await rm(join(resultsRoot, "latest.json"), { force: true });
+  }
   const removed = results.filter((result) => !remaining.includes(result));
   for (const result of removed) await rm(result.directory, { recursive: true });
   return { removed: removed.length, kept: remaining.length };
 }
 
-async function pruneTranscripts(root: string, policy: RetentionPolicy) {
-  const results = await retainedResults(root);
+async function pruneTranscripts(
+  root: string,
+  policy: RetentionPolicy,
+  directories: string[],
+) {
+  const results = await retainedResults(root, directories);
   const preserved = retainedByPolicy(results, policy);
   let removed = 0;
   for (const { evidence } of results.filter(
@@ -187,11 +262,21 @@ async function prune(options: ReturnType<typeof invocation>) {
     throw cause;
   });
   if (root === null) return { removed: 0, kept: 0 };
-  return withResultsLock(root, () =>
-    options.nativeTranscripts
-      ? pruneTranscripts(root, options.policy)
-      : pruneResults(root, options.policy),
-  );
+  return withResultsLock(root, async () => {
+    const storage: RetainedStorage = {
+      directories: [],
+      roots: [root],
+      releases: [],
+    };
+    try {
+      await resultDirectories(root, storage);
+      return options.nativeTranscripts
+        ? await pruneTranscripts(root, options.policy, storage.directories)
+        : await pruneResults(root, options.policy, storage);
+    } finally {
+      for (const release of storage.releases.reverse()) release();
+    }
+  });
 }
 
 /** Explicitly remove old retained runs while keeping report's latest index usable. */

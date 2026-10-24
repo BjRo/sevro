@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import {
   mkdir,
@@ -508,6 +509,186 @@ test("prune preserves active and unverifiable attempts outside the retention cou
   expect((await stat(oldest)).isFile()).toBe(true);
   expect(await readFile(record, "utf8")).toBe(JSON.stringify(active));
 });
+
+test("parent prune preserves nested active and unrecognized ownership outside the count", async () => {
+  const { root, results, paths } = await fixture(3);
+  for (const [index, status] of ["active", "unrecognized"].entries()) {
+    const path = defined(paths[index + 1]);
+    const id = defined(parseCliResult(await readFile(path, "utf8")).runId);
+    const record = join(results, "active", `${id}.json`);
+    const value = parseRecord(await readFile(record, "utf8"));
+    value.status = status;
+    await writeFile(record, JSON.stringify(value));
+  }
+  const pruned = await command(root, [
+    "prune",
+    "--results-root",
+    root,
+    "--latest",
+  ]);
+  expect(pruned.code, pruned.stderr).toBe(0);
+  expect(pruned.stdout).toContain("Removed 0 result(s); kept 1");
+  for (const path of paths) expect((await stat(path)).isFile()).toBe(true);
+});
+
+test.each([{ mode: [] }, { mode: ["--native-transcripts"] }])(
+  "parent prune and CLI publication wait for the nested root lock $mode",
+  async ({ mode }) => {
+    const { root, results, paths } = await fixture(1);
+    const lock = new Database(join(results, ".retention-lock.sqlite"));
+    lock.run("BEGIN IMMEDIATE");
+    let settled = false;
+    let publicationSettled = false;
+    const pruning = command(root, [
+      "prune",
+      "--results-root",
+      root,
+      ...mode,
+      "--older-than",
+      "1d",
+    ]).then((value) => {
+      settled = true;
+      return value;
+    });
+    const publishing = command(root, [
+      "run",
+      "--json",
+      "--case-file",
+      join(repo, "examples/basic/graded.json"),
+      "--adapter-module",
+      join(repo, "examples/basic/host.ts"),
+      "--runner-build-digest",
+      "a".repeat(64),
+      "--project-digest",
+      "b".repeat(64),
+    ]).then((value) => {
+      publicationSettled = true;
+      return value;
+    });
+    try {
+      await Bun.sleep(300);
+      expect(settled).toBe(false);
+      expect(publicationSettled).toBe(false);
+      expect((await stat(defined(paths[0]))).isFile()).toBe(true);
+    } finally {
+      lock.close();
+      await Promise.all([pruning, publishing]);
+    }
+    const pruned = await pruning;
+    const published = await publishing;
+    expect(pruned.code, pruned.stderr).toBe(0);
+    expect(published.code, published.stderr).toBe(0);
+    expect((await command(root, ["report", "--latest"])).code).toBe(0);
+  },
+);
+
+test("parent prune repairs nested latest indexes for surviving results", async () => {
+  const { root, results, paths } = await fixture(3);
+  await writeFile(
+    join(results, "latest.json"),
+    await readFile(defined(paths[0])),
+  );
+  const pruned = await command(root, [
+    "prune",
+    "--results-root",
+    root,
+    "--latest",
+  ]);
+  expect(pruned.code, pruned.stderr).toBe(0);
+  const report = await command(root, ["report", "--latest", "--json"]);
+  expect(report.code, report.stderr).toBe(0);
+  expect(parseReport(report.stdout).rows[0]?.runId).toBe(
+    parseCliResult(await readFile(defined(paths[2]), "utf8")).runId,
+  );
+});
+
+test.each(["active", "unrecognized"])(
+  "parent transcript prune protects nested %s ownership and excludes it from count",
+  async (status) => {
+    const { root, results, adapter, transcript, resultPath } =
+      await nativeFixture();
+    const second = await nativeRun(root, adapter);
+    const result = parseCliResult(second.stdout);
+    const secondPath = join(
+      dirname(defined(result.evidencePath)),
+      "result.json",
+    );
+    const recordPath = join(results, "active", `${defined(result.runId)}.json`);
+    const record = parseRecord(await readFile(recordPath, "utf8"));
+    record.status = status;
+    await writeFile(recordPath, JSON.stringify(record));
+    const old = new Date("2000-01-01T00:00:00Z");
+    await utimes(resultPath, old, old);
+    const bytes = await readFile(fileURLToPath(transcript.path));
+    const pruned = await command(root, [
+      "prune",
+      "--results-root",
+      root,
+      "--native-transcripts",
+      "--keep",
+      "1",
+    ]);
+    expect(pruned.code, pruned.stderr).toBe(0);
+    expect(pruned.stdout).toContain(
+      "Removed 0 native transcript bundle(s); kept 1 result(s)",
+    );
+    expect(await readFile(fileURLToPath(transcript.path))).toEqual(bytes);
+    expect((await stat(secondPath)).isFile()).toBe(true);
+    await expectMissing(
+      join(dirname(secondPath), "native-transcripts-pruned.json"),
+    );
+  },
+);
+
+test("parent prune preserves ownership above relocated nested attempts despite closer completed records", async () => {
+  const { root, results, paths } = await fixture(2);
+  const original = defined(paths[0]);
+  const id = defined(parseCliResult(await readFile(original, "utf8")).runId);
+  const recordPath = join(results, "active", `${id}.json`);
+  const record = parseRecord(await readFile(recordPath, "utf8"));
+  const nested = await nestedAttempt(results, original);
+  await mkdir(join(dirname(dirname(nested)), "active"), { recursive: true });
+  await writeFile(
+    join(dirname(dirname(nested)), "active", `${id}.json`),
+    JSON.stringify(record),
+  );
+  record.status = "active";
+  await writeFile(recordPath, JSON.stringify(record));
+  await rm(join(results, ".retention-lock.sqlite"));
+  await rm(join(results, "latest.json"));
+  const pruned = await command(root, [
+    "prune",
+    "--results-root",
+    root,
+    "--latest",
+  ]);
+  expect(pruned.code, pruned.stderr).toBe(0);
+  expect(pruned.stdout).toContain("Removed 0 result(s); kept 1");
+  expect((await stat(nested)).isFile()).toBe(true);
+  expect((await command(root, ["report", "--latest"])).code).toBe(0);
+});
+
+test.each(["active", ".retention-lock.sqlite"])(
+  "parent prune refuses nested linked coordination %s before deleting results",
+  async (name) => {
+    const { root, results, paths } = await fixture(2);
+    const target = join(results, name);
+    const external = join(root, "external-coordination");
+    await rename(target, external);
+    await symlink(external, target);
+    const latest = await readFile(join(results, "latest.json"), "utf8");
+    const pruned = await command(root, [
+      "prune",
+      "--results-root",
+      root,
+      "--older-than",
+      "1d",
+    ]);
+    expect(pruned.code, pruned.stderr).toBe(64);
+    for (const path of paths) expect((await stat(path)).isFile()).toBe(true);
+    expect(await readFile(join(results, "latest.json"), "utf8")).toBe(latest);
+  },
+);
 
 async function nestedAttempt(results: string, path: string) {
   const old = dirname(path);
