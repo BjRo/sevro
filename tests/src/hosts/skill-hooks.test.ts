@@ -667,7 +667,7 @@ async function directHook(configurationPath: string | null, input: Uint8Array) {
   const args = [
     process.execPath,
     fileURLToPath(
-      new URL("../src/hosts/skill-hook-handler.ts", import.meta.url),
+      new URL("../../../src/hosts/skill-hook-handler.ts", import.meta.url),
     ),
   ];
   if (configurationPath !== null) args.push(configurationPath);
