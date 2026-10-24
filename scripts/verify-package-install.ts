@@ -37,6 +37,44 @@ async function run(argv: string[], cwd: string): Promise<string> {
   return stdout;
 }
 
+function verifyReferenceContents(installed: string): void {
+  const required = [
+    "LICENSE",
+    "CONTRIBUTING.md",
+    "docs/licensing.md",
+    "docs/assets/README.md",
+    "docs/licenses/BUSL-1.1-0.1.0-rc.2.txt",
+    "docs/development-cli.md",
+    "docs/run-settings-v1.md",
+    "docs/results-v1.md",
+    "docs/reading-results.md",
+    "docs/evaluation-workflow.md",
+  ];
+  const omitted = [
+    "docs/assets/sevro-logo.png",
+    "docs/assets/sevro-symbol.svg",
+    "docs/assets/sevro-wordmark.svg",
+    "docs/evidence",
+    "docs/evidence.md",
+    "docs/cache-ownership-validation.md",
+    "docs/claude-continuation-validation.md",
+    "docs/concurrency-validation.md",
+    "docs/configuration-root-validation.md",
+    "docs/fixture-cleanup-validation.md",
+    "docs/engine-slice.md",
+    "docs/usability-study.md",
+    "docs/guide-verification.json",
+  ];
+  for (const path of required)
+    if (!existsSync(join(installed, path)))
+      throw new Error(`installed package is missing reference: ${path}`);
+  for (const path of omitted)
+    if (existsSync(join(installed, path)))
+      throw new Error(
+        `installed package contains repository-only material: ${path}`,
+      );
+}
+
 try {
   const sourceManifest = JSON.parse(
     await readFile(join(sourceRoot, "package.json"), "utf8"),
@@ -97,6 +135,7 @@ try {
     await checkReleaseDocumentation(installed);
   if (installedDocumentationErrors.length)
     throw new Error(installedDocumentationErrors.join("\n"));
+  verifyReferenceContents(installed);
   await verifyPackageWorkflow(installedCommand, consumer);
   async function installedRun(caseName: string) {
     const output = await run(

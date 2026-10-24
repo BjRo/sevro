@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { containsControl } from "../value-guards";
 import { existsSync } from "node:fs";
 import { mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
@@ -29,12 +30,7 @@ export type { IsolatedCommand } from "./isolation-common";
 const SANDBOX_EXEC = "/usr/bin/sandbox-exec";
 
 function quoted(path: string): string {
-  if (
-    Array.from(path).some(
-      (character) =>
-        character.charCodeAt(0) < 0x20 || character.charCodeAt(0) === 0x7f,
-    )
-  )
+  if (containsControl(path))
     throw new HostIsolationError("sandbox path contains a control character");
   return path.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
 }

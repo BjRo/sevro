@@ -1,0 +1,376 @@
+import Ajv2020 from "ajv/dist/2020.js";
+import { expect, test } from "bun:test";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import cliSchema from "../../schemas/cli-result-v1.schema.json";
+import extensionSchema from "../../schemas/extension-v1.schema.json";
+import runSchema from "../../schemas/run-evidence-v1.schema.json";
+import cliValidator from "../../src/generated/cli-result.cjs";
+import extensionValidator from "../../src/generated/extension.cjs";
+import runValidator from "../../src/generated/run-evidence.cjs";
+import { createCodexHost } from "../../src/hosts/codex";
+import { defined } from "../fixtures/assertions";
+
+const ajv = new Ajv2020({
+  allErrors: true,
+  strict: true,
+  strictRequired: false,
+  strictTypes: false,
+});
+for (const schema of [cliSchema, extensionSchema, runSchema])
+  ajv.addSchema(schema);
+function valid(schemaId: string, value: unknown): boolean {
+  const validator = ajv.getSchema(schemaId);
+  if (!validator) throw new Error(`missing schema: ${schemaId}`);
+  const result = validator(value) === true;
+  const generated: Record<string, (value: unknown) => boolean> = {
+    "urn:sevro:schema:cli-result:v1": cliValidator,
+    "urn:sevro:schema:extension:v1": extensionValidator,
+    "urn:sevro:schema:run-evidence:v1": runValidator,
+  };
+  expect(defined(generated[schemaId])(value)).toBe(result);
+  return result;
+}
+const digest = "a".repeat(64);
+const complete = { status: "completed" };
+const notRequested = { status: "not_requested" };
+const notAssessed = { verdict: "not_assessed" };
+const cliResult = {
+  format: "sevro.cli-result.v1",
+  runId: "run-1",
+  execution: complete,
+  grading: notRequested,
+  task: notAssessed,
+  exitCode: 0,
+  evidencePath: "/tmp/run.json",
+  cases: [
+    {
+      caseId: "prompt-only",
+      execution: complete,
+      grading: notRequested,
+      task: notAssessed,
+      trials: [
+        {
+          trial: 1,
+          execution: complete,
+          grading: notRequested,
+          task: notAssessed,
+          checks: [],
+          artifactPath: "/tmp/trial.json",
+        },
+      ],
+    },
+  ],
+};
+// eslint-disable-next-line max-lines-per-function -- Keep this complete versioned schema example and its rejection assertions together; sevro/test-callback-lines independently caps this callback at 200.
+test("accepts discovery and each extension operation", () => {
+  const envelope = (
+    protocol: string,
+    method: string,
+    field: string,
+    body: object,
+  ) => ({
+    protocol,
+    id: "request-1",
+    method,
+    [field]: body,
+  });
+  const discovery = "sevro.discovery.v1";
+  const extension = "sevro.extension.v1";
+  const evalCase = {
+    id: "case-1",
+    prompt: "Return ready.",
+    fixture: { kind: "inline", files: {} },
+    checks: [],
+    requiredEvidence: [],
+    extensionData: {},
+  };
+  const codexHost = createCodexHost({
+    binary: join(tmpdir(), "codex"),
+    authFile: join(tmpdir(), "auth.json"),
+    projectRoot: join(tmpdir(), "project"),
+    resultsRoot: join(tmpdir(), "results"),
+    additionalProtectedRoots: [],
+    model: "synthetic-codex",
+    effort: "low",
+  });
+  const exchanges = [
+    envelope(discovery, "describe", "params", {
+      protocols: [extension],
+      engineCapabilities: [],
+      hostCapabilities: [],
+    }),
+    envelope(discovery, "describe", "result", {
+      extension: { id: "example.policy", version: "1.0.0" },
+      protocols: [extension],
+      requiredCapabilities: [],
+      optionalCapabilities: [],
+      graders: [],
+      taskVerdictPolicies: [],
+    }),
+    envelope(extension, "resolve", "params", {
+      projectRoot: "file:///tmp/project",
+      selectors: {},
+      configuration: {},
+    }),
+    envelope(extension, "resolve", "result", { cases: [evalCase] }),
+    envelope(extension, "resolve", "result", {
+      cases: [
+        {
+          ...evalCase,
+          fixture: {
+            kind: "generated",
+            commits: [
+              {
+                message: "chore: initialize",
+                files: { "README.md": "ready\n" },
+              },
+            ],
+            files: { "README.md": "staged\n" },
+            staged: ["README.md"],
+            hooks: { "pre-commit": "#!/bin/sh\nexit 1\n" },
+            bin: { "fixture-tool": "#!/bin/sh\nexit 0\n" },
+          },
+        },
+      ],
+    }),
+    envelope(extension, "resolve", "result", {
+      cases: [
+        {
+          ...evalCase,
+          fixture: {
+            kind: "repository",
+            sourceRef: "fixture-repo",
+            files: { "README.md": "overlay\n" },
+            staged: ["README.md"],
+            hooks: { "pre-commit": "#!/bin/sh\nexit 1\n" },
+            bin: { "fixture-tool": "#!/bin/sh\nexit 0\n" },
+          },
+        },
+      ],
+    }),
+    envelope(extension, "prepare", "params", {
+      case: evalCase,
+      host: { id: codexHost.id, capabilities: [] },
+      condition: "passive",
+      configuration: {},
+    }),
+    envelope(extension, "prepare", "result", {
+      artifacts: [],
+      requestedInstrumentation: [],
+      extensionData: {},
+    }),
+    envelope(extension, "prepare", "result", {
+      artifacts: [],
+      requestedInstrumentation: [],
+      fixtureSetup: {
+        command: ["/bin/sh", "-c", "printf ready > setup.txt"],
+        environment: { CASE_ROOT: "{{sevro.project}}/cases" },
+      },
+      extensionData: {},
+    }),
+    envelope(extension, "evaluate", "params", {
+      caseId: "case-1",
+      execution: complete,
+      observations: [],
+      builtinChecks: [],
+      artifacts: [],
+      extensionData: {},
+      configuration: {},
+    }),
+    envelope(extension, "evaluate", "result", { checks: [], metrics: [] }),
+    envelope(extension, "evaluate", "params", {
+      caseId: "case-1",
+      execution: complete,
+      observations: [],
+      builtinChecks: [],
+      artifacts: [],
+      extensionData: {},
+      selectedTaskVerdictPolicy: "example.policy",
+      configuration: {},
+    }),
+    envelope(extension, "evaluate", "result", {
+      checks: [],
+      metrics: [],
+      taskVerdictRecommendation: "passed",
+    }),
+    envelope(extension, "evaluate", "error", {
+      code: "example.unavailable",
+      message: "required observation is unavailable",
+    }),
+  ];
+  for (const exchange of exchanges)
+    expect(valid("urn:sevro:schema:extension:v1", exchange)).toBe(true);
+});
+test("rejects ambiguous or incomplete extension messages", () => {
+  const base = {
+    protocol: "sevro.extension.v1",
+    id: "request-1",
+    method: "evaluate",
+  };
+  expect(
+    valid("urn:sevro:schema:extension:v1", {
+      ...base,
+      result: { checks: [], metrics: [] },
+      error: { code: "example.error", message: "failed" },
+    }),
+  ).toBe(false);
+  expect(
+    valid("urn:sevro:schema:extension:v1", {
+      ...base,
+      result: { checks: [{ id: "check-1", status: "passed" }], metrics: [] },
+    }),
+  ).toBe(false);
+  expect(
+    valid("urn:sevro:schema:extension:v1", {
+      ...base,
+      params: {},
+    }),
+  ).toBe(false);
+  expect(
+    valid("urn:sevro:schema:extension:v1", {
+      ...base,
+      result: {
+        checks: [{ id: "example.check", status: "passed", evidenceRefs: [] }],
+        metrics: [],
+      },
+    }),
+  ).toBe(false);
+});
+test("keeps execution, grading, and task verdict distinct in CLI JSON", () => {
+  expect(valid("urn:sevro:schema:cli-result:v1", cliResult)).toBe(true);
+  expect(
+    valid("urn:sevro:schema:cli-result:v1", {
+      ...cliResult,
+      grading: { status: "error" },
+      task: { verdict: "passed" },
+    }),
+  ).toBe(false);
+  expect(
+    valid("urn:sevro:schema:cli-result:v1", {
+      ...cliResult,
+      execution: { status: "failed" },
+      task: { verdict: "passed" },
+    }),
+  ).toBe(false);
+  expect(
+    valid("urn:sevro:schema:cli-result:v1", {
+      ...cliResult,
+      cases: [
+        {
+          ...defined(cliResult.cases[0]),
+          trials: [
+            {
+              ...defined(defined(cliResult.cases[0]).trials[0]),
+              grading: { status: "unavailable" },
+              task: { verdict: "passed" },
+            },
+          ],
+        },
+      ],
+    }),
+  ).toBe(false);
+  expect(
+    valid("urn:sevro:schema:cli-result:v1", {
+      ...cliResult,
+      execution: { status: "failed" },
+      task: { verdict: "failed" },
+    }),
+  ).toBe(true);
+});
+// eslint-disable-next-line max-lines-per-function -- Keep this complete versioned schema example and its rejection assertions together; sevro/test-callback-lines independently caps this callback at 200.
+test("requires separate runner, project, and extension provenance", () => {
+  const evidence = {
+    format: "sevro.run-evidence.v1",
+    runId: "run-1",
+    evaluationIdentity: {
+      algorithm: "sevro.identity.v1",
+      digest,
+      dimensions: {
+        runnerBuildDigest: digest,
+        projectDigest: digest,
+        configurationDigest: digest,
+        extensionDigest: null,
+        extensionProtocol: null,
+        caseDigest: digest,
+        fixtureDigest: digest,
+        checksDigest: digest,
+        requiredEvidenceDigest: digest,
+        evaluatorDigest: digest,
+        graderDigest: digest,
+        instrumentationDigest: digest,
+        routeDigest: digest,
+        condition: "passive",
+        trialCount: 1,
+        passThreshold: 1,
+      },
+    },
+    configuration: { digest, redacted: {} },
+    runner: {
+      source: "package",
+      packageName: "sevro",
+      version: "0.1.0",
+      buildDigest: digest,
+    },
+    project: {
+      root: "file:///tmp/project",
+      revision: null,
+      dirtyPatchDigest: null,
+    },
+    extension: null,
+    condition: {
+      requested: "passive",
+      actual: "passive",
+      requestedInstrumentation: [],
+      appliedInstrumentation: [],
+    },
+    graders: { active: [], replacedDefaults: [] },
+    routes: [],
+    result: cliResult,
+    trials: [
+      {
+        caseId: "prompt-only",
+        trial: 1,
+        executionMode: "executed",
+        condition: {
+          requested: "passive",
+          actual: "passive",
+          appliedInstrumentation: [],
+        },
+        observationCompleteness: "complete",
+        observations: [],
+        metrics: [],
+        taskVerdictPolicy: null,
+        routes: [],
+        usage: {
+          inputTokens: null,
+          outputTokens: null,
+          costUsd: null,
+          complete: false,
+        },
+        rawResult: { source: "synthetic", path: null, sha256: null },
+        artifactRefs: [],
+      },
+    ],
+  };
+  expect(valid("urn:sevro:schema:run-evidence:v1", evidence)).toBe(true);
+  expect(
+    valid("urn:sevro:schema:run-evidence:v1", {
+      ...evidence,
+      runner: { version: "0.1.0" },
+    }),
+  ).toBe(false);
+  const incompleteDimensions: Partial<
+    typeof evidence.evaluationIdentity.dimensions
+  > = { ...evidence.evaluationIdentity.dimensions };
+  delete incompleteDimensions.instrumentationDigest;
+  expect(
+    valid("urn:sevro:schema:run-evidence:v1", {
+      ...evidence,
+      evaluationIdentity: {
+        ...evidence.evaluationIdentity,
+        dimensions: incompleteDimensions,
+      },
+    }),
+  ).toBe(false);
+});

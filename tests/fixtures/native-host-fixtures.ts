@@ -1,17 +1,21 @@
-import { mkdir, mkdtemp, readFile, realpath } from "node:fs/promises";
+import { mkdir, readFile, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createHostDiagnostics } from "../../src/host-diagnostics";
 import { type AppServerRunOptions } from "../../src/hosts/codex-app-server";
 import { record } from "./assertions";
+import { createTemporaryFixtures } from "./filesystem";
 
 const testDirectory = join(import.meta.dir, "..");
 
 export function createWorkspace(roots: string[]) {
+  const { temporaryFixture } = createTemporaryFixtures(roots);
+
   async function workspace() {
     const root = await realpath(
-      await mkdtemp(join(tmpdir(), "sevro-host-quality-")),
+      await temporaryFixture(join(tmpdir(), "sevro-host-quality-")),
     );
-    roots.push(root);
+
     await mkdir(join(root, ".git"));
     return root;
   }
@@ -24,6 +28,7 @@ export function createServerOptions(
   async function serverOptions(mode: string): Promise<AppServerRunOptions> {
     const root = await workspace();
     return {
+      diagnostics: createHostDiagnostics("codex", false, {}),
       request: {
         repoDir: root,
         prompt: "Return ready",

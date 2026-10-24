@@ -1,4 +1,8 @@
-import { isRecord, isUnknownArray } from "./value-guards";
+import {
+  isRecord,
+  isUnknownArray,
+  validQualifiedId as validInstrumentationId,
+} from "./value-guards";
 import { canonicalJson } from "./identity";
 
 export interface InstrumentationRequest {
@@ -18,12 +22,6 @@ export class InstrumentationEvidenceError extends Error {
   }
 }
 
-const ID = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$/;
-
-function validInstrumentationId(value: unknown): value is string {
-  return typeof value === "string" && ID.test(value);
-}
-
 function validRequest(value: unknown): value is InstrumentationRequest {
   return (
     isRecord(value) &&
@@ -39,7 +37,8 @@ function validateSupportedInstrumentation(
   if (
     supported.some(
       (item) =>
-        !ID.test(item.id) || typeof item.executionChanging !== "boolean",
+        !validInstrumentationId(item.id) ||
+        typeof item.executionChanging !== "boolean",
     ) ||
     ids.size !== supported.length
   )

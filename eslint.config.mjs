@@ -9,8 +9,8 @@ export default defineConfig(
     files: ["src/generated/*.cjs"],
     languageOptions: { sourceType: "commonjs" },
     // Byte-locked AJV output: parse syntax here, schemas:check verifies exact
-    // generation, .d.cts types its boundary, Bun integration exercises it, and
-    // Istanbul includes all executable counters. Authored rules do not apply.
+    // generation, .d.cts types its boundary, and Bun integration exercises it.
+    // Generated validators are outside authored-production coverage and rules.
   },
   {
     files: [

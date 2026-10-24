@@ -1,4 +1,6 @@
 import { runtimeSeedSources } from "../runtime/config";
+import { minimalRoots } from "../paths";
+import { shellQuote } from "../shell";
 import {
   candidateArtifactEnvironment,
   candidateArtifactReadRoots,
@@ -49,12 +51,6 @@ export interface ClaudeHostOptions {
   projectSettings?: boolean;
   timeoutMs?: number;
   retainHostDiagnostics?: boolean;
-}
-
-function minimalRoots(roots: string[]): string[] {
-  return roots.filter(
-    (root) => !roots.some((other) => other !== root && inside(other, root)),
-  );
 }
 
 function claudeSeedSources(request: Request): string[] {
@@ -325,7 +321,7 @@ async function claudeTranscriptAccess(
   await mkdir(projects, { recursive: true, mode: 0o700 });
   await symlink(projects, join(dirname(credential), "projects"));
   const startup = join(view, "shell-env");
-  const script = `export CLAUDE_CONFIG_DIR='${view.replaceAll("'", `'"'"'`)}'\n`;
+  const script = `export CLAUDE_CONFIG_DIR=${shellQuote(view)}\n`;
   await writeFile(startup, script, { flag: "wx", mode: 0o600 });
   await writeFile(join(view, ".zshenv"), script, { flag: "wx", mode: 0o600 });
   return {

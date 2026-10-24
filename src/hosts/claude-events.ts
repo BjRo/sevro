@@ -9,6 +9,32 @@ export class ClaudeEventError extends Error {
 }
 
 type Entry = Record<string, unknown>;
+export type ClaudeEventLine =
+  { parsed: true; value: unknown } | { parsed: false; error: unknown };
+export interface ClaudeEvents {
+  lines: readonly ClaudeEventLine[];
+}
+
+/** Decode JSON once; consumers retain their own event validity rules. */
+export function parseClaudeEvents(stream: string | ClaudeEvents): ClaudeEvents {
+  if (typeof stream !== "string") return stream;
+  if (Buffer.byteLength(stream, "utf8") > MAX_EVENT_STREAM_BYTES)
+    throw new ClaudeEventError("Claude event stream exceeds 8 MiB");
+  return {
+    lines: stream
+      .split("\n")
+      .filter((line) => line.trim())
+      .map(parseLine),
+  };
+}
+
+function parseLine(line: string): ClaudeEventLine {
+  try {
+    return { parsed: true, value: JSON.parse(line) as unknown };
+  } catch (error) {
+    return { parsed: false, error };
+  }
+}
 
 function nonnegative(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0;
@@ -78,36 +104,26 @@ export interface ClaudeEventSummary {
   usageComplete: boolean;
 }
 
-/** Parse bounded Claude stream JSON without retaining its private event bodies. */
+/** Summarize decoded events without exposing their private bodies. */
 export function summarizeClaudeEvents(
-  stream: string,
+  stream: string | ClaudeEvents,
   exitCode: number,
 ): ClaudeEventSummary {
-  if (Buffer.byteLength(stream, "utf8") > MAX_EVENT_STREAM_BYTES)
-    throw new ClaudeEventError("Claude event stream exceeds 8 MiB");
-  const { results, malformed } = parseResultEvents(stream);
+  const { results, malformed } = parseResultEvents(parseClaudeEvents(stream));
   return resultSummary(results, malformed, exitCode);
 }
 
-function parseResultEvents(stream: string) {
+function parseResultEvents(stream: ClaudeEvents) {
   const results: Entry[] = [];
   let malformed = false;
-  for (const line of stream.split("\n")) {
-    if (!line.trim()) continue;
-    try {
-      const event = parseValidEvent(line);
-      if (event.type === "result") results.push(event);
-    } catch {
+  for (const line of stream.lines) {
+    if (!line.parsed || !validEvent(line.value)) {
       malformed = true;
+      continue;
     }
+    if (line.value.type === "result") results.push(line.value);
   }
   return { results, malformed };
-}
-
-function parseValidEvent(line: string): Entry {
-  const event: unknown = JSON.parse(line);
-  if (!validEvent(event)) throw new ClaudeEventError("Malformed Claude event");
-  return event;
 }
 
 function summarizeUsage(results: Entry[], malformed: boolean) {

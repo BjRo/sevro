@@ -37,11 +37,22 @@ for reproducing the CI split.
 
 ## Source dispositions
 
-[`typescript-sources.json`](../typescript-sources.json) explicitly lists every
-TypeScript and JavaScript source. The guard refuses new, missing or duplicated
-files and declarations outside the configured TypeScript project. Changing a
-source disposition requires review; adding a glob is not a substitute for the
-inventory. The coverage baseline includes the platform-reachable subset of
+The [inventory guard](../scripts/typescript-inventory.ts) derives every TypeScript
+and JavaScript source disposition from Git paths, following the
+[maintainer decision in #143](https://github.com/BjRo/sevro/issues/143#issuecomment-6382662399).
+It classifies `git ls-files --cached --others --exclude-standard -z` output using
+the checked path rules, so supported additions and staged renames or deletions
+need no manual manifest edit. Non-ignored untracked sources are included in local
+candidate checks; committed CI checkouts use their tracked paths. Declarations
+take precedence over directory roles, and only the validators in the shared
+[schema catalog](../scripts/schema-catalog.ts) receive the generated disposition.
+Unknown or ambiguous paths, missing tracked files, an incomplete generated set,
+and sources outside lint or typing are refused. An independent filesystem audit
+also refuses ignored authored sources rather than silently dropping them.
+Changing a disposition rule still requires review. Isolated coverage snapshots
+index their copied candidate independently, preserving additions and deletions
+without changing the source checkout's index.
+The coverage baseline includes the platform-reachable subset of
 `inventory.production`; `scripts/coverage/platform-scope.ts` names each excluded
 host-specific file. Every production file remains inventoried, typed and linted,
 and the opposite platform measures it. Current instrumentation supports authored
@@ -66,8 +77,8 @@ recommended JavaScript rules found 879 redeclarations, 281 useless assignments, 
 generation freshness, typed public boundaries and runtime behavior remain checked.
 Generated compiler output is excluded from coverage because the coverage target
 measures authored runner behavior. This applies only to
-`src/generated/cli-result.cjs`, `extension.cjs`, `report.cjs`, `run-evidence.cjs` and `runtime.cjs`
-as explicitly declared in the inventory. This disposition does not apply to authored CommonJS, including
+the exact validator paths derived from the [schema catalog](../scripts/schema-catalog.ts),
+which also drives schema generation. This disposition does not apply to authored CommonJS, including
 the coverage capture hook.
 
 ## Types, functions and review
@@ -182,6 +193,9 @@ the full-suite evidence. Sparse runs are expected to fail the full denominator.
 
 The durable public probes are `--probe snapshot`, `--probe scope`, `--probe branch`,
 `--probe missing-reports`, `--probe integrity`, and `--probe source-map`.
+`tests/scripts/typescript-quality.test.ts` invokes each probe once during the suite;
+the phase entrypoint and shard merge do not rerun them. The commands remain
+available for targeted diagnostics.
 The scope probe records a zero-seeded baseline and merged real process report
 under `.quality/coverage-scope`; it verifies that ordinary generated CommonJS
 validation still runs. Branch and missing-report controls
@@ -198,7 +212,8 @@ CI targets `ubuntu-24.04` x64 with Bun 1.3.13 and Node 24.13.0. Its first
 successful hosted run is required before describing that environment as validated.
 GitHub documents the [Ubuntu runner labels](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
 Ubuntu installs `bubblewrap`, `ripgrep`, and `socat` and runs the same native isolation cases;
-local macOS runs retain `sandbox-exec`. Windows remains unverified.
+local macOS runs retain `sandbox-exec`. The macOS quality and coverage gate is
+local-only; the hosted workflow does not run a macOS gate. Windows remains unverified.
 
 Ordinary changes and explicit workflow dispatches run the four canonical phases
 concurrently. The tests phase consists of four shard jobs followed by a combined
@@ -210,6 +225,15 @@ the same pull request cancels its superseded workflow run; main pushes and manua
 runs have independent concurrency groups. The stable aggregate `TypeScript quality`
 status requires every phase and all four shards to succeed. A missing, cancelled,
 skipped or failed phase or shard cannot turn that status green.
+
+CI caches Bun's package downloads by Bun version, OS, architecture and `bun.lock`;
+every job still performs frozen installation. The docs job and test shards also
+cache the installed Codex and Claude packages by OS, architecture and the setup
+script's content hash, which includes both pinned versions and their installation
+layout. There are no fallback keys for native tools. On a hit, setup copies the
+cached packages into a fresh temporary tool root and verifies both native versions
+before publishing their paths. The cache never contains credentials or replaces
+the isolation prerequisites or required checks.
 
 Release metadata changes follow [the release workflow](releases.md) and reuse a
 successful full gate from an ancestor on `main`, with identical code,

@@ -10,7 +10,6 @@ import { join } from "node:path";
 import { advisoryBaseRevision } from "../fixtures/advisory";
 import type { EvaluationContext } from "./context";
 import { prepareTrialWorkspace } from "./resources";
-import type { PreparedFixture, PreparedInvocation } from "./plan";
 import { hostArtifacts, hostObservations } from "../evidence/host-results";
 import {
   TrialEvidenceWriter,
@@ -64,58 +63,6 @@ import { rethrowDiagnosticPersistenceError } from "../host-diagnostics";
 import { evaluationProgress } from "./progress";
 
 const MAX_FINAL_MESSAGE_BYTES = 8 * 1024 * 1024;
-
-function candidateMarketplaceRequest(
-  invocation: PreparedInvocation,
-  artifacts: PreparedFixture["inlineArtifacts"],
-) {
-  const marketplace = invocation.codexMarketplace;
-  if (!marketplace) return {};
-  return {
-    codexMarketplace: {
-      ...marketplace,
-      artifactPaths: artifacts
-        .filter((artifact) =>
-          artifact.relativePath.startsWith(`${marketplace.artifactRoot}/`),
-        )
-        .map((artifact) => artifact.relativePath),
-    },
-  };
-}
-
-function candidatePluginDirectoriesRequest(
-  invocation: PreparedInvocation,
-  artifacts: PreparedFixture["inlineArtifacts"],
-) {
-  const directories = invocation.claudePluginDirs;
-  if (!directories) return {};
-  return {
-    claudePluginDirs: {
-      ...directories,
-      artifactPaths: artifacts
-        .filter((artifact) =>
-          directories.artifactRoots.some((root) =>
-            artifact.relativePath.startsWith(`${root}/`),
-          ),
-        )
-        .map((artifact) => artifact.relativePath),
-    },
-  };
-}
-
-function candidateInvocationRequest(invocation: PreparedInvocation) {
-  if (
-    invocation.invocation === undefined ||
-    invocation.invocationToken === null
-  )
-    return {};
-  return {
-    explicitSkillInvocation: {
-      ...invocation.invocation,
-      token: invocation.invocationToken,
-    },
-  };
-}
 
 function ensureNotCancelled(signal: AbortSignal | undefined): void {
   if (signal?.aborted) throw new Error("cancelled");
@@ -174,9 +121,7 @@ interface TrialRuntimeState {
   candidateDurationMs: number | null;
   completeness: ObservationCompleteness;
   observation: TrialObservation;
-  shellObservations: TrialObservation[];
-  gitHeadObservations: TrialObservation[];
-  semanticObservations: TrialObservation[];
+  gradingObservations: TrialObservation[];
   checks: CheckOutcome[];
   extensionMetrics: EvaluationResult["metrics"];
   domainOutcomes: NonNullable<EvaluationResult["domainOutcomes"]>;
@@ -206,9 +151,7 @@ function initialTrialState(dry: boolean | undefined): TrialRuntimeState {
       completeness: "unavailable",
       data: {},
     },
-    shellObservations: [],
-    gitHeadObservations: [],
-    semanticObservations: [],
+    gradingObservations: [],
     checks: [],
     extensionMetrics: [],
     domainOutcomes: [],
@@ -305,15 +248,7 @@ class EvaluationTrial {
       instrumentation: snapshotInstrumentation(
         this.context.prepared.requestedInstrumentation,
       ),
-      ...candidateMarketplaceRequest(
-        this.context.prepared.invocation,
-        this.context.prepared.fixture.inlineArtifacts,
-      ),
-      ...candidatePluginDirectoriesRequest(
-        this.context.prepared.invocation,
-        this.context.prepared.fixture.inlineArtifacts,
-      ),
-      ...candidateInvocationRequest(this.context.prepared.invocation),
+      ...structuredClone(this.context.prepared.invocation.hostRequest),
       signal: this.options.signal,
     };
   }
@@ -485,14 +420,6 @@ class EvaluationTrial {
     if (failure) this.failGrading(failure.message, failure.cancelable);
   }
 
-  private gradingFailureEffects() {
-    return {
-      onFailure: (failure: GradingFailure) => {
-        this.acceptGradingFailure(failure);
-      },
-    };
-  }
-
   private gradeOutput(): void {
     if (this.state.execution !== "completed") return;
     const graded = gradeCandidateOutput({
@@ -518,8 +445,8 @@ class EvaluationTrial {
         ...(this.options.preparationSources
           ? [this.options.preparationSources.root]
           : []),
-        ...(this.context.prepared.fixture.repository
-          ? [this.context.prepared.fixture.repository.path]
+        ...(this.context.prepared.fixture.source.kind === "repository"
+          ? [this.context.prepared.fixture.source.repository.path]
           : []),
         this.context.resources.runStateRoot,
       ],
@@ -532,28 +459,26 @@ class EvaluationTrial {
       this.context.prepared.checks.preparedShell.length === 0
     )
       return;
-    const graded = await gradeShellChecks(
-      {
-        checks: this.context.prepared.checks.preparedShell,
-        protectedRoots: this.shellRootRequest(),
-        execution: {
-          candidateTranscriptRoot: this.state.candidateTranscriptRoot,
-          candidateArtifactRoots: this.state.candidateArtifacts,
-          workspace: this.fixture.workspace,
-          fixtureBinDir: this.fixture.fixtureBinDir,
-          toolchainBinDir: this.options.shellIsolation?.toolchainBinDir,
-          runtimePolicy: this.options.runtimePolicy,
-          uvRuntimeCache: this.options.shellIsolation?.uvRuntimeCache,
-          privateStateRoot: join(
-            this.context.resources.stateDir,
-            "shell-sandbox",
-          ),
-          signal: this.options.signal,
-        },
+    const graded = await gradeShellChecks({
+      checks: this.context.prepared.checks.preparedShell,
+      protectedRoots: this.shellRootRequest(),
+      execution: {
+        candidateTranscriptRoot: this.state.candidateTranscriptRoot,
+        candidateArtifactRoots: this.state.candidateArtifacts,
+        workspace: this.fixture.workspace,
+        fixtureBinDir: this.fixture.fixtureBinDir,
+        toolchainBinDir: this.options.shellIsolation?.toolchainBinDir,
+        runtimePolicy: this.options.runtimePolicy,
+        uvRuntimeCache: this.options.shellIsolation?.uvRuntimeCache,
+        privateStateRoot: join(
+          this.context.resources.stateDir,
+          "shell-sandbox",
+        ),
+        signal: this.options.signal,
       },
-      this.gradingFailureEffects(),
-    );
-    this.state.shellObservations.push(...graded.observations);
+    });
+    this.acceptGradingFailure(graded.failure);
+    this.state.gradingObservations.push(...graded.observations);
     this.state.checks.push(...graded.checks);
   }
 
@@ -563,16 +488,14 @@ class EvaluationTrial {
       this.context.prepared.checks.preparedGitHead.length === 0
     )
       return;
-    const graded = await gradeGitHeadChecks(
-      {
-        checks: this.context.prepared.checks.preparedGitHead,
-        base: this.state.gitHeadBase,
-        workspace: this.fixture.workspace,
-        signal: this.options.signal,
-      },
-      this.gradingFailureEffects(),
-    );
-    this.state.gitHeadObservations.push(...graded.observations);
+    const graded = await gradeGitHeadChecks({
+      checks: this.context.prepared.checks.preparedGitHead,
+      base: this.state.gitHeadBase,
+      workspace: this.fixture.workspace,
+      signal: this.options.signal,
+    });
+    this.acceptGradingFailure(graded.failure);
+    this.state.gradingObservations.push(...graded.observations);
     this.state.checks.push(...graded.checks);
   }
 
@@ -602,21 +525,21 @@ class EvaluationTrial {
       },
       {
         evidence: this.evidence,
-        ...this.gradingFailureEffects(),
+        onFailure: (failure) => {
+          this.acceptGradingFailure(failure);
+        },
         retainWorkspace: (workspace) =>
           this.retainAuxiliaryWorkspace(workspace),
       },
     );
-    this.state.semanticObservations.push(...graded.observations);
+    this.state.gradingObservations.push(...graded.observations);
     this.state.checks.push(...graded.checks);
   }
 
   private trialObservations(): TrialObservation[] {
     return [
       this.state.observation,
-      ...this.state.shellObservations,
-      ...this.state.gitHeadObservations,
-      ...this.state.semanticObservations,
+      ...this.state.gradingObservations,
       ...this.state.additionalObservations,
       {
         id: "sevro.observation.workspaces",
@@ -662,14 +585,12 @@ class EvaluationTrial {
   private async gradeExtension(): Promise<void> {
     const extension = this.options.extension;
     if (!extension || !this.canGrade()) return;
-    const graded = await gradeExtensionChecks(
-      {
-        evaluate: (request) => extension.session.evaluate(request),
-        request: this.extensionEvaluationRequest(),
-        declarations: this.context.prepared.checks.extensionDeclarations,
-      },
-      this.gradingFailureEffects(),
-    );
+    const graded = await gradeExtensionChecks({
+      evaluate: (request) => extension.session.evaluate(request),
+      request: this.extensionEvaluationRequest(),
+      declarations: this.context.prepared.checks.extensionDeclarations,
+    });
+    this.acceptGradingFailure(graded.failure);
     this.state.checks.push(...graded.checks);
     this.state.extensionMetrics = graded.metrics;
     this.state.domainOutcomes = graded.domainOutcomes;

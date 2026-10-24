@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import type { HostAdapter } from "../engine";
 import type { PreparedInvocation } from "./preparation";
+import { nativeRoutes } from "./invocation";
 
 type NativeRoute = { binary: string; timeoutMs?: number } | undefined;
 
@@ -112,21 +113,14 @@ function legacyRuntimeSettings(invocation: PreparedInvocation["invocation"]) {
 
 function selectedToolchain(invocation: PreparedInvocation["invocation"]) {
   return (
-    invocation.shellIsolation?.toolchainBinDir ??
-    invocation.claude?.toolchainBinDir ??
-    null
+    (invocation.shellIsolation ?? invocation.claude)?.toolchainBinDir ?? null
   );
 }
 
 function retainedDiagnostics(
   invocation: PreparedInvocation["invocation"],
 ): boolean {
-  return [
-    invocation.codex,
-    invocation.claude,
-    invocation.semanticCodex,
-    invocation.advisoryCodex,
-  ].some((host) => host?.retainHostDiagnostics === true);
+  return nativeRoutes(invocation).some((host) => host.retainHostDiagnostics);
 }
 
 /** Assessment-affecting CLI settings absent from the engine's other identity inputs. */

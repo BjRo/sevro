@@ -55,12 +55,27 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.13
+      - name: Cache Bun downloads
+        uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: bun-1.3.13-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
       - name: Prepare Linux isolation
         if: matrix.phase != 'static'
         run: bash scripts/setup-ci-linux.sh
+      - name: Cache pinned native hosts
+        if: matrix.phase == 'docs'
+        id: native-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/sevro-ci/native-hosts
+          # The setup script owns both pinned versions and the installation layout.
+          key: native-hosts-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/setup-ci-codex.ts') }}
       - name: Install deterministic native host prerequisites
         if: matrix.phase == 'docs'
-        run: bun scripts/setup-ci-codex.ts
+        env:
+          SEVRO_CI_NATIVE_CACHE_HIT: ${{ steps.native-cache.outputs.cache-hit }}
+        run: SEVRO_CI_NATIVE_CACHE="$HOME/.cache/sevro-ci/native-hosts" bun scripts/setup-ci-codex.ts
       - uses: astral-sh/setup-uv@v7
         if: matrix.phase == 'docs'
         with:
@@ -95,10 +110,23 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.13
+      - name: Cache Bun downloads
+        uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: bun-1.3.13-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
       - name: Prepare Linux isolation
         run: bash scripts/setup-ci-linux.sh
+      - name: Cache pinned native hosts
+        id: native-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/sevro-ci/native-hosts
+          key: native-hosts-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/setup-ci-codex.ts') }}
       - name: Install deterministic native host prerequisites
-        run: bun scripts/setup-ci-codex.ts
+        env:
+          SEVRO_CI_NATIVE_CACHE_HIT: ${{ steps.native-cache.outputs.cache-hit }}
+        run: SEVRO_CI_NATIVE_CACHE="$HOME/.cache/sevro-ci/native-hosts" bun scripts/setup-ci-codex.ts
       - run: bun install --frozen-lockfile
       - name: Canonical TypeScript quality shard
         run: bun run check:typescript --shard ${{ matrix.shard }}/4
@@ -128,6 +156,11 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.13
+      - name: Cache Bun downloads
+        uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: bun-1.3.13-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
       - run: bun install --frozen-lockfile
       - uses: actions/download-artifact@v4
         with:
@@ -160,6 +193,11 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.13
+      - name: Cache Bun downloads
+        uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: bun-1.3.13-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
       - run: bun install --frozen-lockfile
       - name: Check release workflow syntax
         run: python3 -c 'import ast, pathlib; ast.parse(pathlib.Path(".github/scripts/release-ci.py").read_text())'

@@ -145,7 +145,7 @@ wrappers additionally embed that request's runtime, sandbox profile, and receipt
 paths. Replaying an old installation receipt cannot establish a new installed
 path. Sevro therefore retains native marketplace/plugin installation and receipt
 verification, fresh credentials/configuration, hook rewriting, preflight, and
-invocation evidence for every request. See the [startup measurements](evidence/runtime-startup-30/README.md)
+invocation evidence for every request. See the [startup measurements](https://github.com/BjRo/sevro/blob/main/docs/evidence/runtime-startup-30/README.md)
 for measured boundaries, copy-on-write assessment, and limitations.
 
 ## Retired skill-read evidence
@@ -157,7 +157,7 @@ parent/child read diagnostics. Migrate activation checks to
 than silently receiving a different meaning. Existing retained run evidence
 keeps its original interpretation.
 
-[Issue #70 representative retests](evidence/skill-reads-70/results.json) retain
+[Issue #70 representative retests](https://github.com/BjRo/sevro/blob/main/docs/evidence/skill-reads-70/results.json) retain
 separate task, activation, and phase-read outcomes from the private candidate,
 plus its source fingerprints and test-first regression results. Private native
 transcripts remain outside the repository.

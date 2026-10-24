@@ -52,8 +52,8 @@ export async function failedNativeTranscripts(
   policy: RuntimePolicy | undefined,
   root: string,
   host: "codex" | "claude",
-  role?: RuntimeRole,
-  diagnostics?: HostDiagnostics,
+  role: RuntimeRole | undefined,
+  diagnostics: HostDiagnostics,
 ): Promise<HostResult> {
   rethrowDiagnosticPersistenceError(cause);
   requireFailureCapture(cause, policy, diagnostics);
@@ -66,7 +66,7 @@ export async function failedNativeTranscripts(
           executionFailed: true,
           actualCondition: "passive",
         };
-  await diagnostics?.retain(result, cause);
+  await diagnostics.retain(result, cause);
   await retainEnabledNativeTranscripts(result, policy, root, host, role);
   return result;
 }
@@ -74,9 +74,9 @@ export async function failedNativeTranscripts(
 function requireFailureCapture(
   cause: unknown,
   policy: RuntimePolicy | undefined,
-  diagnostics: HostDiagnostics | undefined,
+  diagnostics: HostDiagnostics,
 ): void {
-  if (policy?.nativeTranscripts !== true && !diagnostics) throw cause;
+  if (policy?.nativeTranscripts !== true && !diagnostics.enabled) throw cause;
 }
 
 const MAX_FILES = 4096;

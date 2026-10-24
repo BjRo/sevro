@@ -1,20 +1,18 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { guideCli, documentationRoot } from "./documentation-tools";
-import type { Scenario } from "./guide-host";
 import { defined, parseCliResult, parseRecord, record } from "./assertions";
+import { documentationRoot, guideCli } from "./documentation-tools";
+import { createTemporaryFixtures } from "./filesystem";
+import type { Scenario } from "./guide-host";
 
 type Host = "codex" | "claude";
 
 function guideEvaluator(host: Host) {
   const roots: string[] = [];
-  afterEach(async () => {
-    await Promise.all(
-      roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
-    );
-  });
+  const { cleanupTemporaryFixtures } = createTemporaryFixtures(roots);
+  afterEach(cleanupTemporaryFixtures);
   return (id: string, scenario?: Scenario) =>
     evaluate(roots, host, id, scenario);
 }
@@ -25,8 +23,11 @@ async function evaluate(
   id: string,
   scenario: Scenario = "pass",
 ) {
-  const resultsRoot = await mkdtemp(join(tmpdir(), "sevro-guide-integration-"));
-  roots.push(resultsRoot);
+  const { temporaryFixture } = createTemporaryFixtures(roots);
+
+  const resultsRoot = await temporaryFixture(
+    join(tmpdir(), "sevro-guide-integration-"),
+  );
 
   const run = await guideCli(
     [
@@ -89,26 +90,30 @@ export function registerGuideCases(host: Host) {
   return evaluate;
 }
 
-const negative = [
+// Event parsing, invocation receipts and continuation evidence differ by host.
+const hostEvidenceFailures = [
   { id: "unrelated", scenario: "effects", verdict: "failed" },
-  { id: "unrelated", scenario: "changed", verdict: "failed" },
   { id: "unrelated", scenario: "missing-events", verdict: "not_assessed" },
   { id: "unrelated", scenario: "partial", verdict: "not_assessed" },
   { id: "explicit", scenario: "missing-receipt", verdict: "not_assessed" },
   { id: "explicit", scenario: "wrong-receipt", verdict: "failed" },
   { id: "follow-up", scenario: "stale-follow-up", verdict: "failed" },
   { id: "follow-up", scenario: "missing-follow-up", verdict: "not_assessed" },
-
-  { id: "unrelated", scenario: "failed", verdict: "not_assessed" },
-  { id: "orientation", scenario: "changed-mount", verdict: "failed" },
-  { id: "unrelated", scenario: "extra-directory", verdict: "failed" },
-  { id: "orientation", scenario: "missing-selection", verdict: "not_assessed" },
-  { id: "orientation", scenario: "partial-selection", verdict: "not_assessed" },
   {
     id: "follow-up",
     scenario: "missing-continuation",
     verdict: "not_assessed",
   },
+] as const;
+
+// Fixture integrity, common selection observations and answer grading are shared.
+const sharedFailures = [
+  { id: "unrelated", scenario: "changed", verdict: "failed" },
+  { id: "unrelated", scenario: "failed", verdict: "not_assessed" },
+  { id: "orientation", scenario: "changed-mount", verdict: "failed" },
+  { id: "unrelated", scenario: "extra-directory", verdict: "failed" },
+  { id: "orientation", scenario: "missing-selection", verdict: "not_assessed" },
+  { id: "orientation", scenario: "partial-selection", verdict: "not_assessed" },
   { id: "explicit", scenario: "bad-answer", verdict: "failed" },
   { id: "stale", scenario: "bad-answer", verdict: "failed" },
   { id: "missing", scenario: "bad-answer", verdict: "failed" },
@@ -116,6 +121,10 @@ const negative = [
 ] as const;
 export function registerGuideFailures(host: Host) {
   const evaluate = guideEvaluator(host);
+  const negative = [
+    ...hostEvidenceFailures,
+    ...(host === "codex" ? sharedFailures : []),
+  ];
   test.each(negative.map((scenario) => ({ ...scenario, host })))(
     "Sevro refuses $host/$scenario guide evidence",
     async ({ id, scenario, verdict }) => {

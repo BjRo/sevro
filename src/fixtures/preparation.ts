@@ -1,7 +1,9 @@
 import { isMissingFile } from "./tools";
 import { sha256 } from "../identity";
 import { lstat, mkdir, readFile, realpath, stat } from "node:fs/promises";
-import { isAbsolute, join, relative, sep } from "node:path";
+import { isAbsolute, join } from "node:path";
+import { insideRoot } from "../paths";
+import { containsControl as containsControlCharacter } from "../value-guards";
 import { fileURLToPath } from "node:url";
 
 const MAX_ARTIFACT_BYTES = 8 * 1024 * 1024;
@@ -114,12 +116,6 @@ function requireArtifactFlags(item: PreparationArtifact): void {
   if (item.executable !== undefined && typeof item.executable !== "boolean")
     throw new Error("preparation artifact executable must be boolean");
 }
-function containsControlCharacter(path: string): boolean {
-  return Array.from(path).some(
-    (character) =>
-      character.charCodeAt(0) < 0x20 || character.charCodeAt(0) === 0x7f,
-  );
-}
 function requireInlineSource(
   item: PreparationArtifact,
 ): asserts item is PreparationArtifact & { contentBase64: string } {
@@ -220,13 +216,7 @@ async function preparationSourcePath(url: string): Promise<string> {
   }
 }
 function requireContainedSource(root: string, path: string): void {
-  const child = relative(root, path);
-  if (
-    !child ||
-    child === ".." ||
-    child.startsWith(`..${sep}`) ||
-    isAbsolute(child)
-  )
+  if (root === path || !insideRoot(root, path))
     throw new Error("preparation source escapes its declared root");
 }
 async function preparationSourceSize(path: string): Promise<number> {

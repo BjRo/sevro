@@ -1,6 +1,7 @@
 import {
   EvaluationConfigurationError,
   type EvaluationOptions,
+  type HostAdapter,
   type ResolvedCase,
 } from "./types";
 import { fixtureParts, type InlineArtifact } from "../fixtures/preparation";
@@ -13,11 +14,38 @@ interface InvocationArtifacts {
 }
 
 type ClaudePluginDirectories = NonNullable<
-  NonNullable<InvocationArtifacts["extensionPreparation"]>["claudePluginDirs"]
+  PreparationResult["claudePluginDirs"]
 >;
-type CodexMarketplace = NonNullable<
-  NonNullable<InvocationArtifacts["extensionPreparation"]>["codexMarketplace"]
+type CodexMarketplace = NonNullable<PreparationResult["codexMarketplace"]>;
+
+interface PackageDeclarations {
+  readonly codexMarketplace: PreparationResult["codexMarketplace"];
+  readonly claudePluginDirs: PreparationResult["claudePluginDirs"];
+}
+
+interface PackagePlan extends InvocationArtifacts, PackageDeclarations {}
+
+interface SkillDeclarations {
+  readonly codexSkillInvocation: PreparationResult["codexSkillInvocation"];
+  readonly codexRepositorySkillInvocation: PreparationResult["codexRepositorySkillInvocation"];
+  readonly claudeSkillInvocation: PreparationResult["claudeSkillInvocation"];
+  readonly claudeRepositorySkillInvocation: PreparationResult["claudeRepositorySkillInvocation"];
+}
+
+type CandidatePackageRequest = Pick<
+  Parameters<HostAdapter["run"]>[0],
+  "codexMarketplace" | "claudePluginDirs" | "explicitSkillInvocation"
 >;
+
+export interface PreparedInvocation extends PackageDeclarations {
+  readonly selected: SelectedSkillInvocation;
+  readonly invocationToken: string | null;
+  readonly configuration: Partial<SkillDeclarations>;
+  readonly hostRequest: CandidatePackageRequest;
+}
+
+export const INVOCATION_PLACEHOLDER = "{{sevro.skill_invocation}}";
+export const LEGACY_CODEX_PLACEHOLDER = "{{sevro.codex.skill_invocation}}";
 
 function uniquePluginRoots(value: unknown): value is string[] {
   return (
@@ -144,10 +172,10 @@ function validateCodexMarketplacePackage(
   );
 }
 
-function preparePackageArtifacts<T extends InvocationArtifacts>(
+function preparePackageArtifacts(
   options: EvaluationOptions,
-  state: T,
-) {
+  state: InvocationArtifacts,
+): PackagePlan {
   const codexMarketplace = state.extensionPreparation?.codexMarketplace;
   const claudePluginDirs = state.extensionPreparation?.claudePluginDirs;
   validateClaudePluginPackage(options, claudePluginDirs, state.inlineArtifacts);
@@ -159,15 +187,9 @@ function preparePackageArtifacts<T extends InvocationArtifacts>(
   return { ...state, codexMarketplace, claudePluginDirs };
 }
 
-type PackagePlan = ReturnType<
-  typeof preparePackageArtifacts<InvocationArtifacts>
->;
-const INVOCATION_PLACEHOLDER = "{{sevro.skill_invocation}}";
-const LEGACY_CODEX_PLACEHOLDER = "{{sevro.codex.skill_invocation}}";
-
 function skillInvocationDeclarations(
-  preparation: PackagePlan["extensionPreparation"],
-) {
+  preparation: PreparationResult | null,
+): SkillDeclarations {
   return {
     codexSkillInvocation: preparation?.codexSkillInvocation,
     codexRepositorySkillInvocation: preparation?.codexRepositorySkillInvocation,
@@ -177,7 +199,6 @@ function skillInvocationDeclarations(
   };
 }
 
-type SkillDeclarations = ReturnType<typeof skillInvocationDeclarations>;
 type PluginSkillInvocation = NonNullable<
   SkillDeclarations["codexSkillInvocation"]
 >;
@@ -211,26 +232,96 @@ function selectedSkillInvocation(
   return { kind: "none" };
 }
 
-function invocationTokenFor(declarations: SkillDeclarations): string | null {
-  if (declarations.codexRepositorySkillInvocation)
-    return `$${declarations.codexRepositorySkillInvocation.skillName}`;
-  if (declarations.claudeRepositorySkillInvocation)
-    return `/${declarations.claudeRepositorySkillInvocation.skillName}`;
-  if (declarations.codexSkillInvocation)
-    return `$${declarations.codexSkillInvocation.pluginName}:${declarations.codexSkillInvocation.skillName}`;
-  if (declarations.claudeSkillInvocation)
-    return `/${declarations.claudeSkillInvocation.pluginName}:${declarations.claudeSkillInvocation.skillName}`;
-  return null;
+function skillInvocationConfiguration(
+  selected: SelectedSkillInvocation,
+): Partial<SkillDeclarations> {
+  switch (selected.kind) {
+    case "codex-plugin":
+      return { codexSkillInvocation: selected.value };
+    case "codex-repository":
+      return { codexRepositorySkillInvocation: selected.value };
+    case "claude-plugin":
+      return { claudeSkillInvocation: selected.value };
+    case "claude-repository":
+      return { claudeRepositorySkillInvocation: selected.value };
+    case "none":
+      return {};
+  }
 }
 
-function invocationMetadata(declarations: SkillDeclarations) {
-  const repositoryInvocation =
-    declarations.codexRepositorySkillInvocation ??
-    declarations.claudeRepositorySkillInvocation;
-  const invocation = repositoryInvocation
-    ? { ...repositoryInvocation, scope: "repository" as const }
-    : (declarations.codexSkillInvocation ?? declarations.claudeSkillInvocation);
-  return { repositoryInvocation, invocation };
+function candidateInvocationRequest(
+  selected: SelectedSkillInvocation,
+): CandidatePackageRequest {
+  switch (selected.kind) {
+    case "codex-plugin":
+      return {
+        explicitSkillInvocation: {
+          ...selected.value,
+          token: `$${selected.value.pluginName}:${selected.value.skillName}`,
+        },
+      };
+    case "claude-plugin":
+      return {
+        explicitSkillInvocation: {
+          ...selected.value,
+          token: `/${selected.value.pluginName}:${selected.value.skillName}`,
+        },
+      };
+    case "codex-repository":
+      return {
+        explicitSkillInvocation: {
+          ...selected.value,
+          scope: "repository",
+          token: `$${selected.value.skillName}`,
+        },
+      };
+    case "claude-repository":
+      return {
+        explicitSkillInvocation: {
+          ...selected.value,
+          scope: "repository",
+          token: `/${selected.value.skillName}`,
+        },
+      };
+    case "none":
+      return {};
+  }
+}
+
+function candidateMarketplaceRequest(
+  context: PackagePlan,
+): CandidatePackageRequest {
+  const marketplace = context.codexMarketplace;
+  if (!marketplace) return {};
+  return {
+    codexMarketplace: {
+      ...marketplace,
+      artifactPaths: context.inlineArtifacts
+        .filter((artifact) =>
+          artifact.relativePath.startsWith(`${marketplace.artifactRoot}/`),
+        )
+        .map((artifact) => artifact.relativePath),
+    },
+  };
+}
+
+function candidatePluginDirectoriesRequest(
+  context: PackagePlan,
+): CandidatePackageRequest {
+  const directories = context.claudePluginDirs;
+  if (!directories) return {};
+  return {
+    claudePluginDirs: {
+      ...directories,
+      artifactPaths: context.inlineArtifacts
+        .filter((artifact) =>
+          directories.artifactRoots.some((root) =>
+            artifact.relativePath.startsWith(`${root}/`),
+          ),
+        )
+        .map((artifact) => artifact.relativePath),
+    },
+  };
 }
 
 function promptPlaceholderCount(
@@ -509,38 +600,36 @@ function validateSelectedSkillInvocation(
   }
 }
 
-function prepareSkillInvocation<T extends PackagePlan>(
+function prepareSkillInvocation(
   options: EvaluationOptions,
-  state: T,
-) {
+  state: PackagePlan,
+): PreparedInvocation {
   const declarations = skillInvocationDeclarations(state.extensionPreparation);
-  const metadata = invocationMetadata(declarations);
-  const invocationToken = invocationTokenFor(declarations);
   const placeholderCount =
     promptPlaceholderCount(options.case, INVOCATION_PLACEHOLDER) +
     promptPlaceholderCount(options.case, LEGACY_CODEX_PLACEHOLDER);
   validateOnlyOneInvocation(declarations);
-  validateSelectedSkillInvocation(
-    options,
-    state,
-    selectedSkillInvocation(declarations),
-    placeholderCount,
-  );
+  const selected = selectedSkillInvocation(declarations);
+  validateSelectedSkillInvocation(options, state, selected, placeholderCount);
+  const hostRequest = {
+    ...candidateMarketplaceRequest(state),
+    ...candidatePluginDirectoriesRequest(state),
+    ...candidateInvocationRequest(selected),
+  };
   return {
-    ...state,
-    ...declarations,
-    ...metadata,
-    invocationToken,
-    invocationPlaceholder: INVOCATION_PLACEHOLDER,
-    legacyCodexPlaceholder: LEGACY_CODEX_PLACEHOLDER,
-    placeholderCount,
+    codexMarketplace: state.codexMarketplace,
+    claudePluginDirs: state.claudePluginDirs,
+    selected,
+    invocationToken: hostRequest.explicitSkillInvocation?.token ?? null,
+    configuration: skillInvocationConfiguration(selected),
+    hostRequest,
   };
 }
 
-export function prepareInvocationPlan<T extends InvocationArtifacts>(
+export function prepareInvocationPlan(
   options: EvaluationOptions,
-  state: T,
-) {
+  state: InvocationArtifacts,
+): PreparedInvocation {
   return prepareSkillInvocation(
     options,
     preparePackageArtifacts(options, state),

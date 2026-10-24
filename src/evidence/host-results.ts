@@ -1,4 +1,4 @@
-import { isRecord } from "../value-guards";
+import { isRecord, validQualifiedId as validEvidenceId } from "../value-guards";
 import { canonicalJson } from "../identity";
 import type { HostResult } from "../evaluation/types";
 import type {
@@ -48,13 +48,6 @@ export function hostArtifacts(result: HostResult, existingIds: Set<string>) {
       throw new Error("host artifacts exceed the size limit");
     return { id: item.id, bytes: Buffer.from(item.bytes) };
   });
-}
-
-function validEvidenceId(value: unknown): value is string {
-  return (
-    typeof value === "string" &&
-    /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$/.test(value)
-  );
 }
 
 function validObservationId(value: unknown, ids: Set<string>): value is string {

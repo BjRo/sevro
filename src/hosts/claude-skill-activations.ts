@@ -1,5 +1,10 @@
 import { isRecord } from "../value-guards";
-import { summarizeClaudeEvents } from "./claude-events";
+import {
+  summarizeClaudeEvents,
+  parseClaudeEvents,
+  type ClaudeEvents,
+  type ClaudeEventLine,
+} from "./claude-events";
 
 const MAX_CALLS = 128;
 type Entry = Record<string, unknown>;
@@ -101,14 +106,12 @@ function conflictingResult(
   return previous !== "unknown" && previous !== next;
 }
 
-function visit(line: string, state: State) {
-  try {
-    const event: unknown = JSON.parse(line);
-    if (!isRecord(event)) throw new Error("invalid Claude event");
-    for (const block of blocks(event)) visitBlock(event, block, state);
-  } catch {
+function visit(line: ClaudeEventLine, state: State) {
+  if (!line.parsed || !isRecord(line.value)) {
     state.partial = true;
+    return;
   }
+  for (const block of blocks(line.value)) visitBlock(line.value, block, state);
 }
 
 function visitBlock(event: Entry, block: unknown, state: State) {
@@ -137,13 +140,13 @@ function completeCollection(completed: boolean, state: State): boolean {
 
 /** Observe the native Skill seam and distinguish successful results from attempts. */
 export function claudeSkillActivationsObservation(
-  stream: string,
+  stream: string | ClaudeEvents,
   code: number,
 ) {
-  const summary = summarizeClaudeEvents(stream, code);
+  const events = parseClaudeEvents(stream);
+  const summary = summarizeClaudeEvents(events, code);
   const state: State = { calls: new Map(), partial: false, truncated: false };
-  for (const line of stream.split("\n").filter((line) => line.trim()))
-    visit(line, state);
+  for (const line of events.lines) visit(line, state);
   const calls = [...state.calls.values()];
   const complete = completeCollection(summary.complete, state);
   return {

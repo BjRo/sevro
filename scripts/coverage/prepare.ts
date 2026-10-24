@@ -16,10 +16,12 @@ import { transformSync } from "@babel/core";
 import transformTypescript from "@babel/plugin-transform-typescript";
 import { productionSources } from "../typescript-inventory";
 import { platformCoverageScope } from "./platform-scope";
+import { gitArguments, gitEnvironment } from "../../src/git";
 
 function git(command: string[], cwd: string) {
-  const result = Bun.spawnSync(["git", ...command], {
+  const result = Bun.spawnSync(gitArguments(command), {
     cwd,
+    env: gitEnvironment(),
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -76,6 +78,8 @@ export function copySnapshot(repo: string, root: string) {
     mkdirSync(dirname(join(project, file)), { recursive: true });
     cpSync(join(repo, file), join(project, file));
   }
+  // The isolated index describes the copied candidate, including staged deletions.
+  git(["add", "--all", "--force"], project);
   const content = snapshotIdentity(project, root, files);
   symlinkSync(join(repo, "node_modules"), join(project, "node_modules"));
   cpSync(join(repo, "src"), join(source, "src"), { recursive: true });

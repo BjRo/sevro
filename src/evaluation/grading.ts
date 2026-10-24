@@ -30,19 +30,12 @@ export interface GradingResult {
   failure: GradingFailure | null;
 }
 
-export interface GradingFailureEffects {
-  /** Close admission when failure is detected, before an async result returns. */
-  onFailure(failure: GradingFailure): void;
-}
-
 function failedGrading(
   checks: CheckOutcome[],
   observations: TrialObservation[],
   message: string,
-  effects: GradingFailureEffects,
 ): GradingResult {
   const failure = { message, cancelable: true };
-  effects.onFailure(failure);
   return { checks, observations, failure };
 }
 
@@ -116,7 +109,6 @@ async function gradeShellCheck(
 
 export async function gradeShellChecks(
   input: ShellGradingInput,
-  effects: GradingFailureEffects,
 ): Promise<GradingResult> {
   const checks: CheckOutcome[] = [];
   const observations: TrialObservation[] = [];
@@ -139,20 +131,16 @@ export async function gradeShellChecks(
       checks,
       observations,
       "shell grading did not complete",
-      effects,
     );
   }
 }
 
-export async function gradeGitHeadChecks(
-  input: {
-    readonly checks: readonly PreparedGitHeadCheck[];
-    readonly base: string | null;
-    readonly workspace: string;
-    readonly signal?: AbortSignal;
-  },
-  effects: GradingFailureEffects,
-): Promise<GradingResult> {
+export async function gradeGitHeadChecks(input: {
+  readonly checks: readonly PreparedGitHeadCheck[];
+  readonly base: string | null;
+  readonly workspace: string;
+  readonly signal?: AbortSignal;
+}): Promise<GradingResult> {
   const observations: TrialObservation[] = [];
   try {
     const base = input.base;
@@ -181,12 +169,7 @@ export async function gradeGitHeadChecks(
     });
     return { checks, observations, failure: null };
   } catch {
-    return failedGrading(
-      [],
-      observations,
-      "Git HEAD grading did not complete",
-      effects,
-    );
+    return failedGrading([], observations, "Git HEAD grading did not complete");
   }
 }
 
@@ -214,16 +197,11 @@ export interface ExtensionGradingResult {
   failure: GradingFailure | null;
 }
 
-export async function gradeExtensionChecks(
-  input: {
-    readonly evaluate: (
-      request: EvaluationRequest,
-    ) => Promise<EvaluationResult>;
-    readonly request: EvaluationRequest;
-    readonly declarations: readonly { id: string; grader: string }[];
-  },
-  effects: GradingFailureEffects,
-): Promise<ExtensionGradingResult> {
+export async function gradeExtensionChecks(input: {
+  readonly evaluate: (request: EvaluationRequest) => Promise<EvaluationResult>;
+  readonly request: EvaluationRequest;
+  readonly declarations: readonly { id: string; grader: string }[];
+}): Promise<ExtensionGradingResult> {
   try {
     const result = await input.evaluate(input.request);
     const declared = new Map(
@@ -246,7 +224,6 @@ export async function gradeExtensionChecks(
           : "extension grading did not complete",
       cancelable: true,
     };
-    effects.onFailure(failure);
     return {
       checks: [],
       metrics: [],

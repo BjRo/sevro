@@ -1,15 +1,8 @@
 import { existsSync } from "node:fs";
-import {
-  requireCandidateRuntime,
-  requireCandidateArtifactRoots,
-} from "../candidate-artifacts";
 import { readFile, realpath, rm, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 import type { HostAdapter, HostResult } from "../engine";
-import {
-  allocateNativeState,
-  requireNativeTranscriptView,
-} from "../native-transcript-state";
+import { allocateNativeState } from "../native-transcript-state";
 import {
   failedNativeTranscripts,
   retainEnabledNativeTranscripts,
@@ -24,8 +17,9 @@ import {
 } from "../runtime/hooks";
 import { insideRuntimeRoot as inside } from "../runtime/paths";
 import { runtimeObservations } from "../runtime/state";
-import { isOptionalNonblankString, isRecord } from "../value-guards";
+import { isRecord } from "../value-guards";
 import { runClaudeTurns, type ClaudeSession } from "./claude-continuation";
+import { validateNativeHostRequest, validHostTimeout } from "./native-request";
 import { summarizeClaudeEvents } from "./claude-events";
 import { observeClaudeNativeGoal } from "./claude-native-goal";
 import { runClaudeProcess } from "./claude-process";
@@ -39,10 +33,6 @@ import {
   createHostDiagnostics,
   diagnoseHostRequest,
   diagnosticConfiguration,
-  diagnosticCredentialEnvironment,
-  diagnosticStage,
-  readDiagnosticCredentials,
-  retainReturnedHostFailure,
   type HostDiagnostics,
 } from "../host-diagnostics";
 import {
@@ -236,12 +226,7 @@ function optionalClaudePaths(options: ClaudeHostOptions): boolean {
   ].every((path) => path === undefined || isAbsolute(path));
 }
 function validClaudeEffortTimeout(effort: string, timeoutMs: number): boolean {
-  return (
-    !!effort &&
-    Number.isSafeInteger(timeoutMs) &&
-    timeoutMs >= 1 &&
-    timeoutMs <= 30 * 60_000
-  );
+  return !!effort && validHostTimeout(timeoutMs);
 }
 
 /** Run Claude with explicit plugins and its native tool sandbox. */
@@ -280,24 +265,6 @@ export function createClaudeHost(options: ClaudeHostOptions): HostAdapter {
   };
 }
 
-function requireClaudeFollowUp(request: Request): void {
-  if (!isOptionalNonblankString(request.followUpPrompt))
-    throw new Error("Claude follow-up prompt must be nonempty");
-}
-function requirePassiveClaudeRequest(request: Request): void {
-  if (request.instrumentation?.length || request.condition !== "passive")
-    throw new Error("Claude enforcement instrumentation is unavailable");
-  requireClaudeFixtureBin(request);
-}
-
-function requireClaudeFixtureBin(request: Request): void {
-  if (
-    request.fixtureBinDir !== undefined &&
-    request.fixtureBinDir !== join(request.workspace, ".git", "fixture-bin")
-  )
-    throw new Error("fixture binary path is outside the workspace");
-}
-
 async function repositoryMount(
   request: Request,
   options: ClaudeHostOptions,
@@ -321,8 +288,8 @@ async function runClaudeRequest(
     request,
   );
   return diagnoseHostRequest(diagnostics, async () => {
-    diagnosticStage(diagnostics, "request-validation");
-    await readDiagnosticCredentials(diagnostics, options.credentialFile);
+    diagnostics.stage = "request-validation";
+    await diagnostics.readCredentials(options.credentialFile);
     return executeClaudeRequest(options, timeoutMs, request, diagnostics);
   });
 }
@@ -337,20 +304,20 @@ async function executeClaudeRequest(
   options: ClaudeHostOptions,
   timeoutMs: number,
   request: Request,
-  diagnostics?: HostDiagnostics,
+  diagnostics: HostDiagnostics,
 ): Promise<HostResult> {
   const { pluginDirs, repositoryInvocation } = await validateClaudeRequest(
     options,
     request,
   );
-  diagnosticStage(diagnostics, "state-allocation");
+  diagnostics.stage = "state-allocation";
   const stateRoot = await allocateNativeState(
     "claude-",
     request.runtimePolicy ? request.workspace : undefined,
   );
   let hooks: HookMounts | undefined;
   try {
-    diagnosticStage(diagnostics, "state-preparation");
+    diagnostics.stage = "state-preparation";
     const state = await prepareClaudeState(
       stateRoot,
       options,
@@ -358,11 +325,7 @@ async function executeClaudeRequest(
       pluginDirs,
       claudeLoginLifetime(timeoutMs, request),
     );
-    diagnosticCredentialEnvironment(
-      diagnostics,
-      state.env,
-      CLAUDE_AUTH_VARIABLES,
-    );
+    diagnostics.registerCredentials(state.env, CLAUDE_AUTH_VARIABLES);
     hooks = state.hooks;
     const run = claudeProcessRunner(
       options,
@@ -383,8 +346,7 @@ async function executeClaudeRequest(
       request,
       repositoryInvocation,
     );
-    await retainReturnedHostFailure(
-      diagnostics,
+    await diagnostics.retainFailure(
       result,
       "Claude host execution did not complete",
     );
@@ -419,10 +381,10 @@ function claudeProcessRunner(
   timeoutMs: number,
   request: Request,
   state: Awaited<ReturnType<typeof prepareClaudeState>>,
-  diagnostics: HostDiagnostics | undefined,
+  diagnostics: HostDiagnostics,
 ) {
   return (prompt: string, session?: ClaudeSession) => {
-    diagnosticStage(diagnostics, "claude-execution");
+    diagnostics.stage = "claude-execution";
     return runClaudeProcess({
       diagnostics,
       argv: claudeTurnArgs(
@@ -444,14 +406,7 @@ async function validateClaudeRequest(
   options: ClaudeHostOptions,
   request: Request,
 ) {
-  requireClaudeFollowUp(request);
-  await requireNativeTranscriptView(request.candidateTranscriptRoot);
-  await requireCandidateRuntime(
-    request.candidateRuntimeRoot,
-    request.runtimeRole,
-  );
-  await requireCandidateArtifactRoots(request.candidateArtifactRoots);
-  requirePassiveClaudeRequest(request);
+  await validateNativeHostRequest(request, "Claude");
   const pluginDirs = request.claudePluginDirs
     ? await pluginDirectories(request.workspace, request.claudePluginDirs)
     : [];
@@ -532,11 +487,11 @@ async function repositoryObservation(
   if (!invocation) return null;
   return claudeRepositoryInvocationObservation({
     invocation,
-    stream: execution.initialOut ?? execution.out,
+    stream: execution.initialEvents ?? execution.events,
     configRoot: configRoot,
     workspace: request.workspace,
-    tools: execution.initialOut
-      ? claudeToolCallsObservation(execution.initialOut, 0)
+    tools: execution.initialEvents
+      ? claudeToolCallsObservation(execution.initialEvents, 0)
       : tools,
   });
 }
@@ -547,7 +502,7 @@ async function claudeObservations(
   request: Request,
   invocation: RepositoryInvocation | null,
 ) {
-  const tools = claudeToolCallsObservation(execution.out, execution.code);
+  const tools = claudeToolCallsObservation(execution.events, execution.code);
   const repository = await repositoryObservation(
     execution,
     configRoot,
@@ -560,12 +515,12 @@ async function claudeObservations(
     ...runtimeObservations(request.runtimePolicy, request.runtimeRole),
     await observeClaudeNativeGoal(
       configRoot,
-      execution.followUpOut ?? execution.out,
+      execution.followUpEvents ?? execution.events,
     ),
-    claudeNativeControls(execution.out, execution.code),
+    claudeNativeControls(execution.events, execution.code),
     ...(repository ? [repository] : []),
     ...(execution.continuation ? [execution.continuation] : []),
-    claudeSkillActivationsObservation(execution.out, execution.code),
+    claudeSkillActivationsObservation(execution.events, execution.code),
   ];
 }
 
@@ -620,7 +575,7 @@ async function claudeResult(
   request: Request,
   invocation: RepositoryInvocation | null,
 ): Promise<HostResult> {
-  const summary = summarizeClaudeEvents(execution.out, execution.code);
+  const summary = summarizeClaudeEvents(execution.events, execution.code);
   const observations = await claudeObservations(
     execution,
     configRoot,

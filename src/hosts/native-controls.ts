@@ -1,5 +1,9 @@
 import { isRecord, isUnknownArray } from "../value-guards";
-import { summarizeClaudeEvents } from "./claude-events";
+import {
+  summarizeClaudeEvents,
+  parseClaudeEvents,
+  type ClaudeEvents,
+} from "./claude-events";
 import type { codexNativeCallObservation } from "./codex-native-calls";
 import type { ExecCallReceipt } from "./codex-exec-controls";
 
@@ -106,14 +110,6 @@ function inspectedExecCalls(
 
 const MALFORMED = Symbol("malformed native control event");
 
-function controlEvent(line: string): unknown {
-  try {
-    return JSON.parse(line) as unknown;
-  } catch {
-    return MALFORMED;
-  }
-}
-
 function assistantBlocks(event: unknown): unknown[] | null | typeof MALFORMED {
   if (event === MALFORMED) return MALFORMED;
   if (!assistantEvent(event)) return null;
@@ -141,15 +137,14 @@ class ClaudeNativeControls {
   malformed = false;
   truncated = false;
 
-  parse(stream: string): void {
-    for (const line of stream.split("\n")) {
-      if (!line.trim()) continue;
-      if (!this.observeLine(line)) break;
+  parse(stream: ClaudeEvents): void {
+    for (const line of stream.lines) {
+      if (!this.observeEvent(line.parsed ? line.value : MALFORMED)) break;
     }
   }
 
-  private observeLine(line: string): boolean {
-    const blocks = assistantBlocks(controlEvent(line));
+  private observeEvent(event: unknown): boolean {
+    const blocks = assistantBlocks(event);
     if (blocks === null) return true;
     if (blocks === MALFORMED) {
       this.malformed = true;
@@ -187,12 +182,13 @@ class ClaudeNativeControls {
 
 /** Observe all native labels without retaining arguments or interpreting policy. */
 export function claudeNativeControls(
-  stream: string,
+  stream: string | ClaudeEvents,
   exitCode: number,
 ): NativeControlObservation {
-  const summary = summarizeClaudeEvents(stream, exitCode);
+  const events = parseClaudeEvents(stream);
+  const summary = summarizeClaudeEvents(events, exitCode);
   const controls = new ClaudeNativeControls();
-  controls.parse(stream);
+  controls.parse(events);
   return {
     id: "sevro.host.native-controls",
     completeness:

@@ -24,8 +24,15 @@ import {
   type RuntimeDiscoverySource,
 } from "./discovery";
 
-export type RuntimeRole =
-  "candidate" | "checks" | "hooks" | "semantic" | "advisory";
+/** Canonical roles; schemas:generate projects this list into the runtime schema. */
+export const RUNTIME_ROLES = [
+  "candidate",
+  "checks",
+  "hooks",
+  "semantic",
+  "advisory",
+] as const;
+export type RuntimeRole = (typeof RUNTIME_ROLES)[number];
 export interface RuntimeSeed {
   source: string;
   target: string;
@@ -78,13 +85,18 @@ export function runtimeNativeGoalEnabled(
   return hooks?.nativeGoal === true;
 }
 
+const validatedPolicies = new WeakSet<RuntimePolicy>();
+
+export function runtimePolicySnapshot(policy: RuntimePolicy): RuntimePolicy;
+export function runtimePolicySnapshot(
+  policy: RuntimePolicy | undefined,
+): RuntimePolicy | undefined;
 export function runtimePolicySnapshot(
   policy: RuntimePolicy | undefined,
 ): RuntimePolicy | undefined {
   if (!policy) return undefined;
-  requireRuntimeEnvironment(policy.environment);
-  requireSharedCachePolicy(policy);
   const snapshot = structuredClone(policy);
+  if (!validatedPolicies.has(policy)) requireRuntimePolicy(snapshot);
   Object.freeze(snapshot.network);
   freezeArtifactDirectories(snapshot);
   Object.freeze(snapshot.environment);
@@ -97,7 +109,28 @@ export function runtimePolicySnapshot(
     Object.freeze(hooks.plugins);
     Object.freeze(hooks);
   }
-  return Object.freeze(snapshot);
+  Object.freeze(snapshot);
+  validatedPolicies.add(snapshot);
+  return snapshot;
+}
+
+/** Loaded snapshots are already validated; mutable direct API inputs still need validation. */
+export function requireRuntimePolicy(policy: RuntimePolicy): void {
+  if (validatedPolicies.has(policy)) return;
+  snapshotEnvironment([], policy.environment);
+  requireRuntimeCaches(policy.seeds ?? [], policy.sharedCacheDirectories ?? []);
+  requireSharedCachePolicy(policy);
+  requireArtifactDirectories(policy.artifactDirectories ?? []);
+}
+
+function requireRuntimeCaches(
+  seeds: RuntimeSeed[],
+  caches: SharedCacheDirectory[],
+): void {
+  requireRuntimeSeedTargets([...seeds, ...caches]);
+  for (const seed of seeds)
+    if (seed.roles !== undefined) requireRuntimeRoles(seed.roles, "seed");
+  for (const cache of caches) requireRuntimeRoles(cache.roles, "shared cache");
 }
 
 function freezeRuntimeCaches(snapshot: RuntimePolicy): void {
@@ -123,7 +156,6 @@ function freezeDiscovery(snapshot: RuntimePolicy): void {
 
 function freezeArtifactDirectories(snapshot: RuntimePolicy): void {
   const directories = snapshot.artifactDirectories ?? [];
-  requireArtifactDirectories(directories);
   for (const directory of directories) Object.freeze(directory);
   Object.freeze(snapshot.artifactDirectories);
 }
@@ -185,14 +217,7 @@ function snapshotEnvironment(
   return environment;
 }
 
-export function requireRuntimeEnvironment(
-  environment: Record<string, string>,
-): void {
-  snapshotEnvironment([], environment);
-}
-
-export function requireRuntimeSeedTargets(seeds: RuntimeSeed[]): void {
-  for (const seed of seeds) requireRuntimeSeedRoles(seed.roles);
+function requireRuntimeSeedTargets(seeds: RuntimeSeed[]): void {
   const targets = seeds.map((seed) => seed.target);
   if (
     targets.some(
@@ -219,10 +244,12 @@ export async function loadRuntimeConfiguration(
     const source = await readFile(canonical, "utf8");
     if (Buffer.byteLength(source) > 65536)
       throw new Error("runtime configuration exceeds 64 KiB");
-    return await resolveRuntimeConfiguration(
-      parseRuntimeConfiguration(source),
-      dirname(canonical),
-      protectedRoots,
+    return runtimePolicySnapshot(
+      await resolveRuntimeConfiguration(
+        parseRuntimeConfiguration(source),
+        dirname(canonical),
+        protectedRoots,
+      ),
     );
   } catch (cause) {
     throw new Error(
@@ -314,7 +341,7 @@ async function resolvedSeeds(
   environment: Record<string, string>,
   base: string,
 ) {
-  const resolved = await Promise.all(
+  return Promise.all(
     seeds.map(async (seed) => {
       const roots = await declaredRuntimeRoots(
         [seed.source],
@@ -332,8 +359,6 @@ async function resolvedSeeds(
       };
     }),
   );
-  requireRuntimeSeedTargets(resolved);
-  return resolved;
 }
 
 async function resolveRuntimeConfiguration(
@@ -397,14 +422,6 @@ async function resolvedRuntimeCaches(
     base,
     [...protectedRoots, ...seeds.map((seed) => seed.source)],
   );
-  requireRuntimeSeedTargets([...seeds, ...caches]);
-  requireSharedCachePolicy({
-    format: value.format,
-    environment,
-    readOnlyRoots: [],
-    seeds,
-    sharedCacheDirectories: caches,
-  });
   return {
     seeds,
     ...(caches.length ? { sharedCacheDirectories: caches } : {}),
@@ -439,7 +456,6 @@ function configurationEnvironment(value: RuntimeConfiguration) {
 function artifactConfiguration(runtime: RuntimeConfiguration["runtime"]) {
   const directories = runtime?.artifactDirectories;
   if (directories === undefined) return {};
-  requireArtifactDirectories(directories);
   return { artifactDirectories: directories };
 }
 function configurationReadRoots(value: RuntimeConfiguration): string[] {
@@ -456,15 +472,13 @@ function resolvedHooks(hooks: RuntimeConfiguration["hooks"]) {
   };
 }
 
-function requireRuntimeSeedRoles(roles: RuntimeRole[] | undefined): void {
-  if (roles === undefined) return;
-  const allowed = ["candidate", "checks", "hooks", "semantic", "advisory"];
+function requireRuntimeRoles(roles: RuntimeRole[], kind: string): void {
   if (
     !validRoleArray(roles) ||
     new Set(roles).size !== roles.length ||
-    roles.some((role) => !allowed.includes(role))
+    roles.some((role) => !RUNTIME_ROLES.includes(role))
   )
-    throw new Error("runtime seed roles are invalid");
+    throw new Error(`runtime ${kind} roles are invalid`);
 }
 
 export function runtimeRoleSeeds(policy: RuntimePolicy, role: RuntimeRole) {

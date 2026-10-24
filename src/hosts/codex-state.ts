@@ -1,4 +1,5 @@
 import { runtimeLocalHttpEnabled, runtimeSeedSources } from "../runtime/config";
+import { shellQuote } from "../shell";
 import {
   candidateArtifactEnvironment,
   candidateArtifactReadRoots,
@@ -74,10 +75,6 @@ async function copyAuth(source: string, target: string): Promise<void> {
   if (bytes.byteLength > MAX_AUTH_BYTES)
     throw new Error("Codex auth file exceeds the size limit");
   await writeFile(target, bytes, { flag: "wx", mode: 0o600 });
-}
-
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
 export async function codexHookMounts(

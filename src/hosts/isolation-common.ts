@@ -1,5 +1,7 @@
 import { realpath } from "node:fs/promises";
-import { isAbsolute, relative, sep } from "node:path";
+import { isAbsolute } from "node:path";
+import { insideRoot as inside } from "../paths";
+export { insideRoot as inside } from "../paths";
 import { insideRuntimeRoot } from "../runtime/paths";
 import { workspaceBoundaryException } from "../fixtures/workspace-state";
 import type { CandidateArtifactRoots } from "../candidate-artifacts";
@@ -30,14 +32,6 @@ export interface IsolationOptions {
 export interface IsolatedCommand {
   argv: string[];
   release(): Promise<void>;
-}
-
-export function inside(root: string, path: string): boolean {
-  const child = relative(root, path);
-  return (
-    child === "" ||
-    (child !== ".." && !child.startsWith(`..${sep}`) && !child.startsWith(sep))
-  );
 }
 
 export async function commandRuntimeRoot(

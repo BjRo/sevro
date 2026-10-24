@@ -1,7 +1,8 @@
-import { fixtureCase, parseCliResult } from "./assertions";
-import { mkdtemp, symlink, writeFile } from "node:fs/promises";
+import { symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { fixtureCase, parseCliResult } from "./assertions";
+import { createTemporaryFixtures } from "./filesystem";
 
 const testDirectory = join(import.meta.dir, "..");
 
@@ -24,9 +25,13 @@ export const extensionSource = join(testDirectory, "fixtures", "extension.ts");
 export const digest = "a".repeat(64);
 
 export function createFixture(roots: string[]) {
+  const { temporaryFixture } = createTemporaryFixtures(roots);
+
   async function fixture() {
-    const projectRoot = await mkdtemp(join(tmpdir(), "sevro-cli-test-"));
-    roots.push(projectRoot);
+    const projectRoot = await temporaryFixture(
+      join(tmpdir(), "sevro-cli-test-"),
+    );
+
     const caseFile = join(projectRoot, "case.json");
     const resultsRoot = join(projectRoot, "results");
     await writeFile(caseFile, JSON.stringify(fixtureCase()));
@@ -77,19 +82,9 @@ export async function invoke(
   return { stdout, stderr, code, result: parseCliResult(stdout) };
 }
 
-export async function git(root: string, ...args: string[]) {
-  const proc = Bun.spawn(["git", "-C", root, ...args], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const [error, code] = await Promise.all([
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-  if (code !== 0) throw new Error(error);
-}
-
 export async function installLinuxCodexHelper(binary: string, codex: string) {
   if (process.platform === "linux")
     await symlink(codex, join(dirname(binary), "codex-linux-sandbox"));
 }
+
+export { fixtureGit as git } from "./filesystem";

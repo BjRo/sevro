@@ -1,17 +1,17 @@
+import { parseClaudeEvents, type ClaudeEvents } from "./claude-events";
 import { lstat, readdir, readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
+import { requireRecord } from "../value-guards";
 
 type RecordValue = Record<string, unknown>;
 function record(value: unknown): RecordValue {
-  if (!value || typeof value !== "object" || Array.isArray(value))
-    throw new Error("Malformed native session record");
-  return value as RecordValue;
+  return requireRecord(value, "Malformed native session record");
 }
-function records(text: string): RecordValue[] {
-  return text
-    .split("\n")
-    .filter((line) => line.trim())
-    .map((line) => record(JSON.parse(line)));
+function records(text: string | ClaudeEvents): RecordValue[] {
+  return parseClaudeEvents(text).lines.map((line) => {
+    if (!line.parsed) throw line.error;
+    return record(line.value);
+  });
 }
 
 function goalAttachment(event: RecordValue) {
@@ -44,7 +44,10 @@ function attachmentStatus(attachment: RecordValue): string {
   return attachment.sentinel === true ? "cleared" : "complete";
 }
 
-function requireSuccessfulResult(stream: string, sessionId: string): void {
+function requireSuccessfulResult(
+  stream: string | ClaudeEvents,
+  sessionId: string,
+): void {
   const result = records(stream)
     .filter((event) => event.type === "result")
     .at(-1);
@@ -59,7 +62,7 @@ function requireSuccessfulResult(stream: string, sessionId: string): void {
 
 /** Claude's native persisted goal attachments; sentinel clearance is not success. */
 export function claudeNativeGoalEvidence(
-  stream: string,
+  stream: string | ClaudeEvents,
   transcript: string,
   sessionId: string,
 ) {
@@ -111,7 +114,7 @@ async function sessionPaths(
 /** Read only this trial's original native session; never manufacture a goal. */
 export async function observeClaudeNativeGoal(
   configRoot: string,
-  stream: string,
+  stream: string | ClaudeEvents,
 ): Promise<{
   id: string;
   completeness: "complete" | "unavailable";
@@ -144,7 +147,7 @@ export async function observeClaudeNativeGoal(
   }
 }
 
-function originalSessionId(stream: string): string {
+function originalSessionId(stream: string | ClaudeEvents): string {
   const initializations = records(stream).filter(
     (event) => event.type === "system" && event.subtype === "init",
   );

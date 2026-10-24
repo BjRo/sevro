@@ -2,20 +2,24 @@ import Ajv2020 from "ajv/dist/2020.js";
 import standaloneCode from "ajv/dist/standalone/index.js";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { format } from "prettier";
+import { RUNTIME_ROLES } from "../src/runtime/config";
+import runtimeSchema from "../schemas/runtime-v1.schema.json";
+import { schemaNames } from "./schema-catalog";
 
 const root = resolve(import.meta.dir, "..");
 const check = process.argv.slice(2);
 if (check.length && (check.length !== 1 || check[0] !== "--check"))
   throw new Error("expected no arguments or --check");
 
-const names = ["cli-result", "run-evidence", "report", "extension", "runtime"];
+await synchronizeRuntimeRoles();
 const ajv = new Ajv2020({
   strict: true,
   strictRequired: false,
   strictTypes: false,
   code: { source: true },
 });
-for (const name of names) {
+for (const name of schemaNames) {
   const schema: unknown = JSON.parse(
     await readFile(join(root, `schemas/${name}-v1.schema.json`), "utf8"),
   );
@@ -26,7 +30,7 @@ for (const name of names) {
 
 const directory = join(root, "src/generated");
 if (!check.length) await mkdir(directory, { recursive: true });
-for (const name of names) {
+for (const name of schemaNames) {
   const validator = ajv.getSchema(`urn:sevro:schema:${name}:v1`);
   if (!validator) throw new Error(`schema ${name} has no compiled validator`);
   const files = {
@@ -53,4 +57,19 @@ async function outputFile(path: string, name: string, content: string) {
   const actual = await readFile(path, "utf8").catch(() => "");
   if (actual !== content)
     throw new Error(`${name} is stale; run bun run schemas:generate`);
+}
+
+async function synchronizeRuntimeRoles(): Promise<void> {
+  if (
+    JSON.stringify(runtimeSchema.$defs.runtimeRole.enum) ===
+    JSON.stringify(RUNTIME_ROLES)
+  )
+    return;
+  if (check.length)
+    throw new Error("runtime roles are stale; run bun run schemas:generate");
+  runtimeSchema.$defs.runtimeRole.enum = [...RUNTIME_ROLES];
+  await writeFile(
+    join(root, "schemas/runtime-v1.schema.json"),
+    await format(JSON.stringify(runtimeSchema), { parser: "json" }),
+  );
 }

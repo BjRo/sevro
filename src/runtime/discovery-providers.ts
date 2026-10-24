@@ -3,6 +3,7 @@ import { constants } from "node:fs";
 import { delimiter, isAbsolute, join } from "node:path";
 import { runtimeMetadataQuery } from "./query";
 import { requireRuntimeReadRoots } from "./paths";
+import { containsControl } from "../value-guards";
 
 export interface RuntimeDiscoverySource {
   provider: "homebrew" | "apple-developer";
@@ -43,13 +44,6 @@ export async function query(
       { cause },
     );
   }
-}
-
-function containsControl(value: string): boolean {
-  return Array.from(value).some(
-    (character) =>
-      character.charCodeAt(0) < 0x20 || character.charCodeAt(0) === 0x7f,
-  );
 }
 
 export async function requireProvider(

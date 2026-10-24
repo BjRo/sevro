@@ -4,7 +4,7 @@ import { pathToFileURL } from "node:url";
 import { isResolvedCase, resolvedCaseIssue } from "../case-validation";
 import type { HostAdapter, ResolvedCase } from "../engine";
 import { prepareInstrumentation } from "../instrumentation";
-import { isRecord, isStringArray } from "../value-guards";
+import { isRecord, isStringArray, validQualifiedId } from "../value-guards";
 import { InvocationError, type Invocation } from "./invocation";
 
 export function parseCase(value: unknown): ResolvedCase {
@@ -144,7 +144,7 @@ function validateHostCapabilities(value: unknown): void {
   if (value === undefined) return;
   if (
     !isStringArray(value) ||
-    value.some((id) => !/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$/.test(id)) ||
+    value.some((id) => !validQualifiedId(id)) ||
     new Set(value).size !== value.length
   )
     throw new InvocationError("host adapter capabilities are invalid");

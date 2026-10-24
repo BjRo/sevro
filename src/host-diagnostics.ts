@@ -39,9 +39,9 @@ export class HostProcessDiagnostics {
   readonly stdout = new DiagnosticStream();
   readonly stderr = new DiagnosticStream();
   private started = performance.now();
-  constructor(private diagnostics?: HostDiagnostics) {}
+  constructor(private diagnostics: HostDiagnostics) {}
   recordUnstarted(): void {
-    if (!this.diagnostics) return;
+    if (!this.diagnostics.enabled) return;
     this.diagnostics.process({
       code: null,
       signal: null,
@@ -56,7 +56,7 @@ export class HostProcessDiagnostics {
     process: { exited: Promise<number | null>; signalCode?: string | null },
     reason: ProcessFailureReason = "exit",
   ): Promise<void> {
-    if (!this.diagnostics) return;
+    if (!this.diagnostics.enabled) return;
     this.diagnostics.process({
       code: await process.exited,
       signal: process.signalCode ?? null,
@@ -144,32 +144,24 @@ function errorDetails(cause: Error, secrets: string[]) {
   };
 }
 
-export function diagnosticStage(
-  diagnostics: HostDiagnostics | undefined,
-  stage: string,
-): void {
-  if (diagnostics) diagnostics.stage = stage;
-}
-
 /** A cleanup exception must not replace an already captured host/persistence failure. */
 export async function cleanupNativeState(
-  diagnostics: HostDiagnostics | undefined,
+  diagnostics: HostDiagnostics,
   cleanup: () => Promise<void>,
 ): Promise<void> {
   beginNativeCleanup(diagnostics);
   try {
     await cleanup();
   } catch (cause) {
-    if (!diagnostics?.failureCaptured) throw cause;
+    if (!diagnostics.failureCaptured) throw cause;
     console.warn(
       "native state cleanup failed; original host failure preserved",
     );
   }
 }
 
-function beginNativeCleanup(diagnostics: HostDiagnostics | undefined): void {
-  if (diagnostics && !diagnostics.failureCaptured)
-    diagnosticStage(diagnostics, "cleanup");
+function beginNativeCleanup(diagnostics: HostDiagnostics): void {
+  if (!diagnostics.failureCaptured) diagnostics.stage = "cleanup";
 }
 
 export function diagnosticConfiguration(enabled: boolean | undefined) {
@@ -183,49 +175,25 @@ export function createHostDiagnostics(
     runtimeRole?: RuntimeRole;
     retainHostDiagnostics?: (bytes: Uint8Array) => Promise<void>;
   },
-): HostDiagnostics | undefined {
+): HostDiagnostics {
   return enabled
-    ? new HostDiagnostics(
+    ? new RetainedHostDiagnostics(
         host,
         request.runtimeRole,
         request.retainHostDiagnostics,
       )
-    : undefined;
-}
-
-export async function readDiagnosticCredentials(
-  diagnostics: HostDiagnostics | undefined,
-  path: string | undefined,
-): Promise<void> {
-  if (diagnostics && path) await diagnostics.readCredentials(path);
-}
-
-export function diagnosticCredentialEnvironment(
-  diagnostics: HostDiagnostics | undefined,
-  environment: Record<string, string>,
-  names: readonly string[],
-): void {
-  if (diagnostics) diagnostics.registerCredentials(environment, names);
-}
-
-export async function retainReturnedHostFailure(
-  diagnostics: HostDiagnostics | undefined,
-  result: HostResult,
-  message: string,
-): Promise<void> {
-  if (diagnostics && result.executionFailed)
-    await diagnostics.retain(result, diagnostics.failure ?? new Error(message));
+    : new DisabledHostDiagnostics();
 }
 
 export async function diagnoseHostRequest(
-  diagnostics: HostDiagnostics | undefined,
+  diagnostics: HostDiagnostics,
   execute: () => Promise<HostResult>,
 ): Promise<HostResult> {
   try {
     return await execute();
   } catch (cause) {
     if (cause instanceof HostDiagnosticPersistenceError) throw cause;
-    if (!diagnostics) throw cause;
+    if (!diagnostics.enabled) throw cause;
     const result: HostResult = {
       finalMessage: null,
       complete: false,
@@ -237,8 +205,47 @@ export async function diagnoseHostRequest(
   }
 }
 
+export interface HostDiagnostics {
+  readonly enabled: boolean;
+  stage: string;
+  failure: unknown;
+  readonly failureCaptured: boolean;
+  readCredentials(path: string | undefined): Promise<void>;
+  registerCredentials(
+    environment: Record<string, string>,
+    names: readonly string[],
+  ): void;
+  process(result: ProcessDiagnostic): void;
+  retain(result: HostResult, cause: unknown): Promise<void>;
+  retainFailure(result: HostResult, message: string): Promise<void>;
+}
+
+class DisabledHostDiagnostics implements HostDiagnostics {
+  readonly enabled = false;
+  stage = "preparation";
+  failure: unknown;
+  readonly failureCaptured = false;
+
+  readCredentials(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  registerCredentials(): void {}
+
+  process(): void {}
+
+  retain(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  retainFailure(): Promise<void> {
+    return Promise.resolve();
+  }
+}
+
 /** Private failure evidence, independent of native sessions and transcript access. */
-export class HostDiagnostics {
+class RetainedHostDiagnostics implements HostDiagnostics {
+  readonly enabled = true;
   stage = "preparation";
   failure: unknown;
   failureCaptured = false;
@@ -251,8 +258,8 @@ export class HostDiagnostics {
     private persist?: (bytes: Uint8Array) => Promise<void>,
   ) {}
 
-  async readCredentials(path: string): Promise<void> {
-    this.secrets.push(...(await diagnosticSecrets(path)));
+  async readCredentials(path: string | undefined): Promise<void> {
+    if (path) this.secrets.push(...(await diagnosticSecrets(path)));
   }
 
   registerCredentials(
@@ -290,6 +297,11 @@ export class HostDiagnostics {
       this.processes.shift();
       this.processesDropped++;
     }
+  }
+
+  async retainFailure(result: HostResult, message: string): Promise<void> {
+    if (result.executionFailed)
+      await this.retain(result, this.failure ?? new Error(message));
   }
 
   async retain(result: HostResult, cause: unknown): Promise<void> {

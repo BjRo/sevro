@@ -5,6 +5,12 @@
   "type": "object",
   "additionalProperties": false,
   "required": ["format"],
+  "$defs": {
+    "runtimeRole": {
+      "$comment": "Generated from RUNTIME_ROLES by bun run schemas:generate.",
+      "enum": ["candidate", "checks", "hooks", "semantic", "advisory"]
+    }
+  },
   "properties": {
     "codexState": {
       "type": "boolean"
@@ -82,13 +88,7 @@
                 "maxItems": 5,
                 "uniqueItems": true,
                 "items": {
-                  "enum": [
-                    "candidate",
-                    "checks",
-                    "hooks",
-                    "semantic",
-                    "advisory"
-                  ]
+                  "$ref": "#/$defs/runtimeRole"
                 }
               }
             }
@@ -120,13 +120,7 @@
                 "maxItems": 5,
                 "uniqueItems": true,
                 "items": {
-                  "enum": [
-                    "candidate",
-                    "checks",
-                    "hooks",
-                    "semantic",
-                    "advisory"
-                  ]
+                  "$ref": "#/$defs/runtimeRole"
                 }
               }
             }
