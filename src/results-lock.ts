@@ -17,13 +17,26 @@ export async function withResultsLock<T>(
   root: string,
   action: () => Promise<T>,
 ): Promise<T> {
+  const release = await acquireResultsLock(root);
+  try {
+    return await action();
+  } finally {
+    release();
+  }
+}
+
+/** Hold a root lock while discovering and validating additional nested roots. */
+export async function acquireResultsLock(root: string): Promise<() => void> {
   await retainedFile(join(root, ".retention-lock.sqlite"));
   const database = new Database(join(root, ".retention-lock.sqlite"));
   try {
     database.run("PRAGMA busy_timeout = 5000");
     database.run("BEGIN IMMEDIATE");
-    return await action();
-  } finally {
+    return () => {
+      database.close();
+    };
+  } catch (cause) {
     database.close();
+    throw cause;
   }
 }
