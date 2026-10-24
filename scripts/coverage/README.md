@@ -34,7 +34,9 @@ After frozen installation, the four shard commands can run concurrently. They
 write distinct `.quality/shards/<index>/` directories. Each validates its real
 process reports and requires successful test execution. Only `--merge-shards`
 enforces the two 95% thresholds; partial coverage cannot establish acceptance.
-The combined command also runs the existing coverage integrity controls.
+The test suite invokes each coverage integrity probe once through
+`tests/typescript-quality.test.ts`; the combined command validates shard evidence
+and coverage without rerunning those probes.
 
 Assignments use the complete checked test inventory, with each file present
 exactly once. [`test-durations.json`](test-durations.json) records rounded seconds
@@ -100,7 +102,8 @@ file, including unimported files. Ubuntu excludes the macOS sandbox, Keychain,
 and Darwin-only Apple metadata module, whose public caller has an explicit
 platform guard. macOS measures that metadata module; shared provider/query/path
 code remains measured on both platforms. Both still lint and typecheck the complete
-source inventory. macOS excludes the Linux sandbox module. Branch outcomes made impossible by a static
+source inventory. The macOS gate is local-only; hosted CI runs on Ubuntu.
+macOS excludes the Linux sandbox module. Branch outcomes made impossible by a static
 `process.platform` condition are omitted after raw report validation; any
 nonzero excluded counter fails. Reachable outcomes stay in the denominator.
 The five generated AJV validators load normally and stay

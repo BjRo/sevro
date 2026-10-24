@@ -353,23 +353,6 @@ test("the public TypeScript gate validates process completion and report integri
   expect(child.stdout.toString()).toContain("normal-checkpoint: refused");
   expect(child.stdout.toString()).toContain("unowned-force-kill: refused");
   expect(child.stdout.toString()).toContain("owned-force-kill: conservative");
-  expect(child.exitCode).toBe(0);
-});
-
-test("the public TypeScript gate preserves original TypeScript counter and stack locations", () => {
-  const child = Bun.spawnSync(
-    [process.execPath, "run", "check:typescript", "--probe", "source-map"],
-    { cwd: resolve(import.meta.dir, ".."), stdout: "pipe", stderr: "pipe" },
-  );
-  expect(child.stdout.toString()).toContain("original-typescript:6");
-  expect(child.exitCode).toBe(0);
-});
-
-test("the public TypeScript gate audits all stored reports before choosing completion", () => {
-  const child = Bun.spawnSync(
-    [process.execPath, "run", "check:typescript", "--probe", "integrity"],
-    { cwd: resolve(import.meta.dir, ".."), stdout: "pipe", stderr: "pipe" },
-  );
   expect(child.stdout.toString()).toContain("unregistered-completion: refused");
   expect(child.stdout.toString()).toContain(
     "stale-discarded-checkpoint: refused",
@@ -379,5 +362,14 @@ test("the public TypeScript gate audits all stored reports before choosing compl
   expect(child.stdout.toString()).toContain(
     "stored-completion-selection: exact counters",
   );
+  expect(child.exitCode).toBe(0);
+});
+
+test("the public TypeScript gate preserves original TypeScript counter and stack locations", () => {
+  const child = Bun.spawnSync(
+    [process.execPath, "run", "check:typescript", "--probe", "source-map"],
+    { cwd: resolve(import.meta.dir, ".."), stdout: "pipe", stderr: "pipe" },
+  );
+  expect(child.stdout.toString()).toContain("original-typescript:6");
   expect(child.exitCode).toBe(0);
 });

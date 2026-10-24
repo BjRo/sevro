@@ -182,6 +182,9 @@ the full-suite evidence. Sparse runs are expected to fail the full denominator.
 
 The durable public probes are `--probe snapshot`, `--probe scope`, `--probe branch`,
 `--probe missing-reports`, `--probe integrity`, and `--probe source-map`.
+`tests/typescript-quality.test.ts` invokes each probe once during the suite;
+the phase entrypoint and shard merge do not rerun them. The commands remain
+available for targeted diagnostics.
 The scope probe records a zero-seeded baseline and merged real process report
 under `.quality/coverage-scope`; it verifies that ordinary generated CommonJS
 validation still runs. Branch and missing-report controls
@@ -198,7 +201,8 @@ CI targets `ubuntu-24.04` x64 with Bun 1.3.13 and Node 24.13.0. Its first
 successful hosted run is required before describing that environment as validated.
 GitHub documents the [Ubuntu runner labels](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
 Ubuntu installs `bubblewrap`, `ripgrep`, and `socat` and runs the same native isolation cases;
-local macOS runs retain `sandbox-exec`. Windows remains unverified.
+local macOS runs retain `sandbox-exec`. The macOS quality and coverage gate is
+local-only; the hosted workflow does not run a macOS gate. Windows remains unverified.
 
 Ordinary changes and explicit workflow dispatches run the four canonical phases
 concurrently. The tests phase consists of four shard jobs followed by a combined

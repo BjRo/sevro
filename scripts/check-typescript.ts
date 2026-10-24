@@ -72,10 +72,6 @@ function qualityPhase(
       run([process.execPath, "run", "test:docs-examples"], root);
       return;
     case "tests":
-      integrityProbes();
-      sourceMapProbe();
-      snapshotProbe(root);
-      coverageScopeProbe(root);
       if (mergeDirectory) aggregateCoverage(root, mergeDirectory);
       else runCoverage(root);
       return;
