@@ -54,6 +54,34 @@ documentation and both skill mounts; the eval cases and grader code are withheld
 The case matrix covers orientation, explicit invocation, unrelated requests,
 missing/conflicting/stale evidence, follow-ups, pressure for effects,
 extension boundaries, contributions, and licensing.
+
+The deterministic CLI integration suite runs all eleven positive cases on each
+host. Eight negative cases also run on both hosts: attempted effects, missing
+events, incomplete native turns, missing/wrong invocation receipts, stale/missing
+follow-up reads, and missing continuation evidence. These exercise distinct host
+event formats or receipt identifiers. Ten host-independent negatives run on
+Codex once: changed files or skill mounts, extra directories, host failure,
+missing/partial common selection observations, and four answer contradictions.
+This keeps every failure scenario while reducing the matrix from 58 to 48 CLI
+runs. Two additional Codex positive controls remain, for 50 guide integration
+tests in total. The docs phase still dry-prepares all eleven cases.
+
+On 2026-10-24, an instrumented local comparison on macOS arm64 with Bun 1.3.13
+measured the negative cases at 262.55 seconds for 36 passing tests on `adf04a1`,
+then 181.50 seconds for 26 passing tests with #145: 81.05 seconds less (30.9%).
+These are sums of individual case durations in `tests.log`, not a CI speedup
+forecast. Claude's negative cases alone changed from 130.23 to 57.50 seconds;
+that ratio rescales their shard weight. Reproduce the targeted measurement with:
+
+```sh
+bun run check:typescript --coverage ./tests/guide/codex-negative.test.ts \
+  ./tests/guide/claude-negative.test.ts
+```
+
+These sparse timing runs passed their tests and report validation, but failed
+the unchanged 95% full-inventory coverage thresholds as expected. Full acceptance
+still requires every CI phase and the combined coverage gate on the candidate.
+
 Missing event artifacts, incomplete turns, missing dispatch receipts, or absent
 fresh follow-up reads cannot pass. Built-in `sevro.regex` checks assess answer
 assertions and contradictions. The `sevro.shell` check verifies Git status,

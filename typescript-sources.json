@@ -204,6 +204,7 @@
   "tests": [
     "tests/advisory-fixture.test.ts",
     "tests/advisory.test.ts",
+    "tests/ci-native-setup.test.ts",
     "tests/claude-auth-cli.test.ts",
     "tests/claude-credential.test.ts",
     "tests/claude-events.test.ts",

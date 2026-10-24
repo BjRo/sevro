@@ -215,6 +215,15 @@ runs have independent concurrency groups. The stable aggregate `TypeScript quali
 status requires every phase and all four shards to succeed. A missing, cancelled,
 skipped or failed phase or shard cannot turn that status green.
 
+CI caches Bun's package downloads by Bun version, OS, architecture and `bun.lock`;
+every job still performs frozen installation. The docs job and test shards also
+cache the installed Codex and Claude packages by OS, architecture and the setup
+script's content hash, which includes both pinned versions and their installation
+layout. There are no fallback keys for native tools. On a hit, setup copies the
+cached packages into a fresh temporary tool root and verifies both native versions
+before publishing their paths. The cache never contains credentials or replaces
+the isolation prerequisites or required checks.
+
 Release metadata changes follow [the release workflow](releases.md) and reuse a
 successful full gate from an ancestor on `main`, with identical code,
 dependencies, schemas, tests, and other quality inputs. The selector permits

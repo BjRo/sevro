@@ -42,6 +42,9 @@ Assignments use the complete checked test inventory, with each file present
 exactly once. [`test-durations.json`](test-durations.json) records rounded seconds
 from the successful Ubuntu run [38747270730](https://github.com/BjRo/sevro/actions/runs/38747270730),
 with the former guide matrix divided by host and positive/negative scenarios.
+For #145, the Claude negative weight is rescaled from 141 to 62 seconds using
+the measured before/after ratio documented in [guide evaluation](../../docs/guide-evaluation.md).
+The remaining weights retain their original measurements.
 The longest files are assigned first to the lightest shard; ties are resolved
 deterministically by path and shard order. New files default to five seconds.
 Update estimates from retained `tests.log` durations when the workload changes;

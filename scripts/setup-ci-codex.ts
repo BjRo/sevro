@@ -1,4 +1,4 @@
-import { appendFile, mkdir, mkdtemp, rm, stat } from "node:fs/promises";
+import { appendFile, cp, mkdir, mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -25,25 +25,12 @@ if (!githubPath || !githubEnv)
 const root = await mkdtemp(
   join(process.platform === "darwin" ? "/private/tmp" : tmpdir(), "sevro-ci-"),
 );
+const cache = process.env.SEVRO_CI_NATIVE_CACHE;
 try {
   const prefix = join(root, "tools");
   const temporary = join(root, "tmp");
   await mkdir(temporary);
-  const install = Bun.spawn(
-    [
-      "npm",
-      "install",
-      "--prefix",
-      prefix,
-      "--ignore-scripts",
-      "--no-audit",
-      "--no-fund",
-      `@openai/codex@${version}`,
-      `@anthropic-ai/claude-code@${claudeVersion}`,
-    ],
-    { stdout: "inherit", stderr: "inherit" },
-  );
-  if ((await install.exited) !== 0) throw new Error("CI Codex install failed");
+  await prepareTools(prefix);
   const bin = join(
     prefix,
     "node_modules/@openai",
@@ -65,20 +52,45 @@ try {
   ]);
   if (code !== 0 || output.trim() !== `codex-cli ${version}`)
     throw new Error("CI Codex native version differs from the pinned version");
-  // Expose the native executable: the npm launcher needs Node inside the sandbox.
-  await appendFile(githubPath, `${bin}\n`);
   const claudeBin = join(
     prefix,
     "node_modules/@anthropic-ai",
     `claude-code-${process.platform}-${process.arch}`,
   );
   await checkClaudeVersion(join(claudeBin, "claude"));
+  if (cache && process.env.SEVRO_CI_NATIVE_CACHE_HIT !== "true")
+    await cp(prefix, cache, { recursive: true, verbatimSymlinks: true });
+  // Expose native executables: npm launchers need Node inside the sandbox.
+  await appendFile(githubPath, `${bin}\n`);
   await appendFile(githubPath, `${claudeBin}\n`);
   await appendFile(githubEnv, `TMPDIR=${temporary}\n`);
   console.log(`${output.trim()} installed at ${binary}`);
 } catch (error) {
   await rm(root, { recursive: true, force: true });
   throw error;
+}
+
+async function prepareTools(prefix: string): Promise<void> {
+  if (cache && process.env.SEVRO_CI_NATIVE_CACHE_HIT === "true") {
+    // Keep native binaries in a fresh sandbox-readable tree, outside runner home.
+    await cp(cache, prefix, { recursive: true, verbatimSymlinks: true });
+    return;
+  }
+  const install = Bun.spawn(
+    [
+      "npm",
+      "install",
+      "--prefix",
+      prefix,
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund",
+      `@openai/codex@${version}`,
+      `@anthropic-ai/claude-code@${claudeVersion}`,
+    ],
+    { stdout: "inherit", stderr: "inherit" },
+  );
+  if ((await install.exited) !== 0) throw new Error("CI Codex install failed");
 }
 
 async function checkClaudeVersion(binary: string): Promise<void> {

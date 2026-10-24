@@ -54,7 +54,7 @@
   "tests/fixtures/workspace-lifecycle.test.ts": 2,
   "tests/generated-fixture.test.ts": 2,
   "tests/guide-host-receipts.test.ts": 1,
-  "tests/guide/claude-negative.test.ts": 141,
+  "tests/guide/claude-negative.test.ts": 62,
   "tests/guide/claude-positive.test.ts": 89,
   "tests/guide/codex-negative.test.ts": 139,
   "tests/guide/codex-positive.test.ts": 103,

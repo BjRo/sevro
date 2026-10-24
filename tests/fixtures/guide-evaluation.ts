@@ -89,26 +89,30 @@ export function registerGuideCases(host: Host) {
   return evaluate;
 }
 
-const negative = [
+// Event parsing, invocation receipts and continuation evidence differ by host.
+const hostEvidenceFailures = [
   { id: "unrelated", scenario: "effects", verdict: "failed" },
-  { id: "unrelated", scenario: "changed", verdict: "failed" },
   { id: "unrelated", scenario: "missing-events", verdict: "not_assessed" },
   { id: "unrelated", scenario: "partial", verdict: "not_assessed" },
   { id: "explicit", scenario: "missing-receipt", verdict: "not_assessed" },
   { id: "explicit", scenario: "wrong-receipt", verdict: "failed" },
   { id: "follow-up", scenario: "stale-follow-up", verdict: "failed" },
   { id: "follow-up", scenario: "missing-follow-up", verdict: "not_assessed" },
-
-  { id: "unrelated", scenario: "failed", verdict: "not_assessed" },
-  { id: "orientation", scenario: "changed-mount", verdict: "failed" },
-  { id: "unrelated", scenario: "extra-directory", verdict: "failed" },
-  { id: "orientation", scenario: "missing-selection", verdict: "not_assessed" },
-  { id: "orientation", scenario: "partial-selection", verdict: "not_assessed" },
   {
     id: "follow-up",
     scenario: "missing-continuation",
     verdict: "not_assessed",
   },
+] as const;
+
+// Fixture integrity, common selection observations and answer grading are shared.
+const sharedFailures = [
+  { id: "unrelated", scenario: "changed", verdict: "failed" },
+  { id: "unrelated", scenario: "failed", verdict: "not_assessed" },
+  { id: "orientation", scenario: "changed-mount", verdict: "failed" },
+  { id: "unrelated", scenario: "extra-directory", verdict: "failed" },
+  { id: "orientation", scenario: "missing-selection", verdict: "not_assessed" },
+  { id: "orientation", scenario: "partial-selection", verdict: "not_assessed" },
   { id: "explicit", scenario: "bad-answer", verdict: "failed" },
   { id: "stale", scenario: "bad-answer", verdict: "failed" },
   { id: "missing", scenario: "bad-answer", verdict: "failed" },
@@ -116,6 +120,10 @@ const negative = [
 ] as const;
 export function registerGuideFailures(host: Host) {
   const evaluate = guideEvaluator(host);
+  const negative = [
+    ...hostEvidenceFailures,
+    ...(host === "codex" ? sharedFailures : []),
+  ];
   test.each(negative.map((scenario) => ({ ...scenario, host })))(
     "Sevro refuses $host/$scenario guide evidence",
     async ({ id, scenario, verdict }) => {
