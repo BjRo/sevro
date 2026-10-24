@@ -20,7 +20,8 @@ array when composing fixture factories, so the caller owns cleanup. Use
 `fixtureGit` for fixture repositories; tests of the Git process API still call
 that API directly.
 
-Keep every test file in the explicit [source inventory](../typescript-sources.json).
+Keep test files under `tests/`; the [inventory guard](../scripts/typescript-inventory.ts)
+derives their disposition from Git paths, including non-ignored untracked additions.
 After moving or splitting a file, update its
 [duration estimate](../scripts/coverage/test-durations.json) so all CI shards use
 the same layout and weights. Splits must retain their original scenarios and

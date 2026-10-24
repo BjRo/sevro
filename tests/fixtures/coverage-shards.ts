@@ -9,6 +9,7 @@ import { dirname, join } from "node:path";
 import { copySnapshot } from "../../scripts/coverage/prepare";
 import { sourceInventory } from "../../scripts/typescript-inventory";
 import { aggregateCoverage } from "../../scripts/coverage/aggregate";
+import { fixtureGit } from "./filesystem";
 
 const hostModules = [
   "src/hosts/linux-sandbox.ts",
@@ -33,12 +34,18 @@ function copyGenerated(
   for (const file of files) cpSync(join(repo, file), join(project, file));
 }
 
-export function coverageShardCandidate(repo: string, root: string) {
+export async function coverageShardCandidate(repo: string, root: string) {
   const inventory = sourceInventory(repo);
   const { project } = copySnapshot(repo, root);
   for (const name of ["src", "tests", "examples", "bunfig.toml"])
     rmSync(join(project, name), { recursive: true, force: true });
   for (const name of hostModules) writeSource(project, name, "export {};\n");
+  // Keep Git setup at the real tooling boundary; the synthetic runner is pick().
+  writeSource(
+    project,
+    "src/git.ts",
+    `export { gitArguments, gitEnvironment } from ${JSON.stringify(join(repo, "src/git.ts"))};\n`,
+  );
   writeSource(
     project,
     "src/pick.ts",
@@ -58,17 +65,7 @@ export function coverageShardCandidate(repo: string, root: string) {
       'import { test, expect } from "bun:test"; import { pick } from "../src/pick";\n' +
         `test("branch ${index}", () => { expect(pick(${index % 2 === 0})).toBe(${index % 2 === 0 ? 1 : 0}); });\n`,
     );
-  writeFileSync(
-    join(project, "typescript-sources.json"),
-    JSON.stringify({
-      production: ["src/cli.ts", "src/pick.ts", ...hostModules],
-      generated: inventory.generated,
-      declarations: [],
-      tooling: inventory.tooling,
-      tests,
-      examples: [],
-    }),
-  );
+  await fixtureGit(project, "add", "--all");
   return project;
 }
 

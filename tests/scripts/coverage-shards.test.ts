@@ -222,7 +222,7 @@ test("public shard commands merge real subprocess counters and enforce coverage 
     resolve(tmpdir(), "sevro-shard-integration-"),
   );
   try {
-    const project = coverageShardCandidate(
+    const project = await coverageShardCandidate(
       resolve(import.meta.dir, "../.."),
       root,
     );

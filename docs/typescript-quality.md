@@ -37,11 +37,22 @@ for reproducing the CI split.
 
 ## Source dispositions
 
-[`typescript-sources.json`](../typescript-sources.json) explicitly lists every
-TypeScript and JavaScript source. The guard refuses new, missing or duplicated
-files and declarations outside the configured TypeScript project. Changing a
-source disposition requires review; adding a glob is not a substitute for the
-inventory. The coverage baseline includes the platform-reachable subset of
+The [inventory guard](../scripts/typescript-inventory.ts) derives every TypeScript
+and JavaScript source disposition from Git paths, following the
+[maintainer decision in #143](https://github.com/BjRo/sevro/issues/143#issuecomment-6382662399).
+It classifies `git ls-files --cached --others --exclude-standard -z` output using
+the checked path rules, so supported additions and staged renames or deletions
+need no manual manifest edit. Non-ignored untracked sources are included in local
+candidate checks; committed CI checkouts use their tracked paths. Declarations
+take precedence over directory roles, and only the validators in the shared
+[schema catalog](../scripts/schema-catalog.ts) receive the generated disposition.
+Unknown or ambiguous paths, missing tracked files, an incomplete generated set,
+and sources outside lint or typing are refused. An independent filesystem audit
+also refuses ignored authored sources rather than silently dropping them.
+Changing a disposition rule still requires review. Isolated coverage snapshots
+index their copied candidate independently, preserving additions and deletions
+without changing the source checkout's index.
+The coverage baseline includes the platform-reachable subset of
 `inventory.production`; `scripts/coverage/platform-scope.ts` names each excluded
 host-specific file. Every production file remains inventoried, typed and linted,
 and the opposite platform measures it. Current instrumentation supports authored
@@ -66,8 +77,8 @@ recommended JavaScript rules found 879 redeclarations, 281 useless assignments, 
 generation freshness, typed public boundaries and runtime behavior remain checked.
 Generated compiler output is excluded from coverage because the coverage target
 measures authored runner behavior. This applies only to
-`src/generated/cli-result.cjs`, `extension.cjs`, `report.cjs`, `run-evidence.cjs` and `runtime.cjs`
-as explicitly declared in the inventory. This disposition does not apply to authored CommonJS, including
+the exact validator paths derived from the [schema catalog](../scripts/schema-catalog.ts),
+which also drives schema generation. This disposition does not apply to authored CommonJS, including
 the coverage capture hook.
 
 ## Types, functions and review

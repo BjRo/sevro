@@ -7,6 +7,7 @@
   "tests/scripts/guide-host-receipts.test.ts": 1,
   "tests/scripts/release-docs.test.ts": 3,
   "tests/scripts/release.test.ts": 16,
+  "tests/scripts/typescript-inventory.test.ts": 10,
   "tests/scripts/typescript-properties.test.ts": 1,
   "tests/scripts/typescript-quality.test.ts": 20,
   "tests/src/advisory.test.ts": 1,

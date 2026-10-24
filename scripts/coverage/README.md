@@ -102,8 +102,9 @@ shared TypeScript types, and it remains linted and typechecked.
 
 ## Scope and artifacts
 
-[`typescript-sources.json`](../../typescript-sources.json) declares the checked
-source inventory. Coverage counts every platform-reachable authored production
+The [Git-derived inventory guard](../typescript-inventory.ts) classifies the checked
+source inventory using the reviewed path rules and exact generated-validator
+catalog. Coverage counts every platform-reachable authored production
 file, including unimported files. Ubuntu excludes the macOS sandbox, Keychain,
 and Darwin-only Apple metadata module, whose public caller has an explicit
 platform guard. macOS measures that metadata module; shared provider/query/path

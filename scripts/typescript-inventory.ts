@@ -1,42 +1,45 @@
-import { readFileSync } from "node:fs";
+import { realpathSync } from "node:fs";
 import { join, resolve } from "node:path";
 import ts from "typescript";
 import { object } from "./coverage/records";
 import { ESLint } from "eslint";
+import { gitArguments, gitEnvironment } from "../src/git";
+import { generatedValidators } from "./schema-catalog";
 
-const rolePaths: Record<string, RegExp> = {
-  production: /^src\/.*(?<!\.d)\.ts$/,
-  generated:
-    /^src\/generated\/(?:cli-result|run-evidence|report|extension|runtime)\.cjs$/,
-  declarations: /\.d\.[cm]?ts$/,
-  tooling: /^(?:scripts\/|eslint\.config\.mjs$)/,
-  tests: /^tests\//,
-  examples: /^examples\//,
-};
-const generatedFiles = [
-  "cli-result",
-  "extension",
-  "report",
-  "run-evidence",
-  "runtime",
-].map((name) => `src/generated/${name}.cjs`);
+type SourceKind =
+  | "production"
+  | "generated"
+  | "declarations"
+  | "tooling"
+  | "tests"
+  | "examples";
+type SourceInventory = Record<SourceKind, string[]>;
+const rolePaths: [SourceKind, RegExp][] = [
+  ["production", /^src\/.*(?<!\.d)\.ts$/],
+  ["tooling", /^(?:scripts\/|eslint\.config\.mjs$)/],
+  ["tests", /^tests\//],
+  ["examples", /^examples\//],
+];
 
-function checkRoles(inventory: Record<string, string[]>) {
-  for (const [kind, files] of Object.entries(inventory)) {
-    const pattern = rolePaths[kind];
-    if (!pattern) throw new Error(`Unknown source disposition: ${kind}`);
-    for (const file of files)
-      if (!pattern.test(file))
-        throw new Error(`Invalid ${kind} source disposition: ${file}`);
-  }
-  checkGeneratedScope(inventory.generated);
+function sourceDisposition(file: string): SourceKind {
+  if (generatedValidators.includes(file)) return "generated";
+  if (/\.d\.[cm]?ts$/.test(file)) return "declarations";
+  return directoryDisposition(file);
+}
+
+function directoryDisposition(file: string): SourceKind {
+  const matches = rolePaths.filter(([, pattern]) => pattern.test(file));
+  const match = matches[0];
+  if (!match || matches.length !== 1)
+    throw new Error(`Unclassified or overlapping source disposition: ${file}`);
+  return match[0];
 }
 
 function checkGeneratedScope(generated: string[] | undefined) {
   if (
     !generated ||
-    generated.length !== generatedFiles.length ||
-    !generatedFiles.every((file) => generated.includes(file))
+    generated.length !== generatedValidators.length ||
+    !generatedValidators.every((file) => generated.includes(file))
   )
     throw new Error("Expected the five exact generated validators");
 }
@@ -87,41 +90,47 @@ function errorRule(setting: unknown) {
   return setting === 2 || (Array.isArray(setting) && setting[0] === 2);
 }
 
-const kinds = [
-  "production",
-  "generated",
-  "declarations",
-  "tooling",
-  "tests",
-  "examples",
-];
-
-function fileList(value: unknown): value is string[] {
-  return (
-    Array.isArray(value) && value.every((file) => typeof file === "string")
-  );
+function gitOutput(root: string, args: string[]): string {
+  const child = Bun.spawnSync(gitArguments(args), {
+    cwd: root,
+    env: gitEnvironment(),
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (child.exitCode !== 0)
+    throw new Error(
+      `Cannot read source inventory from Git: ${child.stderr.toString()}`,
+    );
+  return child.stdout.toString();
 }
 
 function readInventory(root: string) {
-  const value: unknown = JSON.parse(
-    readFileSync(join(root, "typescript-sources.json"), "utf8"),
-  );
-  const input = object(value);
-  const inventory: Record<string, string[]> = {};
-  for (const [kind, files] of Object.entries(input)) {
-    if (!kinds.includes(kind))
-      throw new Error(`Unknown source disposition: ${kind}`);
-    if (!fileList(files)) throw new Error(`Invalid source inventory: ${kind}`);
-    inventory[kind] = files;
+  if (
+    gitOutput(root, ["rev-parse", "--show-toplevel"]).trim() !==
+    realpathSync(root)
+  )
+    throw new Error("Source inventory root must be the Git repository root");
+  const files = gitOutput(root, [
+    "ls-files",
+    "--cached",
+    "--others",
+    "--exclude-standard",
+    "-z",
+  ])
+    .split("\0")
+    .filter(sourceFile);
+  const inventory: SourceInventory = {
+    production: [],
+    generated: [],
+    declarations: [],
+    tooling: [],
+    tests: [],
+    examples: [],
+  };
+  for (const file of [...new Set(files)].sort()) {
+    inventory[sourceDisposition(file)].push(file);
   }
-  requireDispositions(inventory);
   return inventory;
-}
-
-function requireDispositions(inventory: Record<string, string[]>) {
-  for (const kind of kinds)
-    if (!inventory[kind])
-      throw new Error(`Missing source disposition: ${kind}`);
 }
 
 function sourceFile(file: string) {
@@ -186,14 +195,12 @@ export function sourceInventory(root: string) {
     ...new Bun.Glob("**/*").scanSync({ cwd: root, onlyFiles: true, dot: true }),
   ].filter(sourceFile);
   compareInventory(found, declared);
-  checkRoles(inventory);
+  checkGeneratedScope(inventory.generated);
   return inventory;
 }
 
 export function productionSources(root: string) {
-  const files = sourceInventory(root).production;
-  if (!files) throw new Error("Missing production source inventory");
-  return files;
+  return sourceInventory(root).production;
 }
 
 export async function checkInventory(root: string) {

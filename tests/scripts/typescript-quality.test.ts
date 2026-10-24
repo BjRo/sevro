@@ -14,8 +14,9 @@ import { stripVTControlCharacters } from "node:util";
 import { platformBranchCoverage } from "../../scripts/coverage/platform-branches";
 import { platformCoverageScope } from "../../scripts/coverage/platform-scope";
 import { copySnapshot } from "../../scripts/coverage/prepare";
-import { isRecord, isStringArray } from "../../src/value-guards";
-import { createTemporaryFixtures } from "../fixtures/filesystem";
+import { isRecord } from "../../src/value-guards";
+import { sourceInventory } from "../../scripts/typescript-inventory";
+import { createTemporaryFixtures, fixtureGit } from "../fixtures/filesystem";
 
 const { temporaryFixtureSync, cleanupTemporaryFixtures } =
   createTemporaryFixtures();
@@ -43,7 +44,6 @@ function prepareFormatFixture(project: string, files: string[]) {
     "schemas/probe.json",
     "eslint.config.mjs",
     "tsconfig.json",
-    "typescript-sources.json",
     ".github/workflows/probe.yml",
   ]) {
     const path = resolve(project, file);
@@ -130,47 +130,28 @@ test.each([
   },
 );
 
-function qualityInventory(root: string) {
-  const value: unknown = JSON.parse(
-    readFileSync(resolve(root, "typescript-sources.json"), "utf8"),
-  );
-  if (
-    !isRecord(value) ||
-    !isStringArray(value.production) ||
-    !isStringArray(value.generated)
-  )
-    throw new Error("Expected complete source inventory");
-  return { ...value, production: value.production, generated: value.generated };
-}
-
 function mutateCoverageCandidate(project: string, kind: string) {
-  const inventory = qualityInventory(project);
   switch (kind) {
     case "missing source":
       rmSync(resolve(project, "src/value-guards.ts"));
       break;
-    case "overlapping dispositions":
-      inventory.generated.push("src/value-guards.ts");
+    case "missing generated validator":
+      rmSync(resolve(project, "src/generated/extension.cjs"));
       break;
     case "misclassified CJS":
       writeFileSync(
-        resolve(project, "src/coverage-control.cjs"),
+        resolve(project, "src/generated/coverage-control.cjs"),
         "const value = 1;\n",
       );
-      inventory.generated.push("src/coverage-control.cjs");
       break;
     default: {
-      const extension = kind === "unregistered TypeScript" ? "ts" : "cjs";
+      const extension = kind === "unsupported TypeScript" ? "mts" : "cjs";
       writeFileSync(
         resolve(project, `src/coverage-control.${extension}`),
         "const value = 1;\n",
       );
     }
   }
-  writeFileSync(
-    resolve(project, "typescript-sources.json"),
-    JSON.stringify(inventory),
-  );
 }
 
 function scopeResult(output: string) {
@@ -191,13 +172,22 @@ function scopeFiles(repo: string, file: string) {
 }
 
 test.each([
-  ["unregistered CJS", "Unregistered source: src/coverage-control.cjs"],
-  ["unregistered TypeScript", "Unregistered source: src/coverage-control.ts"],
+  [
+    "unregistered CJS",
+    "Unclassified or overlapping source disposition: src/coverage-control.cjs",
+  ],
+  [
+    "unsupported TypeScript",
+    "Unclassified or overlapping source disposition: src/coverage-control.mts",
+  ],
   ["missing source", "Missing inventoried source: src/value-guards.ts"],
-  ["overlapping dispositions", "Duplicate source inventory entry"],
+  [
+    "missing generated validator",
+    "Missing inventoried source: src/generated/extension.cjs",
+  ],
   [
     "misclassified CJS",
-    "Invalid generated source disposition: src/coverage-control.cjs",
+    "Unclassified or overlapping source disposition: src/generated/coverage-control.cjs",
   ],
 ])(
   "direct public coverage refuses %s",
@@ -213,7 +203,7 @@ test.each([
           process.execPath,
           resolve(project, "scripts/check-typescript.ts"),
           "--coverage",
-          "tests/schema.test.ts",
+          "tests/src/schema.test.ts",
         ],
         { cwd: project, stdout: "pipe", stderr: "pipe" },
       );
@@ -235,7 +225,7 @@ test("the public TypeScript gate covers host-reachable production and excludes g
   expect(child.exitCode, child.stderr.toString()).toBe(0);
   const observed = scopeResult(child.stdout.toString());
   expect(observed.generatedCjs).toBe("validated");
-  const inventory = qualityInventory(repo);
+  const inventory = sourceInventory(repo);
   const scope = platformCoverageScope(inventory.production);
   for (const file of ["baseline.json", "coverage-final.json"]) {
     const files = scopeFiles(repo, file);
@@ -321,14 +311,11 @@ test("the public TypeScript gate rejects missed branches independently", () => {
 
 test.each(["stray.ts", "stray.tsx", "stray.mts", "stray.cts"])(
   "the public TypeScript gate refuses unregistered source file %s",
-  (filename) => {
+  async (filename) => {
     const root = temporaryFixtureSync(resolve(tmpdir(), "sevro-inventory-"));
     try {
       writeFileSync(resolve(root, filename), "export const value = 1;\n");
-      writeFileSync(
-        resolve(root, "typescript-sources.json"),
-        '{"production":[],"tooling":[],"tests":[],"examples":[],"declarations":[],"generated":[]}',
-      );
+      await fixtureGit(root, "init", "--quiet");
       const child = Bun.spawnSync(
         [process.execPath, "run", "check:typescript", "--inventory", root],
         {
@@ -339,7 +326,7 @@ test.each(["stray.ts", "stray.tsx", "stray.mts", "stray.cts"])(
       );
       expect(child.exitCode).toBe(1);
       expect(child.stderr.toString()).toContain(
-        `Unregistered source: ${filename}`,
+        `Unclassified or overlapping source disposition: ${filename}`,
       );
     } finally {
       rmSync(root, { recursive: true, force: true });
