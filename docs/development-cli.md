@@ -12,8 +12,13 @@ grading, evidence, and extension lifecycle.
 and maintains the latest report index. Bare pruning keeps the newest ten results;
 `--keep`, `--older-than`, and `--latest` select explicit retention policies.
 
-Examples assume [Sevro and Bun are on `PATH`](installing.md#make-the-command-available).
+Examples assume [Sevro and Node are on `PATH`](installing.md#make-the-command-available).
 For a contributor checkout, use `bun src/cli.ts` in place of `sevro`.
+
+Use JavaScript adapter modules for portable Node and Bun execution. Bun can
+load TypeScript source adapters directly. Node's native TypeScript loading has
+syntax and dependency-directory restrictions; compile adapters that need full
+TypeScript support before selecting them with `--adapter-module`.
 
 Use `sevro --help`, `sevro run --help`, `sevro report --help`, or
 `sevro prune --help` for examples,
@@ -34,7 +39,7 @@ configuration are independent of the caller's files and runtime policy.
 An ordinary run needs a case source and candidate route. For example:
 
 ```sh
-sevro run --case-file ./case.json --adapter-module ./host-adapter.ts
+sevro run --case-file ./case.json --adapter-module ./host-adapter.js
 ```
 
 | Setting                                                     | Default                                                                                                                 |
@@ -118,7 +123,7 @@ temporary project without runner Git metadata.
 ```sh
 sevro run --json \
   --case-file /absolute/path/case.json \
-  --adapter-module /absolute/path/host-adapter.ts \
+  --adapter-module /absolute/path/host-adapter.js \
   --project-root /absolute/path/project \
   --results-root /absolute/path/results \
   --condition passive --trials 1 --threshold 1
@@ -355,7 +360,7 @@ separate turn event artifacts remain bounded and private. The last response
 is graded, and only complete per-call usage and cost series are summed.
 
 For cases with `sevro.semantic` checks, also pass
-`--semantic-adapter-module /absolute/path/semantic-adapter.ts` to load an
+`--semantic-adapter-module /absolute/path/semantic-adapter.js` to load an
 explicit second `HostAdapter` for grading. Alternatively, select the bundled
 Codex route with `--semantic-host codex --semantic-model <model>
 --semantic-effort <effort>`. That route also requires `--codex-bin` and
@@ -367,7 +372,7 @@ runs after a complete candidate response in its own empty workspace; missing
 or malformed semantic verdicts produce a grading error.
 
 For generated Git or repository fixtures, add
-`--advisory-adapter-module /absolute/path/advisory-adapter.ts` to request an
+`--advisory-adapter-module /absolute/path/advisory-adapter.js` to request an
 independent quality review. Alternatively, use `--advisory-host codex
 --advisory-model <model> --advisory-effort <effort>` with the shared Codex binary
 and auth file options. Repeat `--advisory-exclude <fixture-relative-path>` for

@@ -12,7 +12,10 @@ explanation. Implementation paths and test scenarios here are navigation, not
 evidence that a particular candidate passed validation.
 
 [`engine.ts`](../src/engine.ts) remains the programmatic facade, and
-[`cli.ts`](../src/cli.ts) remains the installed command entrypoint. The CLI
+[`cli.ts`](../src/cli.ts) builds to the installed `dist/src/cli.js` entrypoint.
+The package runs on Node.js and Bun; contributor commands still use Bun.
+[Process adapters](../src/runtime-process.ts) normalize child processes and
+Web Streams. [SQLite locking](../src/sqlite-lock.ts) selects the runtime's native driver, preserving shared file-lock semantics. The CLI
 loads and assembles evaluation options; evaluation modules coordinate the run
 and its trials.
 

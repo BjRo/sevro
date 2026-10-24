@@ -1,3 +1,4 @@
+import { recipeFile } from "./modules";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { record } from "./extension-methods";
@@ -7,6 +8,11 @@ function shellQuote(text: string): string {
   return `'${text.replaceAll("'", "'\\''")}'`;
 }
 
+function evaluatorCode(test: string): string {
+  if (import.meta.filename.endsWith(".js")) return test;
+  return new Bun.Transpiler({ loader: "ts" }).transformSync(test);
+}
+
 async function caseFile(
   options: RecipeOptions,
   state: string,
@@ -14,22 +20,17 @@ async function caseFile(
   const value = record(
     JSON.parse(
       await readFile(
-        join(import.meta.dir, "cases", `${options.recipe}.json`),
+        join(import.meta.dirname, "cases", `${options.recipe}.json`),
         "utf8",
       ),
     ) as unknown,
   );
   if (options.recipe === "coding-change") {
-    const test = await readFile(
-      join(import.meta.dir, "coding-change/check.ts"),
-      "utf8",
-    );
+    const test = await readFile(recipeFile("coding-change/check.ts"), "utf8");
     const checks: unknown[] = Array.isArray(value.checks) ? value.checks : [];
     const check = record(checks[0]);
-    const javascript = new Bun.Transpiler({ loader: "ts" }).transformSync(test);
-    const protectedTest = shellQuote(
-      join(import.meta.dir, "coding-change/check.ts"),
-    );
+    const javascript = evaluatorCode(test);
+    const protectedTest = shellQuote(recipeFile("coding-change/check.ts"));
     record(check.configuration).run =
       `test ! -r ${protectedTest}\nnode --input-type=module -e ${shellQuote(javascript)}`;
   }
@@ -62,7 +63,7 @@ async function extensionFiles(
     command,
     JSON.stringify([
       process.execPath,
-      join(import.meta.dir, "extension.ts"),
+      recipeFile("extension.ts"),
       options.recipe,
       options.route,
       options.fail ? "fail" : "pass",
@@ -80,10 +81,7 @@ async function extensionFiles(
     command,
     "--case-id",
     "recipe-extension",
-    ...sources.flatMap((path) => [
-      "--extension-source-file",
-      join(import.meta.dir, path),
-    ]),
+    ...sources.flatMap((path) => ["--extension-source-file", recipeFile(path)]),
   ];
 }
 
@@ -118,7 +116,7 @@ export async function hostArguments(
   state: string,
 ): Promise<string[]> {
   if (options.route === "deterministic")
-    return ["--adapter-module", join(import.meta.dir, "candidate.ts")];
+    return ["--adapter-module", recipeFile("candidate.ts")];
   const model = selectedModel(options.dry, "SEVRO_RECIPE_MODEL");
   if (!model)
     throw new Error(
@@ -156,10 +154,7 @@ export async function semanticArguments(
 ): Promise<string[]> {
   if (options.recipe !== "semantic") return [];
   if (options.route === "deterministic")
-    return [
-      "--semantic-adapter-module",
-      join(import.meta.dir, "semantic-judge.ts"),
-    ];
+    return ["--semantic-adapter-module", recipeFile("semantic-judge.ts")];
   const model = selectedModel(options.dry, "SEVRO_RECIPE_JUDGE_MODEL");
   if (!model)
     throw new Error(

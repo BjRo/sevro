@@ -1,3 +1,4 @@
+import { spawn, type Subprocess } from "../runtime-process";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, isAbsolute, join } from "node:path";
@@ -155,7 +156,7 @@ function executionEnvironment(
 }
 
 class FixtureSetupExecution {
-  private proc: Bun.Subprocess | undefined;
+  private proc: Subprocess | undefined;
   private readonly deadline: ProcessDeadline;
   constructor(
     private readonly setup: FixtureSetup,
@@ -175,7 +176,7 @@ class FixtureSetupExecution {
   }
 
   async run(): Promise<void> {
-    this.proc = Bun.spawn(this.setup.command, {
+    this.proc = spawn(this.setup.command, {
       cwd: this.options.workspace,
       env: executionEnvironment(this.setup, this.options, this.home),
       detached: process.platform !== "win32",

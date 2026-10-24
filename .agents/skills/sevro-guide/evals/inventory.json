@@ -4,9 +4,14 @@
     {
       "id": "orientation",
       "kind": "domain",
-      "question": "What is Sevro, and how can I get my first successful result?",
+      "question": "What is Sevro, how can I get my first successful result, and can I run it with Node without installing Bun?",
       "cases": ["orientation"],
-      "sources": ["README.md", "docs/getting-started.md"],
+      "sources": [
+        "README.md",
+        "docs/getting-started.md",
+        "docs/installing.md",
+        "package.json"
+      ],
       "destination": "docs/getting-started.md"
     },
     {

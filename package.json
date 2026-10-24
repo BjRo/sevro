@@ -29,10 +29,11 @@
     "docs/specs/",
     "examples/",
     "schemas/",
-    "src/"
+    "src/",
+    "dist/"
   ],
   "bin": {
-    "sevro": "./src/cli.ts"
+    "sevro": "./dist/src/cli.js"
   },
   "scripts": {
     "check:typescript": "bun scripts/check-typescript.ts",
@@ -49,14 +50,18 @@
     "test:docs-examples": "bun scripts/verify-doc-examples.ts",
     "guide:sync": "bun scripts/sync-guide.ts",
     "eval:guide": "bun scripts/eval-guide.ts",
-    "release:prepare": "bun scripts/prepare-release.ts",
+    "release:prepare": "bun run build && bun scripts/prepare-release.ts",
     "typecheck": "tsc --noEmit",
-    "format:check": "prettier --check README.md CONTRIBUTING.md AGENTS.md CLAUDE.md 'docs/**/*.md' '.agents/**/*.md' '.agents/**/*.json' '.claude/**/*.md' 'scripts/**/*.md' 'scripts/**/*.json' 'examples/**/*.json' 'examples/**/*.ts' 'schemas/*.json' 'src/**/*.ts' 'scripts/**/*.ts' 'scripts/**/*.cjs' 'tests/**/*.ts' eslint.config.mjs package.json tsconfig.json '.github/workflows/*.yml'"
+    "format:check": "prettier --check README.md CONTRIBUTING.md AGENTS.md CLAUDE.md 'docs/**/*.md' '.agents/**/*.md' '.agents/**/*.json' '.claude/**/*.md' 'scripts/**/*.md' 'scripts/**/*.json' 'examples/**/*.json' 'examples/**/*.ts' 'schemas/*.json' 'src/**/*.ts' 'scripts/**/*.ts' 'scripts/**/*.cjs' 'tests/**/*.ts' eslint.config.mjs package.json tsconfig.json '.github/workflows/*.yml'",
+    "build": "bun scripts/build.ts",
+    "prepack": "bun run build",
+    "test:runtime-node": "bun scripts/verify-node-runtime.ts"
   },
   "dependencies": {
     "ajv": "8.20.0",
     "smol-toml": "1.8.0",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "yaml": "2.9.1"
   },
   "devDependencies": {
     "@babel/core": "8.0.6",
@@ -80,5 +85,8 @@
     "prettier": "3.9.9",
     "shell-quote": "1.12.0",
     "typescript-eslint": "8.71.1"
+  },
+  "engines": {
+    "node": ">=24.13.0"
   }
 }

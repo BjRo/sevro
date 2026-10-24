@@ -97,7 +97,7 @@ test("docs:sync installs rc.4 and preserves surrounding historical bytes", async
   const content = await readFile(join(root, "docs/installing.md"), "utf8");
   expect(content).toBe(
     before +
-      "<!-- sevro-current-release:start -->\n\n## Current release\n\nThe current release is `0.1.0-rc.4`. Install this exact version:\n\n```sh\nbun add --exact @bjoernrochel/sevro@0.1.0-rc.4\n```\n\n<!-- sevro-current-release:end -->\n" +
+      "<!-- sevro-current-release:start -->\n\n## Current release\n\nThe current release is `0.1.0-rc.4`. Install this exact version with npm:\n\n```sh\nnpm install --save-exact @bjoernrochel/sevro@0.1.0-rc.4\n```\n\nOr with Bun:\n\n```sh\nbun add --exact @bjoernrochel/sevro@0.1.0-rc.4\n```\n\n<!-- sevro-current-release:end -->\n" +
       after,
   );
   expect((await invoke(root, "check:docs")).code).toBe(0);
@@ -193,6 +193,7 @@ test("package validation checks the supplied artifact's current release", async 
   for (const file of ["README.md", "LICENSE", "CONTRIBUTING.md"]) {
     await cp(join(source, file), join(root, file));
   }
+  expect((await invoke(root, "build")).code).toBe(0);
   const packed = Bun.spawn(["npm", "pack", "--ignore-scripts", "--silent"], {
     cwd: root,
     stdout: "pipe",

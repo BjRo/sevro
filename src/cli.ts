@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 import { main } from "./cli/command";
 import { reportCommand } from "./report";
 import { informationCommand } from "./cli/help";

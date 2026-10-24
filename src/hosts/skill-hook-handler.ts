@@ -322,7 +322,7 @@ function validReceiptIdentity(receipt: SkillHookReceipt): boolean {
 async function boundedInput(): Promise<unknown> {
   const chunks: Uint8Array[] = [];
   let bytes = 0;
-  for await (const chunk of Bun.stdin.stream()) {
+  for await (const chunk of process.stdin as AsyncIterable<Uint8Array>) {
     bytes += chunk.byteLength;
     if (bytes > MAX_INPUT_BYTES) throw new Error("skill hook input too large");
     chunks.push(chunk);

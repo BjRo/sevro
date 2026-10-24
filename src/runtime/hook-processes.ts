@@ -1,3 +1,4 @@
+import { spawn } from "../runtime-process";
 import { readFile, readdir, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { isRecord } from "../value-guards";
@@ -22,7 +23,7 @@ export async function hookExecutions(
 }
 
 async function processOutput(argv: string[]): Promise<string> {
-  const child = Bun.spawn(argv, { stdout: "pipe", stderr: "ignore" });
+  const child = spawn(argv, { stdout: "pipe", stderr: "ignore" });
   const output = await new Response(child.stdout).text();
   await child.exited;
   if (Buffer.byteLength(output) > 1024 * 1024)

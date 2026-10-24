@@ -12,8 +12,9 @@ It validates the guide inventory's source/static destinations and case coverage.
 It ignores code contents as links and excludes inactive fixture snapshots.
 Local checks need no network. Run `bun run test:docs-examples` for the exact
 marked tutorial commands in fresh consumer/contributor directories, including
-expected verdicts and saved evidence. Candidate and released-package runs are
-reported separately. These commands create and clean temporary directories.
+expected verdicts and saved evidence. Candidate commands run against compiled JavaScript. The released-package
+check uses the tutorial bundled in that published version; the two results
+are reported separately. These commands create and clean temporary directories.
 The [recipe verifier](../scripts/documentation-recipes.ts) runs the new packaged
 projects separately from the current published version. It executes actual
 isolated tool/check positive and negative controls and both native hosts' dry
@@ -23,7 +24,7 @@ are mandatory, including UV and mise's declared Node installation.
 
 `package.json.version` is the authoritative current version. `bun run docs:sync`
 updates only the marked [Current release](installing.md#current-release) section
-with its exact installation command. Keep its markers and heading in place;
+with its exact npm and Bun installation commands. Keep its markers and heading in place;
 the command refuses missing, duplicate, or reversed markers and invalid versions.
 The rest of the page stays ordinary Markdown. `check:docs` compares this section
 without writing; release preparation and package-install validation also reject

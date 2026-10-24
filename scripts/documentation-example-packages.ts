@@ -1,7 +1,10 @@
 import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { isRecord } from "../src/value-guards";
-import { verifyTutorialModes } from "./documentation-example-results";
+import {
+  shellExample,
+  verifyTutorialModes,
+} from "./documentation-example-results";
 import { runDocumentationCommand } from "./documentation-process";
 
 async function packageLicense(path: string): Promise<string> {
@@ -20,6 +23,7 @@ export async function candidatePackage(root: string, temporary: string) {
   if (!isRecord(value) || typeof value.version !== "string")
     throw new Error("Invalid candidate package version");
   const license = await packageLicense(root);
+  await runDocumentationCommand([process.execPath, "run", "build"], root);
   await runDocumentationCommand(
     [
       "npm",
@@ -70,8 +74,15 @@ export async function verifyConsumer(
     [process.execPath, "add", "--exact", dependency],
     consumer,
   );
-  await verifyTutorialModes(consumer, command);
   const installed = join(consumer, "node_modules/@bjoernrochel/sevro");
+  const tutorial =
+    label === "published-consumer"
+      ? shellExample(
+          await readFile(join(installed, "docs/getting-started.md"), "utf8"),
+          "consumer",
+        )
+      : command;
+  await verifyTutorialModes(consumer, tutorial);
   if (
     (await packageLicense(installed)) !== expectedLicense ||
     !(await readFile(join(installed, "LICENSE"), "utf8")).trim()

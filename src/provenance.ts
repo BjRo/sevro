@@ -1,10 +1,12 @@
+import { runnerRoot, sourceRuntime } from "./runner-paths";
+import { spawnSync } from "./runtime-process";
 import type { Stats } from "node:fs";
 import { lstat, readFile, readdir, readlink, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { insideRoot } from "./paths";
 import { pathToFileURL } from "node:url";
-import packageJson from "../package.json";
+import packageJson from "../package.json" with { type: "json" };
 import { hashJson, sha256 } from "./identity";
 import { insideRuntimeRoot } from "./runtime/paths";
 
@@ -49,9 +51,7 @@ class BuildSnapshot {
 }
 
 /** Digest the packaged runtime and public contract files in path order. */
-export async function packageBuildDigest(
-  root = join(import.meta.dir, ".."),
-): Promise<string> {
+export async function packageBuildDigest(root = runnerRoot): Promise<string> {
   const snapshot = new BuildSnapshot(await realpath(root));
   for (const path of [
     "package.json",
@@ -60,6 +60,7 @@ export async function packageBuildDigest(
     "examples",
     "schemas",
     "src",
+    ...(!sourceRuntime ? ["dist"] : []),
   ])
     await snapshot.collect(path);
   return hashJson({
@@ -138,7 +139,7 @@ export async function projectIdentityDigest(
 }
 
 function git(root: string, ...arguments_: string[]): Buffer {
-  const result = Bun.spawnSync(["git", "-C", root, ...arguments_], {
+  const result = spawnSync(["git", "-C", root, ...arguments_], {
     env: { PATH: process.env.PATH ?? "/usr/bin:/bin", LC_ALL: "C" },
     stdout: "pipe",
     stderr: "ignore",
@@ -308,7 +309,7 @@ export async function runnerProvenance(
   checkoutRoot?: string,
 ) {
   if (checkoutRoot) {
-    const actualRoot = await realpath(join(import.meta.dir, ".."));
+    const actualRoot = await realpath(runnerRoot);
     if ((await realpath(checkoutRoot)) !== actualRoot)
       throw new Error(
         "local Sevro checkout root does not match the running package",

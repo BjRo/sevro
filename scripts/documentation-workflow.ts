@@ -14,12 +14,15 @@ async function invoke(
   expected = 0,
   environment: NodeJS.ProcessEnv = {},
 ) {
-  const child = Bun.spawn([command, ...args], {
-    cwd,
-    stdout: "pipe",
-    stderr: "pipe",
-    env: { ...process.env, ...environment },
-  });
+  const child = Bun.spawn(
+    [process.env.SEVRO_INSTALLED_RUNTIME ?? process.execPath, command, ...args],
+    {
+      cwd,
+      stdout: "pipe",
+      stderr: "pipe",
+      env: { ...process.env, ...environment },
+    },
+  );
   const [stdout, stderr, code] = await Promise.all([
     new Response(child.stdout).text(),
     new Response(child.stderr).text(),

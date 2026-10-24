@@ -6,6 +6,10 @@ the same guide and freshly inspected sources. Unrelated questions and requests
 to implement, install, run evaluations, or diagnose a live environment do not
 select the guide. The explicitly invoked guide remains read-only.
 
+In Claude Code, load `sevro-guide` through the native Skill tool so its selection
+is observable. Codex reads the canonical skill file through its normal skill
+loading mechanism.
+
 Before changing source code, tests, tooling, examples, or schemas,
 read `CONTRIBUTING.md` and `docs/typescript-quality.md`.
 Before preparing a commit, pull request, or release, read `CONTRIBUTING.md`.

@@ -77,6 +77,7 @@ function qualityPhase(
       return;
     case "package":
       run([process.execPath, "run", "test:package-install"], root);
+      run([process.execPath, "run", "test:runtime-node"], root);
       return;
   }
 }

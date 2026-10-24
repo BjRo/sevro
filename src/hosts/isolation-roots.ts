@@ -1,7 +1,8 @@
+import { runnerRoot } from "../runner-paths";
 import { isMissingFile } from "../fixtures/tools";
 import { realpath } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
-import { isAbsolute, resolve } from "node:path";
+import { isAbsolute } from "node:path";
 import { protectedWorktrees } from "./protected-worktrees";
 import { nativeStateParent } from "../native-transcript-state";
 import { workspaceStateParent } from "../fixtures/workspace-state";
@@ -23,7 +24,7 @@ async function protectedRootCandidates(options: ProtectedRootsOptions) {
   const candidates = [
     await nativeStateParent(),
     await workspaceStateParent(),
-    resolve(import.meta.dir, "../.."),
+    runnerRoot,
     options.projectRoot,
     options.resultsRoot,
     homedir(),

@@ -76,7 +76,7 @@ async function verifyCommand(
     env: {
       ...process.env,
       SEVRO_RECIPES: join(cwd, "recipes"),
-      SEVRO_RECIPE_CLI: join(installed, "src/cli.ts"),
+      SEVRO_RECIPE_CLI: join(installed, "dist/src/cli.js"),
     },
     stdout: "pipe",
     stderr: "pipe",
@@ -162,7 +162,7 @@ export async function verifyRecipes(
 ): Promise<void> {
   const cwd = join(temporary, "candidate-recipes");
   await mkdir(cwd);
-  await cp(join(installed, "examples/recipes"), join(cwd, "recipes"), {
+  await cp(join(installed, "dist/examples/recipes"), join(cwd, "recipes"), {
     recursive: true,
   });
   const text = await readFile(join(root, "docs/recipes.md"), "utf8");

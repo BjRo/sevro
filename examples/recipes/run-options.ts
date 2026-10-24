@@ -1,3 +1,5 @@
+import { spawnSync } from "node:child_process";
+import { which } from "./executable";
 import { delimiter, isAbsolute, join } from "node:path";
 import { homedir } from "node:os";
 
@@ -60,7 +62,7 @@ function validateGoalsStep(flags: string[]): void {
 }
 
 export function requireTool(name: string): string {
-  const path = Bun.which(name);
+  const path = which(name);
   if (!path)
     throw new Error(
       `Recipe prerequisite missing: install ${name} and put it on PATH`,
@@ -78,7 +80,7 @@ export function runtimeFile(options: RecipeOptions): string {
     plugins: options.goalsOnly ? "goals" : "plugins",
   };
   return join(
-    import.meta.dir,
+    import.meta.dirname,
     "runtime",
     `${files[options.recipe] ?? "empty"}.json`,
   );
@@ -99,19 +101,18 @@ function requireStandaloneRipgrep(): void {
   const paths = (process.env.PATH ?? "")
     .split(delimiter)
     .filter((entry) => !roots.some((root) => entry.startsWith(root)));
-  if (!Bun.which("rg", { PATH: paths.join(delimiter) }))
+  if (!which("rg", paths.join(delimiter)))
     throw new Error(
       "Install standalone ripgrep outside Codex/Claude credential directories, then put it on PATH (for example brew install ripgrep or apt-get install ripgrep)",
     );
 }
 
 function selectMiseNode(): void {
-  const result = Bun.spawnSync([requireTool("mise"), "where", "node@24.13.0"], {
-    stdout: "pipe",
-    stderr: "pipe",
+  const result = spawnSync(requireTool("mise"), ["where", "node@24.13.0"], {
+    encoding: "utf8",
   });
-  const installation = result.stdout.toString().trim();
-  if (result.exitCode !== 0 || !isAbsolute(installation))
+  const installation = result.stdout.trim();
+  if (result.status !== 0 || !isAbsolute(installation))
     throw new Error(
       "Install the recipe's Node with mise install node@24.13.0 before running it",
     );

@@ -1,4 +1,4 @@
-import { Database } from "bun:sqlite";
+import { openLockDatabase } from "./sqlite-lock";
 import { join } from "node:path";
 import { lstat } from "node:fs/promises";
 
@@ -28,10 +28,10 @@ export async function withResultsLock<T>(
 /** Hold a root lock while discovering and validating additional nested roots. */
 export async function acquireResultsLock(root: string): Promise<() => void> {
   await retainedFile(join(root, ".retention-lock.sqlite"));
-  const database = new Database(join(root, ".retention-lock.sqlite"));
+  const database = openLockDatabase(join(root, ".retention-lock.sqlite"));
   try {
-    database.run("PRAGMA busy_timeout = 5000");
-    database.run("BEGIN IMMEDIATE");
+    database.exec("PRAGMA busy_timeout = 5000");
+    database.exec("BEGIN IMMEDIATE");
     return () => {
       database.close();
     };

@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { shellQuote as quote } from "../shell";
@@ -43,7 +44,14 @@ export async function prepareSkillTracking(options: {
     "-i",
     "PATH=/usr/bin:/bin",
     process.execPath,
-    fileURLToPath(new URL("./skill-hook-handler.ts", import.meta.url)),
+    fileURLToPath(
+      new URL(
+        import.meta.filename.endsWith(".ts")
+          ? "./skill-hook-handler.ts"
+          : "./skill-hook-handler.js",
+        import.meta.url,
+      ),
+    ),
     configurationPath,
   ]
     .map(quote)
@@ -140,7 +148,7 @@ function receiptLabels(value: Record<string, unknown>): boolean {
 async function receipts(tracking: SkillTracking) {
   const root = tracking.configuration.receipts;
   const result = { events: [] as SkillHookReceipt[], reasons: [] as string[] };
-  if (await Bun.file(join(root, "partial")).exists())
+  if (existsSync(join(root, "partial")))
     result.reasons.push("observer_failure");
   try {
     const path = join(root, "events.jsonl");

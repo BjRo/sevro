@@ -1,3 +1,4 @@
+import { spawn, type Subprocess } from "../runtime-process";
 import { isRecord } from "../value-guards";
 import { lstat } from "node:fs/promises";
 import { join } from "node:path";
@@ -60,7 +61,7 @@ async function validateGitMetadata(workspace: string): Promise<void> {
 class GitHeadExecution {
   private readonly deadline: ProcessDeadline;
   constructor(
-    private readonly proc: Bun.Subprocess<"ignore", "pipe", "ignore">,
+    private readonly proc: Subprocess,
     signal: AbortSignal | undefined,
   ) {
     this.deadline = new ProcessDeadline({
@@ -106,7 +107,7 @@ async function git(
 ): Promise<{ code: number; output: string }> {
   if (signal?.aborted) throw new Error("Git HEAD check cancelled");
   await validateGitMetadata(workspace);
-  const proc = Bun.spawn(gitArguments(args), {
+  const proc = spawn(gitArguments(args), {
     cwd: workspace,
     stdin: "ignore",
     stdout: "pipe",

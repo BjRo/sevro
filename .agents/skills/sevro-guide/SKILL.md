@@ -35,8 +35,13 @@ source; an unsuccessful search means unknown, not disproven.
 
 Current contracts and applicable accepted decisions govern intent; their order
 does not resolve contradictions. Current package metadata/docs establish the
-installation identity. Code and tests support explicitly labelled derived facts,
-not proof that tests passed. Missing/unreadable sources are unknown. Historical
+installation identity. Distinguish the installed JavaScript CLI on Node or Bun
+from contributor source commands, builds and tests that use Bun. Read
+`docs/installing.md` and package metadata before quoting runtime prerequisites.
+Keep unreleased checkout capabilities separate from the current registry release;
+package version metadata alone does not establish publication. Node support
+does not establish Windows support. Code and tests support explicitly labelled
+derived facts, not proof that tests passed. Missing/unreadable sources are unknown. Historical
 evidence may explain a past result but cannot expand supported hosts or claim a
 planned quality gate shipped. A Rust research ticket is not a migration decision.
 

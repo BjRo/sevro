@@ -4,7 +4,7 @@ import tseslint from "typescript-eslint";
 import { testCallbackLines } from "./scripts/eslint-test-callbacks.ts";
 
 export default defineConfig(
-  { ignores: ["node_modules/**", ".quality/**"] },
+  { ignores: ["node_modules/**", ".quality/**", "dist/**"] },
   {
     files: ["src/generated/*.cjs"],
     languageOptions: { sourceType: "commonjs" },

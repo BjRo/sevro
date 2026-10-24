@@ -25,7 +25,7 @@ order; `--fast` runs only `static` without installing dependencies.
 | `static`  | Schema freshness, documentation contracts, formatting, type-aware lint and typing             |
 | `docs`    | All guide dry runs, tutorial examples and recipe checks                                       |
 | `tests`   | Coverage integrity controls, the complete instrumented Bun suite and both coverage thresholds |
-| `package` | Packed-package installation and installed CLI workflows                                       |
+| `package` | Packed-package installation and installed CLI workflows on Bun and Node                       |
 
 Use the same prerequisites as the corresponding complete-gate checks. A single
 phase is partial evidence; full acceptance requires all four on the same candidate.
@@ -46,6 +46,9 @@ need no manual manifest edit. Non-ignored untracked sources are included in loca
 candidate checks; committed CI checkouts use their tracked paths. Declarations
 take precedence over directory roles, and only the validators in the shared
 [schema catalog](../scripts/schema-catalog.ts) receive the generated disposition.
+Generated `dist/` output is ignored by Git, lint and the authored-source inventory.
+It is rebuilt from inventoried TypeScript and validated through installed-package
+workflows; it never substitutes for authored production coverage.
 Unknown or ambiguous paths, missing tracked files, an incomplete generated set,
 and sources outside lint or typing are refused. An independent filesystem audit
 also refuses ignored authored sources rather than silently dropping them.
@@ -202,6 +205,20 @@ validation still runs. Branch and missing-report controls
 deliberately exit 1. A five-of-five statement, one-of-two branch sample must fail
 with `Below 95%: branches`. The integration suite retains real CLI/extension,
 graceful SIGINT/SIGTERM cancellation, filesystem isolation and owned-child paths.
+
+## Installed runtime acceptance
+
+Bun 1.3.13 remains the contributor runtime and test runner. `bun run build`
+emits JavaScript and source maps under `dist/`; `prepack` builds before ordinary
+`npm pack`. Packing with lifecycle scripts disabled requires an explicit build.
+`bun run test:runtime-node` installs the candidate archive with npm, removes Bun
+from the consumer PATH, and exercises the Node 24.13.0 CLI, templates and recipes.
+It also interrupts a real isolated shell check, verifies the interruption exit
+and retained evidence, and refuses a surviving owned child process.
+It reuses the installed-package workflow checks, including synthetic native
+fixtures, with Node selected explicitly. The package quality phase requires
+both the existing Bun package checks and Node acceptance. These deterministic
+checks do not establish authenticated model behavior.
 
 ## Environment and CI
 

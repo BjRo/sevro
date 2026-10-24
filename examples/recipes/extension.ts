@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import {
   describe,
   evaluate,
@@ -9,7 +10,7 @@ import {
 const mode = process.argv[2] ?? "lifecycle";
 const host = process.argv[3] ?? "deterministic";
 const fail = process.argv[4] === "fail";
-const request = record(JSON.parse(await Bun.stdin.text()) as unknown);
+const request = record(JSON.parse(readFileSync(0, "utf8")) as unknown);
 
 async function result() {
   switch (request.method) {

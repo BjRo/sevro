@@ -54,7 +54,7 @@ async function fixture() {
     name: "@bjoernrochel/sevro",
     version: "0.1.0-rc.1",
     private: false,
-    bin: { sevro: "./src/cli.ts" },
+    bin: { sevro: "./dist/src/cli.js" },
     license: "MIT",
     repository: { type: "git", url: "git+https://github.com/BjRo/sevro.git" },
     publishConfig: {
@@ -62,7 +62,7 @@ async function fixture() {
       access: "public",
       tag: "next",
     },
-    files: ["src", "schemas", "examples", "README.md", "LICENSE"],
+    files: ["src", "dist", "schemas", "examples", "README.md", "LICENSE"],
     scripts: {
       prepack: "node -e \"require('fs').writeFileSync('UNEXPECTED', 'ran')\"",
     },
@@ -72,7 +72,10 @@ async function fixture() {
     LICENSE: "Synthetic test fixture license.\n",
     "README.md": "Fixture documentation.\n",
     "docs/installing.md":
-      "<!-- sevro-current-release:start -->\n\n## Current release\n\nThe current release is `0.1.0-rc.1`. Install this exact version:\n\n```sh\nbun add --exact @bjoernrochel/sevro@0.1.0-rc.1\n```\n\n<!-- sevro-current-release:end -->\n",
+      "<!-- sevro-current-release:start -->\n\n## Current release\n\nThe current release is `0.1.0-rc.1`. Install this exact version with npm:\n\n```sh\nnpm install --save-exact @bjoernrochel/sevro@0.1.0-rc.1\n```\n\nOr with Bun:\n\n```sh\nbun add --exact @bjoernrochel/sevro@0.1.0-rc.1\n```\n\n<!-- sevro-current-release:end -->\n",
+    "dist/src/cli.js": "#!/usr/bin/env node\nconsole.log('READY');\n",
+    "dist/src/hosts/skill-hook-handler.js": "export {};\n",
+    "dist/examples/basic/host.js": "export default {};\n",
     "src/cli.ts": "#!/usr/bin/env bun\nconsole.log('READY');\n",
     "schemas/run-evidence-v1.schema.json": "{}\n",
     "schemas/report-v1.schema.json": "{}\n",

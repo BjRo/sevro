@@ -1,3 +1,5 @@
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import { existsSync } from "node:fs";
 import {
   cp,
   mkdir,
@@ -253,23 +255,23 @@ async function rewritePlugin(
   manifest: Record<string, unknown>,
   state: HookRewrite,
 ): Promise<void> {
-  await requireHookOnlyPlugin(state.root);
+  requireHookOnlyPlugin(state.root);
   await rewriteManifest(manifest, state, ".claude-plugin/plugin.json");
   const native = join(state.root, ".codex-plugin/plugin.json");
-  if (await Bun.file(native).exists())
+  if (existsSync(native))
     await rewriteManifest(
       object(JSON.parse(await readFile(native, "utf8"))),
       state,
       ".codex-plugin/plugin.json",
     );
   const standard = join(state.root, "hooks/hooks.json");
-  if (await Bun.file(standard).exists()) await hookFile(standard, state);
+  if (existsSync(standard)) await hookFile(standard, state);
   await rewriteFrontmatter(state.root, state);
 }
 
-async function requireHookOnlyPlugin(root: string): Promise<void> {
+function requireHookOnlyPlugin(root: string): void {
   for (const name of [".mcp.json", ".lsp.json"])
-    if (await Bun.file(join(root, name)).exists())
+    if (existsSync(join(root, name)))
       throw new Error("runtime auxiliary plugin execution is unsupported");
 }
 
@@ -432,7 +434,7 @@ async function rewriteMarkdown(
   else delete metadata.hooks;
   await writeFile(
     path,
-    `---\n${Bun.YAML.stringify(metadata)}\n---\n${body.slice(header[0].length)}`,
+    `---\n${stringifyYaml(metadata)}\n---\n${body.slice(header[0].length)}`,
   );
 }
 
@@ -440,7 +442,7 @@ function hookFrontmatter(
   header: string | undefined,
 ): Record<string, unknown> | undefined {
   if (!header?.includes("hooks")) return undefined;
-  const metadata = object(Bun.YAML.parse(header));
+  const metadata = object(parseYaml(header));
   return metadata.hooks === undefined ? undefined : metadata;
 }
 

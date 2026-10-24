@@ -1,7 +1,7 @@
 [
   {
     "id": "orientation",
-    "prompt": "What is Sevro, and how can I get my first successful result?",
+    "prompt": "What is Sevro, how can I get my first successful result, and can I run it with Node without installing Bun?",
     "checks": [
       {
         "id": "answer.purpose",
@@ -24,6 +24,22 @@
         "grader": "sevro.regex",
         "configuration": {
           "pattern": "(?:README\\.md|docs\\/[a-z0-9_./-]+\\.md|package\\.json|LICENSE)"
+        }
+      },
+      {
+        "id": "answer.node-runtime",
+        "grader": "sevro.regex",
+        "configuration": {
+          "pattern": "Node(?:\\.js)?[\\s*_`]*(?:(?:>=?|\u2265|v)[\\s*_`]*)?24\\.13\\.0",
+          "flags": "i"
+        }
+      },
+      {
+        "id": "answer.node-preview",
+        "grader": "sevro.regex",
+        "configuration": {
+          "pattern": "unreleased|candidate|preview|next release",
+          "flags": "i"
         }
       }
     ],

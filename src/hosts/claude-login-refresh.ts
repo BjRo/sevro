@@ -1,3 +1,4 @@
+import { spawn } from "../runtime-process";
 import {
   mkdir,
   mkdtemp,
@@ -64,7 +65,7 @@ async function requireRefreshCapableClaude(binary: string): Promise<void> {
 }
 
 async function claudeVersion(binary: string): Promise<number[] | undefined> {
-  const proc = Bun.spawn([binary, "--version"], {
+  const proc = spawn([binary, "--version"], {
     stdin: "ignore",
     stdout: "pipe",
     stderr: "ignore",
@@ -137,7 +138,7 @@ async function runHelper(
   binary: string,
   env: Record<string, string>,
 ): Promise<number> {
-  const proc = Bun.spawn([binary, "auth", "login"], {
+  const proc = spawn([binary, "auth", "login"], {
     env,
     cwd: env.HOME,
     stdin: "ignore",

@@ -1,3 +1,4 @@
+import { setTimeout as sleep } from "node:timers/promises";
 import { mkdir, rmdir, stat, utimes } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -38,7 +39,7 @@ async function acquireLock(lock: string, deadline: number): Promise<void> {
       throw new Error(
         "Timed out waiting for another process to refresh the Claude login",
       );
-    await Bun.sleep(RETRY_MS);
+    await sleep(RETRY_MS);
   }
 }
 
