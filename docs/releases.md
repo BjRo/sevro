@@ -126,25 +126,22 @@ retained checksum immediately before publication:
 ```sh
 cd /absolute/reviewed
 shasum -a 256 -c SHA256SUMS
-npm publish ./bjoernrochel-sevro-0.1.0-rc.1.tgz --ignore-scripts --access public --tag latest
+npm publish "./bjoernrochel-sevro-${SEVRO_RELEASE_VERSION}.tgz" --ignore-scripts --access public --tag latest
 ```
 
-Replace the example version and distribution tag with the reviewed candidate's
-values. The package repository URL must match this public repository. Preparing
-a tarball or opening a pull request does not authorize publication.
+Replace the distribution tag with the reviewed candidate's value. The package
+repository URL must match this public repository. Preparing a tarball or
+opening a pull request does not authorize publication.
 
 An existing published candidate can become the default without republishing:
 
 ```sh
-npm dist-tag add @bjoernrochel/sevro@0.1.0-rc.2 latest
+npm dist-tag add "@bjoernrochel/sevro@${SEVRO_RELEASE_VERSION}" latest
 npm view @bjoernrochel/sevro dist-tags --json
 ```
 
 Promotion changes the registry tag; it does not update the published tarball.
 
-The first published candidate was `0.1.0-rc.1`, using the owner-selected
-`BUSL-1.1` license. Its `LICENSE` preserves Darrow's terms and parameters,
-changing only the Licensed Work name and description to Sevro. Local checks do
-not claim a remote CI run or publication. Darrow's exact
+Local checks do not claim a remote CI run or publication. Darrow's exact
 registry pin, default caller switch, remaining workflow migrations, focused live validation, and
 generic runner removal remain separate extraction gates.

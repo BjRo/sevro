@@ -29,7 +29,7 @@ Select `--host codex`, absolute `--codex-bin` and `--codex-auth-file` paths,
 and the desired model/effort. Sevro prepares an isolated host environment.
 Keep authentication private and outside candidate/evaluator-visible inputs.
 The default entrypoint is `exec`; app-server selection and native-goal
-observations require `rc.2` or later. Unsupported instrumentation is refused.
+observations are also available. Unsupported instrumentation is refused.
 
 ## Claude Code
 
@@ -40,16 +40,13 @@ credentials, then uses the saved login from the macOS Keychain or saved credenti
 file. Trials receive only an access token; the parent refreshes a saved login and
 writes it back, so evaluations leave your normal Claude login working. See the
 [CLI reference](development-cli.md) for refresh and failure behavior.
-These improvements require `rc.3` or later; check the exact installed
-release before relying on them.
 
 Repository skill mounts under `.claude/skills` require explicit
 `--claude-project-settings`; otherwise repository dispatch is refused before
 launch. The bundled route disables hooks by default and omits candidate Write
 access. [Runtime configuration](runtime-v1.md) enables native goals and selected
-plugin hooks and reuses declared host tools with private or explicitly shared caches. These changes
-require `rc.3` or later. The CLI reference covers credential scrubbing
-and follow-ups.
+plugin hooks and reuses declared host tools with private or explicitly shared caches.
+The CLI reference covers credential scrubbing and follow-ups.
 
 ## Skill activation evidence
 
