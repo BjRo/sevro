@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { cp, mkdtemp, mkdir, rm, symlink } from "node:fs/promises";
+import { cp, mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { verifyNodeInterruption } from "./node-runtime-interruption";
@@ -14,6 +14,53 @@ async function command(argv: string[], cwd: string, env = process.env) {
     child.exited,
   ]);
   return { stdout, stderr, code };
+}
+
+async function verifyExtensionLaunchFailure(
+  cli: string,
+  root: string,
+  packageRoot: string,
+  env: NodeJS.ProcessEnv,
+) {
+  const project = join(root, "unlaunchable-extension");
+  await mkdir(project);
+  const executable = join(project, "extension.sh");
+  const commandFile = join(project, "command.json");
+  // Readable provenance inputs can still lack executable permissions.
+  await writeFile(executable, "#!/bin/sh\nexit 0\n", { mode: 0o600 });
+  await writeFile(commandFile, JSON.stringify([executable]));
+  const failed = await command(
+    [
+      cli,
+      "run",
+      "--adapter-module",
+      join(packageRoot, "dist/examples/basic/host.js"),
+      "--extension-command-file",
+      commandFile,
+      "--extension-source-file",
+      executable,
+      "--case-id",
+      "unlaunchable",
+      "--project-root",
+      project,
+      "--results-root",
+      join(root, "launch-failure-results"),
+      "--json",
+    ],
+    project,
+    env,
+  );
+  assert.equal(failed.code, 70, failed.stderr);
+  const result = JSON.parse(failed.stdout) as {
+    execution: { status: string };
+    task: { verdict: string };
+    diagnostic: { code: string; message: string };
+  };
+  assert.equal(result.execution.status, "not_run");
+  assert.equal(result.task.verdict, "not_assessed");
+  assert.equal(result.diagnostic.code, "sevro.runner.error");
+  assert.match(result.diagnostic.message, /could not start extension process/);
+  assert.doesNotMatch(failed.stderr, /Unhandled 'error' event/);
 }
 
 const root = await mkdtemp(join(tmpdir(), "sevro-node-package-"));
@@ -114,6 +161,7 @@ try {
     { ...env, SEVRO_INSTALLED_RUNTIME: node },
   );
   assert.equal(workflows.code, 0, workflows.stderr);
+  await verifyExtensionLaunchFailure(cli, root, packageRoot, env);
   await verifyNodeInterruption(cli, root, env);
   console.log(
     "Installed Node CLI: help and assessed demo passed with Bun absent from PATH",
