@@ -29,7 +29,10 @@ by applicable law.
 Use Bun 1.3.13, Git, Node 24, npm, and ripgrep (`rg`). Full suite isolation uses `sandbox-exec`
 on macOS or `bubblewrap` and `socat` on Ubuntu. The macOS synthetic libc regression
 fixtures compile with `/usr/bin/cc`, supplied by Apple's Command Line Tools.
-Windows acceptance is unverified.
+Windows acceptance is unverified. Bun remains the development runtime; installed
+users may use Node without Bun. `bun run build` generates ignored `dist/`
+JavaScript and source maps. `npm pack` builds automatically through `prepack`;
+when packing with `--ignore-scripts`, build explicitly first.
 From a fresh checkout:
 
 ```sh
@@ -42,9 +45,14 @@ Its complete recipe checks also require UV, Python 3, mise, and an existing
 `mise install node@24.13.0` installation; see [recipe prerequisites](docs/recipes.md).
 CI explicitly provisions these tools. Missing prerequisites fail with a named
 setup instruction rather than skipping a recipe.
-To run recipe commands from this source checkout, set
-`export SEVRO_RECIPES="$PWD/examples/recipes"` from the repository root, then
-follow the [recipe commands](docs/recipes.md#prepare-a-recipe-project).
+To run the documented JavaScript recipes from this source checkout, build first:
+
+```sh
+bun run build
+export SEVRO_RECIPES="$PWD/dist/examples/recipes"
+```
+
+Then follow the [recipe commands](docs/recipes.md#prepare-a-recipe-project).
 Native model trials need their own [credentials and prerequisites](docs/native-hosts.md).
 
 ## Quality contract and checks

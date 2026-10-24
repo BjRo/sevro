@@ -1,4 +1,5 @@
 import { description, prepare, resolved } from "./extension-data";
+import { readFileSync } from "node:fs";
 
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value))
@@ -6,7 +7,7 @@ function record(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-const request = record(JSON.parse(await Bun.stdin.text()) as unknown);
+const request = record(JSON.parse(readFileSync(0, "utf8")) as unknown);
 async function result() {
   switch (request.method) {
     case "describe":

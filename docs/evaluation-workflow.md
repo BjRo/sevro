@@ -5,7 +5,7 @@ result with the installed `sevro` command.
 
 ## Try the demo and create a project
 
-You need Bun 1.3.13. [Install Sevro](installing.md) and
+Use Node.js 24.13.0 or newer, or Bun 1.3.13. [Install Sevro](installing.md) and
 [make its command available on `PATH`](installing.md#make-the-command-available),
 then run:
 
@@ -52,7 +52,7 @@ sevro report --latest
 The first run's adapter returns exactly `ready`; its regex assertion must pass.
 The negative control returns `wrong`: expect exit `1`, completed execution and
 grading, task `failed`, and the named `ready` check's reason. Then edit `case.json`
-and `adapter.ts`, prepare again and rerun. Explicit flags override saved settings;
+and `adapter.js` (`adapter.ts` when initialized from contributor sources), prepare again and rerun. Explicit flags override saved settings;
 `--trials 3` repeats the task without rewriting `run.json`.
 
 Progress uses stderr at actual preparation, candidate, grading and evidence
@@ -88,16 +88,16 @@ Reports label bundles intentionally removed by that command as pruned.
 
 ## Choose another starter
 
-| Template           | Real assertions                                                                                                    | Prerequisites and interpretation                                                                           |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
-| `response`         | Exact `ready` response; negative control returns `wrong`                                                           | Bun; no model credentials                                                                                  |
-| `coding`           | Edit `add.sh`; isolated checks test positive, negative and zero addition                                           | Bun plus `sandbox-exec` on macOS or `bubblewrap`/`socat` on Linux; negative control leaves subtraction bug |
-| `repository-skill` | Actual `.agents/skills/startup-guide/SKILL.md` mount; explicit invocation evidence; correct start command and port | Bun, Git, Codex, native isolation, explicit model/effort and readable auth file; dry is unassessed         |
+| Template           | Real assertions                                                                                                    | Prerequisites and interpretation                                                                                   |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| `response`         | Exact `ready` response; negative control returns `wrong`                                                           | Node or Bun; no model credentials                                                                                  |
+| `coding`           | Edit `add.sh`; isolated checks test positive, negative and zero addition                                           | Node or Bun plus `sandbox-exec` on macOS or `bubblewrap`/`socat` on Linux; negative control leaves subtraction bug |
+| `repository-skill` | Actual `.agents/skills/startup-guide/SKILL.md` mount; explicit invocation evidence; correct start command and port | Node or Bun, Git, Codex, native isolation, explicit model/effort and readable auth file; dry is unassessed         |
 
 From a new parent directory, use `sevro init --template coding --directory ./coding-eval`
 or `sevro init --template repository-skill --directory ./skill-eval`. Read its generated
 README for controls and dry/live commands. Repository-skill `command.json` records
-absolute Bun/extension argv; regenerate it after moving the project.
+the selected runtime executable and absolute extension path; regenerate it after moving the project.
 
 For model evaluations, replace a saved adapter route with explicit `--host`,
 `--model`, `--effort` and host authentication options. Candidate, semantic and

@@ -30,7 +30,10 @@ SHA-256(UTF-8("sevro.identity.v1\n") || UTF-8(JCS(dimensions)))
 
 The CLI derives `runnerBuildDigest` from sorted packaged file paths and their
 SHA-256 bytes under `src/`, `schemas/`, `docs/`, and `examples/`, plus `README.md` and
-`package.json`. For a Git project, `projectDigest` binds the revision and dirty
+`package.json`. Installed JavaScript execution also hashes `dist/`, including
+the compiled runtime, examples and source maps. This binds evidence to executed
+output; raw checkout execution excludes generated builds. The same installed
+artifact has the same build digest under Node and Bun. For a Git project, `projectDigest` binds the revision and dirty
 patch digest without the checkout path. Without a revision it hashes a bounded
 file snapshot, excluding `.git`, results, and run-state storage. Results and
 run-state storage are also excluded from untracked Git identity, so repeated

@@ -1,3 +1,4 @@
+import { spawn, type Subprocess } from "../runtime-process";
 import { runtimeLocalHttpEnabled, runtimeSeedSources } from "../runtime/config";
 import {
   candidateArtifactEnvironment,
@@ -350,7 +351,7 @@ async function requireShellRuntimeCache(
 }
 function shellStdout(
   check: PreparedShellCheck,
-  output: Bun.Subprocess["stdout"],
+  output: Subprocess["stdout"],
 ): ReadableStream<Uint8Array> | null {
   if (!check.captureStdout) return null;
   if (!(output instanceof ReadableStream))
@@ -358,7 +359,7 @@ function shellStdout(
   return output;
 }
 class ShellExecution {
-  private proc?: Bun.Subprocess;
+  private proc?: Subprocess;
   private readonly deadline: ProcessDeadline;
   constructor(
     private check: PreparedShellCheck,
@@ -396,7 +397,7 @@ class ShellExecution {
     }
   }
   private spawn() {
-    this.proc = Bun.spawn(this.isolation.argv, {
+    this.proc = spawn(this.isolation.argv, {
       cwd: this.options.workspace,
       env: shellEnvironment(this.options, this.runtime),
       detached: true,

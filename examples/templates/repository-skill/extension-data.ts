@@ -46,7 +46,7 @@ export const resolved = {
 
 export async function prepare() {
   const relativePath = ".agents/skills/startup-guide/SKILL.md";
-  const body = await readFile(join(import.meta.dir, relativePath));
+  const body = await readFile(join(import.meta.dirname, relativePath));
   return {
     artifacts: [
       {

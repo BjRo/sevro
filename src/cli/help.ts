@@ -1,12 +1,13 @@
 import { RUN_OPTIONS, optionsWith, type RunOptionName } from "./run-options";
-import { version } from "../../package.json";
+import packageJson from "../../package.json" with { type: "json" };
+const { version } = packageJson;
 
 const TOP_LEVEL_HELP = `Usage: sevro <command> [options]
 
 Examples:
   sevro demo
   sevro init --template response --directory ./my-evaluation
-  sevro run --case-file /absolute/case.json --adapter-module /absolute/adapter.ts \\
+  sevro run --case-file /absolute/case.json --adapter-module /absolute/adapter.js \\
     --project-root /absolute/project --results-root /absolute/results \\
     --condition passive --trials 1 --threshold 1
   sevro run --help
@@ -28,7 +29,7 @@ Options:
 const RUN_HELP = `Usage: sevro run [options]
 
 Examples:
-  sevro run --case-file /absolute/case.json --adapter-module /absolute/adapter.ts \\
+  sevro run --case-file /absolute/case.json --adapter-module /absolute/adapter.js \\
     --project-root /absolute/project --results-root /absolute/results \\
     --condition passive --trials 1 --threshold 1
   Add --dry to prepare without calling the candidate or graders.

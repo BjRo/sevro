@@ -17,7 +17,7 @@ function manifestVersion(manifest: unknown): string {
 }
 
 function currentRelease(version: string): string {
-  return `${start}\n\n## Current release\n\nThe current release is \`${version}\`. Install this exact version:\n\n\`\`\`sh\nbun add --exact @bjoernrochel/sevro@${version}\n\`\`\`\n\n${end}`;
+  return `${start}\n\n## Current release\n\nThe current release is \`${version}\`. Install this exact version with npm:\n\n\`\`\`sh\nnpm install --save-exact @bjoernrochel/sevro@${version}\n\`\`\`\n\nOr with Bun:\n\n\`\`\`sh\nbun add --exact @bjoernrochel/sevro@${version}\n\`\`\`\n\n${end}`;
 }
 
 export async function releaseDocumentation(root: string) {

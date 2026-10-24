@@ -1,3 +1,4 @@
+import { spawnSync } from "../runtime-process";
 import { isMissingFile } from "../fixtures/tools";
 import { lstat, readdir, realpath, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -58,7 +59,7 @@ export async function protectedWorktrees(root: string): Promise<string[]> {
 }
 
 function listWorktreePaths(repository: string): string[] {
-  const result = Bun.spawnSync(
+  const result = spawnSync(
     ["git", "-C", repository, "worktree", "list", "--porcelain", "-z"],
     {
       env: {

@@ -16,7 +16,7 @@ export async function repositoryArtifacts(host: string) {
   const directory = host === "claude" ? ".claude" : ".agents";
   const relative = `${directory}/skills/startup-guide/SKILL.md`;
   const body = await readFile(
-    join(import.meta.dir, "repository-skill", relative),
+    join(import.meta.dirname, "repository-skill", relative),
     "utf8",
   );
   return [artifact(relative, body)];

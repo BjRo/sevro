@@ -21,9 +21,11 @@ configuration, native goals, selected plugin hooks, and the current licensing te
 Earlier `rc.1` and `rc.2` packages retain their original BSL grants.
 See [installation and release differences](docs/installing.md).
 
-Use Bun 1.3.13. The development checkout runs native isolation on macOS with
-`sandbox-exec` and on Ubuntu with `bubblewrap` and `socat`.
-Contributor package/release checks also need Node 24 and npm.
+This checkout adds an [unreleased Node support preview](docs/installing.md#node-support-preview).
+Run its installed JavaScript candidate with Node.js 24.13.0 or newer, or Bun 1.3.13.
+Bun is not required for Node users. Native isolation uses macOS `sandbox-exec`
+or Ubuntu `bubblewrap` and `socat`. Contributors keep Bun 1.3.13 for development,
+builds and tests, plus Node 24.13.0 and npm for package acceptance.
 Windows support is unverified. The basic example uses an injected
 deterministic adapter and needs no native model credentials.
 
@@ -32,10 +34,11 @@ deterministic adapter and needs no native model credentials.
 ```sh
 mkdir sevro-demo
 cd sevro-demo
-bun init -y
+npm init -y
 ```
 
-Install the [current release](docs/installing.md#current-release) in that directory.
+For Node support, install a [candidate archive](docs/installing.md#node-support-preview)
+in that directory. The current registry release still requires Bun.
 Continue with [your first evaluation](docs/getting-started.md): the exact command,
 expected `passed` result, and retained evidence. Read [installation](docs/installing.md)
 for updates, removal, and source checkouts.

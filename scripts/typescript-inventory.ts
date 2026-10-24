@@ -135,7 +135,7 @@ function readInventory(root: string) {
 
 function sourceFile(file: string) {
   return (
-    !/^(?:node_modules|\.git|\.quality|\.worktrees)\//.test(file) &&
+    !/^(?:node_modules|dist|\.git|\.quality|\.worktrees)\//.test(file) &&
     /\.(?:[cm]?ts|tsx|[cm]?js|jsx)$/.test(file)
   );
 }

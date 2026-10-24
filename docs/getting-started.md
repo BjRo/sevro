@@ -1,6 +1,6 @@
 # Your first evaluation
 
-Run a deterministic case and inspect its evidence. You need Bun 1.3.13; no
+Run a deterministic case and inspect its evidence. Use Node.js 24.13.0 or newer, or Bun 1.3.13; no
 Darrow checkout, Codex/Claude login, or model credentials are required. The
 adapter returns `ready`; Sevro grades that response against `^ready$`.
 This teaches the runner lifecycle, not the quality of an actual model.
@@ -33,15 +33,17 @@ Prepare a new directory:
 ```sh
 mkdir sevro-demo
 cd sevro-demo
-bun init -y
+npm init -y
 ```
 
-Install the [current release](installing.md#current-release) there, then return
-here to run the example. See [licensing](licensing.md) for the current terms and
+Install the [Node-capable candidate archive](installing.md#node-support-preview)
+there, then return here to run the example. Node support is unreleased; the
+current registry release still needs Bun and has its own bundled tutorial. See [licensing](licensing.md) for the current terms and
 the licenses retained by historical releases.
 
 Make the local installation available on `PATH` for this shell, then call
-`sevro` directly. Bun must also be on `PATH`.
+`sevro` directly with Node on `PATH`. Bun users can use the
+[explicit Bun invocation](installing.md#make-the-command-available).
 
 <!-- sevro-example:consumer -->
 
@@ -50,7 +52,7 @@ export PATH="$PWD/node_modules/.bin:$PATH"
 mkdir -p project
 sevro run --json \
   --case-file "$PWD/node_modules/@bjoernrochel/sevro/examples/basic/graded.json" \
-  --adapter-module "$PWD/node_modules/@bjoernrochel/sevro/examples/basic/host.ts" \
+  --adapter-module "$PWD/node_modules/@bjoernrochel/sevro/dist/examples/basic/host.js" \
   --project-root "$PWD/project" --results-root "$PWD/sevro-results" \
   --condition passive --trials 1 --threshold 1 > sevro-result.json
 ```

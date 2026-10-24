@@ -1,3 +1,4 @@
+import { examplePath } from "../runner-paths";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -38,9 +39,9 @@ export async function demoCommand(argv: string[]): Promise<void> {
       "run",
       ...(json ? ["--json"] : []),
       "--case-file",
-      join(import.meta.dir, "..", "..", "examples", "basic", "graded.json"),
+      examplePath("basic", "graded.json"),
       "--adapter-module",
-      join(import.meta.dir, "..", "..", "examples", "basic", "host.ts"),
+      examplePath("basic", "host.ts"),
       "--project-root",
       projectRoot,
       "--results-root",

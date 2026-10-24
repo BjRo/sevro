@@ -25,8 +25,18 @@ if (
   throw new Error("--tarball must name an existing absolute package file");
 const root = await mkdtemp(join(tmpdir(), "sevro-package-install-"));
 
+function installedCommand(argv: string[]): string[] {
+  return argv[0]?.endsWith("/.bin/sevro")
+    ? [process.env.SEVRO_INSTALLED_RUNTIME ?? process.execPath, ...argv]
+    : argv;
+}
+
 async function run(argv: string[], cwd: string): Promise<string> {
-  const child = Bun.spawn(argv, { cwd, stdout: "pipe", stderr: "pipe" });
+  const child = Bun.spawn(installedCommand(argv), {
+    cwd,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
   const [stdout, stderr, code] = await Promise.all([
     new Response(child.stdout).text(),
     new Response(child.stderr).text(),
@@ -85,6 +95,8 @@ try {
   const archive =
     values.tarball ??
     join(root, `bjoernrochel-sevro-${sourceManifest.version}.tgz`);
+  if (values.tarball === undefined)
+    await run([process.execPath, "run", "build"], sourceRoot);
   if (values.tarball === undefined)
     await run(
       [
@@ -146,7 +158,7 @@ try {
         "--case-file",
         join(installed, "examples", "basic", caseName),
         "--adapter-module",
-        join(installed, "examples", "basic", "host.ts"),
+        join(installed, "dist", "examples", "basic", "host.js"),
         "--project-root",
         project,
         "--results-root",

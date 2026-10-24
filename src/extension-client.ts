@@ -1,3 +1,4 @@
+import { spawn, type Subprocess } from "./runtime-process";
 import { randomUUID } from "node:crypto";
 import validExchange from "./generated/extension.cjs";
 import { isRecord, isStringArray } from "./value-guards";
@@ -71,9 +72,9 @@ function extensionPayload(request: ExtensionRequest): Uint8Array {
 function spawnExtension(
   command: string[],
   options: ExchangeOptions,
-): Bun.Subprocess {
+): Subprocess {
   try {
-    return Bun.spawn(command, {
+    return spawn(command, {
       cwd: options.cwd,
       stdin: "pipe",
       stdout: "pipe",
@@ -87,22 +88,15 @@ function spawnExtension(
   }
 }
 
-function extensionWriter(proc: Bun.Subprocess) {
+function extensionWriter(proc: Subprocess) {
   const stdin = proc.stdin;
   if (!stdin || typeof stdin === "number")
     throw new ExtensionProtocolError("extension pipes are unavailable");
   return stdin;
 }
 
-function extensionReaders(proc: Bun.Subprocess) {
+function extensionReaders(proc: Subprocess) {
   const { stdout, stderr } = proc;
-  if (
-    !stdout ||
-    typeof stdout === "number" ||
-    !stderr ||
-    typeof stderr === "number"
-  )
-    throw new ExtensionProtocolError("extension pipes are unavailable");
   return { stdout, stderr };
 }
 
@@ -169,7 +163,7 @@ function assertSuccessfulResponse(
 class ExtensionExchange {
   private readonly deadline: ProcessDeadline;
   constructor(
-    private readonly proc: Bun.Subprocess,
+    private readonly proc: Subprocess,
     options: ExchangeOptions,
     timeoutMs: number,
   ) {

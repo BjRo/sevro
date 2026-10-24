@@ -7,14 +7,15 @@ small extension.
 
 ## Prepare a recipe project
 
-Use Bun 1.3.13, Git, Node 24.13.0, and `rg`. Shell checks need macOS
+Use Node.js 24.13.0 or newer, Git, and `rg`. Bun is optional for the installed
+recipes; the same JavaScript files also run with Bun 1.3.13. Shell checks need macOS
 `sandbox-exec` or Ubuntu `bubblewrap`; native Claude also needs `socat` on
 Ubuntu. Python/UV and mise add the prerequisites stated below.
 [Install Sevro](installing.md), then set the recipe path from the directory
 containing its local installation:
 
 ```sh
-export SEVRO_RECIPES="$PWD/node_modules/@bjoernrochel/sevro/examples/recipes"
+export SEVRO_RECIPES="$PWD/node_modules/@bjoernrochel/sevro/dist/examples/recipes"
 ```
 
 Run commands below from an otherwise empty working directory to keep generated
@@ -24,7 +25,7 @@ the CLI beside its original package; it does not require a global installation.
 To adapt a separate copy, preserve the small project's whole directory:
 
 ```sh
-export SEVRO_RECIPE_CLI="$(cd "$SEVRO_RECIPES/../../src" && pwd)/cli.ts"
+export SEVRO_RECIPE_CLI="$(cd "$SEVRO_RECIPES/../../src" && pwd)/cli.js"
 cp -R "$SEVRO_RECIPES" ./my-recipes
 export SEVRO_RECIPES="$PWD/my-recipes"
 ```
@@ -45,7 +46,7 @@ deliberately exits `1` with execution/grading `completed` and task `failed`.
 Run negative controls separately when using a shell with `set -e`. A missing
 tool is a prerequisite error, not a passing or intentionally failing control.
 
-`candidate.ts` is an explicitly trusted deterministic fixture editor. It changes
+`candidate.js` (built from `candidate.ts`) is an explicitly trusted deterministic fixture editor. It changes
 the arithmetic implementation for the coding recipe and supplies a fixed answer
 for the other controls. It does not simulate native tool permissions: the real
 isolated shell graders execute the stated tools and assertions. Native routes
@@ -59,16 +60,16 @@ available identifier and supply your private authentication file path:
 ```sh
 export SEVRO_RECIPE_MODEL='replace-with-an-available-Codex-model'
 export SEVRO_RECIPE_CODEX_AUTH="${CODEX_HOME:-$HOME/.codex}/auth.json"
-bun "$SEVRO_RECIPES/run.ts" coding-change codex --dry
-bun "$SEVRO_RECIPES/run.ts" coding-change codex
+node "$SEVRO_RECIPES/run.js" coding-change codex --dry
+node "$SEVRO_RECIPES/run.js" coding-change codex
 ```
 
 For Claude, use its supported credential route and a Claude model identifier:
 
 ```sh
 export SEVRO_RECIPE_MODEL='replace-with-an-available-Claude-model'
-bun "$SEVRO_RECIPES/run.ts" coding-change claude --dry
-bun "$SEVRO_RECIPES/run.ts" coding-change claude
+node "$SEVRO_RECIPES/run.js" coding-change claude --dry
+node "$SEVRO_RECIPES/run.js" coding-change claude
 ```
 
 Substitute the other recipe name to run its native task. `--dry` prepares and
@@ -86,13 +87,13 @@ Files: [coding-change case](../examples/recipes/cases/coding-change.json),
 The fixture contains a broken `math.cjs` and a task README. The task asks the
 participant to implement addition. The evaluator checks positive, negative and
 zero arguments. Its source stays outside the candidate fixture: the launcher
-transpiles the checked TypeScript test and embeds its JavaScript in the
+reads the compiled evaluator test and embeds its JavaScript in the
 evaluator-owned shell command before execution.
 
 <!-- sevro-example:recipe-coding-change-pass -->
 
 ```sh
-bun "$SEVRO_RECIPES/run.ts" coding-change deterministic
+node "$SEVRO_RECIPES/run.js" coding-change deterministic
 ```
 
 The isolated check first asserts that the original evaluator test is unreadable,
@@ -103,7 +104,7 @@ in place, so the arithmetic assertion fails:
 <!-- sevro-example:recipe-coding-change-fail -->
 
 ```sh
-bun "$SEVRO_RECIPES/run.ts" coding-change deterministic --fail
+node "$SEVRO_RECIPES/run.js" coding-change deterministic --fail
 ```
 
 Use a native route below to evaluate an actual coding agent. Adding a participant
@@ -150,7 +151,7 @@ process must find exactly that line.
 <!-- sevro-example:recipe-host-tools-pass -->
 
 ```sh
-bun "$SEVRO_RECIPES/run.ts" host-tools deterministic
+node "$SEVRO_RECIPES/run.js" host-tools deterministic
 ```
 
 The negative fixture contains port `9000`, so that same search fails:
@@ -158,7 +159,7 @@ The negative fixture contains port `9000`, so that same search fails:
 <!-- sevro-example:recipe-host-tools-fail -->
 
 ```sh
-bun "$SEVRO_RECIPES/run.ts" host-tools deterministic --fail
+node "$SEVRO_RECIPES/run.js" host-tools deterministic --fail
 ```
 
 ### Node
@@ -170,7 +171,7 @@ Node process parses it, asserts the port, and prints `3000`.
 <!-- sevro-example:recipe-node-pass -->
 
 ```sh
-bun "$SEVRO_RECIPES/run.ts" node deterministic
+node "$SEVRO_RECIPES/run.js" node deterministic
 ```
 
 The negative fixture sets port `9000`, causing the Node assertion to fail:
@@ -178,7 +179,7 @@ The negative fixture sets port `9000`, causing the Node assertion to fail:
 <!-- sevro-example:recipe-node-fail -->
 
 ```sh
-bun "$SEVRO_RECIPES/run.ts" node deterministic --fail
+node "$SEVRO_RECIPES/run.js" node deterministic --fail
 ```
 
 ### Python with UV
@@ -198,7 +199,7 @@ port and prints `3000`:
 <!-- sevro-example:recipe-python-uv-pass -->
 
 ```sh
-bun "$SEVRO_RECIPES/run.ts" python-uv deterministic
+node "$SEVRO_RECIPES/run.js" python-uv deterministic
 ```
 
 The negative fixture changes the port to `9000`; Python raises an assertion:
@@ -206,7 +207,7 @@ The negative fixture changes the port to `9000`; Python raises an assertion:
 <!-- sevro-example:recipe-python-uv-fail -->
 
 ```sh
-bun "$SEVRO_RECIPES/run.ts" python-uv deterministic --fail
+node "$SEVRO_RECIPES/run.js" python-uv deterministic --fail
 ```
 
 For real dependencies, prepare a public cache once outside the evaluated project
@@ -238,7 +239,7 @@ sandbox or grant mise's whole data directory.
 <!-- sevro-example:recipe-mise-pass -->
 
 ```sh
-bun "$SEVRO_RECIPES/run.ts" mise deterministic
+node "$SEVRO_RECIPES/run.js" mise deterministic
 ```
 
 The negative fixture changes the port to `9000`, failing the same Node check:
@@ -246,7 +247,7 @@ The negative fixture changes the port to `9000`, failing the same Node check:
 <!-- sevro-example:recipe-mise-fail -->
 
 ```sh
-bun "$SEVRO_RECIPES/run.ts" mise deterministic --fail
+node "$SEVRO_RECIPES/run.js" mise deterministic --fail
 ```
 
 An attempted isolated `mise exec` with read-only operator data returned
@@ -274,13 +275,13 @@ and retains the artifacts. Expect exit `0`, execution `not_run`, grading
 <!-- sevro-example:recipe-repository-skill-codex-dry -->
 
 ```sh
-bun "$SEVRO_RECIPES/run.ts" repository-skill codex --dry
+node "$SEVRO_RECIPES/run.js" repository-skill codex --dry
 ```
 
 <!-- sevro-example:recipe-repository-skill-claude-dry -->
 
 ```sh
-bun "$SEVRO_RECIPES/run.ts" repository-skill claude --dry
+node "$SEVRO_RECIPES/run.js" repository-skill claude --dry
 ```
 
 For a real Codex trial, export `SEVRO_RECIPE_MODEL` to an available Codex model
@@ -291,15 +292,15 @@ remove `--dry`. Credentials stay outside recipe/project inputs and argv.
 These calls consume account quota.
 
 ```sh
-bun "$SEVRO_RECIPES/run.ts" repository-skill codex
-bun "$SEVRO_RECIPES/run.ts" repository-skill codex --fail
+node "$SEVRO_RECIPES/run.js" repository-skill codex
+node "$SEVRO_RECIPES/run.js" repository-skill codex --fail
 ```
 
 With `SEVRO_RECIPE_MODEL` set for Claude instead:
 
 ```sh
-bun "$SEVRO_RECIPES/run.ts" repository-skill claude
-bun "$SEVRO_RECIPES/run.ts" repository-skill claude --fail
+node "$SEVRO_RECIPES/run.js" repository-skill claude
+node "$SEVRO_RECIPES/run.js" repository-skill claude --fail
 ```
 
 The neutral invocation placeholder becomes `$startup-guide` for Codex and
@@ -327,13 +328,13 @@ construction, verdict parsing, and retained semantic evidence:
 <!-- sevro-example:recipe-semantic-pass -->
 
 ```sh
-bun "$SEVRO_RECIPES/run.ts" semantic deterministic
+node "$SEVRO_RECIPES/run.js" semantic deterministic
 ```
 
 <!-- sevro-example:recipe-semantic-fail -->
 
 ```sh
-bun "$SEVRO_RECIPES/run.ts" semantic deterministic --fail
+node "$SEVRO_RECIPES/run.js" semantic deterministic --fail
 ```
 
 The protocol judge derives pass/fail from the actual candidate-response field
@@ -345,8 +346,8 @@ For an actual model candidate and judge, set the native variables above and
 export `SEVRO_RECIPE_JUDGE_MODEL` to an available Codex judge model:
 
 ```sh
-bun "$SEVRO_RECIPES/run.ts" semantic codex --dry
-bun "$SEVRO_RECIPES/run.ts" semantic codex
+node "$SEVRO_RECIPES/run.js" semantic codex --dry
+node "$SEVRO_RECIPES/run.js" semantic codex
 ```
 
 `semantic claude` selects a Claude candidate with a separate Codex judge;
@@ -367,12 +368,12 @@ a grading error, not a failed proposition or a passing task. Read
 Files: [extension.ts](../examples/recipes/extension.ts),
 [methods](../examples/recipes/extension-methods.ts), and
 [artifact preparation](../examples/recipes/extension-artifacts.ts). Prerequisites:
-Bun, Git and the platform's shell isolation tool. No model is required:
+Node or Bun, Git and the platform's shell isolation tool. No model is required:
 
 <!-- sevro-example:recipe-lifecycle-pass -->
 
 ```sh
-bun "$SEVRO_RECIPES/run.ts" lifecycle deterministic
+node "$SEVRO_RECIPES/run.js" lifecycle deterministic
 ```
 
 `describe` advertises version/capabilities/grader; `resolve` returns the task
@@ -387,7 +388,7 @@ response; diagnostics belong on stderr.
 <!-- sevro-example:recipe-lifecycle-fail -->
 
 ```sh
-bun "$SEVRO_RECIPES/run.ts" lifecycle deterministic --fail
+node "$SEVRO_RECIPES/run.js" lifecycle deterministic --fail
 ```
 
 The wrong final answer fails the built-in output assertion and extension check,
@@ -413,13 +414,13 @@ First add only native goals to the empty runtime and validate preparation:
 <!-- sevro-example:recipe-goals-codex-dry -->
 
 ```sh
-bun "$SEVRO_RECIPES/run.ts" plugins codex --dry --goals-only
+node "$SEVRO_RECIPES/run.js" plugins codex --dry --goals-only
 ```
 
 <!-- sevro-example:recipe-goals-claude-dry -->
 
 ```sh
-bun "$SEVRO_RECIPES/run.ts" plugins claude --dry --goals-only
+node "$SEVRO_RECIPES/run.js" plugins claude --dry --goals-only
 ```
 
 Then add `hooks.plugins: ["startup"]` so only this prepared plugin's command
@@ -429,13 +430,13 @@ Claude uses plugin-only settings, so do not add `--claude-project-settings`:
 <!-- sevro-example:recipe-plugins-codex-dry -->
 
 ```sh
-bun "$SEVRO_RECIPES/run.ts" plugins codex --dry
+node "$SEVRO_RECIPES/run.js" plugins codex --dry
 ```
 
 <!-- sevro-example:recipe-plugins-claude-dry -->
 
 ```sh
-bun "$SEVRO_RECIPES/run.ts" plugins claude --dry
+node "$SEVRO_RECIPES/run.js" plugins claude --dry
 ```
 
 All four dry commands expect `not_run`/`not_requested`/`not_assessed`, exit `0`.
@@ -454,15 +455,15 @@ with network denied and only the prepared plugin subtree readable.
 facility or passing this startup task alone does not prove goal completion.
 
 ```sh
-bun "$SEVRO_RECIPES/run.ts" plugins codex
-bun "$SEVRO_RECIPES/run.ts" plugins codex --fail
+node "$SEVRO_RECIPES/run.js" plugins codex
+node "$SEVRO_RECIPES/run.js" plugins codex --fail
 ```
 
 Or, with the Claude model/credential route configured:
 
 ```sh
-bun "$SEVRO_RECIPES/run.ts" plugins claude
-bun "$SEVRO_RECIPES/run.ts" plugins claude --fail
+node "$SEVRO_RECIPES/run.js" plugins claude
+node "$SEVRO_RECIPES/run.js" plugins claude --fail
 ```
 
 For a deliberate failure, run that live command with `--fail`; the requested

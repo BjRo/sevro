@@ -1,5 +1,6 @@
+import { spawnSync } from "./runtime-process";
 import { isRecord } from "./value-guards";
-import { Database } from "bun:sqlite";
+import { openLockDatabase } from "./sqlite-lock";
 import { randomUUID } from "node:crypto";
 import {
   mkdirSync,
@@ -115,11 +116,16 @@ function atomicJson(path: string, value: unknown): void {
 function withClaimLock<T>(claimPath: string, action: () => T): T {
   const locks = join(dirname(dirname(claimPath)), "locks");
   mkdirSync(locks, { recursive: true, mode: 0o700 });
-  const database = new Database(join(locks, `${basename(claimPath)}.sqlite`));
+  const database = openLockDatabase(
+    join(locks, `${basename(claimPath)}.sqlite`),
+  );
   try {
-    database.run("PRAGMA busy_timeout = 5000");
-    database.run("CREATE TABLE IF NOT EXISTS mutex (id INTEGER PRIMARY KEY)");
-    return database.transaction(action).immediate();
+    database.exec("PRAGMA busy_timeout = 5000");
+    database.exec("CREATE TABLE IF NOT EXISTS mutex (id INTEGER PRIMARY KEY)");
+    database.exec("BEGIN IMMEDIATE");
+    const result = action();
+    database.exec("COMMIT");
+    return result;
   } finally {
     database.close();
   }
@@ -159,16 +165,16 @@ function identityEnvironment(windows: boolean) {
     : { PATH: "/usr/bin:/bin", LC_ALL: "C" };
 }
 
-function processStartTime(result: ReturnType<typeof Bun.spawnSync>): string {
-  return result.stdout?.toString().trim() ?? "";
+function processStartTime(result: ReturnType<typeof spawnSync>): string {
+  return result.stdout.toString().trim();
 }
 
 export function processIdentity(pid: number): ProcessIdentity | null {
   const windows = process.platform === "win32";
   const argv = identityCommand(pid, windows);
-  let result: ReturnType<typeof Bun.spawnSync>;
+  let result: ReturnType<typeof spawnSync>;
   try {
-    result = Bun.spawnSync(argv, {
+    result = spawnSync(argv, {
       env: identityEnvironment(windows),
       stdout: "pipe",
       stderr: "ignore",

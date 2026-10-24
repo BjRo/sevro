@@ -1,3 +1,4 @@
+import { spawn, type Subprocess } from "../runtime-process";
 import { validHostTimeout } from "./native-request";
 import { ProcessDeadline } from "../process-lifecycle";
 import {
@@ -24,7 +25,7 @@ class HostProcessInterruption extends Error {
 
 /** Race completion against the host deadline and cancellation, then release listeners. */
 async function awaitHostProcess<T>(
-  proc: Bun.Subprocess,
+  proc: Subprocess,
   completed: Promise<T>,
   options: HostProcessOptions,
 ): Promise<T> {
@@ -123,10 +124,7 @@ export interface HostProcessOptions {
   phase?: Phase;
 }
 
-async function writeHostInput(
-  proc: Bun.Subprocess,
-  input?: string,
-): Promise<void> {
+async function writeHostInput(proc: Subprocess, input?: string): Promise<void> {
   if (input === undefined) return;
   if (!proc.stdin || typeof proc.stdin === "number")
     throw new Error("Codex input pipe unavailable");
@@ -139,7 +137,7 @@ function spawnHostProcess(
   capture: HostProcessDiagnostics,
 ) {
   try {
-    return Bun.spawn(options.argv, {
+    return spawn(options.argv, {
       cwd: options.cwd,
       env: options.env,
       detached: process.platform !== "win32",

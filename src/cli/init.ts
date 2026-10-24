@@ -1,3 +1,4 @@
+import { examplePath, sourceRuntime } from "../runner-paths";
 import { cp, mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
@@ -49,19 +50,19 @@ function starterReadme(template: string) {
       : "an exact response assertion";
   const prerequisites =
     template === "coding"
-      ? "Bun and sandbox-exec on macOS, or bubblewrap/socat on Linux"
-      : "Bun";
-  return `# ${template} evaluation\n\nThis deterministic adapter exercises ${assertion}, without model credentials. Prerequisites: ${prerequisites}.\n\n\`\`\`sh\nsevro run --run-manifest-file run.json --dry\nsevro run --run-manifest-file run.json\nsevro report --latest\nSEVRO_TEMPLATE_FAIL=1 sevro run --run-manifest-file run.json\n\`\`\`\n\nThe negative control must report task=failed and exit 1. Dry preparation is not an assessment.\nEdit case.json and adapter.ts, prepare, then run again. Keep private .sevro evidence out of Git.\nFor a native model, replace the adapter route explicitly with --host, --model and --effort; Codex also requires --codex-auth-file. No model execution or native skill dispatch is established by this adapter.\n`;
+      ? "Node.js 24.13.0 or newer, or Bun 1.3.13, plus sandbox-exec on macOS or bubblewrap/socat on Linux"
+      : "Node.js 24.13.0 or newer, or Bun 1.3.13";
+  return `# ${template} evaluation\n\nThis deterministic adapter exercises ${assertion}, without model credentials. Prerequisites: ${prerequisites}.\n\n\`\`\`sh\nsevro run --run-manifest-file run.json --dry\nsevro run --run-manifest-file run.json\nsevro report --latest\nSEVRO_TEMPLATE_FAIL=1 sevro run --run-manifest-file run.json\n\`\`\`\n\nThe negative control must report task=failed and exit 1. Dry preparation is not an assessment.\nEdit case.json and ${sourceRuntime ? "adapter.ts" : "adapter.js"}, prepare, then run again. Keep private .sevro evidence out of Git.\nFor a native model, replace the adapter route explicitly with --host, --model and --effort; Codex also requires --codex-auth-file. No model execution or native skill dispatch is established by this adapter.\n`;
 }
 
 async function initialize(template: string, destination: string) {
   await reserveDirectory(destination);
   try {
-    await cp(
-      join(import.meta.dir, "..", "..", "examples", "templates", template),
-      destination,
-      { recursive: true, errorOnExist: true, force: false },
-    );
+    await cp(examplePath("templates", template), destination, {
+      recursive: true,
+      errorOnExist: true,
+      force: false,
+    });
     await writeFile(
       join(destination, "run.json"),
       JSON.stringify(

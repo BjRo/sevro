@@ -1,3 +1,4 @@
+import { spawn } from "./runtime-process";
 import {
   captureBoundedBytes,
   terminateOwnedProcessGroup,
@@ -69,7 +70,7 @@ async function gitOutput(
 
 /** Capture both bounded streams; binary patches remain bytes through stdin. */
 export async function runGit(options: GitOptions): Promise<Buffer> {
-  const proc = Bun.spawn(gitArguments(options.args), {
+  const proc = spawn(gitArguments(options.args), {
     cwd: options.cwd,
     stdin: options.input ?? "ignore",
     stdout: "pipe",

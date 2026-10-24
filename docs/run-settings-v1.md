@@ -7,14 +7,14 @@ Save recurring evaluation selections in a JSON run manifest, then use
 ## Repeat an evaluation
 
 Start with an existing [resolved case and adapter](getting-started.md), and save
-this `evaluation.json` beside `case.json` and `host-adapter.ts`:
+this `evaluation.json` beside `case.json` and `host-adapter.js`:
 
 ```json
 {
   "format": "sevro.run.v1",
   "settings": {
     "case-file": "./case.json",
-    "adapter-module": "./host-adapter.ts",
+    "adapter-module": "./host-adapter.js",
     "project-root": ".",
     "condition": "passive",
     "trials": 3,
@@ -95,7 +95,7 @@ occurrences build the replacement array. `--no-dry`, `--no-shell-isolation`,
 `true` values with `false`.
 
 Selecting an alternative route on the CLI removes its saved alternative and
-route-only settings. For example, `--adapter-module ./host-adapter.ts` replaces
+route-only settings. For example, `--adapter-module ./host-adapter.js` replaces
 a saved native candidate and its model/effort. Selecting `--host claude` over
 a saved Codex candidate requires fresh explicit `--model` and `--effort`;
 grading roles keep their separate selections. Shared Codex settings remain

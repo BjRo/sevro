@@ -5,7 +5,7 @@ cause is not a diagnosis of your machine.
 
 | Symptom                                   | Check and next step                                                                                                                                                                     |
 | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Command cannot run                        | Use Bun 1.3.13 and verify the local package/version. Read [installation](installing.md).                                                                                                |
+| Command cannot run                        | Use Node.js 24.13.0 or newer, or the explicit Bun 1.3.13 invocation, and verify the local package/version. Read [installation](installing.md).                                          |
 | Project snapshot contains a symbolic link | Use a separate evaluated project directory as in [the tutorial](getting-started.md); do not include installed dependencies in a plain-directory snapshot.                               |
 | Exit 0 but no passing task                | Prompt-only/dry runs are `not_assessed`. Read [results](reading-results.md).                                                                                                            |
 | Exit 64 before execution                  | Check absolute paths, exclusive route options, configuration, and capabilities in the [CLI reference](development-cli.md).                                                              |

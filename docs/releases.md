@@ -12,6 +12,16 @@ Published `rc.1` and `rc.2` retain their original BSL grants. Always select a ne
 version for publication; a local development tarball does not replace an
 already published artifact.
 
+## Unreleased: Node runtime support
+
+The candidate ships compiled JavaScript for Node.js 24.13.0 or newer and Bun
+1.3.13. Development retains Bun. Builds populate `dist/`; the package phase
+checks both runtimes and includes Node workflows with Bun absent from PATH.
+`runnerBuildDigest` includes compiled output for installed execution, so this
+changes build identities. Existing evidence keeps its original identity.
+Release preparation builds first, then packs with lifecycle scripts disabled;
+this adds no release test rerun.
+
 ## Unreleased: smaller npm package
 
 The npm package omits logo images, historical validation and usability pages,
@@ -42,7 +52,8 @@ including a release candidate. Use `next` for a preview that should require an
 explicit opt-in. Preparation accepts either tag for prerelease and stable versions.
 
 Preparation creates a new absolute output directory and never replaces an
-existing directory. It packs with lifecycle scripts disabled, retains the npm
+existing directory. `release:prepare` first builds the JavaScript artifact,
+then packs with lifecycle scripts disabled, retains the npm
 file inventory, and writes `release.json` and `SHA256SUMS` beside the tarball.
 The record identifies the package, version, release tag, distribution tag,
 tarball SHA-256 and npm SHA-512 integrity, and the preparation runtimes.

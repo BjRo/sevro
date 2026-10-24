@@ -25,7 +25,7 @@ export type Scenario =
 
 const answers: Record<string, string> = {
   orientation:
-    "Sevro runs repeatable evaluations. Start with deterministic examples in docs/getting-started.md. README.md",
+    "Sevro runs repeatable evaluations. The unreleased candidate CLI runs with Node.js 24.13.0 without Bun; the current registry release and development use Bun. Start with deterministic examples in docs/getting-started.md. README.md",
   explicit:
     "Execution completed; grading not_requested; task not_assessed. A passed task has passing checks. docs/results-v1.md",
   unrelated: "323",

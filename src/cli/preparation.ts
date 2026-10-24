@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { runnerRoot } from "../runner-paths";
 import { fileURLToPath } from "node:url";
 import { configurationRoot } from "../hosts/codex-configuration";
 import {
@@ -134,7 +134,7 @@ async function invocationProtectedRuntimeRoots(
   invocation: Invocation,
 ): Promise<string[]> {
   const protectedRoots = [
-    join(import.meta.dir, "..", ".."),
+    runnerRoot,
     invocation.projectRoot,
     invocation.configRoot,
     invocation.resultsRoot,

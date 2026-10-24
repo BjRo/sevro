@@ -1,3 +1,4 @@
+import { spawn } from "../runtime-process";
 import { existsSync } from "node:fs";
 import {
   MAX_CREDENTIAL_BYTES,
@@ -38,7 +39,7 @@ async function findItem(
   account: string,
 ): Promise<Buffer | undefined> {
   requireSecurity();
-  const proc = Bun.spawn(
+  const proc = spawn(
     [SECURITY, "find-generic-password", "-a", account, "-s", service, "-w"],
     { stdout: "pipe", stderr: "ignore" },
   );
@@ -94,7 +95,7 @@ async function updateItem(
 ): Promise<void> {
   requireSecurity();
   const { command, stdin } = updateCommand(service, account, bytes);
-  const proc = Bun.spawn(command, {
+  const proc = spawn(command, {
     stdin: stdin ?? "ignore",
     stdout: "ignore",
     stderr: "ignore",

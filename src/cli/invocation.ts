@@ -1,3 +1,4 @@
+import { which } from "../executable";
 import { join, resolve } from "node:path";
 import { validQualifiedId } from "../value-guards";
 import { canonicalRuntimeRoot } from "../runtime/paths";
@@ -523,7 +524,7 @@ function resolveNativeBinaries(values: Values): void {
 }
 
 function nativeBinary(host: "codex" | "claude"): string {
-  const binary = Bun.which(host);
+  const binary = which(host);
   if (!binary)
     throw new InvocationError(
       `selected ${host} executable was not found on PATH; install ${host} or supply --${host}-bin <path>`,
