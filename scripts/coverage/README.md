@@ -8,7 +8,7 @@ Run these commands from the repository root:
 
 ```sh
 bun run check:typescript
-bun run check:typescript --coverage tests/cli/results.test.ts
+bun run check:typescript --coverage tests/src/cli/results.test.ts
 ```
 
 The first command runs the complete quality gate. The second is a diagnostic
@@ -35,7 +35,7 @@ write distinct `.quality/shards/<index>/` directories. Each validates its real
 process reports and requires successful test execution. Only `--merge-shards`
 enforces the two 95% thresholds; partial coverage cannot establish acceptance.
 The test suite invokes each coverage integrity probe once through
-`tests/typescript-quality.test.ts`; the combined command validates shard evidence
+`tests/scripts/typescript-quality.test.ts`; the combined command validates shard evidence
 and coverage without rerunning those probes.
 
 Assignments use the complete checked test inventory, with each file present
@@ -44,7 +44,10 @@ from the successful Ubuntu run [38747270730](https://github.com/BjRo/sevro/actio
 with the former guide matrix divided by host and positive/negative scenarios.
 For #145, the Claude negative weight is rescaled from 141 to 62 seconds using
 the measured before/after ratio documented in [guide evaluation](../../docs/guide-evaluation.md).
-The remaining weights retain their original measurements.
+For #146, moved files retain their weights; the four split suites divide their
+previous weight among their new files in proportion to top-level test declarations,
+rounded to at least one second per file. These are scheduling estimates, not new
+timing measurements. The remaining weights retain their original measurements.
 The longest files are assigned first to the lightest shard; ties are resolved
 deterministically by path and shard order. New files default to five seconds.
 Update estimates from retained `tests.log` durations when the workload changes;

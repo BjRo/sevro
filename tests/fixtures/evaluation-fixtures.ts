@@ -1,16 +1,20 @@
-import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { openExtensionSession } from "../../src/extension-session";
-import { wireCase, wireOptions } from "./engine-session";
 import { type EvaluationOptions, type HostResult } from "../../src/engine";
+import { openExtensionSession } from "../../src/extension-session";
 import { defined } from "./assertions";
+import { wireCase, wireOptions } from "./engine-session";
+import { createTemporaryFixtures } from "./filesystem";
 
 export function createEvaluation(roots: string[]) {
+  const { temporaryFixture } = createTemporaryFixtures(roots);
+
   async function evaluation(result: HostResult): Promise<EvaluationOptions> {
-    const root = await mkdtemp(join(tmpdir(), "sevro-engine-quality-"));
-    roots.push(root);
+    const root = await temporaryFixture(
+      join(tmpdir(), "sevro-engine-quality-"),
+    );
+
     return {
       projectRoot: root,
       resultsRoot: join(root, "results"),

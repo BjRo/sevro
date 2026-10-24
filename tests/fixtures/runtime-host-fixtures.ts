@@ -1,13 +1,14 @@
-import { chmod, mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
+import { chmod, mkdir, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createCodexHost } from "../../src/hosts/codex";
 import {
   runEvaluation,
-  type HostAdapter,
   type EvaluationOptions,
+  type HostAdapter,
 } from "../../src/engine";
+import { createCodexHost } from "../../src/hosts/codex";
 import { defined } from "./assertions";
+import { createTemporaryFixtures } from "./filesystem";
 
 export function artifactEvaluation(
   root: string,
@@ -54,15 +55,17 @@ export const nativeRoot =
   '{"type":"session_meta","payload":{"id":"runtime-test"},"future":"preserved"}';
 
 export function createCodexFixture(roots: string[]) {
+  const { temporaryFixture } = createTemporaryFixtures(roots);
+
   async function codexFixture(
     command = "probe",
     additionalProtectedRoots: string[] = [],
     timeoutMs?: number,
   ) {
     const root = await realpath(
-      await mkdtemp(join(tmpdir(), "sevro-runtime-host-")),
+      await temporaryFixture(join(tmpdir(), "sevro-runtime-host-")),
     );
-    roots.push(root);
+
     const project = join(root, "project"),
       results = join(root, "results"),
       workspace = join(root, "workspace"),

@@ -1,0 +1,252 @@
+import { afterEach, expect, test } from "bun:test";
+import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { runEvaluation, type HostAdapter } from "../../../src/engine";
+import { prepareRepositoryFixture } from "../../../src/fixtures/repository";
+import { parseRunEvidence } from "../../fixtures/assertions";
+import { createTemporaryFixtures, fixtureGit } from "../../fixtures/filesystem";
+
+const roots: string[] = [];
+const { temporaryFixture, cleanupTemporaryFixtures } =
+  createTemporaryFixtures(roots);
+afterEach(cleanupTemporaryFixtures);
+
+const digest = "a".repeat(64);
+
+// eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
+test("repository fixtures clone a declared clean commit without remotes", async () => {
+  const projectRoot = await temporaryFixture(
+    join(tmpdir(), "sevro-repository-test-"),
+  );
+
+  const sourceRoot = join(projectRoot, "sources");
+  const repository = join(sourceRoot, "example");
+  await mkdir(repository, { recursive: true });
+  await fixtureGit(repository, "init", "-b", "main");
+  await writeFile(join(repository, "README.md"), "repository fixture\n");
+  await fixtureGit(repository, "add", "README.md");
+  await fixtureGit(
+    repository,
+    "-c",
+    "user.name=Fixture",
+    "-c",
+    "user.email=fixture@example.invalid",
+    "commit",
+    "-m",
+    "Create fixture",
+  );
+  const sourceRef = "fixture-repo";
+  const sources = {
+    root: sourceRoot,
+    refs: { [sourceRef]: pathToFileURL(repository).href },
+  };
+  const workspaces: string[] = [];
+  const host: HostAdapter = {
+    id: "sevro.host.synthetic",
+    model: "synthetic-v1",
+    effort: "none",
+    async run({ workspace }) {
+      workspaces.push(workspace);
+      expect(await readFile(join(workspace, "README.md"), "utf8")).toBe(
+        "repository fixture\n",
+      );
+      expect(await fixtureGit(workspace, "remote")).toBe("");
+      return { finalMessage: "ready", complete: true };
+    },
+  };
+  const options = {
+    projectRoot,
+    resultsRoot: join(projectRoot, "results"),
+    case: {
+      id: "repository-case",
+      prompt: "Return ready.",
+      fixture: { sourceRef },
+      checks: [
+        {
+          id: "ready",
+          grader: "sevro.regex",
+          configuration: { pattern: "^ready$" },
+        },
+      ],
+      requiredEvidence: [],
+    },
+    preparationSources: sources,
+    host,
+    runnerBuildDigest: digest,
+    projectDigest: digest,
+    condition: "passive" as const,
+    trialCount: 2,
+    passThreshold: 1,
+  };
+  const first = await runEvaluation(options);
+  expect(first.result.exitCode).toBe(0);
+  expect(workspaces).toHaveLength(2);
+  const firstEvidence = parseRunEvidence(
+    await readFile(first.result.evidencePath, "utf8"),
+  );
+  await writeFile(join(repository, "extra.txt"), "new commit\n");
+  expect(runEvaluation(options)).rejects.toThrow(/uncommitted changes/);
+  await fixtureGit(repository, "add", "extra.txt");
+  await fixtureGit(
+    repository,
+    "-c",
+    "user.name=Fixture",
+    "-c",
+    "user.email=fixture@example.invalid",
+    "commit",
+    "-m",
+    "Extend fixture",
+  );
+  const second = await runEvaluation(options);
+  const secondEvidence = parseRunEvidence(
+    await readFile(second.result.evidencePath, "utf8"),
+  );
+  expect(firstEvidence.evaluationIdentity.dimensions.fixtureDigest).not.toBe(
+    secondEvidence.evaluationIdentity.dimensions.fixtureDigest,
+  );
+  const outside = await temporaryFixture(
+    join(tmpdir(), "sevro-outside-source-"),
+  );
+
+  expect(
+    runEvaluation({
+      ...options,
+      preparationSources: {
+        root: sourceRoot,
+        refs: { [sourceRef]: pathToFileURL(outside).href },
+      },
+    }),
+  ).rejects.toThrow(/escapes its declared root/);
+});
+// eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
+test("repository overlays preserve source, index state, and metadata boundaries", async () => {
+  const projectRoot = await temporaryFixture(
+    join(tmpdir(), "sevro-overlay-test-"),
+  );
+
+  const sourceRoot = join(projectRoot, "sources");
+  const repository = join(sourceRoot, "example");
+  await mkdir(repository, { recursive: true });
+  await fixtureGit(repository, "init", "-b", "main");
+  await writeFile(join(repository, "README.md"), "source\n");
+  await symlink("README.md", join(repository, "shortcut"));
+  await fixtureGit(repository, "add", "README.md", "shortcut");
+  await fixtureGit(
+    repository,
+    "-c",
+    "user.name=Fixture",
+    "-c",
+    "user.email=fixture@example.invalid",
+    "commit",
+    "-m",
+    "Create fixture",
+  );
+  const original = await fixtureGit(repository, "rev-parse", "HEAD");
+  const sources = {
+    root: sourceRoot,
+    refs: { "fixture-repo": pathToFileURL(repository).href },
+  };
+  const caseData = {
+    id: "repository-overlay",
+    prompt: "Return ready.",
+    fixture: {
+      sourceRef: "fixture-repo",
+      files: { "README.md": "overlay\n", "notes.txt": "untracked\n" },
+      staged: ["README.md"],
+    },
+    checks: [
+      {
+        id: "ready",
+        grader: "sevro.regex",
+        configuration: { pattern: "^ready$" },
+      },
+    ],
+    requiredEvidence: [],
+  };
+  const host: HostAdapter = {
+    id: "sevro.host.synthetic",
+    model: "synthetic-v1",
+    effort: "none",
+    async run({ workspace }) {
+      expect(await readFile(join(workspace, "README.md"), "utf8")).toBe(
+        "overlay\n",
+      );
+      expect(await fixtureGit(workspace, "status", "--porcelain=v1")).toContain(
+        "M  README.md",
+      );
+      expect(await fixtureGit(workspace, "status", "--porcelain=v1")).toContain(
+        "?? notes.txt",
+      );
+      expect(await fixtureGit(workspace, "rev-parse", "HEAD")).toBe(original);
+      return { finalMessage: "ready", complete: true };
+    },
+  };
+  const options = {
+    projectRoot,
+    resultsRoot: join(projectRoot, "results"),
+    case: caseData,
+    preparationSources: sources,
+    host,
+    runnerBuildDigest: digest,
+    projectDigest: digest,
+    condition: "passive" as const,
+    trialCount: 1,
+    passThreshold: 1,
+  };
+  expect((await runEvaluation(options)).result.task.verdict).toBe("passed");
+  expect(await readFile(join(repository, "README.md"), "utf8")).toBe(
+    "source\n",
+  );
+  expect(await fixtureGit(repository, "status", "--porcelain=v1")).toBe("");
+  const committed = await runEvaluation({
+    ...options,
+    case: {
+      ...caseData,
+      fixture: {
+        sourceRef: "fixture-repo",
+        files: { "notes.txt": "committed\n" },
+        commitFiles: true,
+        hooks: { "pre-commit": "#!/bin/sh\nexit 1\n" },
+        bin: { "fixture-tool": "#!/bin/sh\nexit 0\n" },
+      },
+    },
+    host: {
+      ...host,
+      async run({ workspace, fixtureBinDir }) {
+        expect(await fixtureGit(workspace, "log", "-1", "--format=%s")).toBe(
+          "Add evaluation scaffolding",
+        );
+        expect(await fixtureGit(workspace, "status", "--porcelain=v1")).toBe(
+          "",
+        );
+        expect(
+          await readFile(join(workspace, ".git/hooks/pre-commit"), "utf8"),
+        ).toBe("#!/bin/sh\nexit 1\n");
+        expect(fixtureBinDir).toBe(join(workspace, ".git/fixture-bin"));
+        return { finalMessage: "ready", complete: true };
+      },
+    },
+  });
+  expect(committed.result.task.verdict).toBe("passed");
+  expect(() =>
+    prepareRepositoryFixture({
+      kind: "repository",
+      sourceRef: "fixture-repo",
+      files: { ".git/config": "unsafe" },
+    }),
+  ).toThrow(/repository metadata/);
+  expect(
+    runEvaluation({
+      ...options,
+      case: {
+        ...caseData,
+        fixture: { sourceRef: "fixture-repo", files: { shortcut: "unsafe" } },
+      },
+    }),
+  ).rejects.toThrow(/targets a non-file/);
+  expect(await readFile(join(repository, "README.md"), "utf8")).toBe(
+    "source\n",
+  );
+});

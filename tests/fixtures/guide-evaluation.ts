@@ -1,20 +1,18 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { guideCli, documentationRoot } from "./documentation-tools";
-import type { Scenario } from "./guide-host";
 import { defined, parseCliResult, parseRecord, record } from "./assertions";
+import { documentationRoot, guideCli } from "./documentation-tools";
+import { createTemporaryFixtures } from "./filesystem";
+import type { Scenario } from "./guide-host";
 
 type Host = "codex" | "claude";
 
 function guideEvaluator(host: Host) {
   const roots: string[] = [];
-  afterEach(async () => {
-    await Promise.all(
-      roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
-    );
-  });
+  const { cleanupTemporaryFixtures } = createTemporaryFixtures(roots);
+  afterEach(cleanupTemporaryFixtures);
   return (id: string, scenario?: Scenario) =>
     evaluate(roots, host, id, scenario);
 }
@@ -25,8 +23,11 @@ async function evaluate(
   id: string,
   scenario: Scenario = "pass",
 ) {
-  const resultsRoot = await mkdtemp(join(tmpdir(), "sevro-guide-integration-"));
-  roots.push(resultsRoot);
+  const { temporaryFixture } = createTemporaryFixtures(roots);
+
+  const resultsRoot = await temporaryFixture(
+    join(tmpdir(), "sevro-guide-integration-"),
+  );
 
   const run = await guideCli(
     [

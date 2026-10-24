@@ -182,7 +182,7 @@ the full-suite evidence. Sparse runs are expected to fail the full denominator.
 
 The durable public probes are `--probe snapshot`, `--probe scope`, `--probe branch`,
 `--probe missing-reports`, `--probe integrity`, and `--probe source-map`.
-`tests/typescript-quality.test.ts` invokes each probe once during the suite;
+`tests/scripts/typescript-quality.test.ts` invokes each probe once during the suite;
 the phase entrypoint and shard merge do not rerun them. The commands remain
 available for targeted diagnostics.
 The scope probe records a zero-seeded baseline and merged real process report

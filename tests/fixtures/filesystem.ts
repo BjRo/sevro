@@ -1,3 +1,4 @@
+import { mkdtempSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -31,19 +32,27 @@ export async function fixtureGit(
   return stdout.trim();
 }
 
-export function createTemporaryFixtures() {
-  const roots: string[] = [];
-  async function temporaryFixture(): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), "sevro-fixture-quality-"));
-    roots.push(root);
+export function createTemporaryFixtures(roots: string[] = []) {
+  async function temporaryFixture(
+    prefix = join(tmpdir(), "sevro-fixture-quality-"),
+  ): Promise<string> {
+    const root = await mkdtemp(prefix);
+    retainTemporaryFixture(root);
+    return root;
+  }
+  function temporaryFixtureSync(prefix: string): string {
+    const root = mkdtempSync(prefix);
+    retainTemporaryFixture(root);
     return root;
   }
   function retainTemporaryFixture(path: string): void {
-    roots.push(path);
+    if (!roots.includes(path)) roots.push(path);
   }
   async function cleanupTemporaryFixtures(): Promise<void> {
     await Promise.all(
-      roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
+      [...new Set(roots.splice(0))].map((root) =>
+        rm(root, { recursive: true, force: true }),
+      ),
     );
   }
   async function repositoryFixture() {
@@ -62,6 +71,7 @@ export function createTemporaryFixtures() {
   }
   return {
     temporaryFixture,
+    temporaryFixtureSync,
     retainTemporaryFixture,
     cleanupTemporaryFixtures,
     repositoryFixture,
