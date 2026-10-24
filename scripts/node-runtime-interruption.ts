@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -13,24 +14,28 @@ async function waitFor(path: string): Promise<void> {
   }
 }
 
-function running(pid: number): boolean {
-  const status = Bun.spawnSync(["/bin/ps", "-p", String(pid), "-o", "stat="]);
-  return (
-    status.exitCode === 0 && !status.stdout.toString().trim().startsWith("Z")
-  );
+function running(marker: string): boolean {
+  // Linux graders have a PID namespace. Observe the owned argv on the host.
+  const status = Bun.spawnSync(["/bin/ps", "-axo", "command="]);
+  assert.equal(status.exitCode, 0, "could not inspect owned shell processes");
+  return status.stdout
+    .toString()
+    .split("\n")
+    .some((command) => command.includes(marker));
 }
 
-async function requireStopped(pid: number): Promise<void> {
+async function requireStopped(marker: string): Promise<void> {
   const deadline = Date.now() + 3000;
-  while (running(pid) && Date.now() < deadline) await sleep(20);
+  while (running(marker) && Date.now() < deadline) await sleep(20);
   assert.equal(
-    running(pid),
+    running(marker),
     false,
     "Node interruption left its shell child running",
   );
 }
 
 async function fixture(root: string) {
+  const marker = `sevro-node-owned-${randomUUID()}`;
   const project = join(root, "interruption-project");
   await mkdir(project);
   const workspaceFile = join(root, "interruption-workspace.txt");
@@ -56,14 +61,14 @@ export default { id: "synthetic", model: "synthetic", effort: "none", async run(
           id: "owned-child",
           grader: "sevro.shell",
           configuration: {
-            run: "/bin/sleep 60 & child=$!; printf '%s' \"$child\" > shell-child.pid; wait",
+            run: `/bin/bash -c 'exec -a "$0" /bin/sleep 60' ${marker} & printf '%s' ${marker} > shell-child.ready; wait`,
             timeoutMs: 30_000,
           },
         },
       ],
     }),
   );
-  return { project, workspaceFile, adapter, caseFile };
+  return { project, workspaceFile, adapter, caseFile, marker };
 }
 
 /** Interrupt a real Node CLI shell check and verify retained output and child cleanup. */
@@ -99,10 +104,13 @@ export async function verifyNodeInterruption(
   try {
     await waitFor(files.workspaceFile);
     const workspace = await readFile(files.workspaceFile, "utf8");
-    const ready = join(workspace, "shell-child.pid");
+    const ready = join(workspace, "shell-child.ready");
     await waitFor(ready);
-    const pid = Number(await readFile(ready, "utf8"));
-    assert.ok(Number.isSafeInteger(pid) && pid > 1);
+    assert.equal(await readFile(ready, "utf8"), files.marker);
+    assert.ok(
+      running(files.marker),
+      "owned shell process was not observed before interruption",
+    );
     child.kill("SIGTERM");
     const [stdout, stderr, code] = await Promise.all([
       output,
@@ -115,7 +123,7 @@ export async function verifyNodeInterruption(
     assert.equal(result.exitCode, 143);
     assert.notEqual(result.task.verdict, "passed");
     assert.ok(result.evidencePath && existsSync(result.evidencePath));
-    await requireStopped(pid);
+    await requireStopped(files.marker);
   } catch (cause) {
     child.kill("SIGKILL");
     await child.exited;
