@@ -36,9 +36,8 @@ cd sevro-demo
 npm init -y
 ```
 
-Install the [Node-capable candidate archive](installing.md#node-support-preview)
-there, then return here to run the example. Node support is unreleased; the
-current registry release still needs Bun and has its own bundled tutorial. See [licensing](licensing.md) for the current terms and
+Install the [current release](installing.md#current-release)
+there, then return here to run the example. See [licensing](licensing.md) for the current terms and
 the licenses retained by historical releases.
 
 Make the local installation available on `PATH` for this shell, then call

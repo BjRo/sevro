@@ -12,9 +12,11 @@ Published `rc.1` and `rc.2` retain their original BSL grants. Always select a ne
 version for publication; a local development tarball does not replace an
 already published artifact.
 
-## Unreleased: Node runtime support
+<a id="unreleased-node-runtime-support"></a>
 
-The candidate ships compiled JavaScript for Node.js 24.13.0 or newer and Bun
+## Node runtime support
+
+The package ships compiled JavaScript for Node.js 24.13.0 or newer and Bun
 1.3.13. Development retains Bun. Builds populate `dist/`; the package phase
 checks both runtimes and includes Node workflows with Bun absent from PATH.
 `runnerBuildDigest` includes compiled output for installed execution, so this
@@ -22,7 +24,9 @@ changes build identities. Existing evidence keeps its original identity.
 Release preparation builds first, then packs with lifecycle scripts disabled;
 this adds no release test rerun.
 
-## Unreleased: smaller npm package
+<a id="unreleased-smaller-npm-package"></a>
+
+## Package contents and size
 
 The npm package omits logo images, historical validation and usability pages,
 and raw evidence, including the Darrow migration patch and old guide verification
@@ -30,10 +34,11 @@ record. All remain in the repository; packaged pages link to their online copies
 The current `LICENSE`, contribution terms, branding permissions and retained
 earlier-release license text still ship. No licensing or branding grants change.
 
-For this cleanup, `npm pack --dry-run --ignore-scripts --json` measured the
+During the package-size cleanup, `npm pack --dry-run --ignore-scripts --json` measured a
 development tarball at about 0.39 MB compressed, down from 3,545,849 bytes, and
 about 1.86 MB unpacked, down from 6,632,891 bytes (about 89% and 72% smaller).
-These are candidate measurements, not a newly published release.
+These historical development-build measurements do not guarantee the size of
+every release.
 
 `runnerBuildDigest` hashes packaged paths and bytes under `docs/` as well as the
 runtime and other package inputs. This packaging change therefore causes a

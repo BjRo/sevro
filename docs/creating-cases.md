@@ -114,9 +114,8 @@ The [grader reference](builtin-graders-v1.md) defines their limits.
 To grade skill selection or verify explicit invocation, use an extension that
 prepares skill mounts and interprets complete native host evidence. The
 [extension protocol](extension-protocol-v1.md) defines repository and plugin
-invocations; the checkout's [guide evals](guide-evaluation.md) demonstrate the
-approach. Check those capabilities against your exact installed release:
-this checkout can contain [changes beyond its published version](installing.md#published-package-and-checkout).
+invocations; the repository's [guide evals](guide-evaluation.md) demonstrate the
+approach.
 
 ## Reusable project policy
 

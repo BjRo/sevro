@@ -55,6 +55,28 @@ export SEVRO_RECIPES="$PWD/dist/examples/recipes"
 Then follow the [recipe commands](docs/recipes.md#prepare-a-recipe-project).
 Native model trials need their own [credentials and prerequisites](docs/native-hosts.md).
 
+## Install a development archive
+
+To try source changes in an installed package, prepare an archive from the
+repository root with Bun:
+
+```sh
+bun install --frozen-lockfile
+bun run build
+npm pack --ignore-scripts
+```
+
+The last command prints the archive filename. Transfer that file to the consumer
+project and install it with Node and npm; Bun is not required there:
+
+```sh
+npm install --save-exact /absolute/path/to/candidate.tgz
+```
+
+Continue with the [installed-package tutorial](docs/getting-started.md#from-an-installed-package).
+This creates a development package; maintainers follow the separate
+[release workflow](docs/releases.md) for publication.
+
 ## Quality contract and checks
 
 [The TypeScript quality contract](docs/typescript-quality.md) defines the checked

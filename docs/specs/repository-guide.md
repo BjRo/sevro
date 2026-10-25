@@ -1,6 +1,6 @@
 # Repository guide
 
-The repository-scoped `sevro-guide` explains this checkout. It is independent
+The repository-scoped `sevro-guide` explains Sevro from repository sources. It is independent
 of npm packaging and serves a static documentation spine, not an execution agent.
 
 ## Contract

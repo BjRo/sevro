@@ -19,10 +19,9 @@ Sevro is under active development. The npm package is `@bjoernrochel/sevro`;
 its command is `sevro`. The [current release](docs/installing.md#current-release) includes runtime
 configuration, native goals, selected plugin hooks, and the current licensing terms.
 Earlier `rc.1` and `rc.2` packages retain their original BSL grants.
-See [installation and release differences](docs/installing.md).
+See [installation](docs/installing.md).
 
-This checkout adds an [unreleased Node support preview](docs/installing.md#node-support-preview).
-Run its installed JavaScript candidate with Node.js 24.13.0 or newer, or Bun 1.3.13.
+Run the installed package with Node.js 24.13.0 or newer, or Bun 1.3.13.
 Bun is not required for Node users. Native isolation uses macOS `sandbox-exec`
 or Ubuntu `bubblewrap` and `socat`. Contributors keep Bun 1.3.13 for development,
 builds and tests, plus Node 24.13.0 and npm for package acceptance.
@@ -37,8 +36,7 @@ cd sevro-demo
 npm init -y
 ```
 
-For Node support, install a [candidate archive](docs/installing.md#node-support-preview)
-in that directory. The current registry release still requires Bun.
+Install the [current release](docs/installing.md#current-release) in that directory.
 Continue with [your first evaluation](docs/getting-started.md): the exact command,
 expected `passed` result, and retained evidence. Read [installation](docs/installing.md)
 for updates, removal, and source checkouts.
@@ -57,7 +55,7 @@ Machine-readable contracts live in [schemas/](schemas/).
 
 ## Ask the repository guide
 
-Open this checkout in a fresh Codex or Claude Code session and ask
+Open the Sevro repository in a fresh Codex or Claude Code session and ask
 “What is Sevro, and how do I run my first evaluation?” Explicit invocation is
 `$sevro-guide` in Codex or `/sevro-guide` in Claude Code.
 The guide reads sources, cites its answers, and handles follow-ups. It explains
