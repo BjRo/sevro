@@ -5,7 +5,7 @@ and a small extension for guide-specific evidence and fixtures. The inventory an
 cases remain under `.agents/skills/sevro-guide/evals/`. The
 [extension modules](../scripts/guide/README.md) do not implement a second runner.
 
-From this checkout, validate fixture preparation without launching a model:
+From the Sevro repository root, validate fixture preparation without launching a model:
 
 ```sh
 bun run eval:guide --case-id orientation --host codex \

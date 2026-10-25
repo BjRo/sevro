@@ -113,9 +113,9 @@ An installed package records its name, version, and a digest of its packaged
 runtime and public contract files without reading runner Git metadata. The CLI
 derives the project digest from its revision and dirty patch, or from a bounded
 content snapshot when the project has no Git revision. Result and run-state
-directories are excluded from that snapshot and untracked Git identity. When running this source checkout
+directories are excluded from that snapshot and untracked Git identity. When running from source
 for coordinated development, pass `--runner-checkout-root` with the absolute
-path to this checkout. Sevro verifies that it is the code actually running and
+path to the running Sevro checkout. Sevro verifies that it is the code actually running and
 records its revision and dirty-patch digest instead of package provenance.
 `bun run test:package-install` verifies the packed package from a separate
 temporary project without runner Git metadata.

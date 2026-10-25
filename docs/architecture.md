@@ -4,7 +4,7 @@ Sevro owns generic execution/evidence contracts. Projects own cases and policy.
 This lets Darrow and other integrations use the same runner without importing
 their benchmark policy into it.
 
-This page explains this checkout's implementation and points to acceptance
+This page explains Sevro's implementation and points to acceptance
 tests for changes. [Current contracts](contracts.md) define public behavior;
 [historical validation](https://github.com/BjRo/sevro/blob/main/docs/evidence.md) records bounded past observations. The
 [engine slice](https://github.com/BjRo/sevro/blob/main/docs/engine-slice.md) retains its earlier scope and detailed lifecycle

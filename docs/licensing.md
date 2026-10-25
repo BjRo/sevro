@@ -1,6 +1,6 @@
 # Sevro licensing
 
-[LICENSE](../LICENSE) is authoritative for this checkout. Sevro Source Available
+[LICENSE](../LICENSE) defines Sevro's licensing terms. Sevro Source Available
 License 1.0 allows free use in all contexts, modification, and free redistribution
 under the same terms. Commercial work, paid education, research, CI, and
 consulting are permitted.
@@ -23,7 +23,7 @@ it does not promise that alternative licenses will never be offered.
 
 Published `0.1.0-rc.1` and `0.1.0-rc.2` retain BUSL-1.1, their original
 production grant, and their per-version change date. Each changes to MPL-2.0
-two years after its first public availability. This checkout does not revoke
+two years after its first public availability. The current license does not revoke
 or rewrite earlier grants. The [retained rc.2 license](licenses/BUSL-1.1-0.1.0-rc.2.txt)
 records those terms.
 

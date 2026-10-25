@@ -35,7 +35,7 @@ observations are also available. Unsupported instrumentation is refused.
 
 Select `--host claude`, an absolute `--claude-bin`, and the desired model/effort.
 The route supports passive candidate turns. Explicit `--claude-credential-file`
-takes precedence. Otherwise this checkout forwards inherited API/OAuth
+takes precedence. Otherwise Sevro forwards inherited API/OAuth
 credentials, then uses the saved login from the macOS Keychain or saved credential
 file. Trials receive only an access token; the parent refreshes a saved login and
 writes it back, so evaluations leave your normal Claude login working. See the
