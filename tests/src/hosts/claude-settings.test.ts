@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { claudeHostSettings } from "../../../src/hosts/claude-settings";
+import type { RuntimePolicy } from "../../../src/runtime/config";
 
 test("Claude host settings deny private state to Bash and file tools", () => {
   const settings = claudeHostSettings(
@@ -51,10 +52,42 @@ test("Claude host settings deny private state to Bash and file tools", () => {
   ]);
   expect(settings.permissions.allow).toContain("Bash");
   expect(settings.permissions.allow).toContain("Agent");
+  expect(settings.permissions.allow).toContain("SendMessage");
 });
 
 test("Claude host settings reject escaping and malformed state paths", () => {
   expect(() => claudeHostSettings("relative", "/tmp/config")).toThrow();
   expect(() => claudeHostSettings("/tmp/state", "/tmp/other")).toThrow();
   expect(() => claudeHostSettings("/tmp/(bad)", "/tmp/(bad)/config")).toThrow();
+});
+
+test("Claude host settings allow retained agent messaging with runtime policies", () => {
+  const policy: RuntimePolicy = {
+    format: "sevro.runtime.v1",
+    environment: {},
+    readOnlyRoots: [],
+  };
+  const withoutWritableRuntime = claudeHostSettings(
+    "/private/sevro-state",
+    "/private/sevro-state/config/.credentials.json",
+    [],
+    [],
+    policy,
+  );
+  const withWritableRuntime = claudeHostSettings(
+    "/private/sevro-state",
+    "/private/sevro-state/config/.credentials.json",
+    [],
+    [],
+    policy,
+    [],
+    { root: "/private/runtime", workspace: "/private/workspace" },
+  );
+
+  expect(
+    (withoutWritableRuntime.permissions as { allow: string[] }).allow,
+  ).toContain("SendMessage");
+  expect(
+    (withWritableRuntime.permissions as { allow: string[] }).allow,
+  ).toContain("SendMessage");
 });
