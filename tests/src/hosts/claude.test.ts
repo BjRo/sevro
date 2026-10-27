@@ -523,7 +523,7 @@ test("Claude host runs with native sandbox settings and declared plugins", async
   expect(argv).toContain("--setting-sources\nproject\n");
   expect(argv).toContain("--permission-mode\ndontAsk\n");
   expect(argv).not.toContain("--allowedTools");
-  expect(argv).toContain("--tools\nBash,Read,Edit,Skill,Agent\n");
+  expect(argv).toContain("--tools\nBash,Read,Edit,Skill,Agent,SendMessage\n");
 });
 // eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("Claude host observes a bound native repository command without a plugin", async () => {

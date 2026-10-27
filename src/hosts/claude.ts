@@ -453,7 +453,7 @@ function claudeTurnArgs(
     "--permission-mode",
     "dontAsk",
     "--tools",
-    "Bash,Read,Edit,Skill,Agent",
+    "Bash,Read,Edit,Skill,Agent,SendMessage",
     "--setting-sources",
     options.projectSettings ? "project" : "",
     "--settings",

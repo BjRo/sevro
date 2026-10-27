@@ -196,13 +196,15 @@ function claudeToolAllowRules(
       "Read",
       "Skill",
       "Agent",
+      "SendMessage",
       workspace ? absoluteRule(workspace, "Edit") : "Edit",
     ];
-  if (!runtime) return ["Bash", "Edit", "Skill", "Agent"];
+  if (!runtime) return ["Bash", "Edit", "Skill", "Agent", "SendMessage"];
   return [
     "Bash",
     "Skill",
     "Agent",
+    "SendMessage",
     absoluteRule(runtime.workspace, "Edit"),
     absoluteRule(runtime.root, "Edit"),
     ...(runtime.cacheRoots ?? []).map((root) => absoluteRule(root, "Edit")),
