@@ -375,13 +375,26 @@ test("app-server closing transport still refuses an unterminated malformed trail
   expect(result.out).toContain('"type":"turn.failed"');
 });
 
-test("app-server oversized transport input is refused before becoming a result", async () => {
+test("app-server completes valid cumulative traffic above 8 MiB", async () => {
+  const result = await runCodexAppServer(
+    await serverOptions("long-valid-stream"),
+  );
+  expect(result.code, result.evidence.failure).toBe(0);
+  expect(result.evidence.failure).toBeUndefined();
+  expect(result.evidence.finalTurnId).toBe("first");
+  expect(result.finalMessage).toBe("ready\n\ndone");
+  expect(result.out).not.toContain("padding");
+});
+
+test("app-server cumulative traffic above 128 MiB is refused before becoming a result", async () => {
   const result = await runCodexAppServer(
     await serverOptions("oversized-stream"),
   );
   expect(result.code).toBe(1);
   expect(result.evidence.failure).toBe("App-server stream exceeds limit");
   expect(result.evidence.clientTurns).toBe(0);
+  expect(result.finalMessage).toBeNull();
+  expect(result.out).toContain('"type":"turn.failed"');
 });
 
 test("app-server drains oversized diagnostic stderr while retaining a valid root response", async () => {

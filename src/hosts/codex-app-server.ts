@@ -222,7 +222,7 @@ class AppServerRpc {
       lines.on("line", (line) => {
         try {
           this.receivedBytes += Buffer.byteLength(line);
-          if (this.receivedBytes > 8 * 1024 * 1024)
+          if (this.receivedBytes > 128 * 1024 * 1024)
             throw new Error("App-server stream exceeds limit");
           if (!line.trim()) return;
           this.receive(protocolMessage(line));

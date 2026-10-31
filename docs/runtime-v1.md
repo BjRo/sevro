@@ -477,6 +477,12 @@ with a native-goal policy. Programmatic Codex callers must construct an
 `app-server` host. Native goal observations report actual host status; enabling
 the policy does not itself prove that a goal was created or completed.
 
+The Codex app-server transport accepts up to 128 MiB of cumulative stdout
+protocol message bytes per session. This is a session traffic budget, rather
+than a per-message allowance; line delimiters do not count toward it. Exceeding
+the budget fails the run with `App-server stream exceeds limit`. The configured
+evaluation time bound and the 1,024-notification queue limit also apply.
+
 `hooks.plugins` authorizes all command hooks from the named prepared plugins.
 Sevro validates and copies mounts, filters unselected hooks, and wraps selected
 handlers in a credential-free macOS or Linux sandbox. Dependency runtime and
