@@ -28,16 +28,16 @@ Local installation records the selected version in the project lockfile.
 
 ## Current release
 
-The current release is `1.1.1`. Install this exact version with npm:
+The current release is `1.1.2`. Install this exact version with npm:
 
 ```sh
-npm install --save-exact @bjoernrochel/sevro@1.1.1
+npm install --save-exact @bjoernrochel/sevro@1.1.2
 ```
 
 Or with Bun:
 
 ```sh
-bun add --exact @bjoernrochel/sevro@1.1.1
+bun add --exact @bjoernrochel/sevro@1.1.2
 ```
 
 <!-- sevro-current-release:end -->
