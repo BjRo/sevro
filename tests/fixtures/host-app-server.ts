@@ -37,10 +37,7 @@ const badInitialize: Record<string, string> = {
 };
 function initialize(id: unknown): void {
   diagnosticStderr();
-  if (mode === "oversized-stream") {
-    process.stdout.write("x".repeat(8 * 1024 * 1024 + 1) + "\n");
-    return;
-  }
+  validStreamTraffic();
   const bad = badInitialize[mode];
   if (bad !== undefined) {
     process.stdout.write(bad + "\n");
@@ -52,6 +49,20 @@ function initialize(id: unknown): void {
   }
   process.stdout.write("\n");
   initializeResponse(id);
+}
+function validStreamTraffic(): void {
+  const counts: Record<string, number> = {
+    "long-valid-stream": 144,
+    "oversized-stream": 2048,
+  };
+  // Each valid notification adds its JSON envelope to the 64 KiB padding.
+  // Thus 2048 messages cross 128 MiB without one oversized message.
+  const count = counts[mode] ?? 0;
+  for (let index = 0; index < count; index++)
+    send({
+      method: "account/updated",
+      params: { padding: "x".repeat(65536) },
+    });
 }
 function initializeResponse(id: unknown): void {
   if (mode === "fail-after-initialize-response") {
