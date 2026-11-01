@@ -34,9 +34,12 @@ function protectMappedSources(
   invocation.shellIsolation?.protectedRoots.push(...sourceRoots);
 }
 
-export async function prepareRunInvocation(argv: string[]) {
+export async function prepareRunInvocation(
+  argv: string[],
+  onWarning?: (message: string) => void,
+) {
   const invocation = await parseInvocation(argv);
-  warnDeprecatedRuntimeOptions(invocation);
+  warnDeprecatedRuntimeOptions(invocation, onWarning);
   const preparationSources = await loadPreparationSources(invocation);
   protectMappedSources(invocation, preparationSources);
   const protectedRoots = await invocationProtectedRuntimeRoots(invocation);
@@ -97,9 +100,12 @@ function selectCodexGoalTransport(
   codex.entrypoint = "app-server";
 }
 
-function warnDeprecatedRuntimeOptions(invocation: Invocation): void {
+function warnDeprecatedRuntimeOptions(
+  invocation: Invocation,
+  onWarning?: (message: string) => void,
+): void {
   for (const option of invocation.deprecatedRuntimeOptions)
-    console.warn(
+    onWarning?.(
       `--${option} is deprecated; declare the runtime in sevro.json or --runtime-config-file instead`,
     );
 }

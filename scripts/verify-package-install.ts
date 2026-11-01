@@ -12,6 +12,7 @@ import { isAbsolute, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { checkReleaseDocumentation } from "./release-documentation";
 import { verifyPackageWorkflow } from "./documentation-workflow";
+import { verifyEmbeddingApi } from "./verify-embedding-api";
 
 const sourceRoot = resolve(import.meta.dir, "..");
 const { values } = parseArgs({
@@ -148,6 +149,7 @@ try {
   if (installedDocumentationErrors.length)
     throw new Error(installedDocumentationErrors.join("\n"));
   verifyReferenceContents(installed);
+  await verifyEmbeddingApi(consumer);
   await verifyPackageWorkflow(installedCommand, consumer);
   async function installedRun(caseName: string) {
     const output = await run(

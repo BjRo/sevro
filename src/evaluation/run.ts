@@ -201,6 +201,6 @@ export async function runEvaluation(
     results.diagnoseFailure();
     throw error;
   } finally {
-    await resources.workspaces.cleanup();
+    await resources.workspaces.cleanup(options.onWarning);
   }
 }

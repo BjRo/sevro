@@ -13,6 +13,7 @@ import { fixtureParts } from "../fixtures/preparation";
 import { startRunOwner, type RunOwner } from "../run-owner";
 import { EvaluationConfigurationError, type EvaluationOptions } from "./types";
 import type { PreparedFixture, PreparedInvocation } from "./plan";
+import { evaluationWarning } from "./progress";
 import {
   INVOCATION_PLACEHOLDER,
   LEGACY_CODEX_PLACEHOLDER,
@@ -60,7 +61,7 @@ export class RunWorkspaceReservations {
     this.retained.delete(reservation);
   }
 
-  async cleanup(): Promise<void> {
+  async cleanup(onWarning?: EvaluationOptions["onWarning"]): Promise<void> {
     for (const workspace of this.retained) await retainWorkspace(workspace);
     await Promise.all(
       [...this.candidates, ...this.semantics]
@@ -69,7 +70,10 @@ export class RunWorkspaceReservations {
           try {
             await removeWorkspace(workspace);
           } catch {
-            console.warn(`fixture cleanup failed; retained at ${workspace}`);
+            evaluationWarning(
+              onWarning,
+              `fixture cleanup failed; retained at ${workspace}`,
+            );
           }
         }),
     );

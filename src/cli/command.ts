@@ -5,6 +5,7 @@ import { display, displayFailure, runnerFailureCategory } from "./presentation";
 import { displayEffectiveSettings } from "./settings";
 import { jsonOutputRequested } from "./run-options";
 import { retainCliResult } from "./completion";
+import { displayProgress } from "./progress";
 
 type CommandRelease = (() => Promise<void>) | undefined;
 
@@ -15,7 +16,7 @@ export async function main(
   const json = jsonOutputRequested(argv);
   let prepared: PreparedInvocation;
   try {
-    prepared = await prepareRunInvocation(argv);
+    prepared = await prepareRunInvocation(argv, console.warn);
   } catch (error) {
     await releaseBeforeDisplay(release, 64);
     displayFailure(
@@ -30,7 +31,12 @@ export async function main(
   const cancellation = new CommandCancellation();
   try {
     displayEffectiveSettings(prepared);
-    const { result } = await evaluateInvocation(prepared, cancellation.signal);
+    const { result } = await evaluateInvocation(
+      prepared,
+      cancellation.signal,
+      displayProgress,
+      console.warn,
+    );
     const completion = await retainCompletion(
       result,
       prepared.invocation.resultsRoot,

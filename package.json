@@ -4,6 +4,14 @@
   "license": "SEE LICENSE IN LICENSE",
   "description": "A standalone evaluation runner for agentic coding capabilities",
   "type": "module",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
+    },
+    "./*": "./*"
+  },
   "private": false,
   "repository": {
     "type": "git",
@@ -44,6 +52,7 @@
     "schemas:generate": "bun scripts/generate-schemas.ts",
     "schemas:check": "bun scripts/generate-schemas.ts --check",
     "test:package-install": "bun scripts/verify-package-install.ts",
+    "test:embedding-api": "bun scripts/verify-embedding-api.ts",
     "check:docs": "bun scripts/check-docs.ts",
     "docs:sync": "bun scripts/sync-release-docs.ts",
     "check:docs:external": "bun scripts/check-docs.ts --external",

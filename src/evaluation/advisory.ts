@@ -13,6 +13,7 @@ import type { CheckOutcome } from "../results";
 import type { AdvisoryReviewData } from "../schema-types";
 import type { RuntimePolicy } from "../runtime/config";
 import { gradingRuntimePolicy, scopedHostArtifacts } from "./grading-host";
+import { evaluationWarning } from "./progress";
 import {
   TrialPersistenceError,
   type HostAdapter,
@@ -37,6 +38,7 @@ interface AdvisoryInput {
 }
 
 interface AdvisoryEffects {
+  onWarning?: (message: string) => void;
   readonly evidence: Pick<
     TrialEvidenceWriter,
     "artifactRefs" | "retainArtifacts" | "retainAdvisoryResponse"
@@ -73,7 +75,10 @@ async function cleanupAdvisoryWorkspace(
   try {
     await removeWorkspace(workspace);
   } catch {
-    console.warn(`advisory fixture cleanup failed; retained at ${workspace}`);
+    evaluationWarning(
+      effects.onWarning,
+      `advisory fixture cleanup failed; retained at ${workspace}`,
+    );
   }
 }
 

@@ -132,13 +132,12 @@ export interface ResolvedCase {
   requiredEvidence: string[];
 }
 
-export interface EvaluationProgress {
-  stage: "preparation" | "candidate" | "grading" | "evidence";
-  status: "started" | "completed" | "skipped";
-  trial?: number;
-}
+export type { EvaluationProgress } from "../api-types";
+import type { EvaluationProgress } from "../api-types";
 
 export interface EvaluationOptions {
+  /** Best-effort operational diagnostics, separate from result assessment. */
+  onWarning?: (message: string) => void;
   /** Optional best-effort observation; exceptions never change the evaluation. */
   onProgress?: (event: EvaluationProgress) => void;
   /** Redacted operator preview, retained for reproduction outside semantic identity. */
