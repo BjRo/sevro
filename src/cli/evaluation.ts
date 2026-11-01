@@ -7,17 +7,20 @@ import {
 import { selectedCase } from "./extension";
 import type { PreparedInvocation } from "./preparation";
 import { assessmentSettings, effectiveSettings } from "./settings";
-import { displayProgress } from "./progress";
+import type { EvaluationProgress } from "../api-types";
 
 export async function evaluateInvocation(
   prepared: PreparedInvocation,
   signal: AbortSignal,
+  onProgress?: (event: EvaluationProgress) => void,
+  onWarning?: (message: string) => void,
 ) {
   const { invocation, preparationSources, host, semanticHost, advisoryHost } =
     prepared;
   const { caseData, extension } = await selectedCase(prepared, signal);
   return runEvaluation({
-    onProgress: displayProgress,
+    onProgress,
+    onWarning,
     resolvedRunSettings: effectiveSettings(prepared),
     assessmentSettings: assessmentSettings(prepared),
     runtimePolicy: prepared.runtimePolicy,

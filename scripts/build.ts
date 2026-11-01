@@ -6,12 +6,21 @@ import {
   rm,
   writeFile,
   chmod,
+  realpath,
 } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import ts from "typescript";
 
 const root = resolve(import.meta.dirname, "..");
 const output = join(root, "dist");
+
+async function declarationSourceRoot(): Promise<string> {
+  const source = process.env.SEVRO_COVERAGE_SOURCE_ROOT;
+  if (!source) return root;
+  // Only the paired instrumented candidate may use this pristine source snapshot.
+  const project = await realpath(join(source, "../project"));
+  return project === (await realpath(root)) ? await realpath(source) : root;
+}
 
 function typescriptPath(path: string): boolean {
   return path.length > 3 && path.endsWith(".ts");
@@ -25,16 +34,31 @@ function modulePath(path: string): string {
 }
 
 const rewriteModules: ts.TransformerFactory<ts.SourceFile> = (context) => {
-  const visit: ts.Visitor = (node) => {
-    if (ts.isStringLiteral(node) && isModuleSpecifier(node))
+  const visit = (
+    node: ts.Node,
+    parent: ts.Node,
+    ancestor: ts.Node,
+  ): ts.VisitResult<ts.Node> => {
+    if (ts.isStringLiteral(node) && moduleLiteral(parent, ancestor))
       return context.factory.createStringLiteral(modulePath(node.text));
-    return ts.visitEachChild(node, visit, context);
+    return ts.visitEachChild(
+      node,
+      (child) => visit(child, node, parent),
+      context,
+    );
   };
-  return (source) => ts.visitEachChild(source, visit, context);
+  return (source) =>
+    ts.visitEachChild(source, (child) => visit(child, source, source), context);
 };
 
-function isModuleSpecifier(node: ts.StringLiteral): boolean {
-  const parent = node.parent;
+function moduleLiteral(parent: ts.Node, ancestor: ts.Node): boolean {
+  return (
+    isModuleSpecifier(parent) ||
+    (ts.isLiteralTypeNode(parent) && ts.isImportTypeNode(ancestor))
+  );
+}
+
+function isModuleSpecifier(parent: ts.Node): boolean {
   if (ts.isImportDeclaration(parent) || ts.isExportDeclaration(parent))
     return true;
   return (
@@ -82,3 +106,60 @@ for (const directory of ["src", "examples"]) {
   await compileDirectory(directory);
 }
 await chmod(join(output, "src/cli.js"), 0o755);
+
+const configuration = ts.readConfigFile(join(root, "tsconfig.json"), (path) =>
+  ts.sys.readFile(path),
+);
+const parsed = ts.parseJsonConfigFileContent(
+  configuration.config,
+  ts.sys,
+  root,
+);
+const declarationOptions: ts.CompilerOptions = {
+  ...parsed.options,
+  noEmit: false,
+  declaration: true,
+  emitDeclarationOnly: true,
+  rootDir: root,
+  outDir: output,
+};
+const originalSource = await declarationSourceRoot();
+const declarationHost = ts.createCompilerHost(declarationOptions);
+declarationHost.readFile = (path) => {
+  const local = relative(root, path);
+  const source = local.startsWith(`src${sep}`)
+    ? join(originalSource, local)
+    : path;
+  return ts.sys.readFile(source);
+};
+const declarations = ts.createProgram(
+  [join(root, "src/api-types.ts")],
+  declarationOptions,
+  declarationHost,
+);
+const emitted = declarations.emit(undefined, undefined, undefined, true, {
+  afterDeclarations: [
+    rewriteModules as ts.TransformerFactory<ts.SourceFile | ts.Bundle>,
+  ],
+});
+if (emitted.emitSkipped)
+  throw new Error(
+    ts.formatDiagnostics(emitted.diagnostics, {
+      getCanonicalFileName: (path) => path,
+      getCurrentDirectory: () => root,
+      getNewLine: () => "\n",
+    }),
+  );
+const entrypoint = ts.transpileDeclaration(
+  await readFile(join(originalSource, "src/index.ts"), "utf8"),
+  {
+    fileName: "src/index.ts",
+    compilerOptions: parsed.options,
+    transformers: {
+      afterDeclarations: [
+        rewriteModules as ts.TransformerFactory<ts.SourceFile | ts.Bundle>,
+      ],
+    },
+  },
+);
+await writeFile(join(output, "src/index.d.ts"), entrypoint.outputText);

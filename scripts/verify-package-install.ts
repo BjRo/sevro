@@ -12,6 +12,7 @@ import { isAbsolute, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { checkReleaseDocumentation } from "./release-documentation";
 import { verifyPackageWorkflow } from "./documentation-workflow";
+import { verifyEmbeddingApi } from "./verify-embedding-api";
 
 const sourceRoot = resolve(import.meta.dir, "..");
 const { values } = parseArgs({
@@ -117,7 +118,10 @@ try {
     join(consumer, "package.json"),
     JSON.stringify({ name: "sevro-package-consumer", private: true }),
   );
-  await run([process.execPath, "add", archive], consumer);
+  await run(
+    [process.execPath, "add", archive, "@types/node@24.13.2"],
+    consumer,
+  );
   const installed = join(consumer, "node_modules", "@bjoernrochel", "sevro");
   const installedCommand = join(
     consumer,
@@ -148,6 +152,7 @@ try {
   if (installedDocumentationErrors.length)
     throw new Error(installedDocumentationErrors.join("\n"));
   verifyReferenceContents(installed);
+  await verifyEmbeddingApi(consumer);
   await verifyPackageWorkflow(installedCommand, consumer);
   async function installedRun(caseName: string) {
     const output = await run(

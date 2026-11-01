@@ -10,6 +10,7 @@ Start with the task you want to complete. These pages work without an agent.
 | Initialize, prepare, run and iterate           | [Evaluation workflow](evaluation-workflow.md)            |
 | Install, update, remove, or use a checkout     | [Installation](installing.md)                            |
 | Run evaluations and select a host              | [Running evaluations](running-evaluations.md)            |
+| Call Sevro from Node or Bun                    | [Embedding API](embedding-api.md)                        |
 | Create cases and reusable policy               | [Cases and extensions](creating-cases.md)                |
 | Copy a complete coding, skill or runtime setup | [Runnable recipes](recipes.md)                           |
 | Interpret verdicts, evidence, and comparisons  | [Reading results](reading-results.md)                    |

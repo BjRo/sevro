@@ -17,6 +17,7 @@ import {
 } from "../evidence/trial-writer";
 import { usage } from "../evidence/usage";
 import { runAdvisoryReview, type AdvisoryReview } from "./advisory";
+import { evaluationProgress, evaluationWarning } from "./progress";
 import {
   gradeCandidateOutput,
   gradeShellChecks,
@@ -60,7 +61,6 @@ import {
 import type { RunEvidenceDataTrialEvidence } from "../schema-types";
 import { scheduleTrials } from "./scheduler";
 import { rethrowDiagnosticPersistenceError } from "../host-diagnostics";
-import { evaluationProgress } from "./progress";
 
 const MAX_FINAL_MESSAGE_BYTES = 8 * 1024 * 1024;
 
@@ -657,6 +657,7 @@ class EvaluationTrial {
         evidence: this.evidence,
         retainWorkspace: (workspace) =>
           this.retainAuxiliaryWorkspace(workspace),
+        onWarning: this.options.onWarning,
       },
     );
   }
@@ -744,7 +745,8 @@ class EvaluationTrial {
         await clearFixtureContents(this.fixture.workspace);
         this.context.resources.workspaces.completed(this.fixture.reservation);
       } catch {
-        console.warn(
+        evaluationWarning(
+          this.options.onWarning,
           `fixture cleanup failed; retained at ${this.fixture.workspace}`,
         );
       }

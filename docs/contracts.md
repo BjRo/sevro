@@ -8,6 +8,7 @@ Read these human contracts and their schemas together:
 - [Identity v1](identity-v1.md): versioned comparison dimensions and hashing.
 - [Runtime configuration v1](runtime-v1.md): environment, tools, private state, goals, and hooks.
 - [Run settings v1](run-settings-v1.md): recurring evaluation selections and CLI overrides.
+- [Embedding API](embedding-api.md): in-process preparation, execution, results and cancellation.
 - [Built-in graders v1](builtin-graders-v1.md): output, shell, Git HEAD, and semantic checks.
 - [Schemas](../schemas/): machine-readable public forms.
 
