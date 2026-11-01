@@ -75,10 +75,6 @@ async function writeDocumentedExample(consumer: string): Promise<void> {
 
 /** Verify imports and execution from an independently installed npm consumer. */
 export async function verifyEmbeddingApi(consumer: string): Promise<void> {
-  await run(
-    ["npm", "install", "--no-save", "--ignore-scripts", "@types/node@24.13.2"],
-    consumer,
-  );
   await writeConsumerExamples(consumer);
   await writeDocumentedExample(consumer);
   const compiler = join(consumer, "node_modules/typescript/bin/tsc");
@@ -145,6 +141,7 @@ async function main(): Promise<void> {
         "install",
         "--ignore-scripts",
         join(root, `bjoernrochel-sevro-${manifest.version}.tgz`),
+        "@types/node@24.13.2",
       ],
       consumer,
     );

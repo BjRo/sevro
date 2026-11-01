@@ -118,7 +118,10 @@ try {
     join(consumer, "package.json"),
     JSON.stringify({ name: "sevro-package-consumer", private: true }),
   );
-  await run([process.execPath, "add", archive], consumer);
+  await run(
+    [process.execPath, "add", archive, "@types/node@24.13.2"],
+    consumer,
+  );
   const installed = join(consumer, "node_modules", "@bjoernrochel", "sevro");
   const installedCommand = join(
     consumer,

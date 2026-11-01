@@ -6,12 +6,21 @@ import {
   rm,
   writeFile,
   chmod,
+  realpath,
 } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import ts from "typescript";
 
 const root = resolve(import.meta.dirname, "..");
 const output = join(root, "dist");
+
+async function declarationSourceRoot(): Promise<string> {
+  const source = process.env.SEVRO_COVERAGE_SOURCE_ROOT;
+  if (!source) return root;
+  // Only the paired instrumented candidate may use this pristine source snapshot.
+  const project = await realpath(join(source, "../project"));
+  return project === (await realpath(root)) ? await realpath(source) : root;
+}
 
 function typescriptPath(path: string): boolean {
   return path.length > 3 && path.endsWith(".ts");
@@ -106,14 +115,28 @@ const parsed = ts.parseJsonConfigFileContent(
   ts.sys,
   root,
 );
-const declarations = ts.createProgram([join(root, "src/api-types.ts")], {
+const declarationOptions: ts.CompilerOptions = {
   ...parsed.options,
   noEmit: false,
   declaration: true,
   emitDeclarationOnly: true,
   rootDir: root,
   outDir: output,
-});
+};
+const originalSource = await declarationSourceRoot();
+const declarationHost = ts.createCompilerHost(declarationOptions);
+declarationHost.readFile = (path) => {
+  const local = relative(root, path);
+  const source = local.startsWith(`src${sep}`)
+    ? join(originalSource, local)
+    : path;
+  return ts.sys.readFile(source);
+};
+const declarations = ts.createProgram(
+  [join(root, "src/api-types.ts")],
+  declarationOptions,
+  declarationHost,
+);
 const emitted = declarations.emit(undefined, undefined, undefined, true, {
   afterDeclarations: [
     rewriteModules as ts.TransformerFactory<ts.SourceFile | ts.Bundle>,
@@ -128,7 +151,7 @@ if (emitted.emitSkipped)
     }),
   );
 const entrypoint = ts.transpileDeclaration(
-  await readFile(join(root, "src/index.ts"), "utf8"),
+  await readFile(join(originalSource, "src/index.ts"), "utf8"),
   {
     fileName: "src/index.ts",
     compilerOptions: parsed.options,
