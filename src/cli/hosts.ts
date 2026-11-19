@@ -1,4 +1,4 @@
-import type { HostAdapter } from "../engine";
+import type { HostAdapter } from "../host-contract/index";
 import { createClaudeHost } from "../hosts/claude";
 import { createCodexHost } from "../hosts/codex";
 import { codexAgentConcurrency } from "../hosts/codex-configuration";

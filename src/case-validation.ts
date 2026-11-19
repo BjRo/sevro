@@ -1,4 +1,4 @@
-import { type ResolvedCase } from "./engine";
+import type { ResolvedCase } from "./host-contract/index";
 import { prepareGeneratedFixture } from "./fixtures/generated";
 import { prepareRepositoryFixture } from "./fixtures/repository";
 import { isOptionalNonblankString, isRecord } from "./value-guards";

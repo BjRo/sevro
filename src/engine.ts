@@ -1,11 +1,13 @@
 export {
   EvaluationConfigurationError,
   HostExecutionFailure,
-} from "./evaluation/types";
+} from "./host-contract/index";
 export type {
   HostResult,
   HostAdapter,
   ResolvedCase,
+} from "./host-contract/index";
+export type {
   EvaluationOptions,
   EvaluationProgress,
   CliResult,

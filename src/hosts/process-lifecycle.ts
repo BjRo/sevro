@@ -6,7 +6,7 @@ import {
   captureBoundedText,
   terminateOwnedProcessGroup,
 } from "../process-lifecycle";
-import { HostExecutionFailure, type HostResult } from "../evaluation/types";
+import { HostExecutionFailure, type HostResult } from "../host-contract/index";
 import {
   HostProcessDiagnostics,
   type HostDiagnostics,

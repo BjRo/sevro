@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import { pathToFileURL } from "node:url";
 import { isResolvedCase, resolvedCaseIssue } from "../case-validation";
-import type { HostAdapter, ResolvedCase } from "../engine";
+import type { HostAdapter, ResolvedCase } from "../host-contract/index";
 import { prepareInstrumentation } from "../instrumentation";
 import { isRecord, isStringArray, validQualifiedId } from "../value-guards";
 import { InvocationError, type Invocation } from "./invocation";

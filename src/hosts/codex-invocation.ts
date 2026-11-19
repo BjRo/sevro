@@ -1,7 +1,7 @@
 import type { Stats } from "node:fs";
 import { lstat } from "node:fs/promises";
 import { join } from "node:path";
-import type { HostAdapter } from "../engine";
+import type { HostAdapter } from "../host-contract/index";
 type Request = Parameters<HostAdapter["run"]>[0];
 type Invocation = NonNullable<Request["explicitSkillInvocation"]>;
 

@@ -1,4 +1,4 @@
-import type { HostResult } from "./evaluation/types";
+import type { HostResult } from "./host-contract/index";
 import type { RuntimeRole } from "./runtime/index";
 import {
   diagnosticSecrets,

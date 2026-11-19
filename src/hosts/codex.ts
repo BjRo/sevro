@@ -3,7 +3,7 @@ import { candidateCodexStateRetained } from "../candidate-codex-state";
 import { lstat, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
-import type { HostAdapter, HostResult } from "../engine";
+import type { HostAdapter, HostResult } from "../host-contract/index";
 import { allocateNativeState } from "../native-transcript-state";
 import {
   failedNativeTranscripts,

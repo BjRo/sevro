@@ -21,7 +21,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { delimiter, dirname, join } from "node:path";
-import type { HostAdapter } from "../engine";
+import type { HostAdapter } from "../host-contract/index";
 import { nativeStateParent } from "../native-transcript-state";
 import {
   workspaceBoundaryException,

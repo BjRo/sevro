@@ -1,6 +1,6 @@
 import { isRecord, validQualifiedId as validEvidenceId } from "../value-guards";
 import { canonicalJson } from "../identity";
-import type { HostResult } from "../evaluation/types";
+import type { HostResult } from "../host-contract/index";
 import type {
   ObservationCompleteness,
   ObservationEvidence,

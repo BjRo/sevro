@@ -120,7 +120,10 @@ runner-owned candidate workspaces, and the [isolation module](../src/isolation/i
 turns protected roots into a platform sandbox command. The
 [runtime module](../src/runtime/index.ts) owns declared host runtime policy and
 private state, and the [hooks module](../src/hooks/index.ts) runs declared
-runtime hooks inside that sandbox. Evidence modules validate
+runtime hooks inside that sandbox. The
+[host contract](../src/host-contract/index.ts) defines the adapter, result and
+resolved-case shapes that hosts, evidence validation and case loading share
+without depending on evaluation orchestration. Evidence modules validate
 host observations and artifacts, verify retained bytes, and normalize optional
 usage without constructing fixtures. Native host implementations and graders
 remain in their own families.
@@ -137,7 +140,7 @@ depend only on its own layer or lower ones:
 | Entry points   | `cli.ts`, `index.ts`, `engine.ts`                                                         |
 | CLI            | `cli/`                                                                                    |
 | Orchestration  | `evaluation/`                                                                             |
-| Features       | `hosts/`, `graders/`, `fixtures/`, `evidence/`                                            |
+| Features       | `host-contract/`, `hosts/`, `graders/`, `fixtures/`, `evidence/`                          |
 | Infrastructure | `hooks/`, then `isolation/`, then `runtime/`, then `workspace/` (each above the next one) |
 | Base           | `generated/`, reached only through the schema boundary                                    |
 

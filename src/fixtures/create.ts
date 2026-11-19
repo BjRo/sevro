@@ -23,7 +23,7 @@ import {
 import {
   EvaluationConfigurationError,
   type ResolvedCase,
-} from "../evaluation/types";
+} from "../host-contract/index";
 
 export type FixtureSource<Repository = RepositorySource> =
   | { kind: "inline"; files: ResolvedCase["fixture"]["files"] }

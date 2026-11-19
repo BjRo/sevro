@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { readFile, realpath, rm, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
-import type { HostAdapter, HostResult } from "../engine";
+import type { HostAdapter, HostResult } from "../host-contract/index";
 import { allocateNativeState } from "../native-transcript-state";
 import {
   failedNativeTranscripts,

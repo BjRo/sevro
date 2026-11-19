@@ -1,4 +1,4 @@
-import { EvaluationConfigurationError } from "../engine";
+import { EvaluationConfigurationError } from "../host-contract/index";
 import { InvocationError } from "./invocation";
 import { assertCliResult } from "../schema";
 import type { ReportData } from "../schema-types";

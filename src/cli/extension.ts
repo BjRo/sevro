@@ -1,5 +1,5 @@
 import { pathToFileURL } from "node:url";
-import type { ResolvedCase } from "../engine";
+import type { ResolvedCase } from "../host-contract/index";
 import { openExtensionSession, type ExtensionCase } from "../extension-session";
 import { resolvedFixture } from "../resolved-case";
 import { InvocationError, type Invocation } from "./invocation";
