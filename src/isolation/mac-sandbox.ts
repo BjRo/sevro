@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { containsControl } from "../value-guards";
+import { containsControl } from "../kernel/index";
 import { existsSync } from "node:fs";
 import { mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";

@@ -2,7 +2,7 @@ import { spyOn } from "bun:test";
 import { userInfo } from "node:os";
 import { join } from "node:path";
 import { claudeKeychainService } from "../../src/hosts/claude-login-store";
-import { isStringArray } from "../../src/value-guards";
+import { isStringArray } from "../../src/kernel/index";
 
 export async function withAuthenticationEnvironment<T>(
   values: Record<string, string | undefined>,

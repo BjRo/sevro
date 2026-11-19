@@ -1,4 +1,4 @@
-import { isRecord, isUnknownArray } from "../value-guards";
+import { isRecord, isUnknownArray } from "../kernel/index";
 import {
   codexExecCallReceipts,
   type ExecCallReceipt,

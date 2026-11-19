@@ -1,11 +1,10 @@
 import { readFile, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { RunEvidenceData } from "./schema-types";
-import { canonicalJson, sha256 } from "./identity";
-import type { ArtifactReference } from "./contract-types";
+import type { RunEvidenceData } from "./schema/index";
+import { canonicalJson, sha256, type ArtifactReference } from "./kernel/index";
 import { retainedFile } from "./results-lock";
-import { atomicWriteJson } from "./storage";
+import { atomicWriteJson } from "./platform/index";
 
 function isNativeTranscript(artifact: ArtifactReference) {
   return /^(?:sevro\.(?:semantic(?:\.[a-f0-9]{64})?|advisory)\.)?sevro\.native-transcripts\.bundle$/.test(

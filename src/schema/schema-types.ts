@@ -1,5 +1,5 @@
-import type { AdvisoryAssessment } from "./advisory";
 import type {
+  AdvisoryAssessment,
   ArtifactReference,
   Assessment,
   CheckOutcome,
@@ -16,9 +16,9 @@ import type {
   RawResultReference,
   TaskVerdict,
   UsageEvidence,
-} from "./contract-types";
-import type { IdentityDimensions } from "./identity";
-import type { InstrumentationRequest } from "./instrumentation";
+  IdentityDimensions,
+  InstrumentationRequest,
+} from "../kernel/index";
 
 /** Wire assessments additionally allow optional serialized error codes. */
 export type WireAssessment = {

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { open, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { isRecord } from "../value-guards";
+import { isRecord } from "../kernel/index";
 
 const MAX_INPUT_BYTES = 8 * 1024 * 1024;
 const MAX_RECEIPT_BYTES = 4 * 1024 * 1024;

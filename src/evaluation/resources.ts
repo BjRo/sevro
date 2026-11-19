@@ -21,8 +21,8 @@ import {
   INVOCATION_PLACEHOLDER,
   LEGACY_CODEX_PLACEHOLDER,
 } from "./invocation-plan";
-import type { ArtifactReference as PreparationArtifactReference } from "../contract-types";
-export type { ArtifactReference as PreparationArtifactReference } from "../contract-types";
+import type { ArtifactReference as PreparationArtifactReference } from "../kernel/index";
+export type { ArtifactReference as PreparationArtifactReference } from "../kernel/index";
 
 /** Reservations outlive completed contents until all admitted trials drain. */
 export class RunWorkspaceReservations {

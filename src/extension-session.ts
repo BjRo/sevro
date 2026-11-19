@@ -1,25 +1,26 @@
 import validExchange from "./generated/extension.cjs";
-import { isRecord } from "./value-guards";
+import {
+  isRecord,
+  canonicalJson,
+  hashJson,
+  type ArtifactReference,
+  type Assessment,
+  type CheckDeclaration,
+  type DomainOutcome,
+  type ExtensionCheckOutcome,
+  type MetricEvidence,
+  type ObservationEvidence,
+  type TaskVerdict,
+  type InstrumentationRequest,
+} from "./kernel/index";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { isAbsolute } from "node:path";
-import { canonicalJson, hashJson } from "./identity";
 import type { FixtureSetupDeclaration } from "./fixtures/index";
 import type {
   GeneratedFixture,
   RepositoryFixture,
 } from "./host-contract/index";
-import type {
-  ArtifactReference,
-  Assessment,
-  CheckDeclaration,
-  DomainOutcome,
-  ExtensionCheckOutcome,
-  MetricEvidence,
-  ObservationEvidence,
-  TaskVerdict,
-} from "./contract-types";
-import type { InstrumentationRequest } from "./instrumentation";
 import {
   ExtensionProtocolError,
   exchangeExtension,

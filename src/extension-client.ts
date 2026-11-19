@@ -1,12 +1,13 @@
-import { spawn, type Subprocess } from "./runtime-process";
-import { randomUUID } from "node:crypto";
-import validExchange from "./generated/extension.cjs";
-import { isRecord, isStringArray } from "./value-guards";
 import {
+  spawn,
+  type Subprocess,
   captureBoundedBytes,
   ProcessDeadline,
   terminateOwnedProcessGroup,
-} from "./process-lifecycle";
+} from "./platform/index";
+import { randomUUID } from "node:crypto";
+import validExchange from "./generated/extension.cjs";
+import { isRecord, isStringArray } from "./kernel/index";
 
 const MAX_MESSAGE_BYTES = 8 * 1024 * 1024;
 const MAX_DIAGNOSTIC_BYTES = 64 * 1024;

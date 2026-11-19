@@ -2,7 +2,7 @@ import {
   isRecord,
   isUnknownArray,
   isStringArray,
-} from "../../../src/value-guards";
+} from "../../../src/kernel/index";
 import cliSchema from "../../../schemas/cli-result-v1.schema.json";
 import runSchema from "../../../schemas/run-evidence-v1.schema.json";
 import reportSchema from "../../../schemas/report-v1.schema.json";

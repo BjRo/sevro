@@ -2,9 +2,9 @@ import { afterEach, expect, test } from "bun:test";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { gitEnvironment, runGit } from "../../src/git";
-import { gitHeadRevision } from "../../src/graders/git-head";
-import { createTemporaryFixtures } from "../fixtures/filesystem";
+import { gitEnvironment, runGit } from "../../../src/platform/index";
+import { gitHeadRevision } from "../../../src/graders/git-head";
+import { createTemporaryFixtures } from "../../fixtures/filesystem";
 
 const roots: string[] = [];
 const { temporaryFixture, cleanupTemporaryFixtures } =

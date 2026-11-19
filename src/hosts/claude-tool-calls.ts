@@ -1,5 +1,4 @@
-import { sha256 } from "../identity";
-import { isRecord } from "../value-guards";
+import { sha256, isRecord } from "../kernel/index";
 import {
   summarizeClaudeEvents,
   parseClaudeEvents,

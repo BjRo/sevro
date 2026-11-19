@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import fc from "fast-check";
-import { shellQuote } from "../../src/shell";
+import { shellQuote } from "../../../src/platform/index";
 
 async function roundTrip(value: string): Promise<void> {
   const proc = Bun.spawn(

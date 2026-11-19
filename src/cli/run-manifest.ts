@@ -1,6 +1,6 @@
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { isRecord, isStringArray } from "../value-guards";
+import { isRecord, isStringArray } from "../kernel/index";
 import {
   CLI_ONLY,
   LIST_OPTIONS,

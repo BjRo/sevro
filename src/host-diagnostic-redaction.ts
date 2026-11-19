@@ -1,5 +1,5 @@
 import { readFile, stat } from "node:fs/promises";
-import { isRecord } from "./value-guards";
+import { isRecord } from "./kernel/index";
 
 function credentialStrings(value: unknown): string[] {
   const pending: unknown[] = [value];

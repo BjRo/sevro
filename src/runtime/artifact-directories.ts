@@ -1,4 +1,4 @@
-import { containsControl } from "../value-guards";
+import { containsControl } from "../kernel/index";
 
 /** A named candidate-home directory retained as an evaluation artifact. */
 export interface RuntimeArtifactDirectory {

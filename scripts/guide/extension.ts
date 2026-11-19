@@ -19,7 +19,7 @@ import {
   isRecord,
   isStringArray,
   isUnknownArray,
-} from "../../src/value-guards";
+} from "../../src/kernel/index";
 import { effectAttempts, inspectedSources, type Turn } from "./evidence";
 import { casesPath, fixtureCheck, guideFixture, guideRoot } from "./fixture";
 

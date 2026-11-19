@@ -1,11 +1,15 @@
 import { lstat, readFile, readdir, realpath, rm, stat } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { assertCliResult, assertRunEvidence } from "./schema";
-import type { CliResultData, RunEvidenceData } from "./schema-types";
+import {
+  assertCliResult,
+  assertRunEvidence,
+  type CliResultData,
+  type RunEvidenceData,
+} from "./schema/index";
 import { createReport } from "./report";
-import { atomicWriteJson } from "./storage";
-import { isRecord } from "./value-guards";
+import { atomicWriteJson } from "./platform/index";
+import { isRecord } from "./kernel/index";
 import {
   acquireResultsLock,
   retainedFile,

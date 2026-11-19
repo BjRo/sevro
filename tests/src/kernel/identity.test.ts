@@ -3,7 +3,7 @@ import {
   canonicalJson,
   createEvaluationIdentity,
   hashJson,
-} from "../../src/identity";
+} from "../../../src/kernel/index";
 
 const digest = "a".repeat(64);
 const dimensions = {

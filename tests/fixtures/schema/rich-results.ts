@@ -2,7 +2,7 @@ import type {
   CliResultData,
   RunEvidenceData,
   ReportData,
-} from "../../../src/schema-types";
+} from "../../../src/schema/index";
 
 const digest = "a".repeat(64);
 const route = {

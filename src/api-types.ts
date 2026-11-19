@@ -2,7 +2,7 @@ import type {
   CliResultData,
   CliResultDataCase,
   CliResultDataTrial,
-} from "./schema-types";
+} from "./schema/index";
 
 /** An evaluation always has allocated run and evidence paths. */
 export interface EvaluationResult extends Omit<

@@ -1,6 +1,6 @@
 import { createRequire } from "node:module";
 import type ts from "typescript";
-import { isRecord, isUnknownArray } from "../value-guards";
+import { isRecord, isUnknownArray } from "../kernel/index";
 
 const require = createRequire(import.meta.url);
 let parser: typeof ts | undefined;

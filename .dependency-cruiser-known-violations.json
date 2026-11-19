@@ -352,20 +352,6 @@
   },
   {
     "type": "dependency",
-    "from": "tests/src/git.test.ts",
-    "to": "src/graders/git-head.ts",
-    "unresolvedTo": "../../src/graders/git-head",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "consumer-module-interface"
-    }
-  },
-  {
-    "type": "dependency",
     "from": "tests/src/graders/output-boundaries.test.ts",
     "to": "src/graders/artifact.ts",
     "unresolvedTo": "../../../src/graders/artifact",
@@ -1094,6 +1080,20 @@
   },
   {
     "type": "dependency",
+    "from": "tests/src/platform/git.test.ts",
+    "to": "src/graders/git-head.ts",
+    "unresolvedTo": "../../../src/graders/git-head",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "consumer-module-interface"
+    }
+  },
+  {
+    "type": "dependency",
     "from": "tests/src/runtime/environment.test.ts",
     "to": "src/hosts/claude.ts",
     "unresolvedTo": "../../../src/hosts/claude",
@@ -1164,9 +1164,9 @@
   },
   {
     "type": "dependency",
-    "from": "tests/src/schema.test.ts",
+    "from": "tests/src/schema/schema.test.ts",
     "to": "src/hosts/codex.ts",
-    "unresolvedTo": "../../src/hosts/codex",
+    "unresolvedTo": "../../../src/hosts/codex",
     "dependencyTypes": [
       "local",
       "import"

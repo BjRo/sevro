@@ -14,7 +14,7 @@ import { stripVTControlCharacters } from "node:util";
 import { platformBranchCoverage } from "../../scripts/coverage/platform-branches";
 import { platformCoverageScope } from "../../scripts/coverage/platform-scope";
 import { copySnapshot } from "../../scripts/coverage/prepare";
-import { isRecord } from "../../src/value-guards";
+import { isRecord } from "../../src/kernel/index";
 import { sourceInventory } from "../../scripts/typescript-inventory";
 import { createTemporaryFixtures, fixtureGit } from "../fixtures/filesystem";
 
@@ -133,7 +133,7 @@ test.each([
 function mutateCoverageCandidate(project: string, kind: string) {
   switch (kind) {
     case "missing source":
-      rmSync(resolve(project, "src/value-guards.ts"));
+      rmSync(resolve(project, "src/kernel/value-guards.ts"));
       break;
     case "missing generated validator":
       rmSync(resolve(project, "src/generated/extension.cjs"));
@@ -180,7 +180,7 @@ test.each([
     "unsupported TypeScript",
     "Unclassified or overlapping source disposition: src/coverage-control.mts",
   ],
-  ["missing source", "Missing inventoried source: src/value-guards.ts"],
+  ["missing source", "Missing inventoried source: src/kernel/value-guards.ts"],
   [
     "missing generated validator",
     "Missing inventoried source: src/generated/extension.cjs",
@@ -203,7 +203,7 @@ test.each([
           process.execPath,
           resolve(project, "scripts/check-typescript.ts"),
           "--coverage",
-          "tests/src/schema.test.ts",
+          "tests/src/schema/schema.test.ts",
         ],
         { cwd: project, stdout: "pipe", stderr: "pipe" },
       );

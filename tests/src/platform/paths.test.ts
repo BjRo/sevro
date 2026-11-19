@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import fc from "fast-check";
 import { join, resolve, sep } from "node:path";
-import { insideRoot, minimalRoots } from "../../src/paths";
+import { insideRoot, minimalRoots } from "../../../src/platform/index";
 
 test.each([
   ["/safe", "/safe", true],

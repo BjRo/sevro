@@ -1,4 +1,4 @@
-import { examplePath, sourceRuntime } from "../runner-paths";
+import { examplePath, sourceRuntime } from "../platform/index";
 import { cp, mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";

@@ -1,4 +1,10 @@
-import { spawn, type Subprocess } from "../runtime-process";
+import {
+  spawn,
+  type Subprocess,
+  captureBoundedText,
+  ProcessDeadline,
+  terminateOwnedProcessGroup,
+} from "../platform/index";
 import {
   runtimeLocalHttpEnabled,
   runtimeSeedSources,
@@ -13,12 +19,7 @@ import {
 import { mkdir, stat } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 import { prepareIsolatedCommand } from "../isolation/index";
-import { hashJson } from "../identity";
-import {
-  captureBoundedText,
-  ProcessDeadline,
-  terminateOwnedProcessGroup,
-} from "../process-lifecycle";
+import { hashJson } from "../kernel/index";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 120_000;

@@ -1,4 +1,4 @@
-import type { RunEvidenceData } from "../../../src/schema-types";
+import type { RunEvidenceData } from "../../../src/schema/index";
 import { richCli, richEvidence } from "./rich-results";
 import { defined } from "../assertions";
 

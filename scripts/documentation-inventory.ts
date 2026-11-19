@@ -1,6 +1,6 @@
 import { readFile, realpath, stat } from "node:fs/promises";
 import { resolve } from "node:path";
-import { isRecord, isUnknownArray, isStringArray } from "../src/value-guards";
+import { isRecord, isUnknownArray, isStringArray } from "../src/kernel/index";
 import { contained } from "./documentation-links";
 
 interface Question {

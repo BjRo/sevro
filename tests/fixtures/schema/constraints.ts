@@ -1,4 +1,4 @@
-import { isRecord, isUnknownArray } from "../../../src/value-guards";
+import { isRecord, isUnknownArray } from "../../../src/kernel/index";
 
 export function invalidConstraintValues(
   schema: Record<string, unknown>,

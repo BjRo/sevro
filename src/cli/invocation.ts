@@ -1,6 +1,6 @@
-import { which } from "../executable";
+import { which } from "../platform/index";
 import { join, resolve } from "node:path";
-import { validQualifiedId } from "../value-guards";
+import { validQualifiedId } from "../kernel/index";
 import { canonicalRuntimeRoot } from "../runtime/index";
 import {
   PATH_OPTIONS,

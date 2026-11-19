@@ -5,9 +5,9 @@ import {
   prepareRepositoryFixture,
 } from "../../src/fixtures/index";
 import { summarizeCodexEvents } from "../../src/hosts/codex-events";
-import { canonicalJson, hashJson } from "../../src/identity";
+import { canonicalJson, hashJson } from "../../src/kernel/index";
 import { resolvedFixture } from "../../src/resolved-case";
-import { assertCliResult } from "../../src/schema";
+import { assertCliResult } from "../../src/schema/index";
 
 const settings = { seed: 20261007, numRuns: 200, endOnFailure: true };
 

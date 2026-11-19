@@ -3,7 +3,7 @@ import { readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createReport, renderReport } from "../../src/report";
-import type { CliResultData, RunEvidenceData } from "../../src/schema-types";
+import type { CliResultData, RunEvidenceData } from "../../src/schema/index";
 import {
   defined,
   parseCliResult,

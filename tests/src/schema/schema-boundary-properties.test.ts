@@ -3,16 +3,16 @@ import fc from "fast-check";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import cliSchema from "../../schemas/cli-result-v1.schema.json";
-import reportSchema from "../../schemas/report-v1.schema.json";
-import runSchema from "../../schemas/run-evidence-v1.schema.json";
+import cliSchema from "../../../schemas/cli-result-v1.schema.json";
+import reportSchema from "../../../schemas/report-v1.schema.json";
+import runSchema from "../../../schemas/run-evidence-v1.schema.json";
 import {
   assertCliResult,
   assertReport,
   assertRunEvidence,
-} from "../../src/schema";
-import { createTemporaryFixtures } from "../fixtures/filesystem";
-import type { Path } from "../fixtures/schema/boundaries";
+} from "../../../src/schema/index";
+import { createTemporaryFixtures } from "../../fixtures/filesystem";
+import type { Path } from "../../fixtures/schema/boundaries";
 import {
   constraintMutations,
   optionalMutationPaths,
@@ -20,12 +20,12 @@ import {
   replace,
   requiredMutationPaths,
   typedMutations,
-} from "../fixtures/schema/boundaries";
+} from "../../fixtures/schema/boundaries";
 import {
   richCli,
   richEvidence,
   richReport,
-} from "../fixtures/schema/rich-results";
+} from "../../fixtures/schema/rich-results";
 
 const { temporaryFixture, cleanupTemporaryFixtures } =
   createTemporaryFixtures();
@@ -164,7 +164,11 @@ test("serialized state consistency refuses passed tasks after execution or gradi
 });
 async function command(args: string[]): Promise<unknown> {
   const child = Bun.spawn(
-    [process.execPath, resolve(import.meta.dir, "../../src/cli.ts"), ...args],
+    [
+      process.execPath,
+      resolve(import.meta.dir, "../../../src/cli.ts"),
+      ...args,
+    ],
     { stdout: "pipe", stderr: "pipe" },
   );
   const [stdout, stderr, code] = await Promise.all([
@@ -183,9 +187,9 @@ beforeAll(async () => {
     "run",
     "--json",
     "--case-file",
-    resolve(import.meta.dir, "../../examples/basic/graded.json"),
+    resolve(import.meta.dir, "../../../examples/basic/graded.json"),
     "--adapter-module",
-    resolve(import.meta.dir, "../../examples/basic/host.ts"),
+    resolve(import.meta.dir, "../../../examples/basic/host.ts"),
     "--project-root",
     root,
     "--results-root",

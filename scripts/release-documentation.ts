@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { isRecord } from "../src/value-guards";
+import { isRecord } from "../src/kernel/index";
 
 const start = "<!-- sevro-current-release:start -->";
 const end = "<!-- sevro-current-release:end -->";

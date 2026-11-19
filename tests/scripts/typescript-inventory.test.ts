@@ -85,10 +85,10 @@ test("public inventory and independent snapshots preserve staged renames, deleti
   await fixtureGit(
     project,
     "mv",
-    "src/value-guards.ts",
+    "src/kernel/value-guards.ts",
     "src/renamed-guards.ts",
   );
-  await fixtureGit(project, "rm", "tests/src/value-guards.test.ts");
+  await fixtureGit(project, "rm", "tests/src/kernel/value-guards.test.ts");
   writeSource(project, "src/new-candidate.ts");
   appendFileSync(join(project, ".gitignore"), "\nsrc/force-added.ts\n");
   writeSource(project, "src/force-added.ts");
@@ -101,8 +101,10 @@ test("public inventory and independent snapshots preserve staged renames, deleti
     expect(inventory.production).toContain("src/renamed-guards.ts");
     expect(inventory.production).toContain("src/new-candidate.ts");
     expect(inventory.production).toContain("src/force-added.ts");
-    expect(result.stdout).not.toContain('"src/value-guards.ts"');
-    expect(result.stdout).not.toContain('"tests/src/value-guards.test.ts"');
+    expect(result.stdout).not.toContain('"src/kernel/value-guards.ts"');
+    expect(result.stdout).not.toContain(
+      '"tests/src/kernel/value-guards.test.ts"',
+    );
   }
   expect(await fixtureGit(project, "ls-files", "src/new-candidate.ts")).toBe(
     "",

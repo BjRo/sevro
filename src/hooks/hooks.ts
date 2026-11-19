@@ -9,7 +9,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
-import { shellQuote as quote } from "../shell";
+import { shellQuote as quote } from "../platform/index";
 import {
   insideRuntimeRoot,
   prepareRuntimeState,
@@ -24,7 +24,7 @@ import {
   prepareLinuxSandboxCommand,
   type IsolatedCommand,
 } from "../isolation/index";
-import { isRecord, isUnknownArray } from "../value-guards";
+import { isRecord, isUnknownArray } from "../kernel/index";
 import { hookExecutions, releaseHookProcesses } from "./hook-processes";
 import {
   nativeStateParent,

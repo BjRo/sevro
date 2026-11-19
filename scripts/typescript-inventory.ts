@@ -3,7 +3,7 @@ import { join, resolve } from "node:path";
 import ts from "typescript";
 import { object } from "./coverage/records";
 import { ESLint } from "eslint";
-import { gitArguments, gitEnvironment } from "../src/git";
+import { gitArguments, gitEnvironment } from "../src/platform/index";
 import { generatedValidators } from "./schema-catalog";
 
 type SourceKind =

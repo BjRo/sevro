@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import schema from "../../../schemas/extension-v1.schema.json";
 import validate from "../../../src/generated/extension.cjs";
-import { assertCliResult, assertRunEvidence } from "../../../src/schema";
+import { assertCliResult, assertRunEvidence } from "../../../src/schema/index";
 import { defined } from "../../fixtures/assertions";
 import { createTemporaryFixtures } from "../../fixtures/filesystem";
 import {

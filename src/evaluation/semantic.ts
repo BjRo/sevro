@@ -21,7 +21,7 @@ import {
   type PreparedSemanticCheck,
   type SemanticVerdict,
 } from "../graders/semantic";
-import { sha256 } from "../identity";
+import { sha256 } from "../kernel/index";
 import type { CheckOutcome } from "../results";
 import type { GradingFailure, GradingResult } from "./grading";
 import type { RuntimePolicy } from "../runtime/index";

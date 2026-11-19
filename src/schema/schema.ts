@@ -3,9 +3,9 @@ import type {
   RunEvidenceData,
   ReportData,
 } from "./schema-types";
-import cliValidator from "./generated/cli-result.cjs";
-import runValidator from "./generated/run-evidence.cjs";
-import reportValidator from "./generated/report.cjs";
+import cliValidator from "../generated/cli-result.cjs";
+import runValidator from "../generated/run-evidence.cjs";
+import reportValidator from "../generated/report.cjs";
 
 export function assertCliResult(
   value: unknown,

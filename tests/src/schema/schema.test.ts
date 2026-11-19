@@ -2,14 +2,14 @@ import Ajv2020 from "ajv/dist/2020.js";
 import { expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import cliSchema from "../../schemas/cli-result-v1.schema.json";
-import extensionSchema from "../../schemas/extension-v1.schema.json";
-import runSchema from "../../schemas/run-evidence-v1.schema.json";
-import cliValidator from "../../src/generated/cli-result.cjs";
-import extensionValidator from "../../src/generated/extension.cjs";
-import runValidator from "../../src/generated/run-evidence.cjs";
-import { createCodexHost } from "../../src/hosts/codex";
-import { defined } from "../fixtures/assertions";
+import cliSchema from "../../../schemas/cli-result-v1.schema.json";
+import extensionSchema from "../../../schemas/extension-v1.schema.json";
+import runSchema from "../../../schemas/run-evidence-v1.schema.json";
+import cliValidator from "../../../src/generated/cli-result.cjs";
+import extensionValidator from "../../../src/generated/extension.cjs";
+import runValidator from "../../../src/generated/run-evidence.cjs";
+import { createCodexHost } from "../../../src/hosts/codex";
+import { defined } from "../../fixtures/assertions";
 
 const ajv = new Ajv2020({
   allErrors: true,

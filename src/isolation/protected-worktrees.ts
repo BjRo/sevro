@@ -1,5 +1,5 @@
-import { spawnSync } from "../runtime-process";
-import { isMissingFile } from "../value-guards";
+import { spawnSync } from "../platform/index";
+import { isMissingFile } from "../kernel/index";
 import { lstat, readdir, realpath, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";

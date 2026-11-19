@@ -1,10 +1,11 @@
-import { isRecord, validQualifiedId as validEvidenceId } from "../value-guards";
-import { canonicalJson } from "../identity";
+import {
+  isRecord,
+  validQualifiedId as validEvidenceId,
+  canonicalJson,
+  type ObservationCompleteness,
+  type ObservationEvidence,
+} from "../kernel/index";
 import type { HostResult } from "../host-contract/index";
-import type {
-  ObservationCompleteness,
-  ObservationEvidence,
-} from "../contract-types";
 
 export function hostObservations(
   result: HostResult,

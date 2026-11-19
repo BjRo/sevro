@@ -5,7 +5,7 @@ import {
 } from "../host-contract/index";
 import type { EvaluationOptions } from "./types";
 import { fixtureParts, type InlineArtifact } from "../fixtures/index";
-import { isStringArray } from "../value-guards";
+import { isStringArray } from "../kernel/index";
 import type { PreparationResult } from "../extension-session";
 
 interface InvocationArtifacts {

@@ -1,4 +1,4 @@
-import { isRecord } from "../value-guards";
+import { isRecord } from "../kernel/index";
 import {
   summarizeClaudeEvents,
   parseClaudeEvents,

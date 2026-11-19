@@ -1,14 +1,16 @@
-import { isMissingFile, isRecord, isStringArray } from "../value-guards";
+import {
+  isMissingFile,
+  isRecord,
+  isStringArray,
+  canonicalJson,
+} from "../kernel/index";
 import { lstat, mkdir, realpath, stat, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
-import { insideRoot } from "../paths";
-import { runGit } from "../git";
+import { insideRoot, runGit } from "../platform/index";
 import { fileURLToPath } from "node:url";
-import { canonicalJson } from "../identity";
 import { prepareFixtureBin } from "./bin";
 import { prepareGitHooks } from "./git-hooks";
-import type { PreparationSources } from "./preparation";
-import { fixtureParts } from "./preparation";
+import { type PreparationSources, fixtureParts } from "./preparation";
 import type { RepositoryFixture } from "../host-contract/index";
 
 const MAX_GIT_OUTPUT_BYTES = 64 * 1024;

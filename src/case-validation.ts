@@ -3,7 +3,7 @@ import {
   prepareGeneratedFixture,
   prepareRepositoryFixture,
 } from "./fixtures/index";
-import { isOptionalNonblankString, isRecord } from "./value-guards";
+import { isOptionalNonblankString, isRecord } from "./kernel/index";
 
 function fixtureDeclarationIssue(
   value: Record<string, unknown>,

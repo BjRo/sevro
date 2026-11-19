@@ -3,7 +3,7 @@ import {
   advisoryPrompt,
   parseAdvisoryAssessment,
   type AdvisoryAssessment,
-} from "../../src/advisory";
+} from "../../../src/kernel/index";
 
 const valid: AdvisoryAssessment = {
   verdict: "pass",

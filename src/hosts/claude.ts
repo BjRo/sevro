@@ -19,7 +19,7 @@ import {
   insideRuntimeRoot as inside,
   runtimeObservations,
 } from "../runtime/index";
-import { isRecord } from "../value-guards";
+import { isRecord } from "../kernel/index";
 import { runClaudeTurns, type ClaudeSession } from "./claude-continuation";
 import { validateNativeHostRequest, validHostTimeout } from "./native-request";
 import { summarizeClaudeEvents } from "./claude-events";

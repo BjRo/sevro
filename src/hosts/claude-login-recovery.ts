@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { isRecord } from "../value-guards";
+import { isRecord } from "../kernel/index";
 import { rotatedOAuth, tokenDigest, type ClaudeLogin } from "./claude-login";
 
 const FORMAT = "sevro.claude-login-recovery.v1";

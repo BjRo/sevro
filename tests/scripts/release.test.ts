@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
@@ -45,10 +45,10 @@ async function fixture() {
     resolve(import.meta.dir, "../../scripts/release-documentation.ts"),
     join(source, "scripts/release-documentation.ts"),
   );
-  await mkdir(join(source, "src"));
-  await copyFile(
-    resolve(import.meta.dir, "../../src/value-guards.ts"),
-    join(source, "src/value-guards.ts"),
+  await cp(
+    resolve(import.meta.dir, "../../src/kernel"),
+    join(source, "src/kernel"),
+    { recursive: true },
   );
   const manifest = {
     name: "@bjoernrochel/sevro",

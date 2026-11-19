@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { isRecord, isStringArray } from "../value-guards";
+import { isRecord, isStringArray } from "../kernel/index";
 
 /** A claude.ai OAuth login in the document form Claude Code persists. */
 export interface ClaudeLogin {

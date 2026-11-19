@@ -39,7 +39,7 @@
       "severity": "error",
       "from": {
         "path": "^src/",
-        "pathNot": ["^src/schema(\\.ts$|/)", "^src/generated/"]
+        "pathNot": ["^src/schema/", "^src/generated/"]
       },
       "to": { "path": "^src/generated/" }
     },

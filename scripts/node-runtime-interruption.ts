@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { assertCliResult } from "../src/schema";
+import { assertCliResult } from "../src/schema/index";
 
 async function waitFor(path: string): Promise<void> {
   const deadline = Date.now() + 10_000;

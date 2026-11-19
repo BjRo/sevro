@@ -1,4 +1,4 @@
-import { spawn } from "../runtime-process";
+import { spawn } from "../platform/index";
 import { existsSync } from "node:fs";
 import {
   MAX_CREDENTIAL_BYTES,

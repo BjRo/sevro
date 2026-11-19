@@ -3,7 +3,7 @@ import { lstat, readFile, readdir, realpath } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import type { Dirent } from "node:fs";
 import type { HookSkill } from "./skill-hook-handler";
-import { isRecord } from "../value-guards";
+import { isRecord } from "../kernel/index";
 
 const MAX_SKILLS = 128;
 const MAX_SKILL_BYTES = 1024 * 1024;

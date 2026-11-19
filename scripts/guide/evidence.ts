@@ -1,5 +1,5 @@
 import { parse as parseShell } from "shell-quote";
-import { isRecord, isUnknownArray } from "../../src/value-guards";
+import { isRecord, isUnknownArray } from "../../src/kernel/index";
 
 export type GuideEvent = Record<string, unknown>;
 export type Turn = { answer: string; events: GuideEvent[] };

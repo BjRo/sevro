@@ -1,5 +1,5 @@
 import { prepareFixtureTools, installFixtureTools } from "./tools";
-import { isMissingFile } from "../value-guards";
+import { isMissingFile } from "../kernel/index";
 import { lstat, mkdir, realpath } from "node:fs/promises";
 import { join } from "node:path";
 

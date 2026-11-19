@@ -6,8 +6,7 @@ import {
   sharedCacheDenyRoots,
   sharedCacheRoots,
 } from "../runtime/index";
-import { minimalRoots } from "../paths";
-import { shellQuote } from "../shell";
+import { minimalRoots, shellQuote } from "../platform/index";
 import {
   candidateArtifactEnvironment,
   candidateArtifactReadRoots,

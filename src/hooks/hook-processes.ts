@@ -1,7 +1,7 @@
-import { spawn } from "../runtime-process";
+import { spawn } from "../platform/index";
 import { readFile, readdir, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
-import { isRecord } from "../value-guards";
+import { isRecord } from "../kernel/index";
 
 export async function hookExecutions(
   receipts: string,

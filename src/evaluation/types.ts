@@ -1,8 +1,7 @@
 import type { PreparationSources } from "../fixtures/index";
-import type { ExtensionCase } from "../extension-session";
-import type { openExtensionSession } from "../extension-session";
-import type { Assessment } from "../contract-types";
-import type { CliResultData, CliResultDataCase } from "../schema-types";
+import type { ExtensionCase, openExtensionSession } from "../extension-session";
+import type { Assessment } from "../kernel/index";
+import type { CliResultData, CliResultDataCase } from "../schema/index";
 import type { TrialSummary } from "../evidence/index";
 import type { RuntimePolicy } from "../runtime/index";
 import type { HostAdapter, ResolvedCase } from "../host-contract/index";

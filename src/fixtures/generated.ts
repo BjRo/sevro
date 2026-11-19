@@ -1,10 +1,10 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { canonicalJson } from "../identity";
+import { canonicalJson } from "../kernel/index";
 import { prepareFixtureBin } from "./bin";
 import { prepareGitHooks } from "./git-hooks";
 import { fixtureParts } from "./preparation";
-import { runGit } from "../git";
+import { runGit } from "../platform/index";
 import type { GeneratedFixture } from "../host-contract/index";
 
 const MAX_COMMITS = 128;

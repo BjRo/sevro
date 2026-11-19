@@ -1,5 +1,5 @@
-import { runnerRoot } from "../runner-paths";
-import { isMissingFile } from "../value-guards";
+import { runnerRoot } from "../platform/index";
+import { isMissingFile } from "../kernel/index";
 import { realpath } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
 import { isAbsolute } from "node:path";

@@ -1,4 +1,4 @@
-import { openLockDatabase } from "./sqlite-lock";
+import { openLockDatabase } from "./platform/index";
 import { join } from "node:path";
 import { lstat } from "node:fs/promises";
 

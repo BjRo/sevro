@@ -3,7 +3,7 @@ import { resolve, join } from "node:path";
 export const sourceRuntime = import.meta.filename.endsWith(".ts");
 export const runnerRoot = resolve(
   import.meta.dirname,
-  sourceRuntime ? ".." : "../..",
+  sourceRuntime ? "../.." : "../../..",
 );
 
 export function examplePath(...parts: string[]): string {

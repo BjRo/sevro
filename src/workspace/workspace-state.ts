@@ -1,5 +1,4 @@
-import { realpathSync } from "node:fs";
-import type { Stats } from "node:fs";
+import { realpathSync, type Stats } from "node:fs";
 import {
   lstat,
   mkdir,
@@ -18,8 +17,8 @@ import {
   validProcessIdentity,
   type ProcessIdentity,
 } from "../run-owner";
-import { isMissingFile, isRecord } from "../value-guards";
-import { atomicWriteJson } from "../storage";
+import { isMissingFile, isRecord } from "../kernel/index";
+import { atomicWriteJson } from "../platform/index";
 import { clearFixtureContents } from "./cleanup";
 
 const RETENTION_MS = 24 * 60 * 60_000;

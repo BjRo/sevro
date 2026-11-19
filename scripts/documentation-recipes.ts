@@ -2,8 +2,11 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { cp, mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { assertCliResult, assertRunEvidence } from "../src/schema";
-import type { CliResultData } from "../src/schema-types";
+import {
+  assertCliResult,
+  assertRunEvidence,
+  type CliResultData,
+} from "../src/schema/index";
 import { shellExample } from "./documentation-example-results";
 
 const deterministic = [

@@ -3,8 +3,7 @@ import { dirname, join } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { allocateNativeState } from "./native-transcript-state";
 import { fixtureParts } from "./fixtures/index";
-import { isRecord, isUnknownArray } from "./value-guards";
-import { sha256 } from "./identity";
+import { isRecord, isUnknownArray, sha256 } from "./kernel/index";
 
 const MAX_NATIVE_BYTES = 5 * 1024 * 1024;
 type NativeFormat =

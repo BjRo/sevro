@@ -1,5 +1,5 @@
 import { redactDiagnosticText } from "../host-diagnostic-redaction";
-import { isRecord, requireRecord } from "../value-guards";
+import { isRecord, requireRecord } from "../kernel/index";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
 import {

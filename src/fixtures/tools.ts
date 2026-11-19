@@ -1,6 +1,6 @@
 import { chmod, lstat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { isMissingFile, isRecord } from "../value-guards";
+import { isMissingFile, isRecord } from "../kernel/index";
 
 function validContent(content: unknown): content is string {
   return (

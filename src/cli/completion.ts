@@ -1,5 +1,5 @@
 import { dirname, join } from "node:path";
-import { atomicWriteJson } from "../storage";
+import { atomicWriteJson } from "../platform/index";
 import type { CliResult } from "../engine";
 import { createReport } from "../report";
 import { withResultsLock } from "../results-lock";

@@ -10,7 +10,7 @@ import {
   type PreparedShellCheck,
 } from "../graders/shell";
 import { evaluationProtectedRoots } from "../isolation/index";
-import { sha256 } from "../identity";
+import { sha256 } from "../kernel/index";
 import type { TrialObservation } from "../evidence/index";
 import {
   ExtensionSourceChangedError,

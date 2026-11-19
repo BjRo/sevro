@@ -18,7 +18,7 @@ import {
 } from "../../../src/hosts/claude-credential";
 import { atLeastMinimum } from "../../../src/hosts/claude-login-refresh";
 import { withClaudeRefreshLock } from "../../../src/hosts/claude-refresh-lock";
-import { isRecord } from "../../../src/value-guards";
+import { isRecord } from "../../../src/kernel/index";
 import {
   syntheticClaudeLogin,
   syntheticRefreshClaude,

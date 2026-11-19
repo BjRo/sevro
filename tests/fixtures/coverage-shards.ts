@@ -43,8 +43,8 @@ export async function coverageShardCandidate(repo: string, root: string) {
   // Keep Git setup at the real tooling boundary; the synthetic runner is pick().
   writeSource(
     project,
-    "src/git.ts",
-    `export { gitArguments, gitEnvironment } from ${JSON.stringify(join(repo, "src/git.ts"))};\n`,
+    "src/platform/index.ts",
+    `export { gitArguments, gitEnvironment } from ${JSON.stringify(join(repo, "src/platform/index.ts"))};\n`,
   );
   writeSource(
     project,

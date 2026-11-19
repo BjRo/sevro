@@ -1,6 +1,6 @@
 import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { isRecord } from "../src/value-guards";
+import { isRecord } from "../src/kernel/index";
 import {
   shellExample,
   verifyTutorialModes,

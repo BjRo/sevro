@@ -1,20 +1,20 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { sha256 } from "../identity";
+import {
+  sha256,
+  type ArtifactReference,
+  type Diagnostic,
+  type DomainOutcome,
+  type ObservationEvidence,
+  type RawResultReference,
+} from "../kernel/index";
 import type { Assessment, CheckOutcome } from "../results";
-import type {
-  ArtifactReference,
-  Diagnostic,
-  DomainOutcome,
-  ObservationEvidence,
-  RawResultReference,
-} from "../contract-types";
 import type {
   CliResultDataTrial,
   RunEvidenceDataTrialEvidence,
-} from "../schema-types";
-import { atomicWriteJson } from "../storage";
+} from "../schema/index";
+import { atomicWriteJson } from "../platform/index";
 import type { hostArtifacts } from "./host-results";
 import { verifyRetainedArtifacts } from "./retained-artifacts";
 

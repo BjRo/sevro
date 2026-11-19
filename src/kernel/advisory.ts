@@ -1,4 +1,4 @@
-import type { CheckOutcome } from "./results";
+import type { CheckOutcome } from "./contract-types";
 
 const DIMENSIONS = [
   "correctness",

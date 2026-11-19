@@ -15,11 +15,13 @@ import {
   type InlineArtifact,
 } from "../fixtures/index";
 import { type SemanticCheckDeclaration } from "../graders/semantic";
-import { canonicalJson, createEvaluationIdentity, hashJson } from "../identity";
 import {
+  canonicalJson,
+  createEvaluationIdentity,
+  hashJson,
   prepareInstrumentation,
   type InstrumentationRequest,
-} from "../instrumentation";
+} from "../kernel/index";
 import { projectProvenance, runnerProvenance } from "../provenance";
 import {
   prepareEvaluationChecks,

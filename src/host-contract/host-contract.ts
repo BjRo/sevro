@@ -1,8 +1,9 @@
 import type {
   InstrumentationCapability,
   InstrumentationRequest,
-} from "../instrumentation";
-import type { CheckDeclaration, ObservationEvidence } from "../contract-types";
+  CheckDeclaration,
+  ObservationEvidence,
+} from "../kernel/index";
 import type { RuntimePolicy, RuntimeRole } from "../runtime/index";
 import type { CandidateArtifactRoots } from "../candidate-artifacts";
 

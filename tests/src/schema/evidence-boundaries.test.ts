@@ -4,8 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import schema from "../../../schemas/run-evidence-v1.schema.json";
 import { runEvaluation } from "../../../src/engine";
-import { assertRunEvidence } from "../../../src/schema";
-import type { RunEvidenceData } from "../../../src/schema-types";
+import {
+  assertRunEvidence,
+  type RunEvidenceData,
+} from "../../../src/schema/index";
 import { defined, parseRunEvidence } from "../../fixtures/assertions";
 import { createTemporaryFixtures } from "../../fixtures/filesystem";
 import {

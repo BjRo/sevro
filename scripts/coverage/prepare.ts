@@ -18,7 +18,7 @@ import { transformSync } from "@babel/core";
 import transformTypescript from "@babel/plugin-transform-typescript";
 import { productionSources } from "../typescript-inventory";
 import { platformCoverageScope } from "./platform-scope";
-import { gitArguments, gitEnvironment } from "../../src/git";
+import { gitArguments, gitEnvironment } from "../../src/platform/index";
 
 function git(command: string[], cwd: string) {
   const result = Bun.spawnSync(gitArguments(command), {

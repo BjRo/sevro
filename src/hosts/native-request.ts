@@ -5,7 +5,7 @@ import {
   requireCandidateArtifactRoots,
 } from "../candidate-artifacts";
 import { requireNativeTranscriptView } from "../native-transcript-state";
-import { isOptionalNonblankString } from "../value-guards";
+import { isOptionalNonblankString } from "../kernel/index";
 
 export const MAX_HOST_TIMEOUT_MS = 30 * 60_000;
 

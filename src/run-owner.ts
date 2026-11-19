@@ -1,6 +1,5 @@
-import { spawnSync } from "./runtime-process";
-import { isRecord } from "./value-guards";
-import { openLockDatabase } from "./sqlite-lock";
+import { spawnSync, openLockDatabase } from "./platform/index";
+import { isRecord } from "./kernel/index";
 import { randomUUID } from "node:crypto";
 import {
   mkdirSync,

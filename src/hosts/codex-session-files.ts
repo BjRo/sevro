@@ -1,7 +1,7 @@
 import type { Dirent } from "node:fs";
 import { lstat, readFile, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { isMissingFile } from "../value-guards";
+import { isMissingFile } from "../kernel/index";
 
 const MAX_SESSION_BYTES = 8 * 1024 * 1024;
 const MAX_SESSION_FILES = 1024;

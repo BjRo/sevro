@@ -4,14 +4,14 @@ import type {
   ExecutionStatus,
   GradingStatus,
   TaskVerdict,
-} from "./contract-types";
+} from "./kernel/index";
 export type {
   Assessment,
   CheckOutcome,
   ExecutionStatus,
   GradingStatus,
   TaskVerdict,
-} from "./contract-types";
+} from "./kernel/index";
 
 export interface TrialInput {
   execution: ExecutionStatus;

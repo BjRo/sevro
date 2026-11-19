@@ -1,4 +1,4 @@
-import { runnerRoot } from "../runner-paths";
+import { runnerRoot } from "../platform/index";
 import { fileURLToPath } from "node:url";
 import { configurationRoot } from "../hosts/codex-configuration";
 import {

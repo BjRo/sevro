@@ -4,7 +4,7 @@ import { requireRuntimePolicy, runtimeRoleSeeds } from "./config";
 import type { RuntimePolicy, RuntimeRole } from "./policy";
 import { materializeRuntimeSeed } from "./seeds";
 import { requireRuntimeReadRoots } from "./paths";
-import { hashJson } from "../identity";
+import { hashJson } from "../kernel/index";
 import {
   linkSharedCaches,
   sharedCacheRoots,

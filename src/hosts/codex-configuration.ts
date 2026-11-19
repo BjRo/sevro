@@ -1,8 +1,8 @@
 import type { Stats } from "node:fs";
-import { isRecord } from "../value-guards";
+import { isRecord } from "../kernel/index";
 import { lstat, readFile, realpath, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
-import { insideRoot } from "../paths";
+import { insideRoot } from "../platform/index";
 import { parse } from "smol-toml";
 
 export async function configurationRoot(root: string): Promise<string> {

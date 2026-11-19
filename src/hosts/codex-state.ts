@@ -7,7 +7,7 @@ import {
   sharedCacheDenyRoots,
   sharedCacheRoots,
 } from "../runtime/index";
-import { shellQuote } from "../shell";
+import { shellQuote } from "../platform/index";
 import {
   candidateArtifactEnvironment,
   candidateArtifactReadRoots,
@@ -18,7 +18,7 @@ import {
 } from "../candidate-codex-state";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { isMissingFile } from "../value-guards";
+import { isMissingFile } from "../kernel/index";
 import {
   cp,
   lstat,

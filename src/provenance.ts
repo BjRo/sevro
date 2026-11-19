@@ -1,13 +1,16 @@
-import { runnerRoot, sourceRuntime } from "./runner-paths";
-import { spawnSync } from "./runtime-process";
+import {
+  runnerRoot,
+  sourceRuntime,
+  spawnSync,
+  insideRoot,
+} from "./platform/index";
 import type { Stats } from "node:fs";
 import { lstat, readFile, readdir, readlink, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
-import { insideRoot } from "./paths";
 import { pathToFileURL } from "node:url";
 import packageJson from "../package.json" with { type: "json" };
-import { hashJson, sha256 } from "./identity";
+import { hashJson, sha256 } from "./kernel/index";
 import { insideRuntimeRoot } from "./runtime/index";
 
 const MAX_DIRTY_BYTES = 32 * 1024 * 1024;

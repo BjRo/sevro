@@ -1,10 +1,9 @@
 import { lstat, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
-import { sha256 } from "./identity";
+import { sha256, isRecord } from "./kernel/index";
 import { HostExecutionFailure, type HostResult } from "./host-contract/index";
 import type { RuntimeRole, RuntimePolicy } from "./runtime/index";
-import { isRecord } from "./value-guards";
 import {
   rethrowDiagnosticPersistenceError,
   type HostDiagnostics,

@@ -1,5 +1,10 @@
 import { isAbsolute } from "node:path";
-import { validQualifiedId } from "../value-guards";
+import {
+  validQualifiedId,
+  hashJson,
+  isOptionalNonblankString,
+  isRecord,
+} from "../kernel/index";
 import { validInlineFixture } from "../case-validation";
 import {
   EvaluationConfigurationError,
@@ -36,9 +41,7 @@ import {
   type ShellCheckDeclaration,
   type PreparedShellCheck,
 } from "../graders/shell";
-import { hashJson } from "../identity";
 import { resolvedFixture } from "../resolved-case";
-import { isOptionalNonblankString, isRecord } from "../value-guards";
 
 interface CaseCheckDeclarations {
   allBuiltinDeclarations: OutputCheckDeclaration[];

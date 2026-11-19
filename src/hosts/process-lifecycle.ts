@@ -1,11 +1,12 @@
-import { spawn, type Subprocess } from "../runtime-process";
-import { validHostTimeout } from "./native-request";
-import { ProcessDeadline } from "../process-lifecycle";
 import {
+  spawn,
+  type Subprocess,
+  ProcessDeadline,
   captureBoundedBytes,
   captureBoundedText,
   terminateOwnedProcessGroup,
-} from "../process-lifecycle";
+} from "../platform/index";
+import { validHostTimeout } from "./native-request";
 import { HostExecutionFailure, type HostResult } from "../host-contract/index";
 import {
   HostProcessDiagnostics,

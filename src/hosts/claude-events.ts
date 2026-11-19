@@ -1,4 +1,4 @@
-import { isRecord } from "../value-guards";
+import { isRecord } from "../kernel/index";
 const MAX_EVENT_STREAM_BYTES = 8 * 1024 * 1024;
 
 export class ClaudeEventError extends Error {

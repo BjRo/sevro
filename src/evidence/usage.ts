@@ -1,5 +1,5 @@
 import type { HostResult } from "../host-contract/index";
-import type { UsageEvidence } from "../contract-types";
+import type { UsageEvidence } from "../kernel/index";
 
 export function usage(result: HostResult | null): UsageEvidence {
   return result === null

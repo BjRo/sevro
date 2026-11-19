@@ -4,7 +4,7 @@ import {
   isRecord,
   requireRecord,
   validQualifiedId,
-} from "../../src/value-guards";
+} from "../../../src/kernel/index";
 
 test.each(["sevro.host", "a.b", "a0.b1-c2", "a.b.c"])(
   "qualified ID accepts %s",

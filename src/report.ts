@@ -1,13 +1,15 @@
-import type {
-  CliResultData,
-  ReportData,
-  RunEvidenceData,
-} from "./schema-types";
+import {
+  type CliResultData,
+  type ReportData,
+  type RunEvidenceData,
+  assertCliResult,
+  assertReport,
+  assertRunEvidence,
+} from "./schema/index";
 import { readFile } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { canonicalJson } from "./identity";
-import { assertCliResult, assertReport, assertRunEvidence } from "./schema";
+import { canonicalJson } from "./kernel/index";
 import { canonicalRuntimeRoot } from "./runtime/index";
 import { nativeTranscriptRetention } from "./transcript-retention";
 

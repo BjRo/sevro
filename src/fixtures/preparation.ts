@@ -1,11 +1,11 @@
-import { sha256 } from "../identity";
-import { lstat, mkdir, readFile, realpath, stat } from "node:fs/promises";
-import { isAbsolute, join } from "node:path";
-import { insideRoot } from "../paths";
 import {
+  sha256,
   containsControl as containsControlCharacter,
   isMissingFile,
-} from "../value-guards";
+} from "../kernel/index";
+import { lstat, mkdir, readFile, realpath, stat } from "node:fs/promises";
+import { isAbsolute, join } from "node:path";
+import { insideRoot } from "../platform/index";
 import { fileURLToPath } from "node:url";
 
 const MAX_ARTIFACT_BYTES = 8 * 1024 * 1024;

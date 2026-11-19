@@ -8,7 +8,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
-import { hashJson, sha256 } from "../identity";
+import { hashJson, sha256 } from "../kernel/index";
 import type { RuntimePolicy } from "./policy";
 import { insideRuntimeRoot } from "./paths";
 

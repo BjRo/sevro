@@ -1,9 +1,9 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { shellQuote as quote } from "../shell";
+import { shellQuote as quote } from "../platform/index";
 import { fileURLToPath } from "node:url";
-import { isRecord, isUnknownArray } from "../value-guards";
+import { isRecord, isUnknownArray } from "../kernel/index";
 import { skillHookCatalog, type SkillCatalogRoot } from "./skill-hook-catalog";
 import type {
   HookSkill,

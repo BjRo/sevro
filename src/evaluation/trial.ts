@@ -1,5 +1,15 @@
 import { rm } from "node:fs/promises";
-import { hashJson } from "../identity";
+import {
+  hashJson,
+  type Diagnostic,
+  type ExecutionStatus,
+  type ObservationCompleteness,
+  type TaskVerdict,
+  InstrumentationEvidenceError,
+  snapshotInstrumentation,
+  verifyAppliedInstrumentation,
+  type InstrumentationRequest,
+} from "../kernel/index";
 import {
   allocateCandidateRuntime,
   candidateArtifactRoots,
@@ -34,24 +44,12 @@ import {
 } from "../host-contract/index";
 import type { EvaluationOptions } from "./types";
 import type { EvaluationResult } from "../extension-session";
-import type {
-  Diagnostic,
-  ExecutionStatus,
-  ObservationCompleteness,
-  TaskVerdict,
-} from "../contract-types";
 import {
   clearFixtureContents,
   removeDisposableDirectory,
   retainWorkspace,
 } from "../workspace/index";
 import { gitHeadRevision } from "../graders/git-head";
-import {
-  InstrumentationEvidenceError,
-  snapshotInstrumentation,
-  verifyAppliedInstrumentation,
-  type InstrumentationRequest,
-} from "../instrumentation";
 import { materializeNativeTranscriptView } from "../native-transcript-view";
 import {
   applyTaskVerdictPolicy,
@@ -59,7 +57,7 @@ import {
   type Assessment,
   type CheckOutcome,
 } from "../results";
-import type { RunEvidenceDataTrialEvidence } from "../schema-types";
+import type { RunEvidenceDataTrialEvidence } from "../schema/index";
 import { scheduleTrials } from "./scheduler";
 import { rethrowDiagnosticPersistenceError } from "../host-diagnostics";
 
