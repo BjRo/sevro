@@ -3,11 +3,11 @@ import {
   packageBuildDigest,
   projectIdentityDigest,
   projectProvenance,
-} from "../provenance";
+} from "../provenance/index";
 import { selectedCase } from "./extension";
 import type { PreparedInvocation } from "./preparation";
 import { assessmentSettings, effectiveSettings } from "./settings";
-import type { EvaluationProgress } from "../api-types";
+import type { EvaluationProgress } from "../kernel/index";
 
 export async function evaluateInvocation(
   prepared: PreparedInvocation,

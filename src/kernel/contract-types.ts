@@ -92,3 +92,10 @@ export type Diagnostic = {
   code: string;
   message: string;
 };
+
+/** Best-effort evaluation progress, observed by the CLI and the embedding API. */
+export interface EvaluationProgress {
+  stage: "preparation" | "candidate" | "grading" | "evidence";
+  status: "started" | "completed" | "skipped";
+  trial?: number;
+}

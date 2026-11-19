@@ -22,7 +22,7 @@ import {
   prepareInstrumentation,
   type InstrumentationRequest,
 } from "../kernel/index";
-import { projectProvenance, runnerProvenance } from "../provenance";
+import { projectProvenance, runnerProvenance } from "../provenance/index";
 import {
   prepareEvaluationChecks,
   type EvaluationCheckPlan,
@@ -32,7 +32,7 @@ import {
   prepareInvocationPlan,
   type PreparedInvocation,
 } from "./invocation-plan";
-import type { PreparationResult } from "../extension-session";
+import type { PreparationResult } from "../extensions/index";
 
 export type { PreparedChecks } from "./check-plan";
 export type { PreparedInvocation } from "./invocation-plan";

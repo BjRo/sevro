@@ -1,5 +1,5 @@
 import { clearFixtureContents } from "../workspace/index";
-import type { CandidateArtifactRoots } from "../candidate-artifacts";
+import type { CandidateArtifactRoots, RuntimePolicy } from "../runtime/index";
 import { createFixture } from "../fixtures/index";
 import {
   hostArtifacts,
@@ -21,11 +21,9 @@ import {
   type PreparedSemanticCheck,
   type SemanticVerdict,
 } from "../graders/semantic";
-import { sha256 } from "../kernel/index";
-import type { CheckOutcome } from "../results";
+import { sha256, type CheckOutcome } from "../kernel/index";
 import type { GradingFailure, GradingResult } from "./grading";
-import type { RuntimePolicy } from "../runtime/index";
-import { HostDiagnosticPersistenceError } from "../host-diagnostics";
+import { HostDiagnosticPersistenceError } from "../diagnostics/index";
 
 interface SemanticGradingInput {
   readonly checks: readonly PreparedSemanticCheck[];

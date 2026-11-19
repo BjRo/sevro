@@ -14,12 +14,14 @@ import { loadRuntimeConfiguration } from "../../../src/engine";
 import { allocateWorkspace, removeWorkspace } from "../../../src/workspace";
 import { createClaudeHost } from "../../../src/hosts/claude";
 import { createCodexHost } from "../../../src/hosts/codex";
-import { allocateNativeState } from "../../../src/native-transcript-state";
+import {
+  allocateNativeState,
+  runtimeSeedDigest,
+} from "../../../src/runtime/index";
 import {
   prepareHookMounts,
   releaseRuntimeHooks,
 } from "../../../src/hooks/index";
-import { runtimeSeedDigest } from "../../../src/runtime/index";
 import {
   defined,
   expectUnknown,

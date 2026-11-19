@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import { pathToFileURL } from "node:url";
-import { isResolvedCase, resolvedCaseIssue } from "../case-validation";
+import { isResolvedCase, resolvedCaseIssue } from "../cases/index";
 import type { HostAdapter, ResolvedCase } from "../host-contract/index";
 import {
   prepareInstrumentation,

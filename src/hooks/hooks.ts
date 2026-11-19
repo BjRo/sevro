@@ -18,6 +18,8 @@ import {
   sharedCacheDenyRoots,
   sharedCacheRoots,
   type RuntimePolicy,
+  nativeStateParent,
+  requireNativeHookRoots,
 } from "../runtime/index";
 import {
   macSandboxProfile,
@@ -26,10 +28,6 @@ import {
 } from "../isolation/index";
 import { isRecord, isUnknownArray } from "../kernel/index";
 import { hookExecutions, releaseHookProcesses } from "./hook-processes";
-import {
-  nativeStateParent,
-  requireNativeHookRoots,
-} from "../native-transcript-state";
 
 export interface HookMounts {
   directories: string[];

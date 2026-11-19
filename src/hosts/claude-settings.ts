@@ -4,9 +4,9 @@ import {
   requireRuntimeReadRoots,
   isRuntimeHomeRoot,
   type RuntimePolicy,
+  nativeStatePath,
 } from "../runtime/index";
 import { runtimeHooksEnabled } from "../hooks/index";
-import { nativeStatePath } from "../native-transcript-state";
 import {
   workspaceStatePath,
   workspaceBoundaryException,

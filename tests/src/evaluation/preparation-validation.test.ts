@@ -8,7 +8,7 @@ import {
   runEvaluation,
   type EvaluationOptions,
 } from "../../../src/engine";
-import { openExtensionSession } from "../../../src/extension-session";
+import { openExtensionSession } from "../../../src/extensions/index";
 import { defined } from "../../fixtures/assertions";
 import { wireCase, wireOptions } from "../../fixtures/engine-session";
 import {

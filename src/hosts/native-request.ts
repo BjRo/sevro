@@ -3,8 +3,8 @@ import type { HostAdapter } from "../host-contract/index";
 import {
   requireCandidateRuntime,
   requireCandidateArtifactRoots,
-} from "../candidate-artifacts";
-import { requireNativeTranscriptView } from "../native-transcript-state";
+  requireNativeTranscriptView,
+} from "../runtime/index";
 import { isOptionalNonblankString } from "../kernel/index";
 
 export const MAX_HOST_TIMEOUT_MS = 30 * 60_000;

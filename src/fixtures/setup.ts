@@ -8,7 +8,7 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, isAbsolute, join } from "node:path";
 import { isRecord } from "../kernel/index";
-import { requireCandidateRuntime } from "../candidate-artifacts";
+import { requireCandidateRuntime } from "../runtime/index";
 
 const MAX_COMMAND_BYTES = 64 * 1024;
 const MAX_ENV_BYTES = 16 * 1024;

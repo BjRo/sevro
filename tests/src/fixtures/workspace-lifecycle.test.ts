@@ -14,7 +14,7 @@ import {
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { runEvaluation, type HostAdapter } from "../../../src/engine";
-import { openExtensionSession } from "../../../src/extension-session";
+import { openExtensionSession } from "../../../src/extensions/index";
 import {
   createFixture,
   prepareArtifacts,

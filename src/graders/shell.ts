@@ -11,11 +11,9 @@ import {
   prepareRuntimeState,
   sharedCacheDenyRoots,
   type RuntimePolicy,
-} from "../runtime/index";
-import {
   candidateArtifactEnvironment,
   type CandidateArtifactRoots,
-} from "../candidate-artifacts";
+} from "../runtime/index";
 import { mkdir, stat } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 import { prepareIsolatedCommand } from "../isolation/index";

@@ -6,15 +6,13 @@ import { dirname, resolve } from "node:path";
 import {
   requireNativeTranscriptViews,
   requireNativeHookRoots,
-} from "../native-transcript-state";
-import { requireCandidateArtifactRoots } from "../candidate-artifacts";
-import { workspaceBoundaryException } from "../workspace/index";
-import {
+  requireCandidateArtifactRoots,
   requireWritableCacheRoots,
   insideRuntimeRoot,
   isRuntimeHomeRoot,
   requireRuntimeReadRoots,
 } from "../runtime/index";
+import { workspaceBoundaryException } from "../workspace/index";
 import {
   commandRuntimeRoot,
   HostIsolationError,

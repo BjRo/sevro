@@ -8,7 +8,7 @@ import {
 } from "node:fs/promises";
 import { constants, lstatSync, readlinkSync, realpathSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
-import { nativeStateProtectedRoots } from "../native-transcript-state";
+import { nativeStateProtectedRoots } from "./native-transcript-state";
 import { workspaceStatePath } from "../workspace/index";
 import { insideRoot as insideRuntimeRoot } from "../platform/index";
 import { containsControl } from "../kernel/index";

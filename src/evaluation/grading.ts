@@ -10,14 +10,13 @@ import {
   type PreparedShellCheck,
 } from "../graders/shell";
 import { evaluationProtectedRoots } from "../isolation/index";
-import { sha256 } from "../kernel/index";
+import { sha256, type CheckOutcome } from "../kernel/index";
 import type { TrialObservation } from "../evidence/index";
 import {
   ExtensionSourceChangedError,
   type EvaluationRequest,
   type EvaluationResult,
-} from "../extension-session";
-import type { CheckOutcome } from "../results";
+} from "../extensions/index";
 
 export interface GradingFailure {
   readonly message: string;

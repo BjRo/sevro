@@ -7,7 +7,7 @@ import {
   type EvaluationOptions,
   type HostResult,
 } from "../../../src/engine";
-import { openExtensionSession } from "../../../src/extension-session";
+import { openExtensionSession } from "../../../src/extensions/index";
 import {
   defined,
   parseRunEvidence,

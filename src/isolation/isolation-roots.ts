@@ -4,7 +4,7 @@ import { realpath } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
 import { isAbsolute } from "node:path";
 import { protectedWorktrees } from "./protected-worktrees";
-import { nativeStateParent } from "../native-transcript-state";
+import { nativeStateParent } from "../runtime/index";
 import { workspaceStateParent } from "../workspace/index";
 
 /** Include source, results, host configuration, and every active peer fixture. */

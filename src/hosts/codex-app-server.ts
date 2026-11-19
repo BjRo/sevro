@@ -1,11 +1,11 @@
-import { redactDiagnosticText } from "../host-diagnostic-redaction";
+import {
+  redactDiagnosticText,
+  HostProcessDiagnostics,
+  type HostDiagnostics,
+} from "../diagnostics/index";
 import { isRecord, requireRecord } from "../kernel/index";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
-import {
-  HostProcessDiagnostics,
-  type HostDiagnostics,
-} from "../host-diagnostics";
 interface HarnessRunRequest {
   repoDir: string;
   prompt: string;

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { parse } from "smol-toml";
 import { codexPermissionProfile } from "../../../src/hosts/codex-profile";
-import { nativeStatePath } from "../../../src/native-transcript-state";
+import { nativeStatePath } from "../../../src/runtime/index";
 import { createTemporaryFixtures } from "../../fixtures/filesystem";
 
 const { temporaryFixture, cleanupTemporaryFixtures } =

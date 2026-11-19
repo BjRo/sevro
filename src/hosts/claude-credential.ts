@@ -1,6 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { nativeStateParent } from "../native-transcript-state";
+import { nativeStateParent } from "../runtime/index";
 import {
   coversLifetime,
   parseClaudeLogin,

@@ -4,12 +4,13 @@ import { pathToFileURL } from "node:url";
 import {
   sha256,
   type ArtifactReference,
+  type Assessment,
+  type CheckOutcome,
   type Diagnostic,
   type DomainOutcome,
   type ObservationEvidence,
   type RawResultReference,
 } from "../kernel/index";
-import type { Assessment, CheckOutcome } from "../results";
 import type {
   CliResultDataTrial,
   RunEvidenceDataTrialEvidence,

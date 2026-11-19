@@ -3,7 +3,9 @@
  *
  * Callers load and snapshot the declared runtime policy, materialize per-role
  * state from seeds and shared caches, and validate the roots a sandboxed process
- * may read or write. Seed hashing, cache linking and path discovery stay inside.
+ * may read or write. It also owns the private native state namespace and the
+ * per-trial candidate artifact leases that hosts and sandboxes bind to. Seed
+ * hashing, cache linking and path discovery stay inside.
  */
 export {
   RUNTIME_ROLES,
@@ -36,3 +38,27 @@ export {
 } from "./artifact-directories";
 export { runtimeSeedDigest } from "./seeds";
 export { prepareRuntimeState, runtimeObservations } from "./state";
+export {
+  allocateNativeState,
+  nativeStateParent,
+  nativeStatePath,
+  nativeStateProtectedRoots,
+  requireNativeHookRoots,
+  requireNativeTranscriptView,
+  requireNativeTranscriptViews,
+} from "./native-transcript-state";
+export {
+  allocateCandidateRuntime,
+  candidateArtifactEnvironment,
+  candidateArtifactReadRoots,
+  candidateArtifactRoots,
+  releaseCandidateRuntime,
+  requireCandidateArtifactRoots,
+  requireCandidateRuntime,
+  type CandidateArtifactRoots,
+} from "./candidate-artifacts";
+export {
+  candidateCodexStateRetained,
+  codexStateEnabled,
+  retainCandidateCodexState,
+} from "./candidate-codex-state";

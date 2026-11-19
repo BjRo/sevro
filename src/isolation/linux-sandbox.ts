@@ -5,12 +5,10 @@ import { resolve } from "node:path";
 import {
   requireNativeTranscriptViews,
   requireNativeHookRoots,
-} from "../native-transcript-state";
-import {
   requireRuntimeReadRoots,
   requireWritableCacheRoots,
+  requireCandidateArtifactRoots,
 } from "../runtime/index";
-import { requireCandidateArtifactRoots } from "../candidate-artifacts";
 import {
   commandRuntimeRoot,
   HostIsolationError,

@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { createHostDiagnostics } from "../../../src/host-diagnostics";
+import { createHostDiagnostics } from "../../../src/diagnostics/index";
 import { runClaudeProcess } from "../../../src/hosts/claude-process";
 import { runCodexProcess } from "../../../src/hosts/codex-process";
 import { defined, record } from "../../fixtures/assertions";

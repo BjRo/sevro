@@ -6,13 +6,14 @@ import {
   allocateWorkspace,
   retainWorkspace,
   removeWorkspace,
+  startRunOwner,
+  type RunOwner,
 } from "../workspace/index";
 import {
   createFixture,
   fixtureBinDirectory,
   fixtureParts,
 } from "../fixtures/index";
-import { startRunOwner, type RunOwner } from "../run-owner";
 import { EvaluationConfigurationError } from "../host-contract/index";
 import type { EvaluationOptions } from "./types";
 import type { PreparedFixture, PreparedInvocation } from "./plan";

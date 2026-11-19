@@ -11,7 +11,7 @@ import { HostExecutionFailure, type HostResult } from "../host-contract/index";
 import {
   HostProcessDiagnostics,
   type HostDiagnostics,
-} from "../host-diagnostics";
+} from "../diagnostics/index";
 
 export const MAX_STDERR_BYTES = 64 * 1024;
 export const MAX_EVENT_BYTES = 8 * 1024 * 1024;

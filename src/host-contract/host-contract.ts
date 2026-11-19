@@ -4,8 +4,11 @@ import type {
   CheckDeclaration,
   ObservationEvidence,
 } from "../kernel/index";
-import type { RuntimePolicy, RuntimeRole } from "../runtime/index";
-import type { CandidateArtifactRoots } from "../candidate-artifacts";
+import type {
+  RuntimePolicy,
+  RuntimeRole,
+  CandidateArtifactRoots,
+} from "../runtime/index";
 
 export class EvaluationConfigurationError extends Error {
   constructor(message: string, options?: ErrorOptions) {

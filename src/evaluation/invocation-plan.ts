@@ -6,7 +6,7 @@ import {
 import type { EvaluationOptions } from "./types";
 import { fixtureParts, type InlineArtifact } from "../fixtures/index";
 import { isStringArray } from "../kernel/index";
-import type { PreparationResult } from "../extension-session";
+import type { PreparationResult } from "../extensions/index";
 
 interface InvocationArtifacts {
   extensionPreparation: PreparationResult | null;

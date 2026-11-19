@@ -1,12 +1,13 @@
 import { isAbsolute, join, sep } from "node:path";
 import { minimalRoots as minimalProtectedRoots } from "../platform/index";
 import { containsControl } from "../kernel/index";
-import { insideRuntimeRoot, isRuntimeHomeRoot } from "../runtime/index";
-import { workspaceBoundaryException } from "../workspace/index";
 import {
+  insideRuntimeRoot,
+  isRuntimeHomeRoot,
   nativeStatePath,
   nativeStateProtectedRoots,
-} from "../native-transcript-state";
+} from "../runtime/index";
+import { workspaceBoundaryException } from "../workspace/index";
 
 const LINUX_MINIMAL_READ_ROOTS = [
   "/bin",

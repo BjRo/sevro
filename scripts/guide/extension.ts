@@ -1,12 +1,11 @@
 import { createHash } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
-import type { ExtensionRequest } from "../../src/extension-client";
 import type {
   EvaluationRequest,
   EvaluationResult,
   ExtensionCase,
-} from "../../src/extension-session";
+} from "../../src/extensions/index";
 import {
   gradeOutput,
   prepareOutputChecks,
@@ -24,6 +23,12 @@ import { effectAttempts, inspectedSources, type Turn } from "./evidence";
 import { casesPath, fixtureCheck, guideFixture, guideRoot } from "./fixture";
 
 type Host = "codex" | "claude";
+interface ExtensionRequest {
+  protocol: string;
+  id: string;
+  method: "describe" | "resolve" | "prepare" | "evaluate";
+  params: Record<string, unknown>;
+}
 const prefix = "sevro.guide.";
 type Observation = EvaluationRequest["observations"][number];
 

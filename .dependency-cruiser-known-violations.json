@@ -4,10 +4,7 @@
     "from": "scripts/benchmark-runtime-startup.ts",
     "to": "src/evaluation/grading-host.ts",
     "unresolvedTo": "../src/evaluation/grading-host",
-    "dependencyTypes": [
-      "local",
-      "type-import"
-    ],
+    "dependencyTypes": ["local", "type-import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -18,10 +15,7 @@
     "from": "scripts/benchmark-runtime-startup.ts",
     "to": "src/hosts/codex-marketplace.ts",
     "unresolvedTo": "../src/hosts/codex-marketplace",
-    "dependencyTypes": [
-      "local",
-      "type-import"
-    ],
+    "dependencyTypes": ["local", "type-import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -32,10 +26,7 @@
     "from": "scripts/benchmark-runtime-startup.ts",
     "to": "src/hosts/codex-process.ts",
     "unresolvedTo": "../src/hosts/codex-process",
-    "dependencyTypes": [
-      "local",
-      "type-import"
-    ],
+    "dependencyTypes": ["local", "type-import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -46,10 +37,7 @@
     "from": "scripts/benchmark-runtime-startup.ts",
     "to": "src/hosts/codex.ts",
     "unresolvedTo": "../src/hosts/codex",
-    "dependencyTypes": [
-      "local",
-      "type-import"
-    ],
+    "dependencyTypes": ["local", "type-import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -60,10 +48,7 @@
     "from": "scripts/benchmark-runtime-startup.ts",
     "to": "src/runtime/config.ts",
     "unresolvedTo": "../src/runtime/config",
-    "dependencyTypes": [
-      "local",
-      "type-import"
-    ],
+    "dependencyTypes": ["local", "type-import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -74,10 +59,7 @@
     "from": "scripts/benchmark-runtime-startup.ts",
     "to": "src/runtime/state.ts",
     "unresolvedTo": "../src/runtime/state",
-    "dependencyTypes": [
-      "local",
-      "type-import"
-    ],
+    "dependencyTypes": ["local", "type-import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -88,10 +70,7 @@
     "from": "scripts/diagnose-codex-startup.ts",
     "to": "src/hosts/codex-app-server.ts",
     "unresolvedTo": "../src/hosts/codex-app-server",
-    "dependencyTypes": [
-      "local",
-      "type-import"
-    ],
+    "dependencyTypes": ["local", "type-import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -102,10 +81,7 @@
     "from": "scripts/diagnose-codex-startup.ts",
     "to": "src/hosts/codex-process.ts",
     "unresolvedTo": "../src/hosts/codex-process",
-    "dependencyTypes": [
-      "local",
-      "type-import"
-    ],
+    "dependencyTypes": ["local", "type-import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -116,10 +92,7 @@
     "from": "scripts/guide/extension.ts",
     "to": "src/graders/output.ts",
     "unresolvedTo": "../../src/graders/output",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -130,10 +103,7 @@
     "from": "scripts/guide/extension.ts",
     "to": "src/hosts/claude-events.ts",
     "unresolvedTo": "../../src/hosts/claude-events",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -144,10 +114,7 @@
     "from": "scripts/guide/extension.ts",
     "to": "src/hosts/codex-events.ts",
     "unresolvedTo": "../../src/hosts/codex-events",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -158,10 +125,7 @@
     "from": "tests/fixtures/claude-access-token.ts",
     "to": "src/hosts/claude-credential.ts",
     "unresolvedTo": "../../src/hosts/claude-credential",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -172,10 +136,7 @@
     "from": "tests/fixtures/codex-host.ts",
     "to": "src/hosts/codex.ts",
     "unresolvedTo": "../../src/hosts/codex",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -186,10 +147,7 @@
     "from": "tests/fixtures/codex-native-calls.ts",
     "to": "src/hosts/codex-native-calls.ts",
     "unresolvedTo": "../../src/hosts/codex-native-calls",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -200,10 +158,7 @@
     "from": "tests/fixtures/codex-native-calls.ts",
     "to": "src/hosts/native-controls.ts",
     "unresolvedTo": "../../src/hosts/native-controls",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -214,10 +169,7 @@
     "from": "tests/fixtures/host-auth.ts",
     "to": "src/hosts/claude-login-store.ts",
     "unresolvedTo": "../../src/hosts/claude-login-store",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -228,11 +180,7 @@
     "from": "tests/fixtures/native-host-fixtures.ts",
     "to": "src/hosts/codex-app-server.ts",
     "unresolvedTo": "../../src/hosts/codex-app-server",
-    "dependencyTypes": [
-      "local",
-      "type-only",
-      "import"
-    ],
+    "dependencyTypes": ["local", "type-only", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -243,10 +191,7 @@
     "from": "tests/fixtures/runtime-host-fixtures.ts",
     "to": "src/hosts/codex.ts",
     "unresolvedTo": "../../src/hosts/codex",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -257,10 +202,7 @@
     "from": "tests/scripts/documentation.test.ts",
     "to": "src/graders/output.ts",
     "unresolvedTo": "../../src/graders/output",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -271,10 +213,7 @@
     "from": "tests/scripts/guide-host-receipts.test.ts",
     "to": "src/hosts/codex.ts",
     "unresolvedTo": "../../src/hosts/codex",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -285,24 +224,7 @@
     "from": "tests/scripts/typescript-properties.test.ts",
     "to": "src/hosts/codex-events.ts",
     "unresolvedTo": "../../src/hosts/codex-events",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "consumer-module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "tests/src/candidate-artifacts.test.ts",
-    "to": "src/hosts/claude.ts",
-    "unresolvedTo": "../../src/hosts/claude",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -313,10 +235,7 @@
     "from": "tests/src/cli/defaults.test.ts",
     "to": "src/cli/invocation.ts",
     "unresolvedTo": "../../../src/cli/invocation",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -327,10 +246,18 @@
     "from": "tests/src/cli/help.test.ts",
     "to": "src/cli/run-options.ts",
     "unresolvedTo": "../../../src/cli/run-options",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "consumer-module-interface"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "tests/src/diagnostics/host-diagnostics.test.ts",
+    "to": "src/hosts/codex.ts",
+    "unresolvedTo": "../../../src/hosts/codex",
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -341,10 +268,7 @@
     "from": "tests/src/fixtures/generated.test.ts",
     "to": "src/graders/git-head.ts",
     "unresolvedTo": "../../../src/graders/git-head",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -355,10 +279,7 @@
     "from": "tests/src/graders/output-boundaries.test.ts",
     "to": "src/graders/artifact.ts",
     "unresolvedTo": "../../../src/graders/artifact",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -369,10 +290,7 @@
     "from": "tests/src/graders/output-boundaries.test.ts",
     "to": "src/graders/output.ts",
     "unresolvedTo": "../../../src/graders/output",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -383,10 +301,7 @@
     "from": "tests/src/graders/output.test.ts",
     "to": "src/graders/output.ts",
     "unresolvedTo": "../../../src/graders/output",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -397,10 +312,7 @@
     "from": "tests/src/graders/semantic.test.ts",
     "to": "src/graders/semantic.ts",
     "unresolvedTo": "../../../src/graders/semantic",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -411,10 +323,7 @@
     "from": "tests/src/graders/shell.test.ts",
     "to": "src/graders/shell.ts",
     "unresolvedTo": "../../../src/graders/shell",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -425,10 +334,7 @@
     "from": "tests/src/hooks/hooks.test.ts",
     "to": "src/hosts/claude.ts",
     "unresolvedTo": "../../../src/hosts/claude",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -439,24 +345,7 @@
     "from": "tests/src/hooks/hooks.test.ts",
     "to": "src/hosts/codex.ts",
     "unresolvedTo": "../../../src/hosts/codex",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "consumer-module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "tests/src/host-diagnostics.test.ts",
-    "to": "src/hosts/codex.ts",
-    "unresolvedTo": "../../src/hosts/codex",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -467,10 +356,7 @@
     "from": "tests/src/hosts/app-server-settlement.test.ts",
     "to": "src/hosts/codex-app-server.ts",
     "unresolvedTo": "../../../src/hosts/codex-app-server",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -481,10 +367,7 @@
     "from": "tests/src/hosts/app-server-transport.test.ts",
     "to": "src/hosts/codex-app-server.ts",
     "unresolvedTo": "../../../src/hosts/codex-app-server",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -495,10 +378,7 @@
     "from": "tests/src/hosts/claude-credential.test.ts",
     "to": "src/hosts/claude-credential.ts",
     "unresolvedTo": "../../../src/hosts/claude-credential",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -509,10 +389,7 @@
     "from": "tests/src/hosts/claude-credential.test.ts",
     "to": "src/hosts/claude-login-refresh.ts",
     "unresolvedTo": "../../../src/hosts/claude-login-refresh",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -523,10 +400,7 @@
     "from": "tests/src/hosts/claude-credential.test.ts",
     "to": "src/hosts/claude-refresh-lock.ts",
     "unresolvedTo": "../../../src/hosts/claude-refresh-lock",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -537,10 +411,7 @@
     "from": "tests/src/hosts/claude-events.test.ts",
     "to": "src/hosts/claude-events.ts",
     "unresolvedTo": "../../../src/hosts/claude-events",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -551,10 +422,7 @@
     "from": "tests/src/hosts/claude-login-store.test.ts",
     "to": "src/hosts/claude-login-recovery.ts",
     "unresolvedTo": "../../../src/hosts/claude-login-recovery",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -565,10 +433,7 @@
     "from": "tests/src/hosts/claude-login-store.test.ts",
     "to": "src/hosts/claude-login-store.ts",
     "unresolvedTo": "../../../src/hosts/claude-login-store",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -579,10 +444,7 @@
     "from": "tests/src/hosts/claude-login-store.test.ts",
     "to": "src/hosts/claude-login.ts",
     "unresolvedTo": "../../../src/hosts/claude-login",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -593,10 +455,7 @@
     "from": "tests/src/hosts/claude-repository-invocation.test.ts",
     "to": "src/hosts/claude-repository-invocation.ts",
     "unresolvedTo": "../../../src/hosts/claude-repository-invocation",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -607,10 +466,7 @@
     "from": "tests/src/hosts/claude-repository-invocation.test.ts",
     "to": "src/hosts/claude-tool-calls.ts",
     "unresolvedTo": "../../../src/hosts/claude-tool-calls",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -621,10 +477,7 @@
     "from": "tests/src/hosts/claude-runtime-boundaries.test.ts",
     "to": "src/hosts/claude.ts",
     "unresolvedTo": "../../../src/hosts/claude",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -635,10 +488,7 @@
     "from": "tests/src/hosts/claude-settings.test.ts",
     "to": "src/hosts/claude-settings.ts",
     "unresolvedTo": "../../../src/hosts/claude-settings",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -649,10 +499,7 @@
     "from": "tests/src/hosts/claude-skill-activations.test.ts",
     "to": "src/hosts/claude-skill-activations.ts",
     "unresolvedTo": "../../../src/hosts/claude-skill-activations",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -663,10 +510,7 @@
     "from": "tests/src/hosts/claude-tool-calls.test.ts",
     "to": "src/hosts/claude-tool-calls.ts",
     "unresolvedTo": "../../../src/hosts/claude-tool-calls",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -677,10 +521,7 @@
     "from": "tests/src/hosts/claude.test.ts",
     "to": "src/hosts/claude.ts",
     "unresolvedTo": "../../../src/hosts/claude",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -691,10 +532,7 @@
     "from": "tests/src/hosts/codex-events.test.ts",
     "to": "src/hosts/codex-events.ts",
     "unresolvedTo": "../../../src/hosts/codex-events",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -705,10 +543,7 @@
     "from": "tests/src/hosts/codex-host-configuration.test.ts",
     "to": "src/hosts/codex.ts",
     "unresolvedTo": "../../../src/hosts/codex",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -719,10 +554,7 @@
     "from": "tests/src/hosts/codex-host-continuation.test.ts",
     "to": "src/hosts/codex.ts",
     "unresolvedTo": "../../../src/hosts/codex",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -733,10 +565,7 @@
     "from": "tests/src/hosts/codex-host-execution.test.ts",
     "to": "src/hosts/codex.ts",
     "unresolvedTo": "../../../src/hosts/codex",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -747,10 +576,7 @@
     "from": "tests/src/hosts/codex-host-native-calls.test.ts",
     "to": "src/hosts/codex.ts",
     "unresolvedTo": "../../../src/hosts/codex",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -761,10 +587,7 @@
     "from": "tests/src/hosts/codex-host-plugins.test.ts",
     "to": "src/hosts/codex.ts",
     "unresolvedTo": "../../../src/hosts/codex",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -775,10 +598,7 @@
     "from": "tests/src/hosts/codex-host-preflight.test.ts",
     "to": "src/hosts/codex.ts",
     "unresolvedTo": "../../../src/hosts/codex",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -789,10 +609,7 @@
     "from": "tests/src/hosts/codex-native-calls-boundaries.test.ts",
     "to": "src/hosts/codex-native-calls.ts",
     "unresolvedTo": "../../../src/hosts/codex-native-calls",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -803,10 +620,7 @@
     "from": "tests/src/hosts/codex-native-calls-capture.test.ts",
     "to": "src/hosts/codex-native-calls.ts",
     "unresolvedTo": "../../../src/hosts/codex-native-calls",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -817,10 +631,7 @@
     "from": "tests/src/hosts/codex-native-calls-code-mode-completeness.test.ts",
     "to": "src/hosts/codex-native-calls.ts",
     "unresolvedTo": "../../../src/hosts/codex-native-calls",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -831,10 +642,7 @@
     "from": "tests/src/hosts/codex-native-calls-code-mode-completeness.test.ts",
     "to": "src/hosts/native-controls.ts",
     "unresolvedTo": "../../../src/hosts/native-controls",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -845,10 +653,7 @@
     "from": "tests/src/hosts/codex-native-calls-code-mode-inspection.test.ts",
     "to": "src/hosts/codex-native-calls.ts",
     "unresolvedTo": "../../../src/hosts/codex-native-calls",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -859,10 +664,7 @@
     "from": "tests/src/hosts/codex-native-calls-code-mode-inspection.test.ts",
     "to": "src/hosts/native-controls.ts",
     "unresolvedTo": "../../../src/hosts/native-controls",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -873,10 +675,7 @@
     "from": "tests/src/hosts/codex-native-calls-feedback.test.ts",
     "to": "src/hosts/codex-native-calls.ts",
     "unresolvedTo": "../../../src/hosts/codex-native-calls",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -887,10 +686,7 @@
     "from": "tests/src/hosts/codex-native-calls-spawn.test.ts",
     "to": "src/hosts/codex-native-calls.ts",
     "unresolvedTo": "../../../src/hosts/codex-native-calls",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -901,10 +697,7 @@
     "from": "tests/src/hosts/codex-profile.test.ts",
     "to": "src/hosts/codex-profile.ts",
     "unresolvedTo": "../../../src/hosts/codex-profile",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -915,10 +708,7 @@
     "from": "tests/src/hosts/isolation.test.ts",
     "to": "src/hosts/claude.ts",
     "unresolvedTo": "../../../src/hosts/claude",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -929,10 +719,7 @@
     "from": "tests/src/hosts/namespace-isolation.test.ts",
     "to": "src/hosts/claude.ts",
     "unresolvedTo": "../../../src/hosts/claude",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -943,10 +730,7 @@
     "from": "tests/src/hosts/namespace-isolation.test.ts",
     "to": "src/hosts/codex.ts",
     "unresolvedTo": "../../../src/hosts/codex",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -957,10 +741,7 @@
     "from": "tests/src/hosts/native-controls.test.ts",
     "to": "src/hosts/native-controls.ts",
     "unresolvedTo": "../../../src/hosts/native-controls",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -971,10 +752,7 @@
     "from": "tests/src/hosts/native-output-recovery.test.ts",
     "to": "src/hosts/codex-native-calls.ts",
     "unresolvedTo": "../../../src/hosts/codex-native-calls",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -985,10 +763,7 @@
     "from": "tests/src/hosts/native-process-boundaries.test.ts",
     "to": "src/hosts/claude-process.ts",
     "unresolvedTo": "../../../src/hosts/claude-process",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -999,10 +774,7 @@
     "from": "tests/src/hosts/native-process-boundaries.test.ts",
     "to": "src/hosts/codex-process.ts",
     "unresolvedTo": "../../../src/hosts/codex-process",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -1013,10 +785,7 @@
     "from": "tests/src/hosts/skill-hooks.test.ts",
     "to": "src/hosts/skill-hook-catalog.ts",
     "unresolvedTo": "../../../src/hosts/skill-hook-catalog",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -1027,10 +796,7 @@
     "from": "tests/src/hosts/skill-hooks.test.ts",
     "to": "src/hosts/skill-hook-handler.ts",
     "unresolvedTo": "../../../src/hosts/skill-hook-handler",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -1041,10 +807,7 @@
     "from": "tests/src/hosts/skill-hooks.test.ts",
     "to": "src/hosts/skill-hooks.ts",
     "unresolvedTo": "../../../src/hosts/skill-hooks",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -1055,24 +818,7 @@
     "from": "tests/src/hosts/workspace-fingerprint.test.ts",
     "to": "src/hosts/workspace-fingerprint.ts",
     "unresolvedTo": "../../../src/hosts/workspace-fingerprint",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "consumer-module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "tests/src/native-transcripts.test.ts",
-    "to": "src/hosts/claude.ts",
-    "unresolvedTo": "../../src/hosts/claude",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -1083,10 +829,29 @@
     "from": "tests/src/platform/git.test.ts",
     "to": "src/graders/git-head.ts",
     "unresolvedTo": "../../../src/graders/git-head",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "consumer-module-interface"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "tests/src/provenance/project-provenance.test.ts",
+    "to": "src/provenance/provenance.ts",
+    "unresolvedTo": "../../../src/provenance/provenance",
+    "dependencyTypes": ["local", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "consumer-module-interface"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "tests/src/runtime/candidate-artifacts.test.ts",
+    "to": "src/hosts/claude.ts",
+    "unresolvedTo": "../../../src/hosts/claude",
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -1097,10 +862,7 @@
     "from": "tests/src/runtime/environment.test.ts",
     "to": "src/hosts/claude.ts",
     "unresolvedTo": "../../../src/hosts/claude",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -1111,10 +873,7 @@
     "from": "tests/src/runtime/live.test.ts",
     "to": "src/hosts/claude.ts",
     "unresolvedTo": "../../../src/hosts/claude",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -1125,10 +884,7 @@
     "from": "tests/src/runtime/live.test.ts",
     "to": "src/hosts/codex.ts",
     "unresolvedTo": "../../../src/hosts/codex",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -1139,10 +895,7 @@
     "from": "tests/src/runtime/seeds.test.ts",
     "to": "src/hosts/claude.ts",
     "unresolvedTo": "../../../src/hosts/claude",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -1153,10 +906,7 @@
     "from": "tests/src/runtime/seeds.test.ts",
     "to": "src/hosts/codex.ts",
     "unresolvedTo": "../../../src/hosts/codex",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -1167,10 +917,7 @@
     "from": "tests/src/schema/schema.test.ts",
     "to": "src/hosts/codex.ts",
     "unresolvedTo": "../../../src/hosts/codex",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "consumer-module-interface"
@@ -1178,30 +925,13 @@
   },
   {
     "type": "dependency",
-    "from": "src/extension-client.ts",
-    "to": "src/generated/extension.cjs",
-    "unresolvedTo": "./generated/extension.cjs",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "from": "tests/src/transcripts/native-transcripts.test.ts",
+    "to": "src/hosts/claude.ts",
+    "unresolvedTo": "../../../src/hosts/claude",
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
-      "name": "generated-only-through-schema"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/extension-session.ts",
-    "to": "src/generated/extension.cjs",
-    "unresolvedTo": "./generated/extension.cjs",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "generated-only-through-schema"
+      "name": "consumer-module-interface"
     }
   },
   {
@@ -1209,10 +939,7 @@
     "from": "src/runtime/config.ts",
     "to": "src/generated/runtime.cjs",
     "unresolvedTo": "../generated/runtime.cjs",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "generated-only-through-schema"
@@ -1223,10 +950,7 @@
     "from": "src/cli/hosts.ts",
     "to": "src/hosts/claude.ts",
     "unresolvedTo": "../hosts/claude",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "module-interface"
@@ -1237,10 +961,7 @@
     "from": "src/cli/hosts.ts",
     "to": "src/hosts/codex-configuration.ts",
     "unresolvedTo": "../hosts/codex-configuration",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "module-interface"
@@ -1251,10 +972,7 @@
     "from": "src/cli/hosts.ts",
     "to": "src/hosts/codex.ts",
     "unresolvedTo": "../hosts/codex",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "module-interface"
@@ -1265,10 +983,7 @@
     "from": "src/cli/preparation.ts",
     "to": "src/hosts/codex-configuration.ts",
     "unresolvedTo": "../hosts/codex-configuration",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "module-interface"
@@ -1279,10 +994,7 @@
     "from": "src/evaluation/check-plan.ts",
     "to": "src/graders/git-head.ts",
     "unresolvedTo": "../graders/git-head",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "module-interface"
@@ -1293,10 +1005,7 @@
     "from": "src/evaluation/check-plan.ts",
     "to": "src/graders/output.ts",
     "unresolvedTo": "../graders/output",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "module-interface"
@@ -1307,10 +1016,7 @@
     "from": "src/evaluation/check-plan.ts",
     "to": "src/graders/semantic.ts",
     "unresolvedTo": "../graders/semantic",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "module-interface"
@@ -1321,10 +1027,7 @@
     "from": "src/evaluation/check-plan.ts",
     "to": "src/graders/shell.ts",
     "unresolvedTo": "../graders/shell",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "module-interface"
@@ -1335,10 +1038,7 @@
     "from": "src/evaluation/grading.ts",
     "to": "src/graders/git-head.ts",
     "unresolvedTo": "../graders/git-head",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "module-interface"
@@ -1349,10 +1049,7 @@
     "from": "src/evaluation/grading.ts",
     "to": "src/graders/output.ts",
     "unresolvedTo": "../graders/output",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "module-interface"
@@ -1363,10 +1060,7 @@
     "from": "src/evaluation/grading.ts",
     "to": "src/graders/shell.ts",
     "unresolvedTo": "../graders/shell",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "module-interface"
@@ -1377,11 +1071,7 @@
     "from": "src/evaluation/plan.ts",
     "to": "src/graders/semantic.ts",
     "unresolvedTo": "../graders/semantic",
-    "dependencyTypes": [
-      "local",
-      "type-only",
-      "import"
-    ],
+    "dependencyTypes": ["local", "type-only", "import"],
     "rule": {
       "severity": "error",
       "name": "module-interface"
@@ -1392,10 +1082,7 @@
     "from": "src/evaluation/semantic.ts",
     "to": "src/graders/artifact.ts",
     "unresolvedTo": "../graders/artifact",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "module-interface"
@@ -1406,10 +1093,7 @@
     "from": "src/evaluation/semantic.ts",
     "to": "src/graders/semantic.ts",
     "unresolvedTo": "../graders/semantic",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "module-interface"
@@ -1420,97 +1104,10 @@
     "from": "src/evaluation/trial.ts",
     "to": "src/graders/git-head.ts",
     "unresolvedTo": "../graders/git-head",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
+    "dependencyTypes": ["local", "import"],
     "rule": {
       "severity": "error",
       "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/cli.ts",
-    "to": "src/cli/command.ts",
-    "unresolvedTo": "./cli/command",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "root-module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/cli.ts",
-    "to": "src/cli/demo.ts",
-    "unresolvedTo": "./cli/demo",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "root-module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/cli.ts",
-    "to": "src/cli/help.ts",
-    "unresolvedTo": "./cli/help",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "root-module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/cli.ts",
-    "to": "src/cli/init.ts",
-    "unresolvedTo": "./cli/init",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "root-module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/index.ts",
-    "to": "src/cli/evaluation.ts",
-    "unresolvedTo": "./cli/evaluation",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "root-module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/index.ts",
-    "to": "src/cli/preparation.ts",
-    "unresolvedTo": "./cli/preparation",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "root-module-interface"
     }
   }
 ]

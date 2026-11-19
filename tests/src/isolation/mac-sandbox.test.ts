@@ -20,7 +20,7 @@ import {
 import {
   allocateNativeState,
   nativeStatePath,
-} from "../../../src/native-transcript-state";
+} from "../../../src/runtime/index";
 import { defined } from "../../fixtures/assertions";
 import { createTemporaryFixtures, fixtureGit } from "../../fixtures/filesystem";
 

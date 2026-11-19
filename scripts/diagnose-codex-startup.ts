@@ -71,10 +71,10 @@ await mock.module(appServerPath, () => ({
     });
   },
 }));
-const transcriptPath = join(root, "src/native-transcripts.ts");
+const transcriptPath = join(root, "src/transcripts/index.ts");
 const transcripts = (await import(
   transcriptPath
-)) as typeof import("../src/native-transcripts");
+)) as typeof import("../src/transcripts/index");
 const failed = transcripts.failedNativeTranscripts;
 await mock.module(transcriptPath, () => ({
   ...transcripts,

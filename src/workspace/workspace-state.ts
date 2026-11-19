@@ -16,7 +16,7 @@ import {
   processIdentity,
   validProcessIdentity,
   type ProcessIdentity,
-} from "../run-owner";
+} from "./run-owner";
 import { isMissingFile, isRecord } from "../kernel/index";
 import { atomicWriteJson } from "../platform/index";
 import { clearFixtureContents } from "./cleanup";

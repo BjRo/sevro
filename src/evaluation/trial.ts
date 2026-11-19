@@ -1,6 +1,8 @@
 import { rm } from "node:fs/promises";
 import {
   hashJson,
+  type Assessment,
+  type CheckOutcome,
   type Diagnostic,
   type ExecutionStatus,
   type ObservationCompleteness,
@@ -15,7 +17,7 @@ import {
   candidateArtifactRoots,
   releaseCandidateRuntime,
   type CandidateArtifactRoots,
-} from "../candidate-artifacts";
+} from "../runtime/index";
 import { join } from "node:path";
 import { advisoryBaseRevision } from "../fixtures/index";
 import type { EvaluationContext } from "./context";
@@ -43,23 +45,18 @@ import {
   type HostResult,
 } from "../host-contract/index";
 import type { EvaluationOptions } from "./types";
-import type { EvaluationResult } from "../extension-session";
+import type { EvaluationResult } from "../extensions/index";
 import {
   clearFixtureContents,
   removeDisposableDirectory,
   retainWorkspace,
 } from "../workspace/index";
 import { gitHeadRevision } from "../graders/git-head";
-import { materializeNativeTranscriptView } from "../native-transcript-view";
-import {
-  applyTaskVerdictPolicy,
-  assessTrial,
-  type Assessment,
-  type CheckOutcome,
-} from "../results";
+import { materializeNativeTranscriptView } from "../transcripts/index";
+import { applyTaskVerdictPolicy, assessTrial } from "../results/index";
 import type { RunEvidenceDataTrialEvidence } from "../schema/index";
 import { scheduleTrials } from "./scheduler";
-import { rethrowDiagnosticPersistenceError } from "../host-diagnostics";
+import { rethrowDiagnosticPersistenceError } from "../diagnostics/index";
 
 const MAX_FINAL_MESSAGE_BYTES = 8 * 1024 * 1024;
 

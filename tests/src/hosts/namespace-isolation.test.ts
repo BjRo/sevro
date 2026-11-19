@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { runEvaluation } from "../../../src/engine";
 import { createClaudeHost } from "../../../src/hosts/claude";
 import { createCodexHost } from "../../../src/hosts/codex";
-import { allocateNativeState } from "../../../src/native-transcript-state";
+import { allocateNativeState } from "../../../src/runtime/index";
 import { defined } from "../../fixtures/assertions";
 import { syntheticClaudeLogin } from "../../fixtures/claude-login";
 import { createTemporaryFixtures, fixtureGit } from "../../fixtures/filesystem";

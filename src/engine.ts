@@ -19,4 +19,4 @@ export type {
   RuntimeConfiguration,
   RuntimePolicy,
 } from "./runtime/index";
-export type { CandidateArtifactRoots } from "./candidate-artifacts";
+export type { CandidateArtifactRoots } from "./runtime/index";

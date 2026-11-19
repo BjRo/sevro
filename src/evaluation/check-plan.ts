@@ -5,7 +5,7 @@ import {
   isOptionalNonblankString,
   isRecord,
 } from "../kernel/index";
-import { validInlineFixture } from "../case-validation";
+import { validInlineFixture, resolvedFixture } from "../cases/index";
 import {
   EvaluationConfigurationError,
   type GeneratedFixture,
@@ -41,7 +41,6 @@ import {
   type ShellCheckDeclaration,
   type PreparedShellCheck,
 } from "../graders/shell";
-import { resolvedFixture } from "../resolved-case";
 
 interface CaseCheckDeclarations {
   allBuiltinDeclarations: OutputCheckDeclaration[];

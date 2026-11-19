@@ -2,8 +2,10 @@ import { join } from "node:path";
 import type {
   EvaluationRequest,
   ExtensionCase,
-  ExtensionSessionOptions,
-} from "../../src/extension-session";
+  openExtensionSession,
+} from "../../src/extensions/index";
+
+type ExtensionSessionOptions = Parameters<typeof openExtensionSession>[0];
 
 export const wireCase = {
   id: "wire-case",

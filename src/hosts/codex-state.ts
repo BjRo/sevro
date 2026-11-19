@@ -6,16 +6,13 @@ import {
   prepareRuntimeState,
   sharedCacheDenyRoots,
   sharedCacheRoots,
-} from "../runtime/index";
-import { shellQuote } from "../platform/index";
-import {
   candidateArtifactEnvironment,
   candidateArtifactReadRoots,
-} from "../candidate-artifacts";
-import {
   codexStateEnabled,
   retainCandidateCodexState,
-} from "../candidate-codex-state";
+  requireNativeHookRoots,
+} from "../runtime/index";
+import { shellQuote } from "../platform/index";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { isMissingFile } from "../kernel/index";
@@ -35,9 +32,8 @@ import type { HostAdapter } from "../host-contract/index";
 import {
   candidateTranscriptEnvironment,
   candidateTranscriptRoots,
-} from "../native-transcripts";
+} from "../transcripts/index";
 import { prepareHookMounts } from "../hooks/index";
-import { requireNativeHookRoots } from "../native-transcript-state";
 import { codexPermissionProfile } from "./codex-profile";
 import { evaluationProtectedRoots } from "../isolation/index";
 type Request = Parameters<HostAdapter["run"]>[0];

@@ -6,7 +6,7 @@ import { fixtureParts } from "../fixtures/index";
 import type { HostAdapter } from "../host-contract/index";
 import { runCodexProcess } from "./codex-process";
 import { isRecord, isUnknownArray } from "../kernel/index";
-import type { HostDiagnostics } from "../host-diagnostics";
+import type { HostDiagnostics } from "../diagnostics/index";
 type Request = Parameters<HostAdapter["run"]>[0];
 type Declaration = NonNullable<Request["codexMarketplace"]>;
 interface InstallContext {

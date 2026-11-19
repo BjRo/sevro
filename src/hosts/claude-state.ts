@@ -5,12 +5,11 @@ import {
   prepareRuntimeState,
   sharedCacheDenyRoots,
   sharedCacheRoots,
-} from "../runtime/index";
-import { minimalRoots, shellQuote } from "../platform/index";
-import {
   candidateArtifactEnvironment,
   candidateArtifactReadRoots,
-} from "../candidate-artifacts";
+  nativeStateParent,
+} from "../runtime/index";
+import { minimalRoots, shellQuote } from "../platform/index";
 import {
   cp,
   mkdir,
@@ -21,7 +20,6 @@ import {
 } from "node:fs/promises";
 import { delimiter, dirname, join } from "node:path";
 import type { HostAdapter } from "../host-contract/index";
-import { nativeStateParent } from "../native-transcript-state";
 import {
   workspaceBoundaryException,
   workspaceStatePath,
@@ -29,7 +27,7 @@ import {
 import {
   candidateTranscriptEnvironment,
   candidateTranscriptRoots,
-} from "../native-transcripts";
+} from "../transcripts/index";
 import { prepareHookMounts, runtimeHooksEnabled } from "../hooks/index";
 import { stageClaudeAuthentication } from "./claude-credential";
 import { claudeHostSettings } from "./claude-settings";

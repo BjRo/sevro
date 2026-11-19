@@ -13,6 +13,7 @@ export type {
   EvidenceRoute,
   ExecutionStatus,
   ExitCode,
+  EvaluationProgress,
   ExtensionCheckOutcome,
   GradingStatus,
   MetricEvidence,

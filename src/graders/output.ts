@@ -1,7 +1,11 @@
-import { isRecord, isUnknownArray, canonicalJson } from "../kernel/index";
+import {
+  isRecord,
+  isUnknownArray,
+  canonicalJson,
+  type CheckOutcome,
+} from "../kernel/index";
 import { isDeepStrictEqual } from "node:util";
 import Ajv2020, { type ValidateFunction } from "ajv/dist/2020.js";
-import type { CheckOutcome } from "../results";
 
 type GraderId = "sevro.regex" | "sevro.json" | "sevro.schema" | "sevro.output";
 

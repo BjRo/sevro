@@ -6,6 +6,7 @@ import type {
 import cliValidator from "../generated/cli-result.cjs";
 import runValidator from "../generated/run-evidence.cjs";
 import reportValidator from "../generated/report.cjs";
+import extensionValidator from "../generated/extension.cjs";
 
 export function assertCliResult(
   value: unknown,
@@ -21,4 +22,9 @@ export function assertRunEvidence(
 
 export function assertReport(value: unknown): asserts value is ReportData {
   if (!reportValidator(value)) throw new Error("invalid Sevro report");
+}
+
+/** Structural check of one extension protocol request or response envelope. */
+export function validExtensionExchange(value: unknown): boolean {
+  return extensionValidator(value);
 }

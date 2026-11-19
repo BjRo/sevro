@@ -1,18 +1,18 @@
 import { existsSync } from "node:fs";
-import { candidateCodexStateRetained } from "../candidate-codex-state";
+import {
+  candidateCodexStateRetained,
+  allocateNativeState,
+  runtimeNativeGoalEnabled,
+  runtimeObservations,
+} from "../runtime/index";
 import { lstat, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import type { HostAdapter, HostResult } from "../host-contract/index";
-import { allocateNativeState } from "../native-transcript-state";
 import {
   failedNativeTranscripts,
   retainEnabledNativeTranscripts,
-} from "../native-transcripts";
-import {
-  runtimeNativeGoalEnabled,
-  runtimeObservations,
-} from "../runtime/index";
+} from "../transcripts/index";
 import {
   releaseRuntimeHooks,
   runtimeHookObservation,
@@ -49,7 +49,7 @@ import {
   diagnoseHostRequest,
   diagnosticConfiguration,
   type HostDiagnostics,
-} from "../host-diagnostics";
+} from "../diagnostics/index";
 export type { CodexHostOptions } from "./codex-state";
 const DEFAULT_TIMEOUT_MS = 10 * 60_000;
 

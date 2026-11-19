@@ -1,13 +1,12 @@
 import type { PreparationSources } from "../fixtures/index";
-import type { ExtensionCase, openExtensionSession } from "../extension-session";
-import type { Assessment } from "../kernel/index";
+import type { ExtensionCase, openExtensionSession } from "../extensions/index";
+import type { Assessment, EvaluationProgress } from "../kernel/index";
 import type { CliResultData, CliResultDataCase } from "../schema/index";
 import type { TrialSummary } from "../evidence/index";
 import type { RuntimePolicy } from "../runtime/index";
 import type { HostAdapter, ResolvedCase } from "../host-contract/index";
 
-export type { EvaluationProgress } from "../api-types";
-import type { EvaluationProgress } from "../api-types";
+export type { EvaluationProgress } from "../kernel/index";
 
 export interface EvaluationOptions {
   /** Best-effort operational diagnostics, separate from result assessment. */

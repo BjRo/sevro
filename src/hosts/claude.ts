@@ -2,11 +2,15 @@ import { existsSync } from "node:fs";
 import { readFile, realpath, rm, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 import type { HostAdapter, HostResult } from "../host-contract/index";
-import { allocateNativeState } from "../native-transcript-state";
+import {
+  allocateNativeState,
+  insideRuntimeRoot as inside,
+  runtimeObservations,
+} from "../runtime/index";
 import {
   failedNativeTranscripts,
   retainEnabledNativeTranscripts,
-} from "../native-transcripts";
+} from "../transcripts/index";
 import { fixtureParts } from "../fixtures/index";
 import {
   prepareHookMounts,
@@ -15,10 +19,6 @@ import {
   runtimeHooksEnabled,
   type HookMounts,
 } from "../hooks/index";
-import {
-  insideRuntimeRoot as inside,
-  runtimeObservations,
-} from "../runtime/index";
 import { isRecord } from "../kernel/index";
 import { runClaudeTurns, type ClaudeSession } from "./claude-continuation";
 import { validateNativeHostRequest, validHostTimeout } from "./native-request";
@@ -36,7 +36,7 @@ import {
   diagnoseHostRequest,
   diagnosticConfiguration,
   type HostDiagnostics,
-} from "../host-diagnostics";
+} from "../diagnostics/index";
 import {
   CLAUDE_AUTH_VARIABLES,
   CLAUDE_LOGIN_MARGIN_MS,
