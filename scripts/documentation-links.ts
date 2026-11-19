@@ -1,4 +1,4 @@
-import { readdir, realpath, stat } from "node:fs/promises";
+import { readFile, readdir, realpath, stat } from "node:fs/promises";
 import { dirname, extname, isAbsolute, relative, resolve } from "node:path";
 import type { Page } from "./documentation-markdown";
 import type { Dirent } from "node:fs";
@@ -8,9 +8,40 @@ export function contained(root: string, path: string): boolean {
   return value !== ".." && !value.startsWith("../") && !isAbsolute(value);
 }
 
-export async function markdownFiles(
-  root: string,
-  directory = root,
+export async function markdownFiles(root: string): Promise<string[]> {
+  return markdownTree(root, await vendoredSkills(root));
+}
+
+// Skills installed through skills-lock.json stay byte-identical to upstream.
+async function vendoredSkills(root: string): Promise<Set<string>> {
+  const text = await optionalText(resolve(root, "skills-lock.json"));
+  if (text === null) return new Set();
+  return new Set(
+    lockedSkillNames(JSON.parse(text)).map((name) =>
+      resolve(root, ".agents/skills", name),
+    ),
+  );
+}
+
+async function optionalText(path: string): Promise<string | null> {
+  try {
+    return await readFile(path, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+function lockedSkillNames(lock: unknown): string[] {
+  const skills = (lock as { skills?: unknown } | null)?.skills;
+  if (typeof skills !== "object" || skills === null)
+    throw new Error("skills-lock.json has no skills object");
+  return Object.keys(skills);
+}
+
+async function markdownTree(
+  directory: string,
+  excluded: Set<string>,
 ): Promise<string[]> {
   const files: string[] = [];
   for (const entry of await readdir(directory, { withFileTypes: true })) {
@@ -21,21 +52,22 @@ export async function markdownFiles(
         "node_modules",
         ".guide-results",
         "tests",
-      ].includes(entry.name)
+      ].includes(entry.name) ||
+      excluded.has(resolve(directory, entry.name))
     )
       continue;
-    files.push(...(await markdownEntry(root, directory, entry)));
+    files.push(...(await markdownEntry(directory, entry, excluded)));
   }
   return files;
 }
 
 async function markdownEntry(
-  root: string,
   directory: string,
   entry: Dirent,
+  excluded: Set<string>,
 ): Promise<string[]> {
   const path = resolve(directory, entry.name);
-  if (entry.isDirectory()) return markdownFiles(root, path);
+  if (entry.isDirectory()) return markdownTree(path, excluded);
   return entry.isFile() && extname(path) === ".md" ? [path] : [];
 }
 

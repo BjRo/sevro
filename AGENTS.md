@@ -43,3 +43,6 @@ or treat a sandbox authentication failure as proof that a token is invalid.
 `AGENTS.md` is canonical; `CLAUDE.md` imports it. `.claude/skills` is a
 symlink to `.agents/skills`, so both hosts load the same skill files. Edit
 skills under `.agents/skills`; `bun run check:docs` verifies the Claude mount.
+Skills listed in `skills-lock.json` are vendored MIT-licensed upstream copies
+(see `.agents/skills/LICENSE-mattpocock-skills.txt`). Update them with their
+installer instead of editing them; formatting and docs checks skip them.
