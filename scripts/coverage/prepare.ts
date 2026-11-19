@@ -1,7 +1,9 @@
 import type { CoverageMapData } from "istanbul-lib-coverage";
 import {
   cpSync,
+  lstatSync,
   readFileSync,
+  readlinkSync,
   writeFileSync,
   symlinkSync,
   existsSync,
@@ -47,11 +49,18 @@ export function candidateFiles(repo: string) {
     .sort();
 }
 
+// Like Git, identify a symlink by its target rather than what it points to.
+function snapshotContent(path: string): Buffer | string {
+  return lstatSync(path).isSymbolicLink()
+    ? readlinkSync(path)
+    : readFileSync(path);
+}
+
 function snapshotIdentity(project: string, root: string, files: string[]) {
   const inputs = files.map((file) => ({
     file,
     sha256: createHash("sha256")
-      .update(readFileSync(join(project, file)))
+      .update(snapshotContent(join(project, file)))
       .digest("hex"),
   }));
   const content = createHash("sha256")
