@@ -1,18 +1,18 @@
 import { afterEach, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdir, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
+  createFixture,
   prepareArtifacts,
-  prepareInlineArtifacts,
-  safePreparationTarget,
-} from "../../../src/fixtures/preparation";
+  prepareFixtureSetup,
+} from "../../../src/fixtures/index";
 import { defined, expectUnknown } from "../../fixtures/assertions";
 import { createTemporaryFixtures } from "../../fixtures/filesystem";
 
-const { temporaryFixture, cleanupTemporaryFixtures } =
+const { temporaryFixture, retainTemporaryFixture, cleanupTemporaryFixtures } =
   createTemporaryFixtures();
 afterEach(cleanupTemporaryFixtures);
 
@@ -23,54 +23,38 @@ const artifact = {
   sha256: createHash("sha256").update(content).digest("hex"),
   contentBase64: content.toString("base64"),
 };
-test("preparation validates bytes, digest, and portable path containment", () => {
-  expectUnknown(
-    defined(prepareInlineArtifacts([artifact], ["README.md"])[0]).bytes,
-  ).toEqual(content);
-  expect(() =>
-    prepareInlineArtifacts([{ ...artifact, relativePath: "../outside" }], []),
-  ).toThrow(/invalid fixture path/);
-  expect(() =>
-    prepareInlineArtifacts(
-      [{ ...artifact, relativePath: "README.md" }],
-      ["README.md"],
-    ),
-  ).toThrow(/paths collide/);
-  expect(() =>
-    prepareInlineArtifacts(
-      [{ ...artifact, relativePath: "generated" }],
-      ["generated/file.txt"],
-    ),
-  ).toThrow(/paths collide/);
-  expect(() =>
-    prepareInlineArtifacts([{ ...artifact, contentBase64: "not base64" }], []),
-  ).toThrow(/canonical base64/);
-  expect(() =>
-    prepareInlineArtifacts([{ ...artifact, sourceRef: "source-1" }], []),
-  ).toThrow(/source references/);
-  expect(() =>
-    prepareInlineArtifacts([{ ...artifact, sha256: "a".repeat(64) }], []),
-  ).toThrow(/digest/);
+test("preparation validates bytes, digest, and portable path containment", async () => {
+  const prepare = (
+    overrides: Record<string, unknown>,
+    fixturePaths: string[] = [],
+  ) => prepareArtifacts([{ ...artifact, ...overrides }], fixturePaths);
+  expectUnknown(defined((await prepare({}, ["README.md"]))[0]).bytes).toEqual(
+    content,
+  );
+  expect(prepare({ relativePath: "../outside" })).rejects.toThrow(
+    /invalid fixture path/,
+  );
+  expect(prepare({ relativePath: "README.md" }, ["README.md"])).rejects.toThrow(
+    /paths collide/,
+  );
   expect(
-    defined(prepareInlineArtifacts([{ ...artifact, gitExclude: true }], [])[0])
-      .gitExclude,
-  ).toBeTrue();
-  expect(() =>
-    prepareInlineArtifacts([{ ...artifact, gitExclude: "yes" as never }], []),
-  ).toThrow(/gitExclude/);
+    prepare({ relativePath: "generated" }, ["generated/file.txt"]),
+  ).rejects.toThrow(/paths collide/);
+  expect(prepare({ contentBase64: "not base64" })).rejects.toThrow(
+    /canonical base64/,
+  );
+  expect(prepare({ sha256: "a".repeat(64) })).rejects.toThrow(/digest/);
   expect(
-    defined(prepareInlineArtifacts([{ ...artifact, executable: true }], [])[0])
-      .executable,
+    defined((await prepare({ gitExclude: true }))[0]).gitExclude,
   ).toBeTrue();
-  expect(() =>
-    prepareInlineArtifacts([{ ...artifact, executable: "yes" as never }], []),
-  ).toThrow(/executable/);
-  expect(() =>
-    prepareInlineArtifacts(
-      [{ ...artifact, relativePath: "generated/bad\npath", gitExclude: true }],
-      [],
-    ),
-  ).toThrow(/control characters/);
+  expect(prepare({ gitExclude: "yes" })).rejects.toThrow(/gitExclude/);
+  expect(
+    defined((await prepare({ executable: true }))[0]).executable,
+  ).toBeTrue();
+  expect(prepare({ executable: "yes" })).rejects.toThrow(/executable/);
+  expect(
+    prepare({ relativePath: "generated/bad\npath", gitExclude: true }),
+  ).rejects.toThrow(/control characters/);
 });
 // eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("source references resolve only from the declared case source map", async () => {
@@ -154,33 +138,67 @@ test("source references resolve only from the declared case source map", async (
     await rm(root, { recursive: true, force: true });
   }
 });
-test("preparation artifacts cannot follow fixture symlinks", async () => {
-  const workspace = await temporaryFixture(
-    join(tmpdir(), "sevro-artifact-workspace-"),
+async function fixtureWithSetupLink(
+  projectRoot: string,
+  target: string,
+  link: string,
+  relativePath: string,
+): Promise<string> {
+  const setup = defined(
+    prepareFixtureSetup({
+      command: [
+        process.execPath,
+        "-e",
+        `const { mkdirSync, symlinkSync } = require("node:fs");
+const { dirname } = require("node:path");
+mkdirSync(dirname(${JSON.stringify(link)}), { recursive: true });
+symlinkSync(${JSON.stringify(target)}, ${JSON.stringify(link)});`,
+      ],
+    }),
+  );
+  const workspace = await createFixture(
+    { kind: "inline", files: {} },
+    {
+      setup,
+      artifacts: await prepareArtifacts([{ ...artifact, relativePath }], []),
+      projectRoot,
+    },
+  );
+  retainTemporaryFixture(workspace);
+  return workspace;
+}
+
+test("preparation artifacts cannot follow setup-created fixture symlinks", async () => {
+  const projectRoot = await temporaryFixture(
+    join(tmpdir(), "sevro-artifact-project-"),
   );
   const outside = await temporaryFixture(
     join(tmpdir(), "sevro-artifact-outside-"),
   );
-  try {
-    await symlink(outside, join(workspace, "linked"));
-    expect(
-      safePreparationTarget(workspace, "linked/skills/example/SKILL.md"),
-    ).rejects.toThrow(/non-directory/);
-    expectUnknown(await readdir(outside)).toEqual([]);
-    await mkdir(join(workspace, "skills"));
-    await symlink(
-      join(outside, "missing"),
-      join(workspace, "skills", "SKILL.md"),
-    );
-    expect(safePreparationTarget(workspace, "skills/SKILL.md")).rejects.toThrow(
-      /already exists/,
-    );
-    expect(
-      safePreparationTarget(workspace, "skills/new/SKILL.md"),
-    ).resolves.toBe(join(workspace, "skills", "new", "SKILL.md"));
-    expectUnknown(await readdir(outside)).toEqual([]);
-  } finally {
-    await rm(workspace, { recursive: true, force: true });
-    await rm(outside, { recursive: true, force: true });
-  }
+  const linkedParent = fixtureWithSetupLink(
+    projectRoot,
+    outside,
+    "linked",
+    "linked/skills/example/SKILL.md",
+  );
+  expect(linkedParent).rejects.toThrow(/non-directory/);
+  await linkedParent.catch(() => undefined);
+  const existingLink = fixtureWithSetupLink(
+    projectRoot,
+    join(outside, "missing"),
+    "skills/SKILL.md",
+    "skills/SKILL.md",
+  );
+  expect(existingLink).rejects.toThrow(/already exists/);
+  await existingLink.catch(() => undefined);
+  const workspace = await fixtureWithSetupLink(
+    projectRoot,
+    join(outside, "missing"),
+    "skills/SKILL.md",
+    "skills/new/SKILL.md",
+  );
+  expect(await readFile(join(workspace, "skills", "new", "SKILL.md"))).toEqual(
+    content,
+  );
+  expectUnknown(await readdir(outside)).toEqual([]);
 });

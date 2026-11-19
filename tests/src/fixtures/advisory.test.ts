@@ -14,7 +14,7 @@ import { join } from "node:path";
 import {
   advisoryBaseRevision,
   buildBlindAdvisoryFixture,
-} from "../../../src/fixtures/advisory";
+} from "../../../src/fixtures/index";
 import { createTemporaryFixtures, fixtureGit } from "../../fixtures/filesystem";
 
 const roots: string[] = [];

@@ -15,10 +15,12 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { runEvaluation, type HostAdapter } from "../../../src/engine";
 import { openExtensionSession } from "../../../src/extension-session";
-import { createFixture } from "../../../src/fixtures/create";
-import { prepareGeneratedFixture } from "../../../src/fixtures/generated";
-import { prepareInlineArtifacts } from "../../../src/fixtures/preparation";
-import { prepareFixtureSetup } from "../../../src/fixtures/setup";
+import {
+  createFixture,
+  prepareArtifacts,
+  prepareGeneratedFixture,
+  prepareFixtureSetup,
+} from "../../../src/fixtures/index";
 import { defined, parseRunEvidence } from "../../fixtures/assertions";
 import { wireCase, wireOptions } from "../../fixtures/engine-session";
 import { createTemporaryFixtures, fixtureGit } from "../../fixtures/filesystem";
@@ -59,7 +61,7 @@ test("direct fixture creation copies inline bytes and verified artifacts with pr
   ];
   const workspace = await createFixture(
     { kind: "inline", files: fixture.files },
-    { artifacts: prepareInlineArtifacts(declarations, []), projectRoot: root },
+    { artifacts: await prepareArtifacts(declarations, []), projectRoot: root },
   );
   retainTemporaryFixture(workspace);
   expect(await readFile(join(workspace, "nested/answer.txt"), "utf8")).toBe(
@@ -90,7 +92,7 @@ test("direct Git fixture preparation excludes bracket and space filenames litera
   const root = await temporaryFixture();
   const generated = prepareGeneratedFixture(generatedBaseline);
   const relativePath = "assets/[probe] file.txt";
-  const artifacts = prepareInlineArtifacts(
+  const artifacts = await prepareArtifacts(
     [{ ...inlineArtifact(), relativePath, gitExclude: true }],
     [],
   );

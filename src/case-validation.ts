@@ -1,6 +1,8 @@
 import type { ResolvedCase } from "./host-contract/index";
-import { prepareGeneratedFixture } from "./fixtures/generated";
-import { prepareRepositoryFixture } from "./fixtures/repository";
+import {
+  prepareGeneratedFixture,
+  prepareRepositoryFixture,
+} from "./fixtures/index";
 import { isOptionalNonblankString, isRecord } from "./value-guards";
 
 function fixtureDeclarationIssue(

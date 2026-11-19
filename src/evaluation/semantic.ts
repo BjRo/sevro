@@ -1,6 +1,6 @@
 import { clearFixtureContents } from "../workspace/index";
 import type { CandidateArtifactRoots } from "../candidate-artifacts";
-import { createFixture } from "../fixtures/create";
+import { createFixture } from "../fixtures/index";
 import { hostArtifacts } from "../evidence/host-results";
 import { usage } from "../evidence/usage";
 import { gradingRuntimePolicy, scopedHostArtifacts } from "./grading-host";

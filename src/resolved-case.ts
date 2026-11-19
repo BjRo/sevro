@@ -1,5 +1,5 @@
 import type { ExtensionCase } from "./extension-session";
-import type { RepositoryFixture } from "./fixtures/repository";
+import type { RepositoryFixture } from "./fixtures/index";
 
 function repositoryOverlay(fixture: RepositoryFixture) {
   return {

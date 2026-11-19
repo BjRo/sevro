@@ -5,21 +5,22 @@ import {
   type HostAdapter,
   type ResolvedCase,
 } from "./types";
-import { prepareFixtureSetup, type FixtureSetup } from "../fixtures/setup";
-import type { FixtureSource } from "../fixtures/create";
+import {
+  prepareFixtureSetup,
+  fixtureParts,
+  prepareArtifacts,
+  resolveRepositorySource,
+  type FixtureSetup,
+  type FixtureSource,
+  type InlineArtifact,
+} from "../fixtures/index";
 import { type SemanticCheckDeclaration } from "../graders/semantic";
 import { canonicalJson, createEvaluationIdentity, hashJson } from "../identity";
 import {
   prepareInstrumentation,
   type InstrumentationRequest,
 } from "../instrumentation";
-import {
-  fixtureParts,
-  prepareArtifacts,
-  type InlineArtifact,
-} from "../fixtures/preparation";
 import { projectProvenance, runnerProvenance } from "../provenance";
-import { resolveRepositorySource } from "../fixtures/repository";
 import {
   prepareEvaluationChecks,
   type EvaluationCheckPlan,

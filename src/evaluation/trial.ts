@@ -7,7 +7,7 @@ import {
   type CandidateArtifactRoots,
 } from "../candidate-artifacts";
 import { join } from "node:path";
-import { advisoryBaseRevision } from "../fixtures/advisory";
+import { advisoryBaseRevision } from "../fixtures/index";
 import type { EvaluationContext } from "./context";
 import { prepareTrialWorkspace } from "./resources";
 import { hostArtifacts, hostObservations } from "../evidence/host-results";

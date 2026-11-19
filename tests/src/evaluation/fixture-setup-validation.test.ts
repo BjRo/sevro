@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { prepareFixtureSetup } from "../../../src/fixtures/setup";
+import { prepareFixtureSetup } from "../../../src/fixtures/index";
 
 test("fixture setup validation preserves declared argv and environment placeholders without executing them", () => {
   const declaration = {

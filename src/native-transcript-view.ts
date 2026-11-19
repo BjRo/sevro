@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { allocateNativeState } from "./native-transcript-state";
-import { fixtureParts } from "./fixtures/preparation";
+import { fixtureParts } from "./fixtures/index";
 import { isRecord, isUnknownArray } from "./value-guards";
 import { sha256 } from "./identity";
 

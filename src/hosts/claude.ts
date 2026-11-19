@@ -7,7 +7,7 @@ import {
   failedNativeTranscripts,
   retainEnabledNativeTranscripts,
 } from "../native-transcripts";
-import { fixtureParts } from "../fixtures/preparation";
+import { fixtureParts } from "../fixtures/index";
 import {
   prepareHookMounts,
   releaseRuntimeHooks,

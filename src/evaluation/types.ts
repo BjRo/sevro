@@ -1,4 +1,4 @@
-import type { PreparationSources } from "../fixtures/preparation";
+import type { PreparationSources } from "../fixtures/index";
 import type { ExtensionCase } from "../extension-session";
 import type { openExtensionSession } from "../extension-session";
 import type { Assessment, DomainOutcome } from "../contract-types";

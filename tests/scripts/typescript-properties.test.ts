@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test";
 import fc from "fast-check";
-import { prepareGeneratedFixture } from "../../src/fixtures/generated";
-import { prepareRepositoryFixture } from "../../src/fixtures/repository";
+import {
+  prepareGeneratedFixture,
+  prepareRepositoryFixture,
+} from "../../src/fixtures/index";
 import { summarizeCodexEvents } from "../../src/hosts/codex-events";
 import { canonicalJson, hashJson } from "../../src/identity";
 import { resolvedFixture } from "../../src/resolved-case";

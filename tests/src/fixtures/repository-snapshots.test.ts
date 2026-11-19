@@ -11,16 +11,59 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { runEvaluation } from "../../../src/engine";
 import {
-  applyRepositoryOverlay,
-  cloneRepositorySource,
+  createFixture,
   prepareRepositoryFixture,
   resolveRepositorySource,
-} from "../../../src/fixtures/repository";
+} from "../../../src/fixtures/index";
 import { createTemporaryFixtures, fixtureGit } from "../../fixtures/filesystem";
 
-const { repositoryFixture, cleanupTemporaryFixtures } =
+const { repositoryFixture, retainTemporaryFixture, cleanupTemporaryFixtures } =
   createTemporaryFixtures();
 afterEach(cleanupTemporaryFixtures);
+
+type RepositorySourceFixture = Awaited<ReturnType<typeof repositoryFixture>>;
+
+function declaredSources(source: RepositorySourceFixture) {
+  return {
+    root: join(source.root, "sources"),
+    refs: { source: pathToFileURL(source.repository).href },
+  };
+}
+
+/** Clone the declared source into a new fixture and apply an overlay to it. */
+async function overlayFixture(
+  source: RepositorySourceFixture,
+  files: Record<string, string>,
+  expected?: Awaited<ReturnType<typeof resolveRepositorySource>>,
+  reservedWorkspace?: string,
+): Promise<string> {
+  const sources = declaredSources(source);
+  const fixture = prepareRepositoryFixture({
+    kind: "repository",
+    sourceRef: "source",
+    files,
+  });
+  const workspace = await createFixture(
+    {
+      kind: "repository",
+      fixture,
+      repository:
+        expected ?? (await resolveRepositorySource("source", sources)),
+    },
+    { sources, projectRoot: source.root, reservedWorkspace },
+  );
+  if (!reservedWorkspace) retainTemporaryFixture(workspace);
+  return workspace;
+}
+
+async function commitSourceChange(
+  source: RepositorySourceFixture,
+  change: () => Promise<void>,
+): Promise<void> {
+  await change();
+  await fixtureGit(source.repository, "add", "--all");
+  await fixtureGit(source.repository, "commit", "--quiet", "-m", "Change");
+}
 
 async function withGitEnvironment<T>(
   values: Record<string, string>,
@@ -191,14 +234,13 @@ test("repository resolution refuses an undeclared source reference without chang
 
 test("repository overlay refuses a regular file as a parent and retains its original bytes", async () => {
   const source = await repositoryFixture();
-  const overlay = prepareRepositoryFixture({
-    kind: "repository",
-    sourceRef: "source",
-    files: { "README.md/child.txt": "replacement" },
+  const pending = overlayFixture(source, {
+    "README.md/child.txt": "replacement",
   });
-  expect(applyRepositoryOverlay(overlay, source.repository)).rejects.toThrow(
+  expect(pending).rejects.toThrow(
     "repository fixture overlay traverses a non-directory",
   );
+  await pending.catch(() => undefined);
   expect(await readFile(join(source.repository, "README.md"), "utf8")).toBe(
     "baseline\n",
   );
@@ -466,57 +508,43 @@ test.each(["tracked", "untracked", "revision"])(
 
 test("repository cloning refuses a source revision that changed after resolution", async () => {
   const source = await repositoryFixture();
-  const sources = {
-    root: join(source.root, "sources"),
-    refs: { source: pathToFileURL(source.repository).href },
-  };
-  const expected = await resolveRepositorySource("source", sources);
-  await writeFile(join(source.repository, "README.md"), "new revision\n");
-  await fixtureGit(source.repository, "add", "README.md");
-  await fixtureGit(
-    source.repository,
-    "commit",
-    "--quiet",
-    "-m",
-    "Advance fixture",
+  const expected = await resolveRepositorySource(
+    "source",
+    declaredSources(source),
+  );
+  await commitSourceChange(source, () =>
+    writeFile(join(source.repository, "README.md"), "new revision\n"),
   );
   const workspace = join(source.root, "clone");
   await mkdir(workspace);
-  expect(
-    cloneRepositorySource("source", sources, expected, workspace),
-  ).rejects.toThrow("source changed during run");
+  const pending = overlayFixture(source, {}, expected, workspace);
+  expect(pending).rejects.toThrow("source changed during run");
+  await pending.catch(() => undefined);
   expect(await readdir(workspace)).toEqual([]);
 });
 
 test("repository overlays create nested directories but refuse symlink parents and existing directory targets", async () => {
   const source = await repositoryFixture();
-  const overlay = prepareRepositoryFixture({
-    kind: "repository",
-    sourceRef: "source",
-    files: { "new/nested.txt": "new file" },
+  const created = await overlayFixture(source, {
+    "new/nested.txt": "new file",
   });
-  await applyRepositoryOverlay(overlay, source.repository);
+  expect(await readFile(join(created, "new", "nested.txt"), "utf8")).toBe(
+    "new file",
+  );
+  await commitSourceChange(source, async () => {
+    await mkdir(join(source.repository, "new"));
+    await writeFile(join(source.repository, "new", "nested.txt"), "committed");
+    await symlink("new", join(source.repository, "linked"));
+  });
+  const linkedParent = overlayFixture(source, {
+    "linked/nested.txt": "replaced",
+  });
+  expect(linkedParent).rejects.toThrow("non-directory");
+  await linkedParent.catch(() => undefined);
+  const directoryTarget = overlayFixture(source, { new: "replaced" });
+  expect(directoryTarget).rejects.toThrow("non-file");
+  await directoryTarget.catch(() => undefined);
   expect(
     await readFile(join(source.repository, "new", "nested.txt"), "utf8"),
-  ).toBe("new file");
-  await symlink("new", join(source.repository, "linked"));
-  const linked = prepareRepositoryFixture({
-    kind: "repository",
-    sourceRef: "source",
-    files: { "linked/nested.txt": "replaced" },
-  });
-  expect(applyRepositoryOverlay(linked, source.repository)).rejects.toThrow(
-    "non-directory",
-  );
-  const directory = prepareRepositoryFixture({
-    kind: "repository",
-    sourceRef: "source",
-    files: { new: "replaced" },
-  });
-  expect(applyRepositoryOverlay(directory, source.repository)).rejects.toThrow(
-    "non-file",
-  );
-  expect(
-    await readFile(join(source.repository, "new", "nested.txt"), "utf8"),
-  ).toBe("new file");
+  ).toBe("committed");
 });

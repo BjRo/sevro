@@ -2,11 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import {
-  prepareArtifacts,
-  prepareInlineArtifacts,
-  safePreparationTarget,
-} from "../../../src/fixtures/preparation";
+import { createFixture, prepareArtifacts } from "../../../src/fixtures/index";
 import { defined } from "../../fixtures/assertions";
 import { createTemporaryFixtures } from "../../fixtures/filesystem";
 import { inlineArtifact } from "../../fixtures/preparation-fixtures";
@@ -15,15 +11,13 @@ const { temporaryFixture, cleanupTemporaryFixtures } =
   createTemporaryFixtures();
 afterEach(cleanupTemporaryFixtures);
 
-test("refuses base64 with noncanonical pad bits even when its decoded bytes match the digest", () => {
+test("refuses base64 with noncanonical pad bits even when its decoded bytes match the digest", async () => {
   const baseline = inlineArtifact(Buffer.from("f"));
-  expect(defined(prepareInlineArtifacts([baseline], [])[0]).bytes).toEqual(
+  expect(defined((await prepareArtifacts([baseline], []))[0]).bytes).toEqual(
     Buffer.from("f"),
   );
   const invalid = { ...baseline, contentBase64: "Zh==" };
-  expect(() => prepareInlineArtifacts([invalid], [])).toThrow(
-    "canonical base64",
-  );
+  expect(prepareArtifacts([invalid], [])).rejects.toThrow("canonical base64");
 });
 
 test("resolves mixed inline and declared source artifacts with exact bytes and flags", async () => {
@@ -116,9 +110,18 @@ test("refuses a preparation declaration with both inline bytes and a mapped sour
 
 test("refuses a regular file as an artifact parent without replacing its bytes", async () => {
   const root = await temporaryFixture();
-  await writeFile(join(root, "assets"), "existing content");
-  expect(safePreparationTarget(root, "assets/prepared.txt")).rejects.toThrow(
-    "non-directory",
+  const workspace = await temporaryFixture();
+  const pending = createFixture(
+    { kind: "inline", files: { assets: "existing content" } },
+    {
+      artifacts: await prepareArtifacts([inlineArtifact()], []),
+      projectRoot: root,
+      reservedWorkspace: workspace,
+    },
   );
-  expect(await readFile(join(root, "assets"), "utf8")).toBe("existing content");
+  expect(pending).rejects.toThrow("non-directory");
+  await pending.catch(() => undefined);
+  expect(await readFile(join(workspace, "assets"), "utf8")).toBe(
+    "existing content",
+  );
 });

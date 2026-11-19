@@ -9,8 +9,12 @@ import {
 } from "./types";
 import {
   prepareGeneratedFixture,
+  fixtureParts,
+  prepareRepositoryFixture,
   type GeneratedFixture,
-} from "../fixtures/generated";
+  type RepositoryFixture,
+  type FixtureSource,
+} from "../fixtures/index";
 import {
   prepareGitHeadChecks,
   type GitHeadCheckDeclaration,
@@ -33,14 +37,8 @@ import {
   type PreparedShellCheck,
 } from "../graders/shell";
 import { hashJson } from "../identity";
-import { fixtureParts } from "../fixtures/preparation";
-import {
-  prepareRepositoryFixture,
-  type RepositoryFixture,
-} from "../fixtures/repository";
 import { resolvedFixture } from "../resolved-case";
 import { isOptionalNonblankString, isRecord } from "../value-guards";
-import type { FixtureSource } from "../fixtures/create";
 
 interface CaseCheckDeclarations {
   allBuiltinDeclarations: OutputCheckDeclaration[];

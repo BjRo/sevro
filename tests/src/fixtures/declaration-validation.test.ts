@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
-import { prepareGeneratedFixture } from "../../../src/fixtures/generated";
-import { prepareRepositoryFixture } from "../../../src/fixtures/repository";
+import {
+  prepareGeneratedFixture,
+  prepareRepositoryFixture,
+} from "../../../src/fixtures/index";
 import { generatedBaseline } from "../../fixtures/preparation-fixtures";
 
 const invalidGenerated: { name: string; value: unknown }[] = [

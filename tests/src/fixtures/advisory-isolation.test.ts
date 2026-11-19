@@ -9,7 +9,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
-import { buildBlindAdvisoryFixture } from "../../../src/fixtures/advisory";
+import { buildBlindAdvisoryFixture } from "../../../src/fixtures/index";
 import { createTemporaryFixtures, fixtureGit } from "../../fixtures/filesystem";
 
 const { retainTemporaryFixture, repositoryFixture, cleanupTemporaryFixtures } =

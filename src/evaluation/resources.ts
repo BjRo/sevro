@@ -7,9 +7,11 @@ import {
   retainWorkspace,
   removeWorkspace,
 } from "../workspace/index";
-import { createFixture } from "../fixtures/create";
-import { fixtureBinDirectory } from "../fixtures/bin";
-import { fixtureParts } from "../fixtures/preparation";
+import {
+  createFixture,
+  fixtureBinDirectory,
+  fixtureParts,
+} from "../fixtures/index";
 import { startRunOwner, type RunOwner } from "../run-owner";
 import { EvaluationConfigurationError, type EvaluationOptions } from "./types";
 import type { PreparedFixture, PreparedInvocation } from "./plan";

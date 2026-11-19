@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { runEvaluation, type HostAdapter } from "../../../src/engine";
-import { prepareRepositoryFixture } from "../../../src/fixtures/repository";
+import { prepareRepositoryFixture } from "../../../src/fixtures/index";
 import { parseRunEvidence } from "../../fixtures/assertions";
 import { createTemporaryFixtures, fixtureGit } from "../../fixtures/filesystem";
 

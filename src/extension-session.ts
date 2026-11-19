@@ -4,9 +4,11 @@ import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { isAbsolute } from "node:path";
 import { canonicalJson, hashJson } from "./identity";
-import type { GeneratedFixture } from "./fixtures/generated";
-import type { RepositoryFixture } from "./fixtures/repository";
-import type { FixtureSetupDeclaration } from "./fixtures/setup";
+import type {
+  GeneratedFixture,
+  RepositoryFixture,
+  FixtureSetupDeclaration,
+} from "./fixtures/index";
 import type {
   ArtifactReference,
   Assessment,

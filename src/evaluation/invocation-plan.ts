@@ -4,7 +4,7 @@ import {
   type HostAdapter,
   type ResolvedCase,
 } from "./types";
-import { fixtureParts, type InlineArtifact } from "../fixtures/preparation";
+import { fixtureParts, type InlineArtifact } from "../fixtures/index";
 import { isStringArray } from "../value-guards";
 import type { PreparationResult } from "../extension-session";
 

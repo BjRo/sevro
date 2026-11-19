@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fixtureBinDirectory } from "../../../src/fixtures/bin";
+import { fixtureBinDirectory } from "../../../src/fixtures/index";
 import { createTemporaryFixtures } from "../../fixtures/filesystem";
 
 const { temporaryFixture, cleanupTemporaryFixtures } =

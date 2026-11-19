@@ -2,7 +2,7 @@ import type { Dirent } from "node:fs";
 import { readFile, readdir, realpath, stat } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
 import { insideRoot as inside } from "../paths";
-import { fixtureParts } from "../fixtures/preparation";
+import { fixtureParts } from "../fixtures/index";
 import type { HostAdapter } from "../host-contract/index";
 import { runCodexProcess } from "./codex-process";
 import { isRecord, isUnknownArray } from "../value-guards";

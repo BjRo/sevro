@@ -2,8 +2,7 @@ import type {
   InstrumentationCapability,
   InstrumentationRequest,
 } from "../instrumentation";
-import type { GeneratedFixture } from "../fixtures/generated";
-import type { RepositoryFixture } from "../fixtures/repository";
+import type { GeneratedFixture, RepositoryFixture } from "../fixtures/index";
 import type { CheckDeclaration, ObservationEvidence } from "../contract-types";
 import type { RuntimePolicy, RuntimeRole } from "../runtime/index";
 import type { CandidateArtifactRoots } from "../candidate-artifacts";
