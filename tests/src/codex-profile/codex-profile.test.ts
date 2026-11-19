@@ -3,7 +3,7 @@ import { mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { parse } from "smol-toml";
-import { codexPermissionProfile } from "../../../src/hosts/codex-profile";
+import { codexPermissionProfile } from "../../../src/codex-profile/index";
 import { nativeStatePath } from "../../../src/runtime/index";
 import { createTemporaryFixtures } from "../../fixtures/filesystem";
 

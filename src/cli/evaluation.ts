@@ -1,4 +1,4 @@
-import { runEvaluation } from "../engine";
+import { runEvaluation } from "../evaluation/index";
 import {
   packageBuildDigest,
   projectIdentityDigest,

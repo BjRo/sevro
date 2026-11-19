@@ -47,13 +47,19 @@ cross-module import to target the module's `index.ts`. Tests follow the same
 rule: they exercise a module through its interface rather than its other files.
 Type-only imports count.
 
-Violations that existed when a rule was introduced are listed in
-`.dependency-cruiser-known-violations.json`, and the check ignores only those.
-Any other violation fails the check. After removing violations, run
-`bun run deps:baseline` to drop them from the baseline. It uses shrink-only mode,
-so it cannot record new violations; adding to the baseline requires review.
+The check ignores only violations listed in
+`.dependency-cruiser-known-violations.json`. That baseline is empty: every
+violation fails the check. `bun run deps:baseline` rewrites it in shrink-only
+mode, so it cannot record new violations; adding to the baseline requires review.
 Entries match the written import specifier, so changing the specifier of a
 known violation makes it new until a reviewed full regeneration records it.
+
+One tool has a narrow, reviewed exemption. The
+[runtime startup benchmark](../scripts/benchmark-runtime-startup.ts) times
+phases of any Sevro checkout, including older layouts. It wraps runtime state
+preparation, Codex plugin installation and the grading runtime policy in the
+files that define them, so every caller is measured. Its own rule permits
+exactly those three files; all other imports use interfaces or entry points.
 
 ## Source dispositions
 

@@ -1,6 +1,5 @@
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type { ErrorObject } from "ajv";
 import {
   declaredRuntimeRoots,
   optionalRuntimeRoots,
@@ -8,7 +7,7 @@ import {
   runtimeInheritedPath,
   requireRuntimeReadRoots,
 } from "./paths";
-import validate from "../generated/runtime.cjs";
+import { runtimeConfigurationIssue } from "../schema/index";
 import { requireArtifactDirectories } from "./artifact-directories";
 import { runtimeSeedDigest } from "./seeds";
 import { resolveSharedCaches, requireSharedCachePolicy } from "./shared-cache";
@@ -115,23 +114,11 @@ function freezeArtifactDirectories(snapshot: RuntimePolicy): void {
 function assertRuntimeConfiguration(
   value: unknown,
 ): asserts value is RuntimeConfiguration {
-  if (!validate(value)) {
-    // Ajv always populates errors when validation fails.
-    const issue = (validate.errors as [ErrorObject, ...ErrorObject[]])[0];
+  const issue = runtimeConfigurationIssue(value);
+  if (issue)
     throw new Error(
-      `runtime configuration schema ${runtimeSchemaPath(issue)}: ${issue.message}`,
+      `runtime configuration schema ${safeFilesystemPath(issue.pointer)}: ${issue.message}`,
     );
-  }
-}
-
-function runtimeSchemaPath(issue: ErrorObject): string {
-  const params = issue.params as Record<string, unknown>;
-  const property = params.additionalProperty ?? params.missingProperty;
-  const suffix =
-    typeof property === "string"
-      ? "/" + property.replaceAll("~", "~0").replaceAll("/", "~1")
-      : "";
-  return safeFilesystemPath(issue.instancePath + suffix || "/");
 }
 
 const RESERVED_ENVIRONMENT =

@@ -67,10 +67,27 @@
       "name": "consumer-module-interface",
       "comment": "Tests, tooling and examples cross the same seam as production callers.",
       "severity": "error",
-      "from": { "path": "^(tests|scripts|examples)/" },
+      "from": {
+        "path": "^(tests|scripts|examples)/",
+        "pathNot": "^scripts/benchmark-runtime-startup\\.ts$"
+      },
       "to": {
         "path": "^src/[^/]+/",
         "pathNot": ["^src/[^/]+/index\\.ts$", "^src/generated/"]
+      }
+    },
+    {
+      "name": "benchmark-instrumentation-points",
+      "comment": "The runtime startup benchmark times phases of an arbitrary Sevro checkout, including older layouts, by wrapping production functions where they are defined so every caller is measured. It may reach exactly those instrumentation points; everything else goes through interfaces or entry points.",
+      "severity": "error",
+      "from": { "path": "^scripts/benchmark-runtime-startup\\.ts$" },
+      "to": {
+        "path": "^src/[^/]+/",
+        "pathNot": [
+          "^src/[^/]+/index\\.ts$",
+          "^src/generated/",
+          "^src/(runtime/state|hosts/codex-marketplace|evaluation/grading-host)\\.ts$"
+        ]
       }
     },
     {
@@ -89,7 +106,7 @@
       "severity": "error",
       "from": { "path": "^src/(workspace|runtime|isolation|hooks)/" },
       "to": {
-        "path": "^src/((host-contract|hosts|host-events|native-controls|native-process|codex-app-server|claude-login|skill-tracking|graders|fixtures|evidence|results|transcripts|extensions|cases|diagnostics|provenance|evaluation|cli)/|(cli|index|engine)\\.ts$)"
+        "path": "^src/((host-contract|hosts|host-events|native-controls|native-process|codex-app-server|codex-profile|claude-login|skill-tracking|graders|fixtures|evidence|results|transcripts|extensions|cases|diagnostics|provenance|evaluation|cli)/|(cli|index|engine)\\.ts$)"
       }
     },
     {
@@ -111,7 +128,7 @@
       "comment": "Feature modules do not depend on evaluation orchestration, the CLI or entry points.",
       "severity": "error",
       "from": {
-        "path": "^src/(host-contract|hosts|host-events|native-controls|native-process|codex-app-server|claude-login|skill-tracking|graders|fixtures|evidence|results|transcripts|extensions|cases|diagnostics|provenance)/"
+        "path": "^src/(host-contract|hosts|host-events|native-controls|native-process|codex-app-server|codex-profile|claude-login|skill-tracking|graders|fixtures|evidence|results|transcripts|extensions|cases|diagnostics|provenance)/"
       },
       "to": { "path": "^src/((evaluation|cli)/|(cli|index|engine)\\.ts$)" }
     },
@@ -127,7 +144,7 @@
       "comment": "The CLI does not depend on entry points.",
       "severity": "error",
       "from": { "path": "^src/cli/" },
-      "to": { "path": "^src/(cli|index)\\.ts$" }
+      "to": { "path": "^src/(cli|index|engine|api-types)\\.ts$" }
     }
   ],
   "options": {

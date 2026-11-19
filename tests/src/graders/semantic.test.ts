@@ -7,7 +7,7 @@ import {
   parseSemanticVerdicts,
   prepareSemanticChecks,
   semanticPrompt,
-} from "../../../src/graders/semantic";
+} from "../../../src/graders/index";
 import { defined, parseRunEvidence } from "../../fixtures/assertions";
 import { createTemporaryFixtures } from "../../fixtures/filesystem";
 

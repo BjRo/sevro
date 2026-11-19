@@ -9,7 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import baseline from "../../../examples/basic/graded.json";
-import { parseInvocation } from "../../../src/cli/invocation";
+import { prepareRunInvocation } from "../../../src/cli/index";
 import {
   defined,
   parseCliResult,
@@ -59,6 +59,12 @@ test("native and shell routes protect the complete private extension input closu
     manifest,
     JSON.stringify({ format: "sevro.run.v1", settings: {} }),
   );
+  await mkdir(join(root, "sources"));
+  await writeFile(join(root, "map.json"), "{}");
+  await writeFile(
+    join(root, "runtime.json"),
+    JSON.stringify({ format: "sevro.runtime.v1" }),
+  );
   const privateFiles: [string, string][] = [
     ["run-manifest-file", manifest],
     ["extension-command-file", join(root, "command.json")],
@@ -72,7 +78,7 @@ test("native and shell routes protect the complete private extension input closu
     ["codex-auth-file", join(root, "auth.json")],
     ["claude-credential-file", join(root, "credential.json")],
   ];
-  const invocation = await parseInvocation([
+  const { invocation } = await prepareRunInvocation([
     "run",
     "--host",
     "claude",

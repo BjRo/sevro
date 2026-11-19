@@ -14,7 +14,7 @@ import {
   assessShellCheck,
   prepareShellChecks,
   runShellCheck,
-} from "../../../src/graders/shell";
+} from "../../../src/graders/index";
 import { defined, expectUnknown } from "../../fixtures/assertions";
 import { createTemporaryFixtures } from "../../fixtures/filesystem";
 import { localHttpProbe } from "../../fixtures/local-http";

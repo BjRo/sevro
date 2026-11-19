@@ -3,7 +3,6 @@ import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gitEnvironment, runGit } from "../../../src/platform/index";
-import { gitHeadRevision } from "../../../src/graders/git-head";
 import { createTemporaryFixtures } from "../../fixtures/filesystem";
 
 const roots: string[] = [];
@@ -98,7 +97,9 @@ test.each(["fixture", "advisory"] as const)(
     expect(author.toString()).toBe(
       `${name} <${identity}@sevro.invalid>|${name} <${identity}@sevro.invalid>|946684800|946684800\n`,
     );
-    expect(await gitHeadRevision(cwd)).toMatch(/^[a-f0-9]{40,64}$/);
+    expect((await git(cwd, ["rev-parse", "HEAD"])).toString()).toMatch(
+      /^[a-f0-9]{40,64}\n$/,
+    );
     expect(readFile(join(cwd, "hook-ran"))).rejects.toThrow();
   },
 );

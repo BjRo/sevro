@@ -51,7 +51,7 @@ import {
   removeDisposableDirectory,
   retainWorkspace,
 } from "../workspace/index";
-import { gitHeadRevision } from "../graders/git-head";
+import { gitHeadRevision } from "../graders/index";
 import { materializeNativeTranscriptView } from "../transcripts/index";
 import { applyTaskVerdictPolicy, assessTrial } from "../results/index";
 import type { RunEvidenceDataTrialEvidence } from "../schema/index";

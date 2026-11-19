@@ -6,11 +6,9 @@ import {
   projectIdentityDigest,
   projectProvenance,
 } from "../../../src/provenance/index";
-// The nested-root refusal is unreachable through runnerProvenance, which pins the running package root.
-import { checkoutProvenance } from "../../../src/provenance/provenance";
 import { createTemporaryFixtures, fixtureGit } from "../../fixtures/filesystem";
 
-const { temporaryFixture, repositoryFixture, cleanupTemporaryFixtures } =
+const { temporaryFixture, cleanupTemporaryFixtures } =
   createTemporaryFixtures();
 afterEach(cleanupTemporaryFixtures);
 
@@ -24,19 +22,6 @@ test("unborn Git repositories retain unknown project provenance rather than inve
   expect(await projectIdentityDigest(root, provenance)).toMatch(
     /^[a-f0-9]{64}$/,
   );
-});
-
-test("checkout provenance refuses a nested directory in place of the explicit Git root", async () => {
-  const source = await repositoryFixture();
-  await mkdir(join(source.repository, "nested"));
-  const provenance = await checkoutProvenance(
-    source.repository,
-    "a".repeat(64),
-  );
-  expect(provenance.revision).toBe(source.revision);
-  expect(
-    checkoutProvenance(join(source.repository, "nested"), "a".repeat(64)),
-  ).rejects.toThrow("checkout root does not match its Git repository");
 });
 
 test("non-Git project identity ignores relocation and timestamps but distinguishes executable content", async () => {

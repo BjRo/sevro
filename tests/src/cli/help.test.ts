@@ -3,9 +3,62 @@ import { readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { version } from "../../../package.json";
-import { RUN_OPTIONS } from "../../../src/cli/run-options";
 import { cli } from "../../fixtures/cli-fixtures";
 import { createTemporaryFixtures } from "../../fixtures/filesystem";
+
+/** Every documented `sevro run` option; help must describe each one. */
+const RUN_OPTION_NAMES = [
+  "json",
+  "run-manifest-file",
+  "retain-host-diagnostics",
+  "dry",
+  "case-file",
+  "case-id",
+  "extension-command-file",
+  "extension-source-file",
+  "extension-configuration-file",
+  "extension-redacted-configuration-file",
+  "task-verdict-policy",
+  "replace-builtin-grader",
+  "case-source-root",
+  "case-source-map-file",
+  "adapter-module",
+  "semantic-adapter-module",
+  "semantic-host",
+  "semantic-model",
+  "semantic-effort",
+  "advisory-adapter-module",
+  "advisory-host",
+  "advisory-model",
+  "advisory-effort",
+  "advisory-exclude",
+  "host",
+  "codex-bin",
+  "codex-entrypoint",
+  "codex-timeout-ms",
+  "codex-auth-file",
+  "claude-bin",
+  "claude-credential-file",
+  "claude-uv-cache-dir",
+  "claude-project-settings",
+  "toolchain-bin-dir",
+  "model",
+  "effort",
+  "shell-isolation",
+  "protected-root",
+  "project-root",
+  "config-root",
+  "runtime-config-file",
+  "results-root",
+  "run-state-root",
+  "runner-build-digest",
+  "runner-checkout-root",
+  "project-digest",
+  "condition",
+  "trials",
+  "jobs",
+  "threshold",
+];
 
 const { temporaryFixture, cleanupTemporaryFixtures } =
   createTemporaryFixtures();
@@ -88,7 +141,7 @@ test.each(
     expect(result.stdout.indexOf("Examples:")).toBeLessThan(
       result.stdout.indexOf("Required:"),
     );
-    for (const option of Object.keys(RUN_OPTIONS))
+    for (const option of RUN_OPTION_NAMES)
       expect(result.stdout).toContain(`--${option}`);
     expect(result.stdout).toContain("--jobs <integer> (default: 3)");
     expect(result.stdout).toContain(

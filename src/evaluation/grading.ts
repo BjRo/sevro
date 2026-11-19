@@ -2,13 +2,12 @@ import {
   assessGitHeadCheck,
   gitHeadState,
   type PreparedGitHeadCheck,
-} from "../graders/git-head";
-import { gradeOutput, type PreparedOutputCheck } from "../graders/output";
-import {
+  gradeOutput,
+  type PreparedOutputCheck,
   assessShellCheck,
   runShellCheck,
   type PreparedShellCheck,
-} from "../graders/shell";
+} from "../graders/index";
 import { evaluationProtectedRoots } from "../isolation/index";
 import { sha256, type CheckOutcome } from "../kernel/index";
 import type { TrialObservation } from "../evidence/index";

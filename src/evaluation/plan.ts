@@ -14,7 +14,7 @@ import {
   type FixtureSource,
   type InlineArtifact,
 } from "../fixtures/index";
-import { type SemanticCheckDeclaration } from "../graders/semantic";
+import { type SemanticCheckDeclaration } from "../graders/index";
 import {
   canonicalJson,
   createEvaluationIdentity,

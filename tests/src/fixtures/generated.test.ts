@@ -12,7 +12,7 @@ import {
   prepareGeneratedFixture,
 } from "../../../src/fixtures/index";
 import type { GeneratedFixture } from "../../../src/host-contract/index";
-import { gitHeadRevision, gitHeadState } from "../../../src/graders/git-head";
+import { gitHeadRevision, gitHeadState } from "../../../src/graders/index";
 import {
   defined,
   expectUnknown,

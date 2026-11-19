@@ -24,23 +24,17 @@ import {
   prepareGitHeadChecks,
   type GitHeadCheckDeclaration,
   type PreparedGitHeadCheck,
-} from "../graders/git-head";
-import {
   isOutputGrader,
   prepareOutputChecks,
   type OutputCheckDeclaration,
   type PreparedOutputCheck,
-} from "../graders/output";
-import {
   prepareSemanticChecks,
   type SemanticCheckDeclaration,
   type PreparedSemanticCheck,
-} from "../graders/semantic";
-import {
   prepareShellChecks,
   type ShellCheckDeclaration,
   type PreparedShellCheck,
-} from "../graders/shell";
+} from "../graders/index";
 
 interface CaseCheckDeclarations {
   allBuiltinDeclarations: OutputCheckDeclaration[];

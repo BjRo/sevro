@@ -13,14 +13,14 @@ import {
   type HostAdapter,
   type HostResult,
 } from "../host-contract/index";
-import { readSemanticArtifact } from "../graders/artifact";
 import {
+  readSemanticArtifact,
   parseSemanticVerdicts,
   semanticCheckGroups,
   semanticPrompt,
   type PreparedSemanticCheck,
   type SemanticVerdict,
-} from "../graders/semantic";
+} from "../graders/index";
 import { sha256, type CheckOutcome } from "../kernel/index";
 import type { GradingFailure, GradingResult } from "./grading";
 import { HostDiagnosticPersistenceError } from "../diagnostics/index";

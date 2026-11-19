@@ -10,7 +10,7 @@ import {
   gradeOutput,
   prepareOutputChecks,
   type OutputCheckDeclaration,
-} from "../../src/graders/output";
+} from "../../src/graders/index";
 import validExchange from "../../src/generated/extension.cjs";
 import {
   summarizeClaudeEvents,

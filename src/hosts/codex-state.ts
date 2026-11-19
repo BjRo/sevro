@@ -34,7 +34,7 @@ import {
   candidateTranscriptRoots,
 } from "../transcripts/index";
 import { prepareHookMounts } from "../hooks/index";
-import { codexPermissionProfile } from "./codex-profile";
+import { codexPermissionProfile } from "../codex-profile/index";
 import { evaluationProtectedRoots } from "../isolation/index";
 type Request = Parameters<HostAdapter["run"]>[0];
 type CodexState = Awaited<ReturnType<typeof prepareCodexState>>;
