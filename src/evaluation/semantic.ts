@@ -1,8 +1,12 @@
 import { clearFixtureContents } from "../workspace/index";
 import type { CandidateArtifactRoots } from "../candidate-artifacts";
 import { createFixture } from "../fixtures/index";
-import { hostArtifacts } from "../evidence/host-results";
-import { usage } from "../evidence/usage";
+import {
+  hostArtifacts,
+  usage,
+  type TrialEvidenceWriter,
+  type TrialObservation,
+} from "../evidence/index";
 import { gradingRuntimePolicy, scopedHostArtifacts } from "./grading-host";
 import {
   HostExecutionFailure,
@@ -19,10 +23,6 @@ import {
 } from "../graders/semantic";
 import { sha256 } from "../identity";
 import type { CheckOutcome } from "../results";
-import type {
-  TrialEvidenceWriter,
-  TrialObservation,
-} from "../evidence/trial-writer";
 import type { GradingFailure, GradingResult } from "./grading";
 import type { RuntimePolicy } from "../runtime/index";
 import { HostDiagnosticPersistenceError } from "../host-diagnostics";

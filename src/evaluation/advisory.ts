@@ -4,8 +4,11 @@ import {
   type AdvisoryAssessment,
 } from "../advisory";
 import type { CandidateArtifactRoots } from "../candidate-artifacts";
-import type { TrialEvidenceWriter } from "../evidence/trial-writer";
-import { usage } from "../evidence/usage";
+import {
+  TrialPersistenceError,
+  usage,
+  type TrialEvidenceWriter,
+} from "../evidence/index";
 import { buildBlindAdvisoryFixture } from "../fixtures/index";
 import { removeWorkspace } from "../workspace/index";
 import { HostDiagnosticPersistenceError } from "../host-diagnostics";
@@ -15,7 +18,6 @@ import type { RuntimePolicy } from "../runtime/index";
 import { gradingRuntimePolicy, scopedHostArtifacts } from "./grading-host";
 import { evaluationWarning } from "./progress";
 import type { HostAdapter, HostResult } from "../host-contract/index";
-import { TrialPersistenceError } from "./types";
 
 export type AdvisoryReview = AdvisoryReviewData;
 

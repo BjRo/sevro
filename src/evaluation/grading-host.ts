@@ -1,4 +1,4 @@
-import { hostArtifacts } from "../evidence/host-results";
+import { hostArtifacts } from "../evidence/index";
 import type { HostResult } from "../host-contract/index";
 import { runtimeSeedSources, type RuntimePolicy } from "../runtime/index";
 export function scopedHostArtifacts(

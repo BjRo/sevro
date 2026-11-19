@@ -10,12 +10,13 @@ import { join } from "node:path";
 import { advisoryBaseRevision } from "../fixtures/index";
 import type { EvaluationContext } from "./context";
 import { prepareTrialWorkspace } from "./resources";
-import { hostArtifacts, hostObservations } from "../evidence/host-results";
 import {
+  hostArtifacts,
+  hostObservations,
   TrialEvidenceWriter,
+  usage,
   type TrialObservation,
-} from "../evidence/trial-writer";
-import { usage } from "../evidence/usage";
+} from "../evidence/index";
 import { runAdvisoryReview, type AdvisoryReview } from "./advisory";
 import { evaluationProgress, evaluationWarning } from "./progress";
 import {

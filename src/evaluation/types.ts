@@ -1,23 +1,11 @@
 import type { PreparationSources } from "../fixtures/index";
 import type { ExtensionCase } from "../extension-session";
 import type { openExtensionSession } from "../extension-session";
-import type { Assessment, DomainOutcome } from "../contract-types";
-import type {
-  CliResultData,
-  CliResultDataCase,
-  CliResultDataTrial,
-} from "../schema-types";
+import type { Assessment } from "../contract-types";
+import type { CliResultData, CliResultDataCase } from "../schema-types";
+import type { TrialSummary } from "../evidence/index";
 import type { RuntimePolicy } from "../runtime/index";
 import type { HostAdapter, ResolvedCase } from "../host-contract/index";
-
-export class TrialPersistenceError extends Error {
-  constructor(workspace: string, options?: ErrorOptions) {
-    super(
-      `trial persistence failed; fixture retained at ${workspace}`,
-      options,
-    );
-  }
-}
 
 export type { EvaluationProgress } from "../api-types";
 import type { EvaluationProgress } from "../api-types";
@@ -59,18 +47,6 @@ export interface EvaluationOptions {
     toolchainBinDir?: string;
     uvRuntimeCache?: boolean;
   };
-}
-
-/** Persisted evaluations always retain a trial path and a known outcome list. */
-export interface TrialSummary
-  extends
-    Assessment,
-    Omit<
-      CliResultDataTrial,
-      keyof Assessment | "domainOutcomes" | "artifactPath"
-    > {
-  domainOutcomes: DomainOutcome[];
-  artifactPath: string;
 }
 
 export interface CaseSummary

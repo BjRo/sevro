@@ -11,7 +11,7 @@ import {
 } from "../graders/shell";
 import { evaluationProtectedRoots } from "../isolation/index";
 import { sha256 } from "../identity";
-import type { TrialObservation } from "../evidence/trial-writer";
+import type { TrialObservation } from "../evidence/index";
 import {
   ExtensionSourceChangedError,
   type EvaluationRequest,

@@ -2,7 +2,8 @@ import { checkpointRunOwner, type RunOwner } from "../run-owner";
 import { summarizeAssessments, type Assessment } from "../results";
 import type { Diagnostic } from "../contract-types";
 import type { RunEvidenceDataTrialEvidence } from "../schema-types";
-import type { CaseSummary, TrialSummary } from "./types";
+import type { TrialSummary } from "../evidence/index";
+import type { CaseSummary } from "./types";
 
 type TrialEvidence = RunEvidenceDataTrialEvidence;
 

@@ -1220,20 +1220,6 @@
   },
   {
     "type": "dependency",
-    "from": "src/evidence/trial-writer.ts",
-    "to": "src/evaluation/types.ts",
-    "unresolvedTo": "../evaluation/types",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "layer-features"
-    }
-  },
-  {
-    "type": "dependency",
     "from": "src/cli/hosts.ts",
     "to": "src/hosts/claude.ts",
     "unresolvedTo": "../hosts/claude",
@@ -1279,35 +1265,6 @@
     "from": "src/cli/preparation.ts",
     "to": "src/hosts/codex-configuration.ts",
     "unresolvedTo": "../hosts/codex-configuration",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/evaluation/advisory.ts",
-    "to": "src/evidence/trial-writer.ts",
-    "unresolvedTo": "../evidence/trial-writer",
-    "dependencyTypes": [
-      "local",
-      "type-only",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/evaluation/advisory.ts",
-    "to": "src/evidence/usage.ts",
-    "unresolvedTo": "../evidence/usage",
     "dependencyTypes": [
       "local",
       "import"
@@ -1366,35 +1323,6 @@
     "unresolvedTo": "../graders/shell",
     "dependencyTypes": [
       "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/evaluation/grading-host.ts",
-    "to": "src/evidence/host-results.ts",
-    "unresolvedTo": "../evidence/host-results",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/evaluation/grading.ts",
-    "to": "src/evidence/trial-writer.ts",
-    "unresolvedTo": "../evidence/trial-writer",
-    "dependencyTypes": [
-      "local",
-      "type-only",
       "import"
     ],
     "rule": {
@@ -1462,49 +1390,6 @@
   {
     "type": "dependency",
     "from": "src/evaluation/semantic.ts",
-    "to": "src/evidence/host-results.ts",
-    "unresolvedTo": "../evidence/host-results",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/evaluation/semantic.ts",
-    "to": "src/evidence/trial-writer.ts",
-    "unresolvedTo": "../evidence/trial-writer",
-    "dependencyTypes": [
-      "local",
-      "type-only",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/evaluation/semantic.ts",
-    "to": "src/evidence/usage.ts",
-    "unresolvedTo": "../evidence/usage",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/evaluation/semantic.ts",
     "to": "src/graders/artifact.ts",
     "unresolvedTo": "../graders/artifact",
     "dependencyTypes": [
@@ -1533,64 +1418,8 @@
   {
     "type": "dependency",
     "from": "src/evaluation/trial.ts",
-    "to": "src/evidence/host-results.ts",
-    "unresolvedTo": "../evidence/host-results",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/evaluation/trial.ts",
-    "to": "src/evidence/trial-writer.ts",
-    "unresolvedTo": "../evidence/trial-writer",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/evaluation/trial.ts",
-    "to": "src/evidence/usage.ts",
-    "unresolvedTo": "../evidence/usage",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/evaluation/trial.ts",
     "to": "src/graders/git-head.ts",
     "unresolvedTo": "../graders/git-head",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/evidence/trial-writer.ts",
-    "to": "src/evaluation/types.ts",
-    "unresolvedTo": "../evaluation/types",
     "dependencyTypes": [
       "local",
       "import"
