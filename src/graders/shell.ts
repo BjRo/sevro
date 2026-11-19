@@ -6,7 +6,7 @@ import {
 } from "../candidate-artifacts";
 import { mkdir, stat } from "node:fs/promises";
 import { delimiter, join } from "node:path";
-import { prepareIsolatedCommand } from "../hosts/isolation";
+import { prepareIsolatedCommand } from "../isolation/index";
 import type { RuntimePolicy } from "../runtime/config";
 import { prepareRuntimeState } from "../runtime/state";
 import { sharedCacheDenyRoots } from "../runtime/shared-cache";

@@ -42,8 +42,8 @@ import type {
 import {
   clearFixtureContents,
   removeDisposableDirectory,
-} from "../fixtures/cleanup";
-import { retainWorkspace } from "../fixtures/workspace-state";
+  retainWorkspace,
+} from "../workspace/index";
 import { gitHeadRevision } from "../graders/git-head";
 import {
   InstrumentationEvidenceError,

@@ -1,6 +1,6 @@
 import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { allocateWorkspace, removeWorkspace } from "./workspace-state";
+import { allocateWorkspace, removeWorkspace } from "../workspace/index";
 import { fixtureBinDirectory, installFixtureBin } from "./bin";
 import { installGitHooks } from "./git-hooks";
 import {

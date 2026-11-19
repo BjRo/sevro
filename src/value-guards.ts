@@ -40,3 +40,8 @@ export function isOptionalNonblankString(value: unknown): boolean {
     value === undefined || (typeof value === "string" && Boolean(value.trim()))
   );
 }
+
+/** Recognize a filesystem error reporting that a path does not exist. */
+export function isMissingFile(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "ENOENT";
+}

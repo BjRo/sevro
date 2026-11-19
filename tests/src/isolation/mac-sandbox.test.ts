@@ -10,14 +10,13 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { evaluationProtectedRoots } from "../../../src/hosts/isolation-roots";
-import { prepareLinuxSandboxCommand } from "../../../src/hosts/linux-sandbox";
 import {
+  evaluationProtectedRoots,
   HostIsolationError,
   macSandboxProfile,
-  prepareMacSandboxCommand,
-} from "../../../src/hosts/mac-sandbox";
-import { protectedWorktrees } from "../../../src/hosts/protected-worktrees";
+  prepareIsolatedCommand,
+  type IsolationOptions,
+} from "../../../src/isolation";
 import {
   allocateNativeState,
   nativeStatePath,
@@ -30,7 +29,7 @@ const { temporaryFixture, cleanupTemporaryFixtures, repositoryFixture } =
 
 const invalidSandboxCommands: {
   label: string;
-  change: Partial<Parameters<typeof prepareMacSandboxCommand>[0]>;
+  change: Partial<IsolationOptions>;
   diagnostic: string;
 }[] = [
   {
@@ -77,11 +76,7 @@ test("sandbox refuses a curated plugin grant from another native request", async
     await mkdir(workspace);
     await mkdir(privateStateRoot, { mode: 0o700 });
     await mkdir(projection, { recursive: true, mode: 0o700 });
-    const prepare =
-      process.platform === "linux"
-        ? prepareLinuxSandboxCommand
-        : prepareMacSandboxCommand;
-    const command = prepare({
+    const command = prepareIsolatedCommand({
       argv: ["/bin/true"],
       workspace,
       protectedRoots: [nativeStatePath()],
@@ -154,11 +149,7 @@ test.each([
           await writeFile(projection, "not a directory");
           break;
       }
-      const prepare =
-        process.platform === "linux"
-          ? prepareLinuxSandboxCommand
-          : prepareMacSandboxCommand;
-      const command = prepare({
+      const command = prepareIsolatedCommand({
         argv: ["/bin/true"],
         workspace,
         protectedRoots: [nativeStatePath()],
@@ -191,11 +182,7 @@ test("sandbox grants only the current native plugin subtree read-only", async ()
     await mkdir(projection, { recursive: true, mode: 0o700 });
     await writeFile(join(projection, "skill"), "verified plugin");
     await writeFile(join(privateStateRoot, "credential"), "private credential");
-    const prepare =
-      process.platform === "linux"
-        ? prepareLinuxSandboxCommand
-        : prepareMacSandboxCommand;
-    const command = await prepare({
+    const command = await prepareIsolatedCommand({
       argv: [
         "/bin/sh",
         "-c",
@@ -232,7 +219,7 @@ test.each(invalidSandboxCommands)(
   ({ change, diagnostic }) => {
     if (process.platform !== "darwin") return;
     expect(
-      prepareMacSandboxCommand({
+      prepareIsolatedCommand({
         argv: ["/usr/bin/true"],
         workspace: "/unused/workspace",
         protectedRoots: ["/unused/source"],
@@ -253,7 +240,7 @@ test("sandbox private state must stay outside an otherwise disjoint workspace", 
     await mkdir(source);
     await writeFile(join(source, "original.txt"), "original source");
     expect(
-      prepareMacSandboxCommand({
+      prepareIsolatedCommand({
         argv: ["/usr/bin/true"],
         workspace,
         protectedRoots: [source],
@@ -300,6 +287,15 @@ test.each(["relative", "missing"])(
 test("protection retains an existing checkout when a registered linked worktree has been removed", async () => {
   const source = await repositoryFixture();
   try {
+    const workspace = join(source.root, "workspace");
+    await mkdir(workspace);
+    const protectedRoots = () =>
+      evaluationProtectedRoots({
+        workspace,
+        projectRoot: source.repository,
+        resultsRoot: source.repository,
+        additionalRoots: [],
+      });
     const linked = join(source.root, "linked");
     await fixtureGit(
       source.repository,
@@ -309,13 +305,12 @@ test("protection retains an existing checkout when a registered linked worktree 
       "--detach",
       linked,
     );
-    expect(await protectedWorktrees(source.repository)).toContain(
-      await realpath(linked),
-    );
+    const canonicalLinked = await realpath(linked);
+    expect(await protectedRoots()).toContain(canonicalLinked);
     await rm(linked, { recursive: true });
-    expect(await protectedWorktrees(source.repository)).toEqual([
-      await realpath(source.repository),
-    ]);
+    const remaining = await protectedRoots();
+    expect(remaining).toContain(await realpath(source.repository));
+    expect(remaining).not.toContain(canonicalLinked);
     expect(await readFile(join(source.repository, "README.md"), "utf8")).toBe(
       "baseline\n",
     );
@@ -330,9 +325,16 @@ test("protection refuses ordinary invalid repository metadata rather than treati
   );
   try {
     await writeFile(join(root, ".git"), "not a Git metadata reference\n");
-    expect(protectedWorktrees(root)).rejects.toThrow(
-      "protected repository worktrees are unavailable",
-    );
+    const workspace = join(root, "workspace");
+    await mkdir(workspace);
+    expect(
+      evaluationProtectedRoots({
+        workspace,
+        projectRoot: root,
+        resultsRoot: root,
+        additionalRoots: [],
+      }),
+    ).rejects.toThrow("protected repository worktrees are unavailable");
     expect(await readFile(join(root, ".git"), "utf8")).toBe(
       "not a Git metadata reference\n",
     );
@@ -359,7 +361,7 @@ test("outer sandbox permits the fixture but denies protected source", async () =
   try {
     await Bun.write(join(workspace, "visible.txt"), "visible");
     await Bun.write(join(source, "secret.txt"), "secret");
-    const command = await prepareMacSandboxCommand({
+    const command = await prepareIsolatedCommand({
       argv: ["/bin/cat", join(workspace, "visible.txt")],
       workspace,
       protectedRoots: [source],
@@ -371,7 +373,7 @@ test("outer sandbox permits the fixture but denies protected source", async () =
     expect(await new Response(allowed.stdout).text()).toBe("visible");
     expect(await allowed.exited).toBe(0);
     await command.release();
-    const deniedCommand = await prepareMacSandboxCommand({
+    const deniedCommand = await prepareIsolatedCommand({
       argv: ["/bin/cat", join(source, "secret.txt")],
       workspace,
       protectedRoots: [source],
@@ -383,7 +385,7 @@ test("outer sandbox permits the fixture but denies protected source", async () =
     });
     expect(await denied.exited).not.toBe(0);
     await deniedCommand.release();
-    const writeCommand = await prepareMacSandboxCommand({
+    const writeCommand = await prepareIsolatedCommand({
       argv: ["/bin/mkdir", join(source, "created")],
       workspace,
       protectedRoots: [source],
@@ -404,7 +406,7 @@ test("workspace cannot overlap a protected root", async () => {
   const root = await temporaryFixture(join(tmpdir(), "sevro-sandbox-overlap-"));
   try {
     expect(
-      prepareMacSandboxCommand({
+      prepareIsolatedCommand({
         argv: ["/usr/bin/true"],
         workspace: root,
         protectedRoots: [root],
@@ -428,14 +430,14 @@ test("a verified peer path remains denied after its fixture is removed", async (
     const canonicalPeer = await realpath(peer);
     await rm(peer, { recursive: true });
     expect(
-      prepareMacSandboxCommand({
+      prepareIsolatedCommand({
         argv: ["/bin/true"],
         workspace,
         protectedRoots: [canonicalPeer],
         privateStateRoot: join(root, "state"),
       }),
     ).rejects.toThrow();
-    const command = await prepareMacSandboxCommand({
+    const command = await prepareIsolatedCommand({
       argv: ["/usr/bin/true"],
       workspace,
       protectedRoots: [canonicalPeer],

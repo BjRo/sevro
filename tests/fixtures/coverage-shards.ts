@@ -12,9 +12,9 @@ import { aggregateCoverage } from "../../scripts/coverage/aggregate";
 import { fixtureGit } from "./filesystem";
 
 const hostModules = [
-  "src/hosts/linux-sandbox.ts",
+  "src/isolation/linux-sandbox.ts",
   "src/hosts/claude-keychain.ts",
-  "src/hosts/mac-sandbox.ts",
+  "src/isolation/mac-sandbox.ts",
   "src/runtime/discovery-apple.ts",
 ];
 

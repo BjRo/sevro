@@ -44,6 +44,7 @@ function prepareFormatFixture(project: string, files: string[]) {
     "eslint.config.mjs",
     "tsconfig.json",
     ".github/workflows/probe.yml",
+    ".dependency-cruiser.json",
   ]) {
     const path = resolve(project, file);
     mkdirSync(dirname(path), { recursive: true });

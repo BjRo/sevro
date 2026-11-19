@@ -8,7 +8,7 @@ import {
   requireNativeHookRoots,
 } from "../native-transcript-state";
 import { requireCandidateArtifactRoots } from "../candidate-artifacts";
-import { workspaceBoundaryException } from "../fixtures/workspace-state";
+import { workspaceBoundaryException } from "../workspace/index";
 import { requireWritableCacheRoots } from "../runtime/shared-cache";
 import {
   insideRuntimeRoot,
@@ -23,9 +23,6 @@ import {
   type IsolatedCommand,
   type IsolationOptions,
 } from "./isolation-common";
-
-export { HostIsolationError } from "./isolation-common";
-export type { IsolatedCommand } from "./isolation-common";
 
 const SANDBOX_EXEC = "/usr/bin/sandbox-exec";
 

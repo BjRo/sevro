@@ -3,7 +3,7 @@ import { isAbsolute } from "node:path";
 import { insideRoot as inside } from "../paths";
 export { insideRoot as inside } from "../paths";
 import { insideRuntimeRoot } from "../runtime/paths";
-import { workspaceBoundaryException } from "../fixtures/workspace-state";
+import { workspaceBoundaryException } from "../workspace/index";
 import type { CandidateArtifactRoots } from "../candidate-artifacts";
 
 export class HostIsolationError extends Error {

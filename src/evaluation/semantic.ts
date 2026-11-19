@@ -1,4 +1,4 @@
-import { clearFixtureContents } from "../fixtures/cleanup";
+import { clearFixtureContents } from "../workspace/index";
 import type { CandidateArtifactRoots } from "../candidate-artifacts";
 import { createFixture } from "../fixtures/create";
 import { hostArtifacts } from "../evidence/host-results";

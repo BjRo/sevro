@@ -11,10 +11,7 @@ import {
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadRuntimeConfiguration } from "../../../src/engine";
-import {
-  allocateWorkspace,
-  removeWorkspace,
-} from "../../../src/fixtures/workspace-state";
+import { allocateWorkspace, removeWorkspace } from "../../../src/workspace";
 import { createClaudeHost } from "../../../src/hosts/claude";
 import { createCodexHost } from "../../../src/hosts/codex";
 import { allocateNativeState } from "../../../src/native-transcript-state";

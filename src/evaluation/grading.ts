@@ -9,7 +9,7 @@ import {
   runShellCheck,
   type PreparedShellCheck,
 } from "../graders/shell";
-import { evaluationProtectedRoots } from "../hosts/isolation-roots";
+import { evaluationProtectedRoots } from "../isolation/index";
 import { sha256 } from "../identity";
 import type { TrialObservation } from "../evidence/trial-writer";
 import {

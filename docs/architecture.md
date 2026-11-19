@@ -84,7 +84,7 @@ Trial cleanup releases candidate artifact runtimes and transcript views even
 when the trial fails. Persisted successful fixture contents are cleared while
 their empty reserved roots remain until active work drains. Failed, cancelled,
 grading-error, unavailable-evidence, and failed-task fixtures are retained;
-[workspace ownership](../src/fixtures/workspace-state.ts) tracks their inactive
+[workspace ownership](../src/workspace/workspace-state.ts) tracks their inactive
 retention and startup expiry after 24 hours. Saved evidence stays outside that
 cleanup. See the [results retention contract](results-v1.md#identity-and-provenance)
 for the public boundary, including ownership that cannot be verified.
@@ -114,11 +114,36 @@ the preparation plan.
 | Collected run results          | [`ResultCollector` in `collection.ts`](../src/evaluation/collection.ts)                                                                                         | Private completed summaries, evidence, and diagnostics; trial-number ordering, snapshots for aggregation, and checkpoint requests. [`run-owner.ts`](../src/run-owner.ts) verifies process ownership and writes owner/checkpoint state.                                            |
 | Evidence writes                | [`TrialEvidenceWriter`](../src/evidence/trial-writer.ts), [preparation retention](../src/evaluation/resources.ts), [run finalization](../src/evaluation/run.ts) | The trial writer owns filenames, private writes, hashes, artifact references, and typed trial-persistence failures. Resource helpers retain preparation bytes; run finalization writes aggregate evidence. [`storage.ts`](../src/storage.ts) supplies atomic private JSON writes. |
 
-Fixture modules own materialization and workspace preparation. Runtime modules
+Fixture modules own materialization and workspace preparation. The
+[workspace module](../src/workspace/index.ts) owns the private namespace of
+runner-owned candidate workspaces, and the [isolation module](../src/isolation/index.ts)
+turns protected roots into a platform sandbox command. Runtime modules
 own declared host runtime policy and private state. Evidence modules validate
 host observations and artifacts, verify retained bytes, and normalize optional
 usage without constructing fixtures. Native host implementations and graders
 remain in their own families.
+
+## Module structure
+
+Source directories under `src/` are modules. A module with an `index.ts` exposes
+its interface there; production callers, tests, tooling and examples import that
+file instead of the module's other files. Modules are layered, and a module may
+depend only on its own layer or lower ones:
+
+| Layer          | Modules                                                                    |
+| -------------- | -------------------------------------------------------------------------- |
+| Entry points   | `cli.ts`, `index.ts`, `engine.ts`                                          |
+| CLI            | `cli/`                                                                     |
+| Orchestration  | `evaluation/`                                                              |
+| Features       | `hosts/`, `graders/`, `fixtures/`, `evidence/`                             |
+| Infrastructure | `isolation/`, then `runtime/`, then `workspace/` (each above the next one) |
+| Base           | `generated/`, reached only through the schema boundary                     |
+
+Top-level files in `src/` predate this structure and have no layer yet.
+[dependency-cruiser](../.dependency-cruiser.json) enforces these rules together
+with cycle, orphan and dependency checks. Existing exceptions are recorded in
+the [known-violations baseline](../.dependency-cruiser-known-violations.json);
+new code must not add to it. See [module dependencies](typescript-quality.md#module-dependencies).
 
 ## Where to change behavior
 
@@ -134,7 +159,8 @@ candidate acceptance.
 | Present CLI results and own cancellation                          | [Presentation](../src/cli/presentation.ts), [cancellation](../src/cli/cancellation.ts), [command lifecycle](../src/cli/command.ts)                                                                                                                                                       | [CLI states and exits](../tests/src/cli/results.test.ts), [signal retention](../tests/src/cli/trial-retention.test.ts)                                                                                                            |
 | Prepare evaluation inputs and grade trials                        | [Engine facade](../src/engine.ts), [plan](../src/evaluation/plan.ts), [grading](../src/evaluation/grading.ts), [semantic grading](../src/evaluation/semantic.ts), [evaluation modules](../src/evaluation/), [engine slice](https://github.com/BjRo/sevro/blob/main/docs/engine-slice.md) | [Preparation refusals](../tests/src/evaluation/preparation-validation.test.ts), [semantic grading failures](../tests/src/evaluation/semantic-grading-failures.test.ts), [engine lifecycle](../tests/src/engine-lifecycle.test.ts) |
 | Schedule trials, retain evidence, and finalize ownership          | [Scheduler](../src/evaluation/scheduler.ts), [trial coordinator](../src/evaluation/trial.ts), [reservations](../src/evaluation/resources.ts), [collection](../src/evaluation/collection.ts), [run owner](../src/run-owner.ts)                                                            | [Concurrent admission and ordering](../tests/src/cli/concurrency.test.ts), [trial failures and retention](../tests/src/evaluation/trial-retention.test.ts), [checkpoint refusals](../tests/src/run-owner-checkpoints.test.ts)     |
-| Prepare, construct, and clean up fixtures                         | [Fixture modules](../src/fixtures/), [construction](../src/fixtures/create.ts), [preparation artifacts](../src/fixtures/preparation.ts), [content cleanup](../src/fixtures/cleanup.ts), [workspace ownership](../src/fixtures/workspace-state.ts)                                        | [Artifact preparation](../tests/src/fixtures/artifact-preparation.test.ts), [workspace lifecycle](../tests/src/fixtures/workspace-lifecycle.test.ts)                                                                              |
+| Prepare, construct, and clean up fixtures                         | [Fixture modules](../src/fixtures/), [construction](../src/fixtures/create.ts), [preparation artifacts](../src/fixtures/preparation.ts), [content cleanup](../src/workspace/cleanup.ts), [workspace ownership](../src/workspace/workspace-state.ts)                                      | [Artifact preparation](../tests/src/fixtures/artifact-preparation.test.ts), [workspace lifecycle](../tests/src/fixtures/workspace-lifecycle.test.ts)                                                                              |
+| Isolate evaluator and hook commands                               | [Isolation module](../src/isolation/index.ts), [protected roots](../src/isolation/isolation-roots.ts), [macOS sandbox](../src/isolation/mac-sandbox.ts), [Linux sandbox](../src/isolation/linux-sandbox.ts)                                                                              | [Sandbox refusals and grants](../tests/src/isolation/mac-sandbox.test.ts), [Linux masking](../tests/src/isolation/linux-sandbox.test.ts)                                                                                          |
 | Resolve runtime policy, discovery, and private state              | [Runtime modules](../src/runtime/), [configuration](../src/runtime/config.ts)                                                                                                                                                                                                            | [Runtime environment](../tests/src/runtime/environment.test.ts), [candidate artifact lifetime](../tests/src/candidate-artifacts.test.ts)                                                                                          |
 | Validate host results and retain bounded evidence                 | [Host results](../src/evidence/host-results.ts), [trial writer](../src/evidence/trial-writer.ts), [retained artifacts](../src/evidence/retained-artifacts.ts), [usage](../src/evidence/usage.ts)                                                                                         | [Host evidence refusals](../tests/src/evaluation/host-evidence.test.ts), [failed-host evidence retention](../tests/src/evaluation/trial-retention.test.ts)                                                                        |
 | Negotiate trusted extension calls                                 | [Client](../src/extension-client.ts), [session](../src/extension-session.ts), [extension grading](../src/evaluation/grading.ts), [protocol](extension-protocol-v1.md)                                                                                                                    | [Negotiated engine behavior](../tests/src/evaluation/extension-engine.test.ts), [extension grading outcomes](../tests/src/evaluation/extension-grading.test.ts)                                                                   |

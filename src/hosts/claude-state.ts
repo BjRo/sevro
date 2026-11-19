@@ -19,7 +19,7 @@ import { nativeStateParent } from "../native-transcript-state";
 import {
   workspaceBoundaryException,
   workspaceStatePath,
-} from "../fixtures/workspace-state";
+} from "../workspace/index";
 import {
   candidateTranscriptEnvironment,
   candidateTranscriptRoots,
@@ -36,7 +36,7 @@ import {
 } from "../runtime/shared-cache";
 import { stageClaudeAuthentication } from "./claude-credential";
 import { claudeHostSettings } from "./claude-settings";
-import { evaluationProtectedRoots } from "./isolation-roots";
+import { evaluationProtectedRoots } from "../isolation/index";
 type Request = Parameters<HostAdapter["run"]>[0];
 export interface ClaudeHostOptions {
   binary: string;

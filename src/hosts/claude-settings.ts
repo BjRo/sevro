@@ -7,7 +7,7 @@ import { nativeStatePath } from "../native-transcript-state";
 import {
   workspaceStatePath,
   workspaceBoundaryException,
-} from "../fixtures/workspace-state";
+} from "../workspace/index";
 
 interface WritableRuntime {
   root: string;

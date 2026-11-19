@@ -18,8 +18,7 @@ import {
   validProcessIdentity,
   type ProcessIdentity,
 } from "../run-owner";
-import { isRecord } from "../value-guards";
-import { isMissingFile } from "./tools";
+import { isMissingFile, isRecord } from "../value-guards";
 import { atomicWriteJson } from "../storage";
 import { clearFixtureContents } from "./cleanup";
 

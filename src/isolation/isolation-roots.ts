@@ -1,11 +1,11 @@
 import { runnerRoot } from "../runner-paths";
-import { isMissingFile } from "../fixtures/tools";
+import { isMissingFile } from "../value-guards";
 import { realpath } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
 import { isAbsolute } from "node:path";
 import { protectedWorktrees } from "./protected-worktrees";
 import { nativeStateParent } from "../native-transcript-state";
-import { workspaceStateParent } from "../fixtures/workspace-state";
+import { workspaceStateParent } from "../workspace/index";
 
 /** Include source, results, host configuration, and every active peer fixture. */
 interface ProtectedRootsOptions {

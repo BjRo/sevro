@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { prepareLinuxSandboxCommand } from "../../../src/hosts/linux-sandbox";
+import { prepareLinuxSandboxCommand } from "../../../src/isolation";
 import { createTemporaryFixtures } from "../../fixtures/filesystem";
 
 const { temporaryFixture, cleanupTemporaryFixtures } =

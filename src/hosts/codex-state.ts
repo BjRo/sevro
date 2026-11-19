@@ -10,7 +10,7 @@ import {
 } from "../candidate-codex-state";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { isMissingFile } from "../fixtures/tools";
+import { isMissingFile } from "../value-guards";
 import {
   cp,
   lstat,
@@ -40,7 +40,7 @@ import {
   sharedCacheRoots,
 } from "../runtime/shared-cache";
 import { codexPermissionProfile } from "./codex-profile";
-import { evaluationProtectedRoots } from "./isolation-roots";
+import { evaluationProtectedRoots } from "../isolation/index";
 type Request = Parameters<HostAdapter["run"]>[0];
 type CodexState = Awaited<ReturnType<typeof prepareCodexState>>;
 const MAX_AUTH_BYTES = 1024 * 1024;

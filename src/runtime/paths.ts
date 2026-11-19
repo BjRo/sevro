@@ -9,7 +9,7 @@ import {
 import { constants, lstatSync, readlinkSync, realpathSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import { nativeStateProtectedRoots } from "../native-transcript-state";
-import { workspaceStatePath } from "../fixtures/workspace-state";
+import { workspaceStatePath } from "../workspace/index";
 import { insideRoot as insideRuntimeRoot } from "../paths";
 import { containsControl } from "../value-guards";
 export { insideRoot as insideRuntimeRoot } from "../paths";

@@ -7,7 +7,7 @@ import type { CandidateArtifactRoots } from "../candidate-artifacts";
 import type { TrialEvidenceWriter } from "../evidence/trial-writer";
 import { usage } from "../evidence/usage";
 import { buildBlindAdvisoryFixture } from "../fixtures/advisory";
-import { removeWorkspace } from "../fixtures/workspace-state";
+import { removeWorkspace } from "../workspace/index";
 import { HostDiagnosticPersistenceError } from "../host-diagnostics";
 import type { CheckOutcome } from "../results";
 import type { AdvisoryReviewData } from "../schema-types";

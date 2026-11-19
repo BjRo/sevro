@@ -53,6 +53,7 @@ function staticChecks(root: string) {
     "format:check",
     "lint",
     "typecheck",
+    "check:deps",
   ]) {
     run([process.execPath, "run", name], root);
   }

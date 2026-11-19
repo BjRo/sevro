@@ -2,7 +2,7 @@ import { isAbsolute, join, sep } from "node:path";
 import { minimalRoots as minimalProtectedRoots } from "../paths";
 import { containsControl } from "../value-guards";
 import { insideRuntimeRoot, isRuntimeHomeRoot } from "../runtime/paths";
-import { workspaceBoundaryException } from "../fixtures/workspace-state";
+import { workspaceBoundaryException } from "../workspace/index";
 import {
   nativeStatePath,
   nativeStateProtectedRoots,

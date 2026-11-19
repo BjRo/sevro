@@ -103,8 +103,8 @@ typed; they do not enter the production coverage denominator. New or changed
 source dispositions require review.
 
 Before committing, use `bun run check:typescript --fast` after installing the
-locked dependencies. This runs inventory, schema, formatting, lint, typing and
-documentation checks; it does not replace full acceptance. CI retains machine-readable coverage
+locked dependencies. This runs inventory, schema, formatting, lint, typing,
+module dependency and documentation checks; it does not replace full acceptance. CI retains machine-readable coverage
 reports under `.quality/` and exposes the stable `TypeScript quality` status.
 The complete command's `static`, `docs`, `tests` and `package` phases run as
 concurrent CI jobs. CI divides the tests among four duration-balanced jobs and

@@ -6,7 +6,7 @@ import {
   allocateWorkspace,
   retainWorkspace,
   removeWorkspace,
-} from "../fixtures/workspace-state";
+} from "../workspace/index";
 import { createFixture } from "../fixtures/create";
 import { fixtureBinDirectory } from "../fixtures/bin";
 import { fixtureParts } from "../fixtures/preparation";

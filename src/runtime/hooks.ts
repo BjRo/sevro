@@ -15,9 +15,11 @@ import { insideRuntimeRoot, requireRuntimeReadRoots } from "./paths";
 import { runtimeSeedDigest } from "./seeds";
 import { prepareRuntimeState } from "./state";
 import { sharedCacheDenyRoots, sharedCacheRoots } from "./shared-cache";
-import { macSandboxProfile } from "../hosts/mac-sandbox";
-import type { IsolatedCommand } from "../hosts/mac-sandbox";
-import { prepareLinuxSandboxCommand } from "../hosts/linux-sandbox";
+import {
+  macSandboxProfile,
+  prepareLinuxSandboxCommand,
+  type IsolatedCommand,
+} from "../isolation/index";
 import { isRecord, isUnknownArray } from "../value-guards";
 import { hookExecutions, releaseHookProcesses } from "./hook-processes";
 import {
