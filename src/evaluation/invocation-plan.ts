@@ -1,9 +1,9 @@
 import {
   EvaluationConfigurationError,
-  type EvaluationOptions,
   type HostAdapter,
   type ResolvedCase,
-} from "./types";
+} from "../host-contract/index";
+import type { EvaluationOptions } from "./types";
 import { fixtureParts, type InlineArtifact } from "../fixtures/index";
 import { isStringArray } from "../value-guards";
 import type { PreparationResult } from "../extension-session";

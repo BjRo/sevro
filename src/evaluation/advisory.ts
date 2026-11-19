@@ -14,11 +14,8 @@ import type { AdvisoryReviewData } from "../schema-types";
 import type { RuntimePolicy } from "../runtime/index";
 import { gradingRuntimePolicy, scopedHostArtifacts } from "./grading-host";
 import { evaluationWarning } from "./progress";
-import {
-  TrialPersistenceError,
-  type HostAdapter,
-  type HostResult,
-} from "./types";
+import type { HostAdapter, HostResult } from "../host-contract/index";
+import { TrialPersistenceError } from "./types";
 
 export type AdvisoryReview = AdvisoryReviewData;
 

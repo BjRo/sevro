@@ -5,21 +5,12 @@ import { prepareFixtureBin } from "./bin";
 import { prepareGitHooks } from "./git-hooks";
 import { fixtureParts } from "./preparation";
 import { runGit } from "../git";
+import type { GeneratedFixture } from "../host-contract/index";
 
 const MAX_COMMITS = 128;
 const MAX_FILES = 1024;
 const MAX_BYTES = 32 * 1024 * 1024;
 const MAX_GIT_OUTPUT = 64 * 1024;
-
-export interface GeneratedFixture {
-  kind: "generated";
-  commits: { message: string; files: Record<string, string> }[];
-  files?: Record<string, string>;
-  staged?: string[];
-  commitFiles?: boolean;
-  hooks?: Record<string, string>;
-  bin?: Record<string, string>;
-}
 
 function validFiles(value: unknown): value is Record<string, string> {
   return (

@@ -3,16 +3,16 @@ import { validQualifiedId } from "../value-guards";
 import { validInlineFixture } from "../case-validation";
 import {
   EvaluationConfigurationError,
-  type EvaluationOptions,
+  type GeneratedFixture,
   type HostAdapter,
+  type RepositoryFixture,
   type ResolvedCase,
-} from "./types";
+} from "../host-contract/index";
+import type { EvaluationOptions } from "./types";
 import {
   prepareGeneratedFixture,
   fixtureParts,
   prepareRepositoryFixture,
-  type GeneratedFixture,
-  type RepositoryFixture,
   type FixtureSource,
 } from "../fixtures/index";
 import {

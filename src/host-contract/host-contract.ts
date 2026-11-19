@@ -2,7 +2,6 @@ import type {
   InstrumentationCapability,
   InstrumentationRequest,
 } from "../instrumentation";
-import type { GeneratedFixture, RepositoryFixture } from "../fixtures/index";
 import type { CheckDeclaration, ObservationEvidence } from "../contract-types";
 import type { RuntimePolicy, RuntimeRole } from "../runtime/index";
 import type { CandidateArtifactRoots } from "../candidate-artifacts";
@@ -94,6 +93,28 @@ export interface HostAdapter {
         };
     signal?: AbortSignal;
   }): Promise<HostResult>;
+}
+
+/** A fixture declared as a Git history generated from inline commits. */
+export interface GeneratedFixture {
+  kind: "generated";
+  commits: { message: string; files: Record<string, string> }[];
+  files?: Record<string, string>;
+  staged?: string[];
+  commitFiles?: boolean;
+  hooks?: Record<string, string>;
+  bin?: Record<string, string>;
+}
+
+/** A fixture cloned from a declared local repository source plus an overlay. */
+export interface RepositoryFixture {
+  kind: "repository";
+  sourceRef: string;
+  files?: Record<string, string>;
+  staged?: string[];
+  commitFiles?: boolean;
+  hooks?: Record<string, string>;
+  bin?: Record<string, string>;
 }
 
 export interface ResolvedCase {

@@ -9,20 +9,11 @@ import { prepareFixtureBin } from "./bin";
 import { prepareGitHooks } from "./git-hooks";
 import type { PreparationSources } from "./preparation";
 import { fixtureParts } from "./preparation";
+import type { RepositoryFixture } from "../host-contract/index";
 
 const MAX_GIT_OUTPUT_BYTES = 64 * 1024;
 const MAX_OVERLAY_FILES = 1024;
 const MAX_OVERLAY_BYTES = 32 * 1024 * 1024;
-
-export interface RepositoryFixture {
-  kind: "repository";
-  sourceRef: string;
-  files?: Record<string, string>;
-  staged?: string[];
-  commitFiles?: boolean;
-  hooks?: Record<string, string>;
-  bin?: Record<string, string>;
-}
 
 function repositoryRecord(value: unknown): Record<string, unknown> {
   if (!isRecord(value)) throw new Error("invalid repository fixture");

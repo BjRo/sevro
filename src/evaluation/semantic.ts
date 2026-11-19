@@ -8,7 +8,7 @@ import {
   HostExecutionFailure,
   type HostAdapter,
   type HostResult,
-} from "./types";
+} from "../host-contract/index";
 import { readSemanticArtifact } from "../graders/artifact";
 import {
   parseSemanticVerdicts,

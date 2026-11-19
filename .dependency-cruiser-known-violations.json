@@ -689,20 +689,6 @@
   {
     "type": "dependency",
     "from": "tests/src/hosts/claude.test.ts",
-    "to": "src/evaluation/types.ts",
-    "unresolvedTo": "../../../src/evaluation/types",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "consumer-module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "tests/src/hosts/claude.test.ts",
     "to": "src/hosts/claude.ts",
     "unresolvedTo": "../../../src/hosts/claude",
     "dependencyTypes": [
@@ -1304,21 +1290,6 @@
   },
   {
     "type": "dependency",
-    "from": "src/cli/progress.ts",
-    "to": "src/evaluation/types.ts",
-    "unresolvedTo": "../evaluation/types",
-    "dependencyTypes": [
-      "local",
-      "type-only",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
     "from": "src/evaluation/advisory.ts",
     "to": "src/evidence/trial-writer.ts",
     "unresolvedTo": "../evidence/trial-writer",
@@ -1630,51 +1601,6 @@
     }
   },
   {
-    "type": "cycle",
-    "from": "src/fixtures/create.ts",
-    "to": "src/host-contract/index.ts",
-    "unresolvedTo": "../host-contract/index",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "no-circular"
-    },
-    "cycle": [
-      {
-        "name": "src/host-contract/index.ts",
-        "dependencyTypes": [
-          "local",
-          "import"
-        ]
-      },
-      {
-        "name": "src/host-contract/host-contract.ts",
-        "dependencyTypes": [
-          "local",
-          "export"
-        ]
-      },
-      {
-        "name": "src/fixtures/index.ts",
-        "dependencyTypes": [
-          "local",
-          "type-only",
-          "import"
-        ]
-      },
-      {
-        "name": "src/fixtures/create.ts",
-        "dependencyTypes": [
-          "local",
-          "export"
-        ]
-      }
-    ]
-  },
-  {
     "type": "dependency",
     "from": "src/cli.ts",
     "to": "src/cli/command.ts",
@@ -1724,35 +1650,6 @@
     "dependencyTypes": [
       "local",
       "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "root-module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/engine.ts",
-    "to": "src/evaluation/run.ts",
-    "unresolvedTo": "./evaluation/run",
-    "dependencyTypes": [
-      "local",
-      "export"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "root-module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/engine.ts",
-    "to": "src/evaluation/types.ts",
-    "unresolvedTo": "./evaluation/types",
-    "dependencyTypes": [
-      "local",
-      "type-only",
-      "export"
     ],
     "rule": {
       "severity": "error",

@@ -10,14 +10,6 @@ import type {
 import type { RuntimePolicy } from "../runtime/index";
 import type { HostAdapter, ResolvedCase } from "../host-contract/index";
 
-export {
-  EvaluationConfigurationError,
-  HostExecutionFailure,
-  type HostAdapter,
-  type HostResult,
-  type ResolvedCase,
-} from "../host-contract/index";
-
 export class TrialPersistenceError extends Error {
   constructor(workspace: string, options?: ErrorOptions) {
     super(

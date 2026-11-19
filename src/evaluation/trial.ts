@@ -28,10 +28,10 @@ import {
 import { gradeSemanticChecks } from "./semantic";
 import {
   HostExecutionFailure,
-  type EvaluationOptions,
   type HostAdapter,
   type HostResult,
-} from "./types";
+} from "../host-contract/index";
+import type { EvaluationOptions } from "./types";
 import type { EvaluationResult } from "../extension-session";
 import type {
   Diagnostic,

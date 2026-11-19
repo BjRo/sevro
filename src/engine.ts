@@ -11,8 +11,8 @@ export type {
   EvaluationOptions,
   EvaluationProgress,
   CliResult,
-} from "./evaluation/types";
-export { runEvaluation } from "./evaluation/run";
+} from "./evaluation/index";
+export { runEvaluation } from "./evaluation/index";
 export { loadRuntimeConfiguration } from "./runtime/index";
 export type {
   RuntimeArtifactDirectory,

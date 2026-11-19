@@ -13,7 +13,8 @@ import {
   fixtureParts,
 } from "../fixtures/index";
 import { startRunOwner, type RunOwner } from "../run-owner";
-import { EvaluationConfigurationError, type EvaluationOptions } from "./types";
+import { EvaluationConfigurationError } from "../host-contract/index";
+import type { EvaluationOptions } from "./types";
 import type { PreparedFixture, PreparedInvocation } from "./plan";
 import { evaluationWarning } from "./progress";
 import {

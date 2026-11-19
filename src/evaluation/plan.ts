@@ -1,10 +1,10 @@
 import { realpath } from "node:fs/promises";
 import {
   EvaluationConfigurationError,
-  type EvaluationOptions,
   type HostAdapter,
   type ResolvedCase,
-} from "./types";
+} from "../host-contract/index";
+import type { EvaluationOptions } from "./types";
 import {
   prepareFixtureSetup,
   fixtureParts,

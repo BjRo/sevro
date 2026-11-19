@@ -9,7 +9,7 @@
 export { buildBlindAdvisoryFixture, advisoryBaseRevision } from "./advisory";
 export { fixtureBinDirectory } from "./bin";
 export { createFixture, type FixtureSource } from "./create";
-export { prepareGeneratedFixture, type GeneratedFixture } from "./generated";
+export { prepareGeneratedFixture } from "./generated";
 export {
   fixtureParts,
   prepareArtifacts,
@@ -20,7 +20,6 @@ export {
 export {
   prepareRepositoryFixture,
   resolveRepositorySource,
-  type RepositoryFixture,
 } from "./repository";
 export {
   prepareFixtureSetup,
