@@ -127,10 +127,7 @@ async function hasPruningRecord(evidence: RunEvidenceData) {
   return marked !== null;
 }
 
-export async function nativeTranscriptRetention(
-  evidence: RunEvidenceData | null,
-) {
-  if (!evidence) return [];
+export async function nativeTranscriptRetention(evidence: RunEvidenceData) {
   const marked = await hasPruningRecord(evidence);
   const states = [];
   for (const artifact of transcriptArtifacts(evidence)) {

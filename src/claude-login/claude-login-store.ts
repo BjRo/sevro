@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import {
   readFile,
   realpath,
@@ -7,7 +7,7 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
-import { homedir, userInfo } from "node:os";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 export const MAX_CREDENTIAL_BYTES = 1024 * 1024;
@@ -22,81 +22,34 @@ export interface ClaudeLoginStore {
   write(bytes: Buffer): Promise<void>;
 }
 
-/** Keychain operations; the macOS module supplies them only on Darwin. */
-export interface ClaudeKeychain {
-  read(service: string, account: string): Promise<Buffer | undefined>;
-  write(service: string, account: string, bytes: Buffer): Promise<void>;
-}
+/**
+ * Select a configuration directory's Keychain login, or none when it has no
+ * item. Only the macOS module supplies one; a Keychain that cannot be read
+ * yields to an existing saved file, as Claude Code does.
+ */
+export type ClaudeKeychainStore = (
+  configRoot: string,
+  savedFile: string,
+) => Promise<ClaudeLoginStore | undefined>;
 
 /** Resolve the store Claude Code itself uses for the selected login. */
 export async function claudeLoginStore(
-  sourceFile?: string,
-  keychain?: ClaudeKeychain,
+  sourceFile: string | undefined,
+  keychainStore: ClaudeKeychainStore,
 ): Promise<ClaudeLoginStore> {
   if (sourceFile) return fileLoginStore(sourceFile, dirname(sourceFile));
   const configRoot = claudeConfigRoot();
   const file = join(configRoot, ".credentials.json");
-  const saved = await keychainLoginStore(configRoot, keychain).catch(
-    async (cause: unknown) => {
-      // Claude falls back to its saved file when the Keychain cannot be read.
-      if (await savedFileExists(file)) return undefined;
-      throw cause;
-    },
-  );
+  const saved = await keychainStore(configRoot, file);
   if (saved) return saved;
   await requireSavedFile(file);
   return fileLoginStore(file, configRoot);
-}
-
-async function savedFileExists(path: string): Promise<boolean> {
-  try {
-    await stat(path);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function claudeConfigRoot(): string {
   return (
     process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude")
   ).normalize("NFC");
-}
-
-/** Claude keys a non-default configuration's Keychain item by its path. */
-function claudeKeychainService(): string {
-  const configured = process.env.CLAUDE_CONFIG_DIR;
-  if (!configured) return "Claude Code-credentials";
-  const digest = createHash("sha256")
-    .update(configured.normalize("NFC"))
-    .digest("hex");
-  return `Claude Code-credentials-${digest.substring(0, 8)}`;
-}
-
-function claudeKeychainAccount(): string {
-  let account: string;
-  try {
-    account = process.env.USER || userInfo().username;
-  } catch {
-    return "claude-code-user";
-  }
-  return /^[a-zA-Z0-9._-]+$/.test(account) ? account : "claude-code-user";
-}
-
-async function keychainLoginStore(
-  configRoot: string,
-  keychain: ClaudeKeychain | undefined,
-): Promise<ClaudeLoginStore | undefined> {
-  if (!keychain) return undefined;
-  const service = claudeKeychainService();
-  const account = claudeKeychainAccount();
-  if (!(await keychain.read(service, account))) return undefined;
-  return {
-    origin: `macOS Keychain item "${service}"`,
-    lockRoot: configRoot,
-    read: async () => requireStoredLogin(await keychain.read(service, account)),
-    write: (bytes) => keychain.write(service, account, bytes),
-  };
 }
 
 async function requireSavedFile(path: string): Promise<void> {
@@ -111,11 +64,6 @@ async function requireSavedFile(path: string): Promise<void> {
       { cause },
     );
   }
-}
-
-function requireStoredLogin(bytes: Buffer | undefined): Buffer {
-  if (!bytes) throw new Error("Claude credential is unreadable or unavailable");
-  return bytes;
 }
 
 export function requireBoundedCredential(credential: Buffer): Buffer {

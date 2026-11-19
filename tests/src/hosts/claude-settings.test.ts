@@ -190,3 +190,48 @@ test("Claude host settings allow retained agent messaging with runtime policies"
   expect(withoutPolicy.permissions.allow).toContain("SendMessage");
   expect(withPolicy.permissions.allow).toContain("SendMessage");
 });
+
+test("runtime policies grant edits only to the workspace and its writable runtime", async () => {
+  if (!isolatedNativeHost) return;
+  const { capture, workspace } = await settingsHost();
+  const legacy = await capture();
+  expect(legacy.permissions.allow).toContain("Read");
+  expect(legacy.permissions.allow).toContain("Edit");
+  const isolated = await capture({
+    format: "sevro.runtime.v1",
+    environment: {},
+    readOnlyRoots: [],
+  });
+  const { allow } = isolated.permissions;
+  expect(allow).not.toContain("Read");
+  expect(allow).not.toContain("Edit");
+  expect(allow).toContain(`Edit(/${workspace}/**)`);
+  // The remaining edit grant is the trial's private writable runtime root.
+  const runtimeGrants = allow.filter(
+    (rule) => rule.startsWith("Edit(") && rule !== `Edit(/${workspace}/**)`,
+  );
+  expect(runtimeGrants).toHaveLength(1);
+  expect(isolated.permissions.deny).not.toContain(runtimeGrants[0]);
+});
+
+test("a runtime read root that permission rules cannot express is refused", async () => {
+  if (!isolatedNativeHost) return;
+  const { host, root, workspace } = await settingsHost();
+  const readable = join(root, "read(only)");
+  await mkdir(readable);
+  const pending = host.run({
+    prompt: "Return ready.",
+    workspace,
+    condition: "passive",
+    runtimePolicy: {
+      format: "sevro.runtime.v1",
+      environment: {},
+      readOnlyRoots: [readable],
+    },
+  });
+  expect(pending).rejects.toThrow("Claude protected path is invalid");
+  await pending.catch(() => undefined);
+  expect(
+    await Bun.file(join(workspace, "captured-settings.json")).exists(),
+  ).toBe(false);
+});

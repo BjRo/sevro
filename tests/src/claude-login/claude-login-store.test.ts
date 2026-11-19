@@ -275,6 +275,29 @@ test("a recovery record for another login is discarded unapplied", async () => {
   expect(stat(record)).rejects.toThrow();
 });
 
+test("a recovery record cannot rotate a login without refresh authority", async () => {
+  const { file } = await savedLogin(
+    syntheticClaudeLogin({ refreshToken: null }),
+  );
+  const record = await recoveryRecord(file);
+  await writeFile(
+    record,
+    JSON.stringify({
+      format: "sevro.claude-login-recovery.v1",
+      replaces: createHash("sha256")
+        .update("PRIVATE_TEST_REFRESH")
+        .digest("hex"),
+      oauth: { accessToken: "RECOVERED_ACCESS" },
+    }),
+  );
+  expect(await access(file)).toBe("PRIVATE_TEST_LOGIN");
+  expect(await storedOAuth(file)).toMatchObject({
+    accessToken: "PRIVATE_TEST_LOGIN",
+  });
+  expect((await storedOAuth(file)).refreshToken).toBeUndefined();
+  expect(stat(record)).rejects.toThrow();
+});
+
 test("without a Keychain item the configuration's saved file is the store", async () => {
   const { config, file } = await savedLogin();
   const environment = {

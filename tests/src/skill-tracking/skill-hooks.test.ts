@@ -17,6 +17,7 @@ import {
   skillTrackingObservation,
   type SkillTracking,
 } from "../../../src/skill-tracking/index";
+import { shellQuote } from "../../../src/platform/index";
 import { createTemporaryFixtures } from "../../fixtures/filesystem";
 
 const roots: string[] = [];
@@ -74,8 +75,32 @@ async function catalog(skillRoots: NonNullable<SkillRoot>) {
   };
 }
 
+const coverageVariables = [
+  "SEVRO_COVERAGE_REPORTS",
+  "SEVRO_COVERAGE_RUN_ID",
+  "SEVRO_COVERAGE_LAYOUT",
+  "SEVRO_COVERAGE_SOURCE_ROOT",
+];
+
+/**
+ * The hook command clears its environment, which would also drop an active
+ * coverage run's capture identity. Forward only that identity, so the real
+ * command still records the handler's counters without altering its behavior.
+ */
+function withCoverageCapture(command: string) {
+  const assignments = coverageVariables.flatMap((name) => {
+    const value = process.env[name];
+    return value === undefined ? [] : [shellQuote(`${name}=${value}`)];
+  });
+  if (assignments.length === 0) return command;
+  const marker = `${shellQuote("-i")} `;
+  if (!command.includes(marker))
+    throw new Error("Hook command no longer clears its environment");
+  return command.replace(marker, `${marker}${assignments.join(" ")} `);
+}
+
 async function hook(command: string, input: Uint8Array) {
-  const child = Bun.spawn(["/bin/sh", "-c", command], {
+  const child = Bun.spawn(["/bin/sh", "-c", withCoverageCapture(command)], {
     stdin: input,
     stdout: "pipe",
     stderr: "pipe",

@@ -411,8 +411,8 @@ function toolEvent(value: unknown): unknown {
 }
 
 /** Require the exact terminal turn, not a previous checkpoint or child response. */
-export function appServerFinal(thread: unknown, turnId: string): string {
-  const items = completedAppServerTurn(thread, turnId).items;
+function appServerFinal(turns: unknown[], turnId: string): string {
+  const items = completedAppServerTurn(turns, turnId).items;
   if (!Array.isArray(items))
     throw new Error("Completed app-server turn has no items");
   const finals = items
@@ -428,10 +428,8 @@ export function appServerFinal(thread: unknown, turnId: string): string {
   return finals.map((item) => item.text).join("\n\n");
 }
 
-function completedAppServerTurn(thread: unknown, turnId: string): RecordValue {
-  const turns: unknown = record(thread).turns;
-  if (!Array.isArray(turns))
-    throw new Error("App-server thread has no retained turns");
+/** Select from the retained history `retainedTurns` already validated. */
+function completedAppServerTurn(turns: unknown[], turnId: string): RecordValue {
   const matches = turns.map(record).filter((turn) => turn.id === turnId);
   const [turn] = matches;
   if (matches.length !== 1 || turn === undefined || turn.status !== "completed")
@@ -708,11 +706,11 @@ class AppServerSession {
       threadId: this.threadId,
       includeTurns: true,
     });
-    const { thread, turns } = retainedThread(snapshot, this.threadId);
+    const turns = retainedTurns(snapshot, this.threadId);
     const latest = record(turns.at(-1));
     // A later native turn can start while readback is pending. Wait for it.
     if (!latestTurnReady(latest, turnId)) return false;
-    const final = appServerFinal(thread, turnId);
+    const final = appServerFinal(turns, turnId);
     for (const value of turns) this.backfillItems(record(value));
     this.finalMessage = final;
     this.evidence.finalTurnId = turnId;
@@ -825,13 +823,13 @@ function errorReceipt(
     ...errorClassification(error.codexErrorInfo),
   };
 }
-function retainedThread(snapshot: RecordValue, threadId: string) {
+function retainedTurns(snapshot: RecordValue, threadId: string): unknown[] {
   const thread = record(snapshot.thread);
   if (thread.id !== threadId)
     throw new Error("App-server returned another thread");
   const turns: unknown = thread.turns;
   if (!Array.isArray(turns)) throw new Error("Missing app-server history");
-  return { thread, turns: turns as unknown[] };
+  return turns as unknown[];
 }
 function latestTurnReady(latest: RecordValue, turnId: string): boolean {
   if (latest.id === turnId) return true;

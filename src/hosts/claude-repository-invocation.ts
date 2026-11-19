@@ -152,10 +152,9 @@ function nativeCommand(input: MatchInput, token: string): string {
   );
 }
 
+/** The verified declaration already requires the prompt to lead with `token`. */
 function matchCommandAndBody(before: Entry[], input: MatchInput): Receipt {
   const token = `/${input.skillName}`;
-  if (!repositoryPromptMatches(input.prompt, token))
-    return { accepted: false, reason: "prompt differs from mounted command" };
   const command = commandBoundary(before, input, token);
   if ("receipt" in command) return command.receipt;
   return mountedBodyReceipt(before, input, command.called);

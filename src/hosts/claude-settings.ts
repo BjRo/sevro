@@ -15,7 +15,7 @@ import {
 interface WritableRuntime {
   root: string;
   workspace: string;
-  cacheRoots?: string[];
+  cacheRoots: string[];
 }
 
 function absoluteRule(root: string, tool: "Read" | "Edit"): string {
@@ -41,12 +41,12 @@ function validPrivatePaths(
 export function claudeHostSettings(
   privateRoot: string,
   credentialFile: string,
-  pluginRoots: string[] = [],
-  protectedRoots: string[] = [],
-  runtimePolicy?: RuntimePolicy,
-  transcriptReadRoots: string[] = [],
-  runtime?: WritableRuntime,
-  workspace?: string,
+  pluginRoots: string[],
+  protectedRoots: string[],
+  runtimePolicy: RuntimePolicy | undefined,
+  transcriptReadRoots: string[],
+  runtime: WritableRuntime | undefined,
+  workspace: string | undefined,
 ): Record<string, unknown> {
   if (
     !validPrivatePaths(privateRoot, credentialFile, [
@@ -155,7 +155,7 @@ function claudePermissions(
   const toolRoots = [...runtimeReadRoots(policy), ...transcriptReadRoots];
   const writableRoots = runtimeWriteRoots(runtime);
   return {
-    allow: claudeToolAllowRules(policy, runtime, managedWorkspace),
+    allow: claudeToolAllowRules(runtime, managedWorkspace),
     ...(policy || managedWorkspace
       ? {
           blockReadsOutsideWorkingDirectories: true,
@@ -188,12 +188,12 @@ function claudePermissions(
   };
 }
 
+/** A runtime policy always supplies its writable runtime; legacy runs have none. */
 function claudeToolAllowRules(
-  policy: RuntimePolicy | undefined,
   runtime: WritableRuntime | undefined,
   workspace?: string,
 ): string[] {
-  if (!policy)
+  if (!runtime)
     return [
       "Bash",
       "Read",
@@ -202,7 +202,6 @@ function claudeToolAllowRules(
       "SendMessage",
       workspace ? absoluteRule(workspace, "Edit") : "Edit",
     ];
-  if (!runtime) return ["Bash", "Edit", "Skill", "Agent", "SendMessage"];
   return [
     "Bash",
     "Skill",
@@ -210,7 +209,7 @@ function claudeToolAllowRules(
     "SendMessage",
     absoluteRule(runtime.workspace, "Edit"),
     absoluteRule(runtime.root, "Edit"),
-    ...(runtime.cacheRoots ?? []).map((root) => absoluteRule(root, "Edit")),
+    ...runtime.cacheRoots.map((root) => absoluteRule(root, "Edit")),
   ];
 }
 
@@ -218,8 +217,8 @@ function claudeToolAllowRules(
 function writableProtectedRoots(
   roots: string[],
   runtimeWriteRoot: string | undefined,
-  workspace?: string,
-  cacheRoots: string[] = [],
+  workspace: string | undefined,
+  cacheRoots: string[],
 ): string[] {
   const namespace = nativeStatePath();
   return roots.filter(

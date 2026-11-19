@@ -19,6 +19,18 @@ type Case = CliResult["cases"][number];
 type Trial = Case["trials"][number];
 
 export type ReportRow = ReportData["rows"][number];
+/**
+ * A row always derives from retained evidence: a result with cases cannot omit
+ * it, so a row's evidence path, conditions, route and transcripts are known.
+ */
+type RetainedRow = ReportRow & {
+  evidencePath: string;
+  requestedCondition: NonNullable<ReportRow["requestedCondition"]>;
+  actualCondition: NonNullable<ReportRow["actualCondition"]>;
+  candidateRoute: NonNullable<ReportRow["candidateRoute"]>;
+  nativeTranscripts: NonNullable<ReportRow["nativeTranscripts"]>;
+};
+type RetainedReport = Omit<ReportData, "rows"> & { rows: RetainedRow[] };
 
 function sumKnown(values: Array<number | null | undefined>): number | null {
   return values.length && values.every((value) => value != null)
@@ -51,7 +63,9 @@ async function loadResult(path: string) {
   return result;
 }
 
-async function loadEvidence(result: CliResult): Promise<Evidence | null> {
+async function loadEvidence(
+  result: CliResult,
+): Promise<{ path: string; evidence: Evidence } | null> {
   const path = retainedEvidencePath(result);
   if (path === null) return null;
   const value: unknown = JSON.parse(await readFile(path, "utf8"));
@@ -62,7 +76,7 @@ async function loadEvidence(result: CliResult): Promise<Evidence | null> {
     canonicalJson(evidence.result) !== canonicalJson(result)
   )
     throw new Error("retained evidence differs from report result");
-  return evidence;
+  return { path, evidence };
 }
 
 function retainedEvidencePath(result: CliResult): string | null {
@@ -76,12 +90,7 @@ function retainedEvidencePath(result: CliResult): string | null {
   return result.evidencePath;
 }
 
-function trialEvidence(
-  caseId: string,
-  trials: Trial[],
-  evidence: Evidence | null,
-) {
-  if (!evidence) return [];
+function trialEvidence(caseId: string, trials: Trial[], evidence: Evidence) {
   const matching = evidence.trials.filter((item) => item.caseId === caseId);
   if (
     matching.length !== trials.length ||
@@ -98,15 +107,16 @@ function reportRow(
   path: string,
   result: CliResult,
   selected: Case,
-  evidence: Evidence | null,
+  retainedEvidence: { path: string; evidence: Evidence },
   transcripts: Awaited<ReturnType<typeof nativeTranscriptRetention>>,
-): ReportRow {
+): RetainedRow {
+  const { evidence } = retainedEvidence;
   const retained = trialEvidence(selected.caseId, selected.trials, evidence);
   const candidateRoute = retainedCandidateRoute(evidence);
   const usage = retainedUsage(retained);
   return {
     resultFile: path,
-    evidencePath: result.evidencePath,
+    evidencePath: retainedEvidence.path,
     runId: result.runId,
     caseId: selected.caseId,
     execution: selected.execution.status,
@@ -140,9 +150,8 @@ function reportRow(
 }
 
 function retainedCandidateRoute(
-  evidence: Evidence | null,
-): ReportRow["candidateRoute"] {
-  if (!evidence) return null;
+  evidence: Evidence,
+): RetainedRow["candidateRoute"] {
   const routes = evidence.routes.filter((route) => route.role === "candidate"),
     [route] = routes;
   if (routes.length !== 1 || route === undefined)
@@ -164,15 +173,7 @@ function retainedUsage(retained: Evidence["trials"]) {
       : null,
   };
 }
-function retainedIdentity(evidence: Evidence | null) {
-  if (!evidence)
-    return {
-      runnerBuildDigest: null,
-      evaluationDigest: null,
-      requestedCondition: null,
-      actualCondition: null,
-      routes: [],
-    };
+function retainedIdentity(evidence: Evidence) {
   return {
     runnerBuildDigest: evidence.runner.buildDigest,
     evaluationDigest: evidence.evaluationIdentity.digest,
@@ -182,15 +183,27 @@ function retainedIdentity(evidence: Evidence | null) {
   };
 }
 
-export async function createReport(paths: string[]) {
+/** Only a result without cases may lack retained evidence, so it has no rows. */
+async function resultRows(
+  path: string,
+  result: CliResult,
+): Promise<RetainedRow[]> {
+  const retained = await loadEvidence(result);
+  if (!retained) return [];
+  const transcripts = await nativeTranscriptRetention(retained.evidence);
+  return result.cases.map((selected) =>
+    reportRow(path, result, selected, retained, transcripts),
+  );
+}
+
+export async function createReport(paths: string[]): Promise<RetainedReport> {
   if (!paths.length || new Set(paths).size !== paths.length)
     throw new Error("report needs distinct result files");
-  const rows: ReportRow[] = [];
+  const rows: RetainedRow[] = [];
   const inputs: ReportData["inputs"] = [];
   for (const path of paths) {
     const result = await loadResult(path);
-    const evidence = await loadEvidence(result);
-    const transcripts = await nativeTranscriptRetention(evidence);
+    rows.push(...(await resultRows(path, result)));
     inputs.push({
       resultFile: path,
       execution: result.execution.status,
@@ -199,8 +212,6 @@ export async function createReport(paths: string[]) {
       exitCode: result.exitCode,
       caseCount: result.cases.length,
     });
-    for (const selected of result.cases)
-      rows.push(reportRow(path, result, selected, evidence, transcripts));
   }
   const report = {
     format: "sevro.report.v1",
@@ -229,9 +240,7 @@ function seconds(value: number | null): string {
   return value === null ? "unknown" : `${(value / 1000).toFixed(2)}s`;
 }
 
-export function renderReport(
-  report: Awaited<ReturnType<typeof createReport>>,
-): string {
+export function renderReport(report: RetainedReport): string {
   const lines = [
     "# Sevro evaluation report",
     "",
@@ -258,7 +267,7 @@ export function renderReport(
     "",
     ...report.rows.map(
       (row) =>
-        `- ${cell(row.caseId)}: ${row.evidencePath ?? "unavailable"}${transcriptSummary(row)}`,
+        `- ${cell(row.caseId)}: ${row.evidencePath}${transcriptSummary(row)}`,
     ),
     "",
   ];
@@ -295,8 +304,7 @@ export function renderReport(
   return lines.join("\n");
 }
 
-function transcriptSummary(row: ReportRow): string {
-  if (!row.nativeTranscripts) return "";
+function transcriptSummary(row: RetainedRow): string {
   return `; native transcripts: ${row.nativeTranscripts.retained} retained, ${row.nativeTranscripts.pruned} pruned`;
 }
 
@@ -306,15 +314,13 @@ function passRateCell(rate: number | null): string {
 function costCell(cost: number | null): string {
   return cost === null ? "unknown" : `$${cost.toFixed(4)}`;
 }
-function routeCell(route: ReportRow["candidateRoute"]): string {
-  return route
-    ? cell(`${route.host}/${route.model}@${route.effort}`)
-    : "unknown";
+function routeCell(route: RetainedRow["candidateRoute"]): string {
+  return cell(`${route.host}/${route.model}@${route.effort}`);
 }
-function conditionCell(row: ReportRow): string {
-  return `${row.requestedCondition ?? "unknown"} / ${row.actualCondition ?? "unknown"}`;
+function conditionCell(row: RetainedRow): string {
+  return `${row.requestedCondition} / ${row.actualCondition}`;
 }
-function caseOutcomeLine(row: ReportRow): string {
+function caseOutcomeLine(row: RetainedRow): string {
   return `| ${cell(row.caseId)} | ${row.task} | ${row.execution} | ${row.grading} | ${passRateCell(row.taskPassRate)} | ${seconds(row.candidateDurationMs)} | ${measured(row.inputTokens)} / ${measured(row.outputTokens)} | ${costCell(row.costUsd)} | ${conditionCell(row)} | ${routeCell(row.candidateRoute)} |`;
 }
 

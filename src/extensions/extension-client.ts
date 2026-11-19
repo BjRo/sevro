@@ -231,7 +231,7 @@ class ExtensionExchange {
 export async function exchangeExtension(
   command: string[],
   request: ExtensionRequest,
-  options: ExchangeOptions = {},
+  options: ExchangeOptions,
 ): Promise<SuccessfulExtensionResponse> {
   validateExtensionCommand(command);
   if (!validExchange(request))
@@ -287,7 +287,7 @@ function descriptionResult(value: Record<string, unknown>) {
 export async function negotiateExtension(
   command: string[],
   available: { engineCapabilities: string[]; hostCapabilities: string[] },
-  options: ExchangeOptions = {},
+  options: ExchangeOptions,
 ): Promise<NegotiatedExtension> {
   const response = await exchangeExtension(
     command,

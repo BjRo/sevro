@@ -369,3 +369,29 @@ test("Claude repository observation refuses unavailable, duplicate, or redirecte
   await symlink(target, skill);
   expect(host.run(request())).rejects.toThrow(/unavailable or unsafe/);
 });
+
+test("Claude repository dispatch reads only text from native message content", async () => {
+  if (!isolatedNativeHost) return;
+  const { observe } = await repositoryHost();
+  // Entries without a text message carry no command or body text.
+  const textless = [
+    { type: "user", sessionId: "session-one", message: "not an object" },
+    { type: "user", sessionId: "session-one", message: { content: 42 } },
+    {
+      type: "user",
+      sessionId: "session-one",
+      message: { content: [{ type: "text", text: 7 }, { type: "image" }] },
+    },
+  ];
+  expect(
+    await observe({
+      transcript: lines([...textless, command, body, assistant]),
+    }),
+  ).toMatchObject({ completeness: "complete", data: { accepted: true } });
+  expect(
+    await observe({ transcript: lines([command, [], body, assistant]) }),
+  ).toMatchObject({
+    completeness: "partial",
+    data: { accepted: null, reason: "malformed native session" },
+  });
+});

@@ -18,7 +18,7 @@ import {
   claudeLoginStore,
   MAX_CREDENTIAL_BYTES,
   requireBoundedCredential,
-  type ClaudeKeychain,
+  type ClaudeKeychainStore,
   type ClaudeLoginStore,
 } from "./claude-login-store";
 import { withClaudeRefreshLock } from "./claude-refresh-lock";
@@ -78,10 +78,13 @@ function authenticationEnvironment(sourceFile: string | undefined) {
   return environment;
 }
 
-async function platformKeychain(): Promise<ClaudeKeychain | undefined> {
-  if (process.platform !== "darwin") return undefined;
-  const { claudeKeychain } = await import("./claude-keychain");
-  return claudeKeychain;
+/** Only macOS keeps Claude logins in a Keychain; elsewhere none is consulted. */
+const noKeychain: ClaudeKeychainStore = () => Promise.resolve(undefined);
+
+async function platformKeychain(): Promise<ClaudeKeychainStore> {
+  if (process.platform !== "darwin") return noKeychain;
+  const { claudeKeychainStore } = await import("./claude-keychain");
+  return claudeKeychainStore;
 }
 
 /**
