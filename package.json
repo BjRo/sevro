@@ -57,11 +57,10 @@
     "docs:sync": "bun scripts/sync-release-docs.ts",
     "check:docs:external": "bun scripts/check-docs.ts --external",
     "test:docs-examples": "bun scripts/verify-doc-examples.ts",
-    "guide:sync": "bun scripts/sync-guide.ts",
     "eval:guide": "bun scripts/eval-guide.ts",
     "release:prepare": "bun run build && bun scripts/prepare-release.ts",
     "typecheck": "tsc --noEmit",
-    "format:check": "prettier --check README.md CONTRIBUTING.md AGENTS.md CLAUDE.md 'docs/**/*.md' '.agents/**/*.md' '.agents/**/*.json' '.claude/**/*.md' 'scripts/**/*.md' 'scripts/**/*.json' 'examples/**/*.json' 'examples/**/*.ts' 'schemas/*.json' 'src/**/*.ts' 'scripts/**/*.ts' 'scripts/**/*.cjs' 'tests/**/*.ts' eslint.config.mjs package.json tsconfig.json '.github/workflows/*.yml'",
+    "format:check": "prettier --check README.md CONTRIBUTING.md AGENTS.md CLAUDE.md 'docs/**/*.md' '.agents/skills/sevro-guide/**/*.md' '.agents/skills/sevro-guide/**/*.json' 'scripts/**/*.md' 'scripts/**/*.json' 'examples/**/*.json' 'examples/**/*.ts' 'schemas/*.json' 'src/**/*.ts' 'scripts/**/*.ts' 'scripts/**/*.cjs' 'tests/**/*.ts' eslint.config.mjs package.json tsconfig.json '.github/workflows/*.yml'",
     "build": "bun scripts/build.ts",
     "prepack": "bun run build",
     "test:runtime-node": "bun scripts/verify-node-runtime.ts"

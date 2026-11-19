@@ -1,5 +1,15 @@
 import { afterEach, expect, test } from "bun:test";
-import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import {
+  appendFileSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readlinkSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { copySnapshot } from "../../scripts/coverage/prepare";
 import { object } from "../../scripts/coverage/records";
@@ -56,6 +66,18 @@ test("public inventory derives new source roles without a manifest and classifie
   expect(inventory.tooling).toContain("scripts/new.ts");
   expect(inventory.examples).toContain("examples/new.ts");
   expect(result.stdout.match(/"tests\/new\.d\.ts"/g)).toHaveLength(1);
+}, 30000);
+
+test("independent snapshots keep directory symlinks and identify them by target", async () => {
+  const { project } = copySnapshot(repo, await temporaryFixture());
+  symlinkSync("docs", join(project, "linked-docs"));
+  const root = await temporaryFixture();
+  const snapshot = copySnapshot(project, root);
+  const link = join(snapshot.project, "linked-docs");
+  expect(lstatSync(link).isSymbolicLink()).toBe(true);
+  expect(readlinkSync(link)).toBe("docs");
+  const identity = readFileSync(join(root, "snapshot.json"), "utf8");
+  expect(identity).toContain(createHash("sha256").update("docs").digest("hex"));
 }, 30000);
 
 test("public inventory and independent snapshots preserve staged renames, deletions and untracked additions", async () => {
