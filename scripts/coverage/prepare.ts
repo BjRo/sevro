@@ -50,10 +50,16 @@ export function candidateFiles(repo: string) {
 }
 
 // Like Git, identify a symlink by its target rather than what it points to.
-function snapshotContent(path: string): Buffer | string {
+export function snapshotContent(path: string): Buffer | string {
   return lstatSync(path).isSymbolicLink()
     ? readlinkSync(path)
     : readFileSync(path);
+}
+
+// cpSync may retarget symlinks (Bun on Linux points them at the source link).
+function copyCandidate(from: string, to: string): void {
+  if (lstatSync(from).isSymbolicLink()) symlinkSync(readlinkSync(from), to);
+  else cpSync(from, to);
 }
 
 function snapshotIdentity(project: string, root: string, files: string[]) {
@@ -85,7 +91,7 @@ export function copySnapshot(repo: string, root: string) {
   const files = candidateFiles(repo);
   for (const file of files) {
     mkdirSync(dirname(join(project, file)), { recursive: true });
-    cpSync(join(repo, file), join(project, file));
+    copyCandidate(join(repo, file), join(project, file));
   }
   // The isolated index describes the copied candidate, including staged deletions.
   git(["add", "--all", "--force"], project);

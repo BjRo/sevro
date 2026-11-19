@@ -3,16 +3,25 @@ import {
   lstatSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
 } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { copySnapshot, candidateFiles } from "./prepare";
+import { copySnapshot, candidateFiles, snapshotContent } from "./prepare";
+
+// Lists files and symlinks like Git does, without following symlinked directories.
+function treeEntries(root: string, prefix: string): string[] {
+  return readdirSync(join(root, prefix), { withFileTypes: true }).flatMap(
+    (entry) => {
+      const file = prefix ? `${prefix}/${entry.name}` : entry.name;
+      return entry.isDirectory() ? treeEntries(root, file) : [file];
+    },
+  );
+}
 
 function participantFiles(root: string): string[] {
-  return [
-    ...new Bun.Glob("**/*").scanSync({ cwd: root, dot: true, onlyFiles: true }),
-  ]
+  return treeEntries(root, "")
     .filter(
       (file) =>
         !/^(?:node_modules|\.git|\.quality|\.worktrees)(?:\/|$)/.test(file),
@@ -22,7 +31,8 @@ function participantFiles(root: string): string[] {
 }
 
 function sameBytes(original: string, copy: string): void {
-  if (!readFileSync(original).equals(readFileSync(copy)))
+  const expected = Buffer.from(snapshotContent(original));
+  if (!expected.equals(Buffer.from(snapshotContent(copy))))
     throw new Error(`Candidate snapshot content differs: ${original}`);
 }
 
