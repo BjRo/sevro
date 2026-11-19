@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { lstat, readFile, readdir } from "node:fs/promises";
+import { lstat, readFile, readdir, realpath } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { PreparationResult } from "../../src/extension-session";
 
@@ -135,7 +135,10 @@ export async function guideSources(): Promise<string[]> {
     ...new Bun.Glob("scripts/guide/*.ts").scanSync({ cwd: guideRoot }),
     ...new Bun.Glob("src/**/*.{ts,cjs}").scanSync({ cwd: guideRoot }),
   ];
-  return [...new Set([...code, casesPath, ...(await fixtureSources())])].map(
-    (path) => join(guideRoot, path),
+  const paths = new Set([...code, casesPath, ...(await fixtureSources())]);
+  // The Claude skill mount is a symlink, so its guide resolves to the canonical file.
+  const resolved = await Promise.all(
+    [...paths].map((path) => realpath(join(guideRoot, path))),
   );
+  return [...new Set(resolved)];
 }

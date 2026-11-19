@@ -40,6 +40,6 @@ their absence does not block the documented checks. When using `gh`, use a host
 execution mode that can access the macOS keyring; do not change host permissions
 or treat a sandbox authentication failure as proof that a token is invalid.
 
-`AGENTS.md` is canonical; `CLAUDE.md` imports it. The guide's Claude mount is
-a checked mirror of `.agents/skills/sevro-guide/SKILL.md`. Edit the canonical
-body and run `bun run guide:sync`; `bun run check:docs` rejects drift.
+`AGENTS.md` is canonical; `CLAUDE.md` imports it. `.claude/skills` is a
+symlink to `.agents/skills`, so both hosts load the same skill files. Edit
+skills under `.agents/skills`; `bun run check:docs` verifies the Claude mount.

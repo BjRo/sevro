@@ -31,10 +31,11 @@ the guide. Do not disclose credentials or private host evidence.
 
 ## Host entrypoints
 
-Canonical instructions are `.agents/skills/sevro-guide/SKILL.md`. Claude uses
-the byte-identical `.claude/skills/sevro-guide/SKILL.md`. `AGENTS.md` routes
-ordinary Sevro questions; `CLAUDE.md` imports it. `bun run guide:sync` updates
-the mirror; `bun run check:docs` rejects drift. Both mounts are repository-only.
+Canonical instructions are `.agents/skills/sevro-guide/SKILL.md`. Claude reads
+the same file as `.claude/skills/sevro-guide/SKILL.md` because `.claude/skills`
+is a symlink to `.agents/skills`. `AGENTS.md` routes ordinary Sevro questions;
+`CLAUDE.md` imports it. `bun run check:docs` rejects a missing or unresolved
+Claude mount. Both mounts are repository-only.
 Explicit invocation is `$sevro-guide` in Codex and `/sevro-guide` in Claude.
 
 Host discovery follows [OpenAI's skill documentation](https://learn.chatgpt.com/docs/build-skills)

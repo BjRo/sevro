@@ -7,7 +7,7 @@ use plain language, and keep commands, prerequisites, limits, and recovery steps
 ## Local checks
 
 Run `bun run check:docs`. The Markdown parser checks local targets/anchors,
-image alternatives, asset references, fence languages, and exact guide mirrors.
+image alternatives, asset references, fence languages, and the guide's Claude mount.
 It validates the guide inventory's source/static destinations and case coverage.
 It ignores code contents as links and excludes inactive fixture snapshots.
 Local checks need no network. Run `bun run test:docs-examples` for the exact

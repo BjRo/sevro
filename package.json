@@ -57,7 +57,6 @@
     "docs:sync": "bun scripts/sync-release-docs.ts",
     "check:docs:external": "bun scripts/check-docs.ts --external",
     "test:docs-examples": "bun scripts/verify-doc-examples.ts",
-    "guide:sync": "bun scripts/sync-guide.ts",
     "eval:guide": "bun scripts/eval-guide.ts",
     "release:prepare": "bun run build && bun scripts/prepare-release.ts",
     "typecheck": "tsc --noEmit",
