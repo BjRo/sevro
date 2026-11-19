@@ -13,7 +13,7 @@ const requiredFiles = [
   "LICENSE",
   "src/cli.ts",
   "dist/src/cli.js",
-  "dist/src/hosts/skill-hook-handler.js",
+  "dist/src/skill-tracking/skill-hook-handler.js",
   "dist/examples/basic/host.js",
   "schemas/run-evidence-v1.schema.json",
   "schemas/report-v1.schema.json",

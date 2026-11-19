@@ -29,7 +29,7 @@ import {
   candidateTranscriptRoots,
 } from "../transcripts/index";
 import { prepareHookMounts, runtimeHooksEnabled } from "../hooks/index";
-import { stageClaudeAuthentication } from "./claude-credential";
+import { stageClaudeAuthentication } from "../claude-login/index";
 import { claudeHostSettings } from "./claude-settings";
 import { evaluationProtectedRoots } from "../isolation/index";
 type Request = Parameters<HostAdapter["run"]>[0];

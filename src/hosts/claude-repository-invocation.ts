@@ -3,8 +3,11 @@ import { lstat, readFile, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import type { HostAdapter } from "../host-contract/index";
 import { isRecord } from "../kernel/index";
-import type { ClaudeToolCallsObservation } from "./claude-tool-calls";
-import { parseClaudeEvents, type ClaudeEvents } from "./claude-events";
+import {
+  parseClaudeEvents,
+  type ClaudeEvents,
+  type ClaudeToolCallsObservation,
+} from "../host-events/index";
 
 type Entry = Record<string, unknown>;
 export interface ClaudeRepositoryInvocation {

@@ -23,10 +23,10 @@ function diagnosticTimeout(original: number, sandbox: boolean): number {
 function validDiagnosticTimeout(value: number): boolean {
   return Number.isSafeInteger(value) && value >= 1 && value <= 60_000;
 }
-const processPath = join(root, "src/hosts/codex-process.ts");
+const processPath = join(root, "src/native-process/index.ts");
 const processes = (await import(
   processPath
-)) as typeof import("../src/hosts/codex-process");
+)) as typeof import("../src/native-process/index");
 const run = processes.runCodexProcess;
 await mock.module(processPath, () => ({
   ...processes,
@@ -55,10 +55,10 @@ await mock.module(processPath, () => ({
     }
   },
 }));
-const appServerPath = join(root, "src/hosts/codex-app-server.ts");
+const appServerPath = join(root, "src/codex-app-server/index.ts");
 const appServer = (await import(
   appServerPath
-)) as typeof import("../src/hosts/codex-app-server");
+)) as typeof import("../src/codex-app-server/index");
 await mock.module(appServerPath, () => ({
   ...appServer,
   runCodexAppServer() {

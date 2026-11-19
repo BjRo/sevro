@@ -8,7 +8,7 @@ import runSchema from "../../../schemas/run-evidence-v1.schema.json";
 import cliValidator from "../../../src/generated/cli-result.cjs";
 import extensionValidator from "../../../src/generated/extension.cjs";
 import runValidator from "../../../src/generated/run-evidence.cjs";
-import { createCodexHost } from "../../../src/hosts/codex";
+import { createCodexHost } from "../../../src/hosts/index";
 import { defined } from "../../fixtures/assertions";
 
 const ajv = new Ajv2020({

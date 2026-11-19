@@ -1,6 +1,6 @@
 import { runnerRoot } from "../platform/index";
 import { fileURLToPath } from "node:url";
-import { configurationRoot } from "../hosts/codex-configuration";
+import { configurationRoot } from "../hosts/index";
 import {
   InvocationError,
   parseInvocation,

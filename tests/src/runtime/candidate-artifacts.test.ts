@@ -17,7 +17,7 @@ import {
   type EvaluationOptions,
   type HostAdapter,
 } from "../../../src/engine";
-import { createClaudeHost } from "../../../src/hosts/claude";
+import { createClaudeHost } from "../../../src/hosts/index";
 import { nativeStateParent } from "../../../src/runtime/index";
 import { defined, parseRunEvidence } from "../../fixtures/assertions";
 import { syntheticClaudeLogin } from "../../fixtures/claude-login";

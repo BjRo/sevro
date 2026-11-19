@@ -2,7 +2,7 @@ import { mkdir, readFile, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHostDiagnostics } from "../../src/diagnostics/index";
-import { type AppServerRunOptions } from "../../src/hosts/codex-app-server";
+import { type AppServerRunOptions } from "../../src/codex-app-server/index";
 import { record } from "./assertions";
 import { createTemporaryFixtures } from "./filesystem";
 

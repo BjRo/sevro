@@ -1,5 +1,5 @@
 import { isAbsolute } from "node:path";
-import { CLAUDE_AUTH_VARIABLES } from "./claude-credential";
+import { CLAUDE_AUTH_VARIABLES } from "../claude-login/index";
 import {
   requireRuntimeReadRoots,
   isRuntimeHomeRoot,

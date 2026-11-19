@@ -4,9 +4,9 @@ import {
   summarizeClaudeEvents,
   parseClaudeEvents,
   type ClaudeEvents,
-} from "./claude-events";
-import { workspaceFingerprint } from "./workspace-fingerprint";
-import { MAX_EVENT_BYTES, MAX_STDERR_BYTES } from "./process-lifecycle";
+} from "../host-events/index";
+import { workspaceFingerprint } from "../workspace/index";
+import { MAX_EVENT_BYTES, MAX_STDERR_BYTES } from "../native-process/index";
 
 export type ClaudeProcessResult = { code: number; out: string; err: string };
 export type ClaudeSession = { option: "--session-id" | "--resume"; id: string };

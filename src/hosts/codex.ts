@@ -18,31 +18,38 @@ import {
   runtimeHookObservation,
   type HookMounts,
 } from "../hooks/index";
-import { validateNativeHostRequest, validHostTimeout } from "./native-request";
-import { runCodexAppServer } from "./codex-app-server";
-import { summarizeCodexEvents, type CodexEventSummary } from "./codex-events";
+import { validateNativeHostRequest } from "./native-request";
+import { runCodexAppServer } from "../codex-app-server/index";
+import {
+  summarizeCodexEvents,
+  type CodexEventSummary,
+} from "../host-events/index";
 import { verifyCodexInvocation } from "./codex-invocation";
 import { installCodexPlugins } from "./codex-marketplace";
 import {
   codexNativeCallObservation,
+  codexNativeControls,
   codexNativeSessionLastOrdinal,
-} from "./codex-native-calls";
-import { runCodexProcess, CodexProcessFailure } from "./codex-process";
+} from "../native-controls/index";
+import {
+  CodexProcessFailure,
+  runCodexProcess,
+  validHostTimeout,
+} from "../native-process/index";
 import {
   codexHookMounts,
   prepareCodexState,
   type CodexHostOptions,
 } from "./codex-state";
-import { codexNativeControls } from "./native-controls";
-import { workspaceFingerprint } from "./workspace-fingerprint";
-import { codexSkillCatalogRoots } from "./skill-hook-catalog";
+import { workspaceFingerprint } from "../workspace/index";
 import {
+  codexSkillCatalogRoots,
   prepareSkillTracking,
   skillTrackingObservation,
   skillActivationClaims,
   skillExposureClaims,
   type SkillTracking,
-} from "./skill-hooks";
+} from "../skill-tracking/index";
 import {
   cleanupNativeState,
   createHostDiagnostics,

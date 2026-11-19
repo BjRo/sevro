@@ -12,7 +12,7 @@ import {
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadRuntimeConfiguration } from "../../../src/engine";
-import { createClaudeHost } from "../../../src/hosts/claude";
+import { createClaudeHost } from "../../../src/hosts/index";
 import {
   allocateNativeState,
   runtimeSeedDigest,

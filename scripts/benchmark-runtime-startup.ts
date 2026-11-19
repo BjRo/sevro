@@ -69,10 +69,13 @@ async function instrumentation() {
       ...args: Parameters<typeof runtime.prepareRuntimeState>
     ) => measure(`runtime.${args[2]}`, () => prepareRuntimeState(...args)),
   }));
-  const processPath = join(sourceRoot, "src/hosts/codex-process.ts");
+  const processPath = sourceModule(
+    "src/native-process/index.ts",
+    "src/hosts/codex-process.ts",
+  );
   const processes = (await import(
     processPath
-  )) as typeof import("../src/hosts/codex-process");
+  )) as typeof import("../src/native-process/index");
   const runCodexProcess = processes.runCodexProcess;
   await mock.module(processPath, () => ({
     ...processes,
@@ -214,8 +217,8 @@ async function cloneControl(root: string) {
 }
 async function trial(root: string, policy: RuntimePolicy, binary: string) {
   const codex = (await import(
-    join(sourceRoot, "src/hosts/codex.ts")
-  )) as typeof import("../src/hosts/codex");
+    sourceModule("src/hosts/index.ts", "src/hosts/codex.ts")
+  )) as typeof import("../src/hosts/index");
   const grading = (await import(
     sourceModule(
       "src/evaluation/grading-host.ts",

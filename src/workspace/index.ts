@@ -17,3 +17,4 @@ export {
 } from "./workspace-state";
 export { clearFixtureContents, removeDisposableDirectory } from "./cleanup";
 export { checkpointRunOwner, startRunOwner, type RunOwner } from "./run-owner";
+export { workspaceFingerprint } from "./fingerprint";

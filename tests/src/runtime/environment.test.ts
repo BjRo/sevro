@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { loadRuntimeConfiguration, runEvaluation } from "../../../src/engine";
-import { createClaudeHost } from "../../../src/hosts/claude";
+import { createClaudeHost } from "../../../src/hosts/index";
 import { defined, parseRunEvidence } from "../../fixtures/assertions";
 import { syntheticClaudeLogin } from "../../fixtures/claude-login";
 import { createTemporaryFixtures } from "../../fixtures/filesystem";

@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runEvaluation } from "../../../src/engine";
 import { HostExecutionFailure } from "../../../src/host-contract/index";
-import { createClaudeHost } from "../../../src/hosts/claude";
+import { createClaudeHost } from "../../../src/hosts/index";
 import {
   defined,
   expectUnknown,

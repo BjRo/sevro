@@ -4,7 +4,7 @@ import {
   prepareGeneratedFixture,
   prepareRepositoryFixture,
 } from "../../src/fixtures/index";
-import { summarizeCodexEvents } from "../../src/hosts/codex-events";
+import { summarizeCodexEvents } from "../../src/host-events/index";
 import { canonicalJson, hashJson } from "../../src/kernel/index";
 import { resolvedFixture } from "../../src/cases/index";
 import { assertCliResult } from "../../src/schema/index";

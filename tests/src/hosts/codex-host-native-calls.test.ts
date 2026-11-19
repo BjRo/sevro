@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createCodexHost } from "../../../src/hosts/codex";
+import { createCodexHost } from "../../../src/hosts/index";
 import { expectUnknown, objectContaining } from "../../fixtures/assertions";
 import {
   fixture,

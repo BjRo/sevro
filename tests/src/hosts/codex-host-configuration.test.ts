@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { createCodexHost } from "../../../src/hosts/codex";
+import { createCodexHost } from "../../../src/hosts/index";
 import {
   alterMarketplace,
   fixture,

@@ -21,10 +21,14 @@ import {
 } from "../hooks/index";
 import { isRecord } from "../kernel/index";
 import { runClaudeTurns, type ClaudeSession } from "./claude-continuation";
-import { validateNativeHostRequest, validHostTimeout } from "./native-request";
-import { summarizeClaudeEvents } from "./claude-events";
+import { validateNativeHostRequest } from "./native-request";
+import {
+  claudeSkillActivationsObservation,
+  claudeToolCallsObservation,
+  summarizeClaudeEvents,
+} from "../host-events/index";
 import { observeClaudeNativeGoal } from "./claude-native-goal";
-import { runClaudeProcess } from "./claude-process";
+import { runClaudeProcess, validHostTimeout } from "../native-process/index";
 import {
   claudeRepositoryInvocationObservation,
   verifyClaudeRepositoryInvocation,
@@ -40,10 +44,8 @@ import {
 import {
   CLAUDE_AUTH_VARIABLES,
   CLAUDE_LOGIN_MARGIN_MS,
-} from "./claude-credential";
-import { claudeToolCallsObservation } from "./claude-tool-calls";
-import { claudeSkillActivationsObservation } from "./claude-skill-activations";
-import { claudeNativeControls } from "./native-controls";
+} from "../claude-login/index";
+import { claudeNativeControls } from "../native-controls/index";
 export type { ClaudeHostOptions } from "./claude-state";
 
 const DEFAULT_TIMEOUT_MS = 10 * 60_000;

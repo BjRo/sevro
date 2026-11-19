@@ -12,7 +12,7 @@ import { join } from "node:path";
 import {
   createClaudeHost,
   type ClaudeHostOptions,
-} from "../../../src/hosts/claude";
+} from "../../../src/hosts/index";
 import { defined, record } from "../../fixtures/assertions";
 import { syntheticClaudeLogin } from "../../fixtures/claude-login";
 import { createTemporaryFixtures } from "../../fixtures/filesystem";

@@ -13,7 +13,7 @@ import { fixtureGit } from "./filesystem";
 
 const hostModules = [
   "src/isolation/linux-sandbox.ts",
-  "src/hosts/claude-keychain.ts",
+  "src/claude-login/claude-keychain.ts",
   "src/isolation/mac-sandbox.ts",
   "src/runtime/discovery-apple.ts",
 ];

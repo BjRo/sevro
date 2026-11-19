@@ -1,7 +1,7 @@
 const unreachable: Partial<Record<NodeJS.Platform, string[]>> = {
   darwin: ["src/isolation/linux-sandbox.ts"],
   linux: [
-    "src/hosts/claude-keychain.ts",
+    "src/claude-login/claude-keychain.ts",
     "src/isolation/mac-sandbox.ts",
     "src/runtime/discovery-apple.ts",
   ],

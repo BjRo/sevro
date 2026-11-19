@@ -4,7 +4,7 @@ import { chmod, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { runEvaluation, type HostAdapter } from "../../../src/engine";
-import { createCodexHost } from "../../../src/hosts/codex";
+import { createCodexHost } from "../../../src/hosts/index";
 import {
   array,
   defined,

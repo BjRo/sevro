@@ -7,16 +7,6 @@ import {
 } from "../runtime/index";
 import { isOptionalNonblankString } from "../kernel/index";
 
-export const MAX_HOST_TIMEOUT_MS = 30 * 60_000;
-
-export function validHostTimeout(timeoutMs: number): boolean {
-  return (
-    Number.isSafeInteger(timeoutMs) &&
-    timeoutMs >= 1 &&
-    timeoutMs <= MAX_HOST_TIMEOUT_MS
-  );
-}
-
 /** Common admission checks run before native state or processes are allocated. */
 export async function validateNativeHostRequest(
   request: Parameters<HostAdapter["run"]>[0],

@@ -12,8 +12,10 @@ import {
   type OutputCheckDeclaration,
 } from "../../src/graders/output";
 import validExchange from "../../src/generated/extension.cjs";
-import { summarizeCodexEvents } from "../../src/hosts/codex-events";
-import { summarizeClaudeEvents } from "../../src/hosts/claude-events";
+import {
+  summarizeClaudeEvents,
+  summarizeCodexEvents,
+} from "../../src/host-events/index";
 import {
   isRecord,
   isStringArray,

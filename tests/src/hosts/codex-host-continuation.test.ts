@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { createCodexHost } from "../../../src/hosts/codex";
+import { createCodexHost } from "../../../src/hosts/index";
 import {
   defined,
   expectUnknown,

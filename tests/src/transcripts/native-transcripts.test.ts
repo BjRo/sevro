@@ -4,7 +4,7 @@ import { chmod, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
-import { createClaudeHost } from "../../../src/hosts/claude";
+import { createClaudeHost } from "../../../src/hosts/index";
 import { nativeStateParent } from "../../../src/runtime/index";
 import { defined } from "../../fixtures/assertions";
 import { syntheticClaudeLogin } from "../../fixtures/claude-login";

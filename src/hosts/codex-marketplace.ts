@@ -4,7 +4,7 @@ import { join, relative, sep } from "node:path";
 import { insideRoot as inside } from "../platform/index";
 import { fixtureParts } from "../fixtures/index";
 import type { HostAdapter } from "../host-contract/index";
-import { runCodexProcess } from "./codex-process";
+import { runCodexProcess } from "../native-process/index";
 import { isRecord, isUnknownArray } from "../kernel/index";
 import type { HostDiagnostics } from "../diagnostics/index";
 type Request = Parameters<HostAdapter["run"]>[0];
