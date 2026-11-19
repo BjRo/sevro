@@ -113,20 +113,6 @@
   },
   {
     "type": "dependency",
-    "from": "scripts/generate-schemas.ts",
-    "to": "src/runtime/config.ts",
-    "unresolvedTo": "../src/runtime/config",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "consumer-module-interface"
-    }
-  },
-  {
-    "type": "dependency",
     "from": "scripts/guide/extension.ts",
     "to": "src/graders/output.ts",
     "unresolvedTo": "../../src/graders/output",
@@ -731,6 +717,34 @@
   },
   {
     "type": "dependency",
+    "from": "tests/src/hooks/hooks.test.ts",
+    "to": "src/hosts/claude.ts",
+    "unresolvedTo": "../../../src/hosts/claude",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "consumer-module-interface"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "tests/src/hooks/hooks.test.ts",
+    "to": "src/hosts/codex.ts",
+    "unresolvedTo": "../../../src/hosts/codex",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "consumer-module-interface"
+    }
+  },
+  {
+    "type": "dependency",
     "from": "tests/src/host-diagnostics.test.ts",
     "to": "src/hosts/codex.ts",
     "unresolvedTo": "../../src/hosts/codex",
@@ -918,21 +932,6 @@
     "unresolvedTo": "../../../src/hosts/claude-settings",
     "dependencyTypes": [
       "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "consumer-module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "tests/src/hosts/claude-settings.test.ts",
-    "to": "src/runtime/config.ts",
-    "unresolvedTo": "../../../src/runtime/config",
-    "dependencyTypes": [
-      "local",
-      "type-only",
       "import"
     ],
     "rule": {
@@ -1236,20 +1235,6 @@
   },
   {
     "type": "dependency",
-    "from": "tests/src/hosts/isolation.test.ts",
-    "to": "src/runtime/seeds.ts",
-    "unresolvedTo": "../../../src/runtime/seeds",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "consumer-module-interface"
-    }
-  },
-  {
-    "type": "dependency",
     "from": "tests/src/hosts/namespace-isolation.test.ts",
     "to": "src/hosts/claude.ts",
     "unresolvedTo": "../../../src/hosts/claude",
@@ -1418,62 +1403,6 @@
   },
   {
     "type": "dependency",
-    "from": "tests/src/runtime/hooks.test.ts",
-    "to": "src/hosts/claude.ts",
-    "unresolvedTo": "../../../src/hosts/claude",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "consumer-module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "tests/src/runtime/hooks.test.ts",
-    "to": "src/hosts/codex.ts",
-    "unresolvedTo": "../../../src/hosts/codex",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "consumer-module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "tests/src/runtime/hooks.test.ts",
-    "to": "src/runtime/hooks.ts",
-    "unresolvedTo": "../../../src/runtime/hooks",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "consumer-module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "tests/src/runtime/hooks.test.ts",
-    "to": "src/runtime/seeds.ts",
-    "unresolvedTo": "../../../src/runtime/seeds",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "consumer-module-interface"
-    }
-  },
-  {
-    "type": "dependency",
     "from": "tests/src/runtime/live.test.ts",
     "to": "src/hosts/claude.ts",
     "unresolvedTo": "../../../src/hosts/claude",
@@ -1519,20 +1448,6 @@
     "from": "tests/src/runtime/seeds.test.ts",
     "to": "src/hosts/codex.ts",
     "unresolvedTo": "../../../src/hosts/codex",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "consumer-module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "tests/src/runtime/seeds.test.ts",
-    "to": "src/runtime/seeds.ts",
-    "unresolvedTo": "../../../src/runtime/seeds",
     "dependencyTypes": [
       "local",
       "import"
@@ -1792,20 +1707,6 @@
   },
   {
     "type": "dependency",
-    "from": "src/runtime/hooks.ts",
-    "to": "src/isolation/index.ts",
-    "unresolvedTo": "../isolation/index",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "layer-infrastructure-order"
-    }
-  },
-  {
-    "type": "dependency",
     "from": "src/cli/hosts.ts",
     "to": "src/hosts/claude.ts",
     "unresolvedTo": "../hosts/claude",
@@ -1848,51 +1749,9 @@
   },
   {
     "type": "dependency",
-    "from": "src/cli/invocation.ts",
-    "to": "src/runtime/paths.ts",
-    "unresolvedTo": "../runtime/paths",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
     "from": "src/cli/preparation.ts",
     "to": "src/hosts/codex-configuration.ts",
     "unresolvedTo": "../hosts/codex-configuration",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/cli/preparation.ts",
-    "to": "src/runtime/config.ts",
-    "unresolvedTo": "../runtime/config",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/cli/preparation.ts",
-    "to": "src/runtime/paths.ts",
-    "unresolvedTo": "../runtime/paths",
     "dependencyTypes": [
       "local",
       "import"
@@ -1953,21 +1812,6 @@
     "unresolvedTo": "../fixtures/advisory",
     "dependencyTypes": [
       "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/evaluation/advisory.ts",
-    "to": "src/runtime/config.ts",
-    "unresolvedTo": "../runtime/config",
-    "dependencyTypes": [
-      "local",
-      "type-only",
       "import"
     ],
     "rule": {
@@ -2093,20 +1937,6 @@
     "from": "src/evaluation/grading-host.ts",
     "to": "src/evidence/host-results.ts",
     "unresolvedTo": "../evidence/host-results",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/evaluation/grading-host.ts",
-    "to": "src/runtime/config.ts",
-    "unresolvedTo": "../runtime/config",
     "dependencyTypes": [
       "local",
       "import"
@@ -2303,20 +2133,6 @@
   },
   {
     "type": "dependency",
-    "from": "src/evaluation/run.ts",
-    "to": "src/runtime/config.ts",
-    "unresolvedTo": "../runtime/config",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
     "from": "src/evaluation/semantic.ts",
     "to": "src/evidence/host-results.ts",
     "unresolvedTo": "../evidence/host-results",
@@ -2393,21 +2209,6 @@
     "unresolvedTo": "../graders/semantic",
     "dependencyTypes": [
       "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/evaluation/semantic.ts",
-    "to": "src/runtime/config.ts",
-    "unresolvedTo": "../runtime/config",
-    "dependencyTypes": [
-      "local",
-      "type-only",
       "import"
     ],
     "rule": {
@@ -2532,36 +2333,6 @@
   },
   {
     "type": "dependency",
-    "from": "src/evaluation/types.ts",
-    "to": "src/runtime/config.ts",
-    "unresolvedTo": "../runtime/config",
-    "dependencyTypes": [
-      "local",
-      "type-only",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/evaluation/types.ts",
-    "to": "src/runtime/state.ts",
-    "unresolvedTo": "../runtime/state",
-    "dependencyTypes": [
-      "local",
-      "type-only",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
     "from": "src/evidence/host-results.ts",
     "to": "src/evaluation/types.ts",
     "unresolvedTo": "../evaluation/types",
@@ -2620,206 +2391,9 @@
   },
   {
     "type": "dependency",
-    "from": "src/graders/shell.ts",
-    "to": "src/runtime/config.ts",
-    "unresolvedTo": "../runtime/config",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/graders/shell.ts",
-    "to": "src/runtime/shared-cache.ts",
-    "unresolvedTo": "../runtime/shared-cache",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/graders/shell.ts",
-    "to": "src/runtime/state.ts",
-    "unresolvedTo": "../runtime/state",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/hosts/claude-settings.ts",
-    "to": "src/runtime/config.ts",
-    "unresolvedTo": "../runtime/config",
-    "dependencyTypes": [
-      "local",
-      "type-only",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/hosts/claude-settings.ts",
-    "to": "src/runtime/hooks.ts",
-    "unresolvedTo": "../runtime/hooks",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/hosts/claude-settings.ts",
-    "to": "src/runtime/paths.ts",
-    "unresolvedTo": "../runtime/paths",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/hosts/claude-state.ts",
-    "to": "src/runtime/config.ts",
-    "unresolvedTo": "../runtime/config",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/hosts/claude-state.ts",
-    "to": "src/runtime/hooks.ts",
-    "unresolvedTo": "../runtime/hooks",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/hosts/claude-state.ts",
-    "to": "src/runtime/paths.ts",
-    "unresolvedTo": "../runtime/paths",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/hosts/claude-state.ts",
-    "to": "src/runtime/shared-cache.ts",
-    "unresolvedTo": "../runtime/shared-cache",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/hosts/claude-state.ts",
-    "to": "src/runtime/state.ts",
-    "unresolvedTo": "../runtime/state",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
     "from": "src/hosts/claude.ts",
     "to": "src/fixtures/preparation.ts",
     "unresolvedTo": "../fixtures/preparation",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/hosts/claude.ts",
-    "to": "src/runtime/hooks.ts",
-    "unresolvedTo": "../runtime/hooks",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/hosts/claude.ts",
-    "to": "src/runtime/paths.ts",
-    "unresolvedTo": "../runtime/paths",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/hosts/claude.ts",
-    "to": "src/runtime/state.ts",
-    "unresolvedTo": "../runtime/state",
     "dependencyTypes": [
       "local",
       "import"
@@ -2845,132 +2419,6 @@
   },
   {
     "type": "dependency",
-    "from": "src/hosts/codex-profile.ts",
-    "to": "src/runtime/paths.ts",
-    "unresolvedTo": "../runtime/paths",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/hosts/codex-state.ts",
-    "to": "src/runtime/config.ts",
-    "unresolvedTo": "../runtime/config",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/hosts/codex-state.ts",
-    "to": "src/runtime/hooks.ts",
-    "unresolvedTo": "../runtime/hooks",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/hosts/codex-state.ts",
-    "to": "src/runtime/paths.ts",
-    "unresolvedTo": "../runtime/paths",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/hosts/codex-state.ts",
-    "to": "src/runtime/shared-cache.ts",
-    "unresolvedTo": "../runtime/shared-cache",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/hosts/codex-state.ts",
-    "to": "src/runtime/state.ts",
-    "unresolvedTo": "../runtime/state",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/hosts/codex.ts",
-    "to": "src/runtime/config.ts",
-    "unresolvedTo": "../runtime/config",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/hosts/codex.ts",
-    "to": "src/runtime/hooks.ts",
-    "unresolvedTo": "../runtime/hooks",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/hosts/codex.ts",
-    "to": "src/runtime/state.ts",
-    "unresolvedTo": "../runtime/state",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
     "from": "src/hosts/process-lifecycle.ts",
     "to": "src/evaluation/types.ts",
     "unresolvedTo": "../evaluation/types",
@@ -2982,146 +2430,6 @@
       "severity": "error",
       "name": "module-interface"
     }
-  },
-  {
-    "type": "dependency",
-    "from": "src/isolation/isolation-common.ts",
-    "to": "src/runtime/paths.ts",
-    "unresolvedTo": "../runtime/paths",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/isolation/linux-sandbox.ts",
-    "to": "src/runtime/paths.ts",
-    "unresolvedTo": "../runtime/paths",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/isolation/linux-sandbox.ts",
-    "to": "src/runtime/shared-cache.ts",
-    "unresolvedTo": "../runtime/shared-cache",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/isolation/mac-sandbox.ts",
-    "to": "src/runtime/paths.ts",
-    "unresolvedTo": "../runtime/paths",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/isolation/mac-sandbox.ts",
-    "to": "src/runtime/shared-cache.ts",
-    "unresolvedTo": "../runtime/shared-cache",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "module-interface"
-    }
-  },
-  {
-    "type": "cycle",
-    "from": "src/candidate-artifacts.ts",
-    "to": "src/candidate-codex-state.ts",
-    "unresolvedTo": "./candidate-codex-state",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "no-circular"
-    },
-    "cycle": [
-      {
-        "name": "src/candidate-codex-state.ts",
-        "dependencyTypes": [
-          "local",
-          "import"
-        ]
-      },
-      {
-        "name": "src/runtime/config.ts",
-        "dependencyTypes": [
-          "local",
-          "type-only",
-          "import"
-        ]
-      },
-      {
-        "name": "src/candidate-artifacts.ts",
-        "dependencyTypes": [
-          "local",
-          "import"
-        ]
-      }
-    ]
-  },
-  {
-    "type": "cycle",
-    "from": "src/candidate-artifacts.ts",
-    "to": "src/runtime/config.ts",
-    "unresolvedTo": "./runtime/config",
-    "dependencyTypes": [
-      "local",
-      "type-only",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "no-circular"
-    },
-    "cycle": [
-      {
-        "name": "src/runtime/config.ts",
-        "dependencyTypes": [
-          "local",
-          "type-only",
-          "import"
-        ]
-      },
-      {
-        "name": "src/candidate-artifacts.ts",
-        "dependencyTypes": [
-          "local",
-          "import"
-        ]
-      }
-    ]
   },
   {
     "type": "cycle",
@@ -3504,98 +2812,6 @@
     ]
   },
   {
-    "type": "cycle",
-    "from": "src/runtime/config.ts",
-    "to": "src/runtime/seeds.ts",
-    "unresolvedTo": "./seeds",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "no-circular"
-    },
-    "cycle": [
-      {
-        "name": "src/runtime/seeds.ts",
-        "dependencyTypes": [
-          "local",
-          "import"
-        ]
-      },
-      {
-        "name": "src/runtime/config.ts",
-        "dependencyTypes": [
-          "local",
-          "type-only",
-          "import"
-        ]
-      }
-    ]
-  },
-  {
-    "type": "cycle",
-    "from": "src/runtime/config.ts",
-    "to": "src/runtime/shared-cache.ts",
-    "unresolvedTo": "./shared-cache",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "no-circular"
-    },
-    "cycle": [
-      {
-        "name": "src/runtime/shared-cache.ts",
-        "dependencyTypes": [
-          "local",
-          "import"
-        ]
-      },
-      {
-        "name": "src/runtime/config.ts",
-        "dependencyTypes": [
-          "local",
-          "type-only",
-          "import"
-        ]
-      }
-    ]
-  },
-  {
-    "type": "dependency",
-    "from": "src/candidate-artifacts.ts",
-    "to": "src/runtime/config.ts",
-    "unresolvedTo": "./runtime/config",
-    "dependencyTypes": [
-      "local",
-      "type-only",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "root-module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/candidate-codex-state.ts",
-    "to": "src/runtime/config.ts",
-    "unresolvedTo": "./runtime/config",
-    "dependencyTypes": [
-      "local",
-      "type-only",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "root-module-interface"
-    }
-  },
-  {
     "type": "dependency",
     "from": "src/case-validation.ts",
     "to": "src/fixtures/generated.ts",
@@ -3709,20 +2925,6 @@
   },
   {
     "type": "dependency",
-    "from": "src/engine.ts",
-    "to": "src/runtime/config.ts",
-    "unresolvedTo": "./runtime/config",
-    "dependencyTypes": [
-      "local",
-      "export"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "root-module-interface"
-    }
-  },
-  {
-    "type": "dependency",
     "from": "src/extension-session.ts",
     "to": "src/fixtures/generated.ts",
     "unresolvedTo": "./fixtures/generated",
@@ -3783,21 +2985,6 @@
   },
   {
     "type": "dependency",
-    "from": "src/host-diagnostics.ts",
-    "to": "src/runtime/state.ts",
-    "unresolvedTo": "./runtime/state",
-    "dependencyTypes": [
-      "local",
-      "type-only",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "root-module-interface"
-    }
-  },
-  {
-    "type": "dependency",
     "from": "src/index.ts",
     "to": "src/cli/evaluation.ts",
     "unresolvedTo": "./cli/evaluation",
@@ -3843,64 +3030,6 @@
     "from": "src/native-transcripts.ts",
     "to": "src/evaluation/types.ts",
     "unresolvedTo": "./evaluation/types",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "root-module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/native-transcripts.ts",
-    "to": "src/runtime/config.ts",
-    "unresolvedTo": "./runtime/config",
-    "dependencyTypes": [
-      "local",
-      "type-only",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "root-module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/native-transcripts.ts",
-    "to": "src/runtime/state.ts",
-    "unresolvedTo": "./runtime/state",
-    "dependencyTypes": [
-      "local",
-      "type-only",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "root-module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/provenance.ts",
-    "to": "src/runtime/paths.ts",
-    "unresolvedTo": "./runtime/paths",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "root-module-interface"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/report.ts",
-    "to": "src/runtime/paths.ts",
-    "unresolvedTo": "./runtime/paths",
     "dependencyTypes": [
       "local",
       "import"

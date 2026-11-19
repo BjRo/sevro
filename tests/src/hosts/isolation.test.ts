@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { loadRuntimeConfiguration } from "../../../src/engine";
 import { createClaudeHost } from "../../../src/hosts/claude";
 import { allocateNativeState } from "../../../src/native-transcript-state";
-import { runtimeSeedDigest } from "../../../src/runtime/seeds";
+import { runtimeSeedDigest } from "../../../src/runtime/index";
 import { defined } from "../../fixtures/assertions";
 import { syntheticClaudeLogin } from "../../fixtures/claude-login";
 import { createTemporaryFixtures, fixtureGit } from "../../fixtures/filesystem";

@@ -18,8 +18,7 @@ import type {
   CliResultDataCase,
   CliResultDataTrial,
 } from "../schema-types";
-import type { RuntimePolicy } from "../runtime/config";
-import type { RuntimeRole } from "../runtime/state";
+import type { RuntimePolicy, RuntimeRole } from "../runtime/index";
 import type { CandidateArtifactRoots } from "../candidate-artifacts";
 
 export class EvaluationConfigurationError extends Error {

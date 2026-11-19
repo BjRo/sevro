@@ -1,5 +1,4 @@
 import { lstat, readdir, realpath, rm } from "node:fs/promises";
-import { containsControl } from "./value-guards";
 import { join, relative, sep } from "node:path";
 import {
   allocateCodexStateLease,
@@ -7,58 +6,23 @@ import {
   candidateCodexArtifactRoots,
   codexStateEnabled,
   releaseCandidateCodexState,
-  requireUnreservedArtifactName,
 } from "./candidate-codex-state";
 import {
   allocateNativeState,
   nativeStatePath,
 } from "./native-transcript-state";
-import type { RuntimePolicy, RuntimeRole } from "./runtime/config";
+import {
+  requireArtifactDirectories,
+  type RuntimeArtifactDirectory,
+  type RuntimePolicy,
+  type RuntimeRole,
+} from "./runtime/index";
 import { clearFixtureContents } from "./workspace/index";
-
-export interface RuntimeArtifactDirectory {
-  name: string;
-  path: string;
-}
 
 export type CandidateArtifactRoots = Record<string, string>;
 
 const leases = new Map<string, RuntimeArtifactDirectory[]>();
 const MAX_ENTRIES = 16_384;
-
-/** These are relative candidate-home paths, never operator filesystem grants. */
-export function requireArtifactDirectories(
-  directories: RuntimeArtifactDirectory[],
-): void {
-  if (!Array.isArray(directories) || directories.length > 16)
-    throw new Error("runtime artifact directories exceed the limit");
-  const names = new Set<string>();
-  for (const directory of directories) {
-    requireArtifactDirectory(directory);
-    if (names.has(directory.name))
-      throw new Error("runtime artifact directory names overlap");
-    names.add(directory.name);
-  }
-}
-
-function requireArtifactDirectory(directory: RuntimeArtifactDirectory): void {
-  if (!/^[a-z][a-z0-9_]{0,63}$/.test(directory.name))
-    throw new Error("runtime artifact directory name is invalid");
-  requireUnreservedArtifactName(directory.name);
-  const path = directory.path;
-  if (!validArtifactPath(path))
-    throw new Error("runtime artifact directory path is invalid");
-  if (path.split("/").some((part) => !part || part === "." || part === ".."))
-    throw new Error(
-      "runtime artifact directory must be a bounded relative path",
-    );
-}
-
-function validArtifactPath(path: string): boolean {
-  if (typeof path !== "string" || path.length > 4096 || path.includes("\\"))
-    return false;
-  return !containsControl(path);
-}
 
 /** Allocate before host execution so exceptions cannot lose cleanup ownership. */
 export async function allocateCandidateRuntime(

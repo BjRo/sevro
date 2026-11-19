@@ -10,11 +10,9 @@ import {
 import {
   loadRuntimeConfiguration,
   runtimeNativeGoalEnabled,
-} from "../runtime/config";
-import {
   canonicalRuntimeRoot,
   requireRuntimeReadRoots,
-} from "../runtime/paths";
+} from "../runtime/index";
 import { loadCase, loadPreparationSources } from "./loading";
 import { candidateHost, secondaryHost, selectedConcurrency } from "./hosts";
 

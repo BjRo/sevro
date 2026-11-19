@@ -3,7 +3,7 @@ import { basename, dirname, join, relative } from "node:path";
 import { userInfo } from "node:os";
 import { nativeStatePath } from "./native-transcript-state";
 import { clearFixtureContents } from "./workspace/index";
-import type { RuntimePolicy } from "./runtime/config";
+import type { RuntimePolicy } from "./runtime/index";
 
 interface CodexPaths {
   codexHome: string;
@@ -20,23 +20,9 @@ interface CodexLease {
   state?: { stateRoot: string; artifacts: Record<string, ArtifactBinding> };
 }
 const leases = new Map<string, CodexLease>();
-const ARTIFACT_NAMES = [
-  "codex_config",
-  "codex_skills",
-  "agent_skills",
-  "command_agent_skills",
-  "command_codex_skills",
-];
 
 export function codexStateEnabled(policy: RuntimePolicy | undefined): boolean {
   return policy?.codexState === true;
-}
-
-export function requireUnreservedArtifactName(name: string): void {
-  if (ARTIFACT_NAMES.includes(name))
-    throw new Error(
-      "runtime artifact directory name is reserved for Codex state",
-    );
 }
 
 export function allocateCodexStateLease(root: string, enabled: boolean): void {

@@ -2,7 +2,7 @@ import { realpath } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import { insideRoot as inside } from "../paths";
 export { insideRoot as inside } from "../paths";
-import { insideRuntimeRoot } from "../runtime/paths";
+import { insideRuntimeRoot } from "../runtime/index";
 import { workspaceBoundaryException } from "../workspace/index";
 import type { CandidateArtifactRoots } from "../candidate-artifacts";
 

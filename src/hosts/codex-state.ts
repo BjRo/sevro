@@ -1,4 +1,12 @@
-import { runtimeLocalHttpEnabled, runtimeSeedSources } from "../runtime/config";
+import {
+  runtimeLocalHttpEnabled,
+  runtimeSeedSources,
+  requireRuntimeReadRoots,
+  runtimeExecutableProtection,
+  prepareRuntimeState,
+  sharedCacheDenyRoots,
+  sharedCacheRoots,
+} from "../runtime/index";
 import { shellQuote } from "../shell";
 import {
   candidateArtifactEnvironment,
@@ -28,17 +36,8 @@ import {
   candidateTranscriptEnvironment,
   candidateTranscriptRoots,
 } from "../native-transcripts";
-import { prepareHookMounts } from "../runtime/hooks";
+import { prepareHookMounts } from "../hooks/index";
 import { requireNativeHookRoots } from "../native-transcript-state";
-import {
-  requireRuntimeReadRoots,
-  runtimeExecutableProtection,
-} from "../runtime/paths";
-import { prepareRuntimeState } from "../runtime/state";
-import {
-  sharedCacheDenyRoots,
-  sharedCacheRoots,
-} from "../runtime/shared-cache";
 import { codexPermissionProfile } from "./codex-profile";
 import { evaluationProtectedRoots } from "../isolation/index";
 type Request = Parameters<HostAdapter["run"]>[0];

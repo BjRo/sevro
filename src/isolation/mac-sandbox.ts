@@ -9,12 +9,12 @@ import {
 } from "../native-transcript-state";
 import { requireCandidateArtifactRoots } from "../candidate-artifacts";
 import { workspaceBoundaryException } from "../workspace/index";
-import { requireWritableCacheRoots } from "../runtime/shared-cache";
 import {
+  requireWritableCacheRoots,
   insideRuntimeRoot,
   isRuntimeHomeRoot,
   requireRuntimeReadRoots,
-} from "../runtime/paths";
+} from "../runtime/index";
 import {
   commandRuntimeRoot,
   HostIsolationError,

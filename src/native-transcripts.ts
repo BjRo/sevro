@@ -3,8 +3,7 @@ import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 import { sha256 } from "./identity";
 import { HostExecutionFailure, type HostResult } from "./evaluation/types";
-import type { RuntimeRole } from "./runtime/state";
-import type { RuntimePolicy } from "./runtime/config";
+import type { RuntimeRole, RuntimePolicy } from "./runtime/index";
 import { isRecord } from "./value-guards";
 import {
   rethrowDiagnosticPersistenceError,

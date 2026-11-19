@@ -11,9 +11,10 @@ export type {
   CliResult,
 } from "./evaluation/types";
 export { runEvaluation } from "./evaluation/run";
-export { loadRuntimeConfiguration } from "./runtime/config";
-export type { RuntimeConfiguration, RuntimePolicy } from "./runtime/config";
+export { loadRuntimeConfiguration } from "./runtime/index";
 export type {
   RuntimeArtifactDirectory,
-  CandidateArtifactRoots,
-} from "./candidate-artifacts";
+  RuntimeConfiguration,
+  RuntimePolicy,
+} from "./runtime/index";
+export type { CandidateArtifactRoots } from "./candidate-artifacts";

@@ -85,19 +85,19 @@
     },
     {
       "name": "layer-infrastructure",
-      "comment": "Workspace, runtime and isolation do not depend on features, evaluation, the CLI or entry points.",
+      "comment": "Workspace, runtime, isolation and hooks do not depend on features, evaluation, the CLI or entry points.",
       "severity": "error",
-      "from": { "path": "^src/(workspace|runtime|isolation)/" },
+      "from": { "path": "^src/(workspace|runtime|isolation|hooks)/" },
       "to": {
         "path": "^src/((hosts|graders|fixtures|evidence|results|transcripts|extensions|cases|diagnostics|evaluation|cli)/|(cli|index|engine)\\.ts$)"
       }
     },
     {
       "name": "layer-infrastructure-order",
-      "comment": "Within infrastructure, workspace sits below runtime, which sits below isolation.",
+      "comment": "Within infrastructure, workspace sits below runtime, which sits below isolation, which sits below hooks.",
       "severity": "error",
-      "from": { "path": "^src/(workspace|runtime)/" },
-      "to": { "path": "^src/isolation/" }
+      "from": { "path": "^src/(workspace|runtime|isolation)/" },
+      "to": { "path": "^src/(isolation|hooks)/", "pathNot": "^src/$1/" }
     },
     {
       "name": "layer-workspace",

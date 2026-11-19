@@ -1,11 +1,7 @@
 import { mkdir, realpath, stat } from "node:fs/promises";
 import { join } from "node:path";
-import {
-  requireRuntimePolicy,
-  runtimeRoleSeeds,
-  type RuntimeRole,
-  type RuntimePolicy,
-} from "./config";
+import { requireRuntimePolicy, runtimeRoleSeeds } from "./config";
+import type { RuntimePolicy, RuntimeRole } from "./policy";
 import { materializeRuntimeSeed } from "./seeds";
 import { requireRuntimeReadRoots } from "./paths";
 import { hashJson } from "../identity";
@@ -14,8 +10,6 @@ import {
   sharedCacheRoots,
   selectedSharedCaches,
 } from "./shared-cache";
-
-export type { RuntimeRole } from "./config";
 
 export function runtimeObservations(
   policy: RuntimePolicy | undefined,

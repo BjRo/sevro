@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { loadRuntimeConfiguration, runEvaluation } from "../../../src/engine";
 import { createClaudeHost } from "../../../src/hosts/claude";
 import { createCodexHost } from "../../../src/hosts/codex";
-import { runtimeSeedDigest } from "../../../src/runtime/seeds";
+import { runtimeSeedDigest } from "../../../src/runtime/index";
 import { defined, parseRecord } from "../../fixtures/assertions";
 import { syntheticClaudeLogin } from "../../fixtures/claude-login";
 import { createTemporaryFixtures } from "../../fixtures/filesystem";

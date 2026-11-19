@@ -2,7 +2,7 @@ import { prepareEvaluation, type PreparedEvaluation } from "./plan";
 import { type CliResult, type EvaluationOptions } from "./types";
 import { canonicalJson, hashJson } from "../identity";
 import { exitCodeFor, summarizeCases } from "../results";
-import { runtimePolicySnapshot } from "../runtime/config";
+import { runtimePolicySnapshot } from "../runtime/index";
 import { cleanupExpiredWorkspaces } from "../workspace/index";
 import { assertCliResult, assertRunEvidence } from "../schema";
 import { atomicWriteJson } from "../storage";

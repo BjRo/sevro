@@ -6,8 +6,10 @@ import {
   requireNativeTranscriptViews,
   requireNativeHookRoots,
 } from "../native-transcript-state";
-import { requireRuntimeReadRoots } from "../runtime/paths";
-import { requireWritableCacheRoots } from "../runtime/shared-cache";
+import {
+  requireRuntimeReadRoots,
+  requireWritableCacheRoots,
+} from "../runtime/index";
 import { requireCandidateArtifactRoots } from "../candidate-artifacts";
 import {
   commandRuntimeRoot,

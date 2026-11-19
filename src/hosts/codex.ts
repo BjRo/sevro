@@ -9,13 +9,15 @@ import {
   failedNativeTranscripts,
   retainEnabledNativeTranscripts,
 } from "../native-transcripts";
-import { runtimeNativeGoalEnabled } from "../runtime/config";
+import {
+  runtimeNativeGoalEnabled,
+  runtimeObservations,
+} from "../runtime/index";
 import {
   releaseRuntimeHooks,
   runtimeHookObservation,
   type HookMounts,
-} from "../runtime/hooks";
-import { runtimeObservations } from "../runtime/state";
+} from "../hooks/index";
 import { validateNativeHostRequest, validHostTimeout } from "./native-request";
 import { runCodexAppServer } from "./codex-app-server";
 import { summarizeCodexEvents, type CodexEventSummary } from "./codex-events";

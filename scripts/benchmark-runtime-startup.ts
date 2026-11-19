@@ -11,7 +11,7 @@ import {
 import { constants, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import type { RuntimePolicy } from "../src/runtime/config";
+import type { RuntimePolicy } from "../src/runtime/index";
 
 const sourceRoot = resolve(required(process.argv[2]));
 const output = resolve(required(process.argv[3]));

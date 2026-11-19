@@ -1,8 +1,11 @@
 import { isAbsolute } from "node:path";
 import { CLAUDE_AUTH_VARIABLES } from "./claude-credential";
-import type { RuntimePolicy } from "../runtime/config";
-import { runtimeHooksEnabled } from "../runtime/hooks";
-import { requireRuntimeReadRoots, isRuntimeHomeRoot } from "../runtime/paths";
+import {
+  requireRuntimeReadRoots,
+  isRuntimeHomeRoot,
+  type RuntimePolicy,
+} from "../runtime/index";
+import { runtimeHooksEnabled } from "../hooks/index";
 import { nativeStatePath } from "../native-transcript-state";
 import {
   workspaceStatePath,

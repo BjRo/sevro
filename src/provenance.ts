@@ -8,7 +8,7 @@ import { insideRoot } from "./paths";
 import { pathToFileURL } from "node:url";
 import packageJson from "../package.json" with { type: "json" };
 import { hashJson, sha256 } from "./identity";
-import { insideRuntimeRoot } from "./runtime/paths";
+import { insideRuntimeRoot } from "./runtime/index";
 
 const MAX_DIRTY_BYTES = 32 * 1024 * 1024;
 const MAX_BUILD_BYTES = 64 * 1024 * 1024;

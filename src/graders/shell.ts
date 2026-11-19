@@ -1,5 +1,11 @@
 import { spawn, type Subprocess } from "../runtime-process";
-import { runtimeLocalHttpEnabled, runtimeSeedSources } from "../runtime/config";
+import {
+  runtimeLocalHttpEnabled,
+  runtimeSeedSources,
+  prepareRuntimeState,
+  sharedCacheDenyRoots,
+  type RuntimePolicy,
+} from "../runtime/index";
 import {
   candidateArtifactEnvironment,
   type CandidateArtifactRoots,
@@ -7,9 +13,6 @@ import {
 import { mkdir, stat } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 import { prepareIsolatedCommand } from "../isolation/index";
-import type { RuntimePolicy } from "../runtime/config";
-import { prepareRuntimeState } from "../runtime/state";
-import { sharedCacheDenyRoots } from "../runtime/shared-cache";
 import { hashJson } from "../identity";
 import {
   captureBoundedText,

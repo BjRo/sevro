@@ -10,11 +10,15 @@ import {
 } from "node:fs/promises";
 import { join } from "node:path";
 import { shellQuote as quote } from "../shell";
-import type { RuntimePolicy } from "./config";
-import { insideRuntimeRoot, requireRuntimeReadRoots } from "./paths";
-import { runtimeSeedDigest } from "./seeds";
-import { prepareRuntimeState } from "./state";
-import { sharedCacheDenyRoots, sharedCacheRoots } from "./shared-cache";
+import {
+  insideRuntimeRoot,
+  prepareRuntimeState,
+  requireRuntimeReadRoots,
+  runtimeSeedDigest,
+  sharedCacheDenyRoots,
+  sharedCacheRoots,
+  type RuntimePolicy,
+} from "../runtime/index";
 import {
   macSandboxProfile,
   prepareLinuxSandboxCommand,

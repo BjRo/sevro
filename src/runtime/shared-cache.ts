@@ -2,14 +2,12 @@ import { access, lstat, realpath, symlink } from "node:fs/promises";
 import { constants } from "node:fs";
 import { userInfo } from "node:os";
 import { isAbsolute, join } from "node:path";
-import type { RuntimePolicy, RuntimeRole } from "./config";
+import type {
+  RuntimePolicy,
+  RuntimeRole,
+  SharedCacheDirectory,
+} from "./policy";
 import { declaredRuntimeRoots, requireRuntimeReadRoots } from "./paths";
-
-export interface SharedCacheDirectory {
-  source: string;
-  target: string;
-  roles: RuntimeRole[];
-}
 
 export async function resolveSharedCaches(
   caches: SharedCacheDirectory[],

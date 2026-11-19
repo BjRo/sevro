@@ -14,9 +14,11 @@ import {
   runtimeHookObservation,
   runtimeHooksEnabled,
   type HookMounts,
-} from "../runtime/hooks";
-import { insideRuntimeRoot as inside } from "../runtime/paths";
-import { runtimeObservations } from "../runtime/state";
+} from "../hooks/index";
+import {
+  insideRuntimeRoot as inside,
+  runtimeObservations,
+} from "../runtime/index";
 import { isRecord } from "../value-guards";
 import { runClaudeTurns, type ClaudeSession } from "./claude-continuation";
 import { validateNativeHostRequest, validHostTimeout } from "./native-request";

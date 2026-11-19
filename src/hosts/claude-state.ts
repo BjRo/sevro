@@ -1,4 +1,11 @@
-import { runtimeSeedSources } from "../runtime/config";
+import {
+  runtimeSeedSources,
+  insideRuntimeRoot as inside,
+  runtimeExecutableProtection,
+  prepareRuntimeState,
+  sharedCacheDenyRoots,
+  sharedCacheRoots,
+} from "../runtime/index";
 import { minimalRoots } from "../paths";
 import { shellQuote } from "../shell";
 import {
@@ -24,16 +31,7 @@ import {
   candidateTranscriptEnvironment,
   candidateTranscriptRoots,
 } from "../native-transcripts";
-import { prepareHookMounts, runtimeHooksEnabled } from "../runtime/hooks";
-import {
-  insideRuntimeRoot as inside,
-  runtimeExecutableProtection,
-} from "../runtime/paths";
-import { prepareRuntimeState } from "../runtime/state";
-import {
-  sharedCacheDenyRoots,
-  sharedCacheRoots,
-} from "../runtime/shared-cache";
+import { prepareHookMounts, runtimeHooksEnabled } from "../hooks/index";
 import { stageClaudeAuthentication } from "./claude-credential";
 import { claudeHostSettings } from "./claude-settings";
 import { evaluationProtectedRoots } from "../isolation/index";

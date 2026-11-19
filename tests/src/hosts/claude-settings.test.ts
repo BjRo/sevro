@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { claudeHostSettings } from "../../../src/hosts/claude-settings";
-import type { RuntimePolicy } from "../../../src/runtime/config";
+import type { RuntimePolicy } from "../../../src/runtime/index";
 
 test("Claude host settings deny private state to Bash and file tools", () => {
   const settings = claudeHostSettings(

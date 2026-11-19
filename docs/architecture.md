@@ -117,8 +117,10 @@ the preparation plan.
 Fixture modules own materialization and workspace preparation. The
 [workspace module](../src/workspace/index.ts) owns the private namespace of
 runner-owned candidate workspaces, and the [isolation module](../src/isolation/index.ts)
-turns protected roots into a platform sandbox command. Runtime modules
-own declared host runtime policy and private state. Evidence modules validate
+turns protected roots into a platform sandbox command. The
+[runtime module](../src/runtime/index.ts) owns declared host runtime policy and
+private state, and the [hooks module](../src/hooks/index.ts) runs declared
+runtime hooks inside that sandbox. Evidence modules validate
 host observations and artifacts, verify retained bytes, and normalize optional
 usage without constructing fixtures. Native host implementations and graders
 remain in their own families.
@@ -130,14 +132,14 @@ its interface there; production callers, tests, tooling and examples import that
 file instead of the module's other files. Modules are layered, and a module may
 depend only on its own layer or lower ones:
 
-| Layer          | Modules                                                                    |
-| -------------- | -------------------------------------------------------------------------- |
-| Entry points   | `cli.ts`, `index.ts`, `engine.ts`                                          |
-| CLI            | `cli/`                                                                     |
-| Orchestration  | `evaluation/`                                                              |
-| Features       | `hosts/`, `graders/`, `fixtures/`, `evidence/`                             |
-| Infrastructure | `isolation/`, then `runtime/`, then `workspace/` (each above the next one) |
-| Base           | `generated/`, reached only through the schema boundary                     |
+| Layer          | Modules                                                                                   |
+| -------------- | ----------------------------------------------------------------------------------------- |
+| Entry points   | `cli.ts`, `index.ts`, `engine.ts`                                                         |
+| CLI            | `cli/`                                                                                    |
+| Orchestration  | `evaluation/`                                                                             |
+| Features       | `hosts/`, `graders/`, `fixtures/`, `evidence/`                                            |
+| Infrastructure | `hooks/`, then `isolation/`, then `runtime/`, then `workspace/` (each above the next one) |
+| Base           | `generated/`, reached only through the schema boundary                                    |
 
 Top-level files in `src/` predate this structure and have no layer yet.
 [dependency-cruiser](../.dependency-cruiser.json) enforces these rules together
@@ -161,7 +163,8 @@ candidate acceptance.
 | Schedule trials, retain evidence, and finalize ownership          | [Scheduler](../src/evaluation/scheduler.ts), [trial coordinator](../src/evaluation/trial.ts), [reservations](../src/evaluation/resources.ts), [collection](../src/evaluation/collection.ts), [run owner](../src/run-owner.ts)                                                            | [Concurrent admission and ordering](../tests/src/cli/concurrency.test.ts), [trial failures and retention](../tests/src/evaluation/trial-retention.test.ts), [checkpoint refusals](../tests/src/run-owner-checkpoints.test.ts)     |
 | Prepare, construct, and clean up fixtures                         | [Fixture modules](../src/fixtures/), [construction](../src/fixtures/create.ts), [preparation artifacts](../src/fixtures/preparation.ts), [content cleanup](../src/workspace/cleanup.ts), [workspace ownership](../src/workspace/workspace-state.ts)                                      | [Artifact preparation](../tests/src/fixtures/artifact-preparation.test.ts), [workspace lifecycle](../tests/src/fixtures/workspace-lifecycle.test.ts)                                                                              |
 | Isolate evaluator and hook commands                               | [Isolation module](../src/isolation/index.ts), [protected roots](../src/isolation/isolation-roots.ts), [macOS sandbox](../src/isolation/mac-sandbox.ts), [Linux sandbox](../src/isolation/linux-sandbox.ts)                                                                              | [Sandbox refusals and grants](../tests/src/isolation/mac-sandbox.test.ts), [Linux masking](../tests/src/isolation/linux-sandbox.test.ts)                                                                                          |
-| Resolve runtime policy, discovery, and private state              | [Runtime modules](../src/runtime/), [configuration](../src/runtime/config.ts)                                                                                                                                                                                                            | [Runtime environment](../tests/src/runtime/environment.test.ts), [candidate artifact lifetime](../tests/src/candidate-artifacts.test.ts)                                                                                          |
+| Resolve runtime policy, discovery, and private state              | [Runtime modules](../src/runtime/), [interface](../src/runtime/index.ts)                                                                                                                                                                                                                 | [Runtime environment](../tests/src/runtime/environment.test.ts), [candidate artifact lifetime](../tests/src/candidate-artifacts.test.ts)                                                                                          |
+| Run declared runtime hooks                                        | [Hooks module](../src/hooks/index.ts)                                                                                                                                                                                                                                                    | [Hook mounts and receipts](../tests/src/hooks/hooks.test.ts)                                                                                                                                                                      |
 | Validate host results and retain bounded evidence                 | [Host results](../src/evidence/host-results.ts), [trial writer](../src/evidence/trial-writer.ts), [retained artifacts](../src/evidence/retained-artifacts.ts), [usage](../src/evidence/usage.ts)                                                                                         | [Host evidence refusals](../tests/src/evaluation/host-evidence.test.ts), [failed-host evidence retention](../tests/src/evaluation/trial-retention.test.ts)                                                                        |
 | Negotiate trusted extension calls                                 | [Client](../src/extension-client.ts), [session](../src/extension-session.ts), [extension grading](../src/evaluation/grading.ts), [protocol](extension-protocol-v1.md)                                                                                                                    | [Negotiated engine behavior](../tests/src/evaluation/extension-engine.test.ts), [extension grading outcomes](../tests/src/evaluation/extension-grading.test.ts)                                                                   |
 | Run independent advisory review                                   | [Advisory execution](../src/evaluation/advisory.ts), [blind fixture](../src/fixtures/advisory.ts), [advisory fixture explanation](advisory-fixture.md)                                                                                                                                   | [Advisory failures](../tests/src/evaluation/advisory-failures.test.ts), [blind change view](../tests/src/fixtures/advisory.test.ts)                                                                                               |

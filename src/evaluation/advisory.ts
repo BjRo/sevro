@@ -11,7 +11,7 @@ import { removeWorkspace } from "../workspace/index";
 import { HostDiagnosticPersistenceError } from "../host-diagnostics";
 import type { CheckOutcome } from "../results";
 import type { AdvisoryReviewData } from "../schema-types";
-import type { RuntimePolicy } from "../runtime/config";
+import type { RuntimePolicy } from "../runtime/index";
 import { gradingRuntimePolicy, scopedHostArtifacts } from "./grading-host";
 import { evaluationWarning } from "./progress";
 import {

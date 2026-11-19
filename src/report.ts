@@ -8,7 +8,7 @@ import { isAbsolute, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { canonicalJson } from "./identity";
 import { assertCliResult, assertReport, assertRunEvidence } from "./schema";
-import { canonicalRuntimeRoot } from "./runtime/paths";
+import { canonicalRuntimeRoot } from "./runtime/index";
 import { nativeTranscriptRetention } from "./transcript-retention";
 
 type CliResult = CliResultData;

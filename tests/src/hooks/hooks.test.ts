@@ -18,8 +18,8 @@ import { allocateNativeState } from "../../../src/native-transcript-state";
 import {
   prepareHookMounts,
   releaseRuntimeHooks,
-} from "../../../src/runtime/hooks";
-import { runtimeSeedDigest } from "../../../src/runtime/seeds";
+} from "../../../src/hooks/index";
+import { runtimeSeedDigest } from "../../../src/runtime/index";
 import {
   defined,
   expectUnknown,

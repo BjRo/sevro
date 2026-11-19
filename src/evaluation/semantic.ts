@@ -24,7 +24,7 @@ import type {
   TrialObservation,
 } from "../evidence/trial-writer";
 import type { GradingFailure, GradingResult } from "./grading";
-import type { RuntimePolicy } from "../runtime/config";
+import type { RuntimePolicy } from "../runtime/index";
 import { HostDiagnosticPersistenceError } from "../host-diagnostics";
 
 interface SemanticGradingInput {
