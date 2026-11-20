@@ -10,24 +10,28 @@ concepts across code, documentation and architecture reviews.
 One declared task for an agent: a prompt, a fixture and the criteria that grade the result.
 _Avoid_: test, scenario, benchmark item
 
+**Task**:
+The work a case asks the candidate to do, as judged by the case's checks.
+_Avoid_: job, goal (native goal is a separate concept)
+
 **Candidate**:
 The agent configuration being evaluated: a host with its model, effort and any mounted skills or plugins.
 _Avoid_: participant, subject, model under test
 
 **Fixture**:
-The prepared working tree a trial starts from, containing only what the candidate may see.
-_Avoid_: sandbox, test repo
+The starting content a case declares for every trial: inline files, generated Git history or a repository source, plus any setup and prepared artifacts.
+_Avoid_: sandbox, test repo; fixture for the materialized directory (that is a workspace)
 
 **Workspace**:
-The fixture's materialized directory that one trial's candidate works in.
-_Avoid_: checkout, working copy
+One trial's own directory into which the fixture is materialized; the candidate works there and graders read it afterwards. Semantic grading and advisory review get their own auxiliary workspaces.
+_Avoid_: checkout, working copy, participant fixture
 
 **Run**:
-One evaluation of a single case by one candidate, repeated over its trials and summarized as one result against the case's pass threshold.
+One evaluation by one candidate of one or more cases (currently always one), each repeated over its trials and assessed against its pass threshold, summarized as one result.
 _Avoid_: job, session
 
 **Trial**:
-One repetition of a case within a run, with its own fixture, candidate execution, grading and evidence.
+One repetition of a case within a run, with its own workspace, candidate execution, grading and evidence.
 _Avoid_: sample, iteration; attempt (a retained run)
 
 **Extension**:
@@ -39,8 +43,8 @@ The project's declaration of which host tools, read-only roots, caches, hooks an
 _Avoid_: sandbox config, environment
 
 **Runtime role**:
-The purpose a native execution serves: candidate, checks, hooks, semantic or advisory.
-_Avoid_: mode, phase
+What an isolated execution is for, named after what it serves: `candidate` (the candidate's turns), `checks` (shell check commands), `hooks` (runtime hook commands), `semantic` (semantic checks) or `advisory` (advisory review).
+_Avoid_: mode, phase; reading a role name as the Candidate or Check concept itself
 
 ## Grading and results
 
@@ -53,16 +57,28 @@ The kind of judgment that evaluates a check: output, shell, Git HEAD, semantic o
 _Avoid_: judge (reserved for advisory review), validator
 
 **Semantic check**:
-A check graded by a separate model reading the candidate's response against a stated criterion.
+A check graded by a separate model reading the candidate's response against a stated criterion; the model's per-check pass or fail answer is a semantic verdict.
 _Avoid_: LLM judge, AI grading
 
 **Advisory review**:
 An optional, independent model review of a completed trial whose recommendation never changes the task verdict.
 _Avoid_: judge verdict, second opinion
 
-**Verdict**:
-The three separate states of a trial or run: execution, grading and task.
-_Avoid_: score, pass/fail (alone)
+**Task verdict**:
+The engine's decision whether a trial, case or run accomplished its task: passed, failed or not assessed. It is derived from check statuses and may be adjusted by a task-verdict policy; neither advisory review nor domain outcomes change it.
+_Avoid_: verdict (alone), score, pass/fail
+
+**Task-verdict policy**:
+A named policy an extension offers and a run must explicitly select, under which the extension recommends each trial's task verdict. It can override a failed check, but never execution failure, grader errors or missing evidence.
+_Avoid_: verdict override, policy extension
+
+**Domain outcome**:
+An extension's non-gating judgment of a trial on a project-specific question, such as whether the expected skill activated, graded and retained like a check but never counted toward the task verdict, assessment or exit code; any aggregation belongs to the extension's caller.
+_Avoid_: extension assessment, verdict, secondary result
+
+**Assessment**:
+The engine's three independent judgments of a trial, case or run: execution status, grading status and task verdict. Success requires all three; exit code 0 alone does not establish it.
+_Avoid_: result states, verdict, result (alone)
 
 **Observation**:
 A namespaced, bounded fact a host or grader reports about a trial, with explicit completeness.
@@ -117,11 +133,15 @@ A packaged instruction set a host can load, provided by the repository or by a h
 _Avoid_: prompt, agent, command
 
 **Skill activation**:
-Observed evidence that the candidate actually loaded a skill during a trial.
+The event of the candidate actually loading a skill during a trial.
 _Avoid_: skill usage, trigger
 
+**Skill activation observation**:
+Sevro's record of the skill activations in one trial, with explicit complete or partial collection; it states facts, not whether the right skill was chosen.
+_Avoid_: activation result, activation verdict
+
 **Skill exposure**:
-Whether, and how completely, a skill's body was available to the candidate, reported separately from collection health.
+Whether, and how completely, a skill's body was available to the candidate, reported in the skill activation observation.
 _Avoid_: visibility, availability
 
 **Skill invocation**:
