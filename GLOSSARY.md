@@ -77,7 +77,7 @@ The engine's decision whether a trial, case or run accomplished its task: passed
 _Avoid_: verdict (alone), score, pass/fail
 
 **Task-verdict policy**:
-A named policy an extension offers and a run must explicitly select, under which the extension recommends each trial's task verdict. It can override a failed check, but never a failed execution status, a grading error or missing evidence.
+A named policy an extension offers and a run must explicitly select, under which the extension decides each trial's task verdict. It can override a failed check, but never a failed execution status, a grading error or missing evidence.
 _Avoid_: verdict override, policy extension
 
 **Domain outcome**:
@@ -97,13 +97,13 @@ One run's retained result directory in a results root, counted and pruned as a u
 _Avoid_: trial; run (the evaluation itself, of which an attempt is the retained directory)
 
 **Evidence**:
-The retained, atomically written record of a trial or run from which results can be re-read and reported.
+The retained, atomically written record of a trial or run from which its assessment and observations can be re-read and reported.
 _Avoid_: logs, artifacts (alone), output
 
 ## Hosts
 
 **Host**:
-The agent program a trial runs, such as Codex or Claude Code, or a custom executable.
+The agent program that carries out a host request, for a trial's candidate or for a judge, such as Codex, Claude Code or a custom executable.
 _Avoid_: harness (Darrow's word for the same thing; in Sevro it means test scaffolding), runner (Sevro itself), provider
 
 **Native host**:
@@ -167,7 +167,7 @@ The directory Sevro allocates and removes for one native host request, holding i
 _Avoid_: temp dir, home
 
 **Isolation policy**:
-The single validated statement of what an isolated command or host may deny, read and write, and which network access it has.
+The single validated statement of what an isolated process is denied, may read and may write, and which network access it has.
 _Avoid_: sandbox profile, permissions
 
 **Policy renderer**:
