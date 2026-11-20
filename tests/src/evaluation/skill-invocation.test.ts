@@ -46,6 +46,7 @@ async function fixture(kind: InvocationKind) {
       ],
     },
     prepare: selected.preparation,
+    evaluate: { checks: [], metrics: [] },
   });
   sessionOptions.engineCapabilities = invocationCapabilities;
   sessionOptions.hostCapabilities = invocationCapabilities;
@@ -80,7 +81,7 @@ for (const kind of invocationKinds) {
       );
       return Promise.resolve({ finalMessage: "ready", complete: true });
     };
-    expect((await runEvaluation(f.options)).result.exitCode).toBe(3);
+    expect((await runEvaluation(f.options)).result.exitCode).toBe(0);
     expect(called).toBe(true);
   });
 
