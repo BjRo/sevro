@@ -5,7 +5,7 @@ import {
   assertCliResult,
   assertReport,
   assertRunEvidence,
-} from "../src/schema";
+} from "../src/schema/index";
 
 async function invoke(
   command: string,

@@ -1,7 +1,6 @@
-import { EvaluationConfigurationError } from "../engine";
+import { EvaluationConfigurationError } from "../host-contract/index";
 import { InvocationError } from "./invocation";
-import { assertCliResult } from "../schema";
-import type { ReportData } from "../schema-types";
+import { assertCliResult, type ReportData } from "../schema/index";
 import { displayMeasurements, displayTrialSummary } from "./summary";
 
 function failure(code: 64 | 70, message: string) {

@@ -1,16 +1,21 @@
-import { runtimeLocalHttpEnabled, runtimeSeedSources } from "../runtime/config";
-import { shellQuote } from "../shell";
 import {
+  runtimeLocalHttpEnabled,
+  runtimeSeedSources,
+  requireRuntimeReadRoots,
+  runtimeExecutableProtection,
+  prepareRuntimeState,
+  sharedCacheDenyRoots,
+  sharedCacheRoots,
   candidateArtifactEnvironment,
   candidateArtifactReadRoots,
-} from "../candidate-artifacts";
-import {
   codexStateEnabled,
   retainCandidateCodexState,
-} from "../candidate-codex-state";
+  requireNativeHookRoots,
+} from "../runtime/index";
+import { shellQuote } from "../platform/index";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { isMissingFile } from "../fixtures/tools";
+import { isMissingFile } from "../kernel/index";
 import {
   cp,
   lstat,
@@ -23,24 +28,14 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { delimiter, dirname, join, sep } from "node:path";
-import type { HostAdapter } from "../engine";
+import type { HostAdapter } from "../host-contract/index";
 import {
   candidateTranscriptEnvironment,
   candidateTranscriptRoots,
-} from "../native-transcripts";
-import { prepareHookMounts } from "../runtime/hooks";
-import { requireNativeHookRoots } from "../native-transcript-state";
-import {
-  requireRuntimeReadRoots,
-  runtimeExecutableProtection,
-} from "../runtime/paths";
-import { prepareRuntimeState } from "../runtime/state";
-import {
-  sharedCacheDenyRoots,
-  sharedCacheRoots,
-} from "../runtime/shared-cache";
-import { codexPermissionProfile } from "./codex-profile";
-import { evaluationProtectedRoots } from "./isolation-roots";
+} from "../transcripts/index";
+import { prepareHookMounts } from "../hooks/index";
+import { codexPermissionProfile } from "../codex-profile/index";
+import { evaluationProtectedRoots } from "../isolation/index";
 type Request = Parameters<HostAdapter["run"]>[0];
 type CodexState = Awaited<ReturnType<typeof prepareCodexState>>;
 const MAX_AUTH_BYTES = 1024 * 1024;

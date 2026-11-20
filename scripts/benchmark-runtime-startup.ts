@@ -11,7 +11,7 @@ import {
 import { constants, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import type { RuntimePolicy } from "../src/runtime/config";
+import type { RuntimePolicy } from "../src/runtime/index";
 
 const sourceRoot = resolve(required(process.argv[2]));
 const output = resolve(required(process.argv[3]));
@@ -69,10 +69,13 @@ async function instrumentation() {
       ...args: Parameters<typeof runtime.prepareRuntimeState>
     ) => measure(`runtime.${args[2]}`, () => prepareRuntimeState(...args)),
   }));
-  const processPath = join(sourceRoot, "src/hosts/codex-process.ts");
+  const processPath = sourceModule(
+    "src/native-process/index.ts",
+    "src/hosts/codex-process.ts",
+  );
   const processes = (await import(
     processPath
-  )) as typeof import("../src/hosts/codex-process");
+  )) as typeof import("../src/native-process/index");
   const runCodexProcess = processes.runCodexProcess;
   await mock.module(processPath, () => ({
     ...processes,
@@ -144,9 +147,9 @@ async function dependencies(root: string): Promise<RuntimePolicy> {
   const bytes = Buffer.alloc(16 * 1024, 0x61);
   for (let index = 0; index < 2048; index++)
     await writeFile(join(source, `dependency-${index}`), bytes);
-  const config = (await import(
-    sourceModule("src/runtime/config.ts", "src/runtime-config.ts")
-  )) as typeof import("../src/runtime/config");
+  const engine = (await import(
+    join(sourceRoot, "src/engine.ts")
+  )) as typeof import("../src/engine");
   const path = join(root, "runtime.json");
   await writeFile(
     path,
@@ -157,7 +160,7 @@ async function dependencies(root: string): Promise<RuntimePolicy> {
     }),
   );
   const policy = await measure("configuration", () =>
-    config.loadRuntimeConfiguration(root, path),
+    engine.loadRuntimeConfiguration(root, path),
   );
   if (!policy) throw new Error("benchmark runtime absent");
   return policy;
@@ -214,8 +217,8 @@ async function cloneControl(root: string) {
 }
 async function trial(root: string, policy: RuntimePolicy, binary: string) {
   const codex = (await import(
-    join(sourceRoot, "src/hosts/codex.ts")
-  )) as typeof import("../src/hosts/codex");
+    sourceModule("src/hosts/index.ts", "src/hosts/codex.ts")
+  )) as typeof import("../src/hosts/index");
   const grading = (await import(
     sourceModule(
       "src/evaluation/grading-host.ts",

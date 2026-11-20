@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { sha256 } from "../identity";
+import { sha256 } from "../kernel/index";
 
 export async function verifyRetainedArtifacts(
   artifacts: { path: string; sha256: string }[],

@@ -1,7 +1,9 @@
-import type { HostAdapter } from "../engine";
-import { createClaudeHost } from "../hosts/claude";
-import { createCodexHost } from "../hosts/codex";
-import { codexAgentConcurrency } from "../hosts/codex-configuration";
+import type { HostAdapter } from "../host-contract/index";
+import {
+  codexAgentConcurrency,
+  createClaudeHost,
+  createCodexHost,
+} from "../hosts/index";
 import { InvocationError, nativeRoutes, type Invocation } from "./invocation";
 import { loadHost } from "./loading";
 

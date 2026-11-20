@@ -1,8 +1,10 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { codexNativeCallObservation } from "../../src/hosts/codex-native-calls";
-import { codexNativeControls } from "../../src/hosts/native-controls";
+import {
+  codexNativeCallObservation,
+  codexNativeControls,
+} from "../../src/native-controls/index";
 import { createTemporaryFixtures } from "./filesystem";
 
 export async function submittedProgram(

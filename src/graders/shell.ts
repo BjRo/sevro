@@ -1,21 +1,23 @@
-import { spawn, type Subprocess } from "../runtime-process";
-import { runtimeLocalHttpEnabled, runtimeSeedSources } from "../runtime/config";
 import {
-  candidateArtifactEnvironment,
-  type CandidateArtifactRoots,
-} from "../candidate-artifacts";
-import { mkdir, stat } from "node:fs/promises";
-import { delimiter, join } from "node:path";
-import { prepareIsolatedCommand } from "../hosts/isolation";
-import type { RuntimePolicy } from "../runtime/config";
-import { prepareRuntimeState } from "../runtime/state";
-import { sharedCacheDenyRoots } from "../runtime/shared-cache";
-import { hashJson } from "../identity";
-import {
+  spawn,
+  type Subprocess,
   captureBoundedText,
   ProcessDeadline,
   terminateOwnedProcessGroup,
-} from "../process-lifecycle";
+} from "../platform/index";
+import {
+  runtimeLocalHttpEnabled,
+  runtimeSeedSources,
+  prepareRuntimeState,
+  sharedCacheDenyRoots,
+  type RuntimePolicy,
+  candidateArtifactEnvironment,
+  type CandidateArtifactRoots,
+} from "../runtime/index";
+import { mkdir, stat } from "node:fs/promises";
+import { delimiter, join } from "node:path";
+import { prepareIsolatedCommand } from "../isolation/index";
+import { hashJson } from "../kernel/index";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 120_000;

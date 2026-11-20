@@ -1,12 +1,9 @@
 import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { allocateWorkspace, removeWorkspace } from "./workspace-state";
+import { allocateWorkspace, removeWorkspace } from "../workspace/index";
 import { fixtureBinDirectory, installFixtureBin } from "./bin";
 import { installGitHooks } from "./git-hooks";
-import {
-  materializeGeneratedFixture,
-  type GeneratedFixture,
-} from "./generated";
+import { materializeGeneratedFixture } from "./generated";
 import { runFixtureSetup, type FixtureSetup } from "./setup";
 import {
   fixtureParts,
@@ -17,13 +14,14 @@ import {
 import {
   applyRepositoryOverlay,
   cloneRepositorySource,
-  type RepositoryFixture,
   type RepositorySource,
 } from "./repository";
 import {
   EvaluationConfigurationError,
+  type GeneratedFixture,
+  type RepositoryFixture,
   type ResolvedCase,
-} from "../evaluation/types";
+} from "../host-contract/index";
 
 export type FixtureSource<Repository = RepositorySource> =
   | { kind: "inline"; files: ResolvedCase["fixture"]["files"] }

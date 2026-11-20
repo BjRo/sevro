@@ -1,10 +1,14 @@
 import { readFile } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import { pathToFileURL } from "node:url";
-import { isResolvedCase, resolvedCaseIssue } from "../case-validation";
-import type { HostAdapter, ResolvedCase } from "../engine";
-import { prepareInstrumentation } from "../instrumentation";
-import { isRecord, isStringArray, validQualifiedId } from "../value-guards";
+import { isResolvedCase, resolvedCaseIssue } from "../cases/index";
+import type { HostAdapter, ResolvedCase } from "../host-contract/index";
+import {
+  prepareInstrumentation,
+  isRecord,
+  isStringArray,
+  validQualifiedId,
+} from "../kernel/index";
 import { InvocationError, type Invocation } from "./invocation";
 
 export function parseCase(value: unknown): ResolvedCase {

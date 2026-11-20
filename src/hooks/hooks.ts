@@ -1,0 +1,479 @@
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import { existsSync } from "node:fs";
+import {
+  cp,
+  mkdir,
+  readFile,
+  readdir,
+  realpath,
+  writeFile,
+} from "node:fs/promises";
+import { join } from "node:path";
+import { shellQuote as quote } from "../platform/index";
+import {
+  insideRuntimeRoot,
+  prepareRuntimeState,
+  requireRuntimeReadRoots,
+  runtimeSeedDigest,
+  sharedCacheDenyRoots,
+  sharedCacheRoots,
+  type RuntimePolicy,
+  nativeStateParent,
+  requireNativeHookRoots,
+} from "../runtime/index";
+import {
+  macSandboxProfile,
+  prepareLinuxSandboxCommand,
+  type IsolatedCommand,
+} from "../isolation/index";
+import { isRecord, isUnknownArray } from "../kernel/index";
+import { hookExecutions, releaseHookProcesses } from "./hook-processes";
+
+export interface HookMounts {
+  directories: string[];
+  receipts: string;
+  isolation: IsolatedCommand[];
+  plugins: {
+    name: string;
+    allowed: boolean;
+    sourceDigest: string;
+    effectiveDigest: string;
+  }[];
+}
+interface HookRewrite {
+  allowed: boolean;
+  root: string;
+  privateRoot: string;
+  execution: () => Promise<HookExecution>;
+  ordinal: number;
+  files: Set<string>;
+}
+
+interface HookExecution {
+  environment: Record<string, string>;
+  profile?: string;
+  isolation?: IsolatedCommand;
+}
+
+export function runtimeHooksEnabled(
+  policy: RuntimePolicy | undefined,
+): boolean {
+  const hooks = policy?.hooks;
+  if (!hooks) return false;
+  const plugins = hooks.plugins ?? [];
+  return hooks.nativeGoal === true || plugins.length > 0;
+}
+
+function object(value: unknown): Record<string, unknown> {
+  if (!isRecord(value)) throw new Error("invalid runtime hook declaration");
+  return value;
+}
+
+/** Materialize immutable mounts; only declared plugin hooks reach the host. */
+export async function prepareHookMounts(options: {
+  workspace: string;
+  stateRoot: string;
+  privateRoot: string;
+  pluginRoots: string[];
+  protectedRoots: string[];
+  policy: RuntimePolicy;
+}): Promise<HookMounts> {
+  let mountRoot = join(options.stateRoot, "runtime-plugins");
+  const receipts = join(options.privateRoot, "hook-receipts");
+  await Promise.all(
+    [mountRoot, receipts].map((path) =>
+      mkdir(path, { recursive: true, mode: 0o700 }),
+    ),
+  );
+  mountRoot = await realpath(mountRoot);
+  let runtime: ReturnType<typeof prepareRuntimeState> | undefined;
+  const prepareRuntime = () =>
+    (runtime ??= prepareRuntimeState(
+      options.workspace,
+      options.policy,
+      "hooks",
+      join(options.privateRoot, "hook-runtime"),
+    ));
+  const selected = selectedPlugins(options.policy);
+  const plugins: HookMounts["plugins"] = [],
+    isolation: IsolatedCommand[] = [],
+    directories: string[] = [];
+  for (const [index, source] of options.pluginRoots.entries()) {
+    const root = join(mountRoot, `plugin-${index}`);
+    const sourceDigest = await runtimeSeedDigest(source);
+    await cp(source, root, {
+      recursive: true,
+      dereference: true,
+      force: false,
+      errorOnExist: true,
+    });
+    const manifest = object(
+      JSON.parse(
+        await readFile(join(root, ".claude-plugin/plugin.json"), "utf8"),
+      ),
+    );
+    const name = uniquePluginName(manifest, plugins);
+    const allowed = selected.delete(name);
+    const readRoots = await hookReadRoots(options, root);
+    const rewrite: HookRewrite = {
+      root,
+      allowed,
+      privateRoot: options.privateRoot,
+      ordinal: index * 10000,
+      files: new Set(),
+      execution: lazyHookExecution(
+        options,
+        index,
+        root,
+        readRoots,
+        prepareRuntime,
+        isolation,
+      ),
+    };
+    await rewritePlugin(manifest, rewrite);
+    plugins.push({
+      name,
+      allowed,
+      sourceDigest,
+      effectiveDigest: await runtimeSeedDigest(root),
+    });
+    directories.push(root);
+  }
+  if (selected.size)
+    throw new Error("runtime hook policy selects an unavailable plugin");
+  return { directories, receipts, plugins, isolation };
+}
+
+function lazyHookExecution(
+  options: Parameters<typeof prepareHookMounts>[0],
+  index: number,
+  root: string,
+  readRoots: { ordinary: string[]; curated: string[] },
+  prepareRuntime: () => ReturnType<typeof prepareRuntimeState>,
+  isolation: IsolatedCommand[],
+): () => Promise<HookExecution> {
+  let execution: Promise<HookExecution> | undefined;
+  return () =>
+    (execution ??= (async () => {
+      const runtime = await prepareRuntime();
+      const boundary = await prepareHookIsolation(
+        options,
+        index,
+        readRoots,
+        runtime,
+      );
+      if (boundary.isolation) isolation.push(boundary.isolation);
+      return {
+        ...boundary,
+        environment: {
+          ...runtime.environment,
+          PATH: hookPath(runtime.environment),
+          CLAUDE_PLUGIN_ROOT: root,
+          PLUGIN_ROOT: root,
+        },
+      };
+    })());
+}
+
+async function prepareHookIsolation(
+  options: Parameters<typeof prepareHookMounts>[0],
+  index: number,
+  roots: { ordinary: string[]; curated: string[] },
+  runtime: Awaited<ReturnType<typeof prepareRuntimeState>>,
+): Promise<{ profile?: string; isolation?: IsolatedCommand }> {
+  const cacheRoots = await sharedCacheRoots(
+    options.policy,
+    "hooks",
+    options.protectedRoots,
+  );
+  const protectedRoots = [
+    ...options.protectedRoots,
+    ...sharedCacheDenyRoots(options.policy, "hooks"),
+  ];
+  if (process.platform === "linux")
+    return {
+      isolation: await prepareLinuxSandboxCommand({
+        argv: ["/bin/true"],
+        workspace: options.workspace,
+        protectedRoots,
+        privateStateRoot: options.privateRoot,
+        denyNetwork: true,
+        readOnlyRoots: roots.ordinary,
+        hookReadRoots: roots.curated,
+        writableRuntimeRoot: runtime.root,
+        writableCacheRoots: cacheRoots,
+      }),
+    };
+  const profile = join(options.privateRoot, `hooks-${index}.sb`);
+  await writeFile(
+    profile,
+    macSandboxProfile(
+      protectedRoots,
+      true,
+      roots.ordinary,
+      runtime.root,
+      roots.curated,
+      options.workspace,
+      undefined,
+      cacheRoots,
+    ) + "\n(deny process-info* (require-not (target self)))\n",
+    { mode: 0o600 },
+  );
+  return { profile };
+}
+
+async function hookReadRoots(
+  options: Parameters<typeof prepareHookMounts>[0],
+  root: string,
+) {
+  const trusted = insideRuntimeRoot(await nativeStateParent(), root);
+  const ordinary = [
+    ...options.policy.readOnlyRoots,
+    ...(trusted ? [] : [root]),
+  ];
+  const curated = trusted ? [root] : [];
+  requireRuntimeReadRoots(ordinary, options.protectedRoots);
+  await requireNativeHookRoots(curated, options.privateRoot);
+  return { ordinary, curated };
+}
+
+function hookPath(environment: Record<string, string>): string {
+  return environment.PATH ?? "/usr/bin:/bin:/usr/sbin:/sbin";
+}
+function selectedPlugins(policy: RuntimePolicy): Set<string> {
+  return new Set(policy.hooks?.plugins ?? []);
+}
+function uniquePluginName(
+  manifest: Record<string, unknown>,
+  plugins: HookMounts["plugins"],
+): string {
+  if (typeof manifest.name !== "string")
+    throw new Error("runtime hook plugin has no name");
+  const name = manifest.name;
+  if (plugins.some((plugin) => plugin.name === name))
+    throw new Error("runtime hook plugin names overlap");
+  return name;
+}
+
+async function rewritePlugin(
+  manifest: Record<string, unknown>,
+  state: HookRewrite,
+): Promise<void> {
+  requireHookOnlyPlugin(state.root);
+  await rewriteManifest(manifest, state, ".claude-plugin/plugin.json");
+  const native = join(state.root, ".codex-plugin/plugin.json");
+  if (existsSync(native))
+    await rewriteManifest(
+      object(JSON.parse(await readFile(native, "utf8"))),
+      state,
+      ".codex-plugin/plugin.json",
+    );
+  const standard = join(state.root, "hooks/hooks.json");
+  if (existsSync(standard)) await hookFile(standard, state);
+  await rewriteFrontmatter(state.root, state);
+}
+
+function requireHookOnlyPlugin(root: string): void {
+  for (const name of [".mcp.json", ".lsp.json"])
+    if (existsSync(join(root, name)))
+      throw new Error("runtime auxiliary plugin execution is unsupported");
+}
+
+async function rewriteManifest(
+  manifest: Record<string, unknown>,
+  state: HookRewrite,
+  path: string,
+): Promise<void> {
+  if (manifest.mods !== undefined)
+    throw new Error("runtime plugin mods are unsupported");
+  delete manifest.mcpServers;
+  delete manifest.lspServers;
+  if (manifest.hooks !== undefined)
+    manifest.hooks = await hookSource(manifest.hooks, state);
+  await writeFile(join(state.root, path), JSON.stringify(manifest));
+}
+
+async function hookSource(
+  value: unknown,
+  state: HookRewrite,
+): Promise<unknown> {
+  if (typeof value === "string") {
+    const path = await realpath(join(state.root, value));
+    if (!insideRuntimeRoot(state.root, path))
+      throw new Error("runtime hook file escapes its plugin");
+    await hookFile(path, state);
+    return value;
+  }
+  if (isUnknownArray(value))
+    return Promise.all(value.map((source) => hookSource(source, state)));
+  const configuration = object(value);
+  if (configuration.hooks !== undefined)
+    return {
+      ...configuration,
+      hooks: await hookMap(configuration.hooks, state),
+    };
+  return hookMap(configuration, state);
+}
+
+async function hookFile(path: string, state: HookRewrite): Promise<void> {
+  if (state.files.has(path)) return;
+  state.files.add(path);
+  const value = object(JSON.parse(await readFile(path, "utf8")));
+  value.hooks = await hookMap(value.hooks, state);
+  await writeFile(path, JSON.stringify(value));
+}
+
+async function hookMap(
+  value: unknown,
+  state: HookRewrite,
+): Promise<Record<string, unknown>> {
+  if (!state.allowed) return {};
+  const entries: [string, unknown][] = [];
+  for (const [event, groups] of Object.entries(object(value))) {
+    if (!isUnknownArray(groups))
+      throw new Error("runtime hook groups must be arrays");
+    entries.push([
+      event,
+      await Promise.all(
+        groups.map(async (group) => {
+          const definition = object(group);
+          if (!isUnknownArray(definition.hooks))
+            throw new Error("runtime hook handlers must be arrays");
+          return {
+            ...definition,
+            hooks: await Promise.all(
+              definition.hooks.map((handler) => commandHook(handler, state)),
+            ),
+          };
+        }),
+      ),
+    ]);
+  }
+  return Object.fromEntries(entries);
+}
+
+async function commandHook(
+  value: unknown,
+  state: HookRewrite,
+): Promise<Record<string, unknown>> {
+  const handler = commandHandler(value);
+  if (handler.command.includes("\0") || handler.command.length > 65536)
+    throw new Error("runtime hook command is invalid or oversized");
+  const wrapper = join(state.privateRoot, `hook-${state.ordinal++}.sh`);
+  const execution = await state.execution();
+  const environment = Object.entries(execution.environment).map(
+    ([name, content]) => `${name}=${content}`,
+  );
+  const receipts = join(state.privateRoot, "hook-receipts");
+  const command = isolatedHookCommand(execution, environment, handler.command);
+  await writeFile(
+    wrapper,
+    `#!/bin/sh
+set -u
+receipt=$(/usr/bin/mktemp ${quote(join(receipts, "call.XXXXXX"))}) || exit 125
+test ! -f ${quote(join(receipts, "stopped"))} || exit 125
+printf '{"status":"running","pid":%s,"wrapper":%s}\\n' "$$" ${quote(JSON.stringify(wrapper))} > "$receipt"
+${command}
+code=$?
+printf '{"status":"completed","pid":%s,"exitCode":%s,"wrapper":%s}\\n' "$$" "$code" ${quote(JSON.stringify(wrapper))} > "$receipt"
+exit "$code"
+`,
+    { mode: 0o700 },
+  );
+  return { ...handler, command: `/bin/sh ${quote(wrapper)}` };
+}
+
+function isolatedHookCommand(
+  state: HookExecution,
+  environment: string[],
+  command: string,
+): string {
+  const prefix = state.isolation
+    ? state.isolation.argv.slice(0, -1)
+    : ["/usr/bin/sandbox-exec", "-f", state.profile ?? ""];
+  return [
+    ...prefix,
+    "/usr/bin/env",
+    "-i",
+    ...environment,
+    "/bin/sh",
+    "-c",
+    command,
+  ]
+    .map(quote)
+    .join(" ");
+}
+
+function commandHandler(
+  value: unknown,
+): Record<string, unknown> & { command: string } {
+  const handler = object(value);
+  if (handler.type !== "command" || typeof handler.command !== "string")
+    throw new Error("runtime policy supports command plugin hooks only");
+  if (handler.args !== undefined)
+    throw new Error("runtime exec-form hook arguments are unsupported");
+  return { ...handler, command: handler.command };
+}
+
+async function rewriteFrontmatter(
+  directory: string,
+  state: HookRewrite,
+): Promise<void> {
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) await rewriteFrontmatter(path, state);
+    else if (entry.name.endsWith(".md")) await rewriteMarkdown(path, state);
+  }
+}
+
+async function rewriteMarkdown(
+  path: string,
+  state: HookRewrite,
+): Promise<void> {
+  const body = await readFile(path, "utf8");
+  const header = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(body);
+  const metadata = hookFrontmatter(header?.[1]);
+  if (!metadata || !header) return;
+  if (state.allowed) metadata.hooks = await hookMap(metadata.hooks, state);
+  else delete metadata.hooks;
+  await writeFile(
+    path,
+    `---\n${stringifyYaml(metadata)}\n---\n${body.slice(header[0].length)}`,
+  );
+}
+
+function hookFrontmatter(
+  header: string | undefined,
+): Record<string, unknown> | undefined {
+  if (!header?.includes("hooks")) return undefined;
+  const metadata = object(parseYaml(header));
+  return metadata.hooks === undefined ? undefined : metadata;
+}
+
+export async function runtimeHookObservation(mounts: HookMounts) {
+  await releaseHookProcesses(mounts.receipts);
+  const executions = (await hookExecutions(mounts.receipts)).map(
+    (execution) => ({
+      status: execution.status,
+      pid: execution.pid,
+      exitCode: execution.exitCode,
+    }),
+  );
+  return {
+    id: "sevro.host.hooks",
+    completeness: executions.every(
+      (execution) => execution.status === "completed",
+    )
+      ? ("complete" as const)
+      : ("partial" as const),
+    data: { plugins: mounts.plugins, executions },
+  };
+}
+
+export async function releaseRuntimeHooks(
+  mounts: HookMounts | undefined,
+): Promise<void> {
+  if (!mounts) return;
+  await releaseHookProcesses(mounts.receipts);
+  await Promise.all(mounts.isolation.map((item) => item.release()));
+}

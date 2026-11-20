@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { type PreparationArtifact } from "../../src/fixtures/preparation";
+import { type PreparationArtifact } from "../../src/fixtures/index";
 
 export function inlineArtifact(
   bytes = Buffer.from("prepared\n"),

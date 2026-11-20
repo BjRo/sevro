@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { gradeOutput, prepareOutputChecks } from "../../../src/graders/output";
+import { gradeOutput, prepareOutputChecks } from "../../../src/graders/index";
 import { defined, expectUnknown } from "../../fixtures/assertions";
 
 test("regex checks grade complete output and preflight invalid patterns", () => {

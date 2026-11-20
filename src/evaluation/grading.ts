@@ -2,22 +2,20 @@ import {
   assessGitHeadCheck,
   gitHeadState,
   type PreparedGitHeadCheck,
-} from "../graders/git-head";
-import { gradeOutput, type PreparedOutputCheck } from "../graders/output";
-import {
+  gradeOutput,
+  type PreparedOutputCheck,
   assessShellCheck,
   runShellCheck,
   type PreparedShellCheck,
-} from "../graders/shell";
-import { evaluationProtectedRoots } from "../hosts/isolation-roots";
-import { sha256 } from "../identity";
-import type { TrialObservation } from "../evidence/trial-writer";
+} from "../graders/index";
+import { evaluationProtectedRoots } from "../isolation/index";
+import { sha256, type CheckOutcome } from "../kernel/index";
+import type { TrialObservation } from "../evidence/index";
 import {
   ExtensionSourceChangedError,
   type EvaluationRequest,
   type EvaluationResult,
-} from "../extension-session";
-import type { CheckOutcome } from "../results";
+} from "../extensions/index";
 
 export interface GradingFailure {
   readonly message: string;

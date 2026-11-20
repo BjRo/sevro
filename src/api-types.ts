@@ -2,7 +2,10 @@ import type {
   CliResultData,
   CliResultDataCase,
   CliResultDataTrial,
-} from "./schema-types";
+} from "./schema/index";
+import type { EvaluationProgress } from "./kernel/index";
+
+export type { EvaluationProgress } from "./kernel/index";
 
 /** An evaluation always has allocated run and evidence paths. */
 export interface EvaluationResult extends Omit<
@@ -28,12 +31,6 @@ export interface EvaluationTrialResult extends Omit<
 > {
   artifactPath: string;
   domainOutcomes: NonNullable<CliResultDataTrial["domainOutcomes"]>;
-}
-
-export interface EvaluationProgress {
-  stage: "preparation" | "candidate" | "grading" | "evidence";
-  status: "started" | "completed" | "skipped";
-  trial?: number;
 }
 
 export interface EvaluateOptions {

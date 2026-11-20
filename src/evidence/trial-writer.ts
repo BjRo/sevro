@@ -1,22 +1,48 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { TrialPersistenceError, type TrialSummary } from "../evaluation/types";
-import { sha256 } from "../identity";
-import type { Assessment, CheckOutcome } from "../results";
+import {
+  sha256,
+  type ArtifactReference,
+  type Assessment,
+  type CheckOutcome,
+  type Diagnostic,
+  type DomainOutcome,
+  type ObservationEvidence,
+  type RawResultReference,
+} from "../kernel/index";
 import type {
-  ArtifactReference,
-  Diagnostic,
-  ObservationEvidence,
-  RawResultReference,
-} from "../contract-types";
-import type { RunEvidenceDataTrialEvidence } from "../schema-types";
-import { atomicWriteJson } from "../storage";
+  CliResultDataTrial,
+  RunEvidenceDataTrialEvidence,
+} from "../schema/index";
+import { atomicWriteJson } from "../platform/index";
 import type { hostArtifacts } from "./host-results";
 import { verifyRetainedArtifacts } from "./retained-artifacts";
 
 type TrialEvidence = RunEvidenceDataTrialEvidence;
 export type TrialObservation = ObservationEvidence;
+
+/** A trial's evidence could not be retained; its fixture stays for inspection. */
+export class TrialPersistenceError extends Error {
+  constructor(workspace: string, options?: ErrorOptions) {
+    super(
+      `trial persistence failed; fixture retained at ${workspace}`,
+      options,
+    );
+  }
+}
+
+/** Persisted evaluations always retain a trial path and a known outcome list. */
+export interface TrialSummary
+  extends
+    Assessment,
+    Omit<
+      CliResultDataTrial,
+      keyof Assessment | "domainOutcomes" | "artifactPath"
+    > {
+  domainOutcomes: DomainOutcome[];
+  artifactPath: string;
+}
 
 interface TrialWriterInput {
   readonly runDir: string;

@@ -6,20 +6,24 @@ import {
   allocateWorkspace,
   retainWorkspace,
   removeWorkspace,
-} from "../fixtures/workspace-state";
-import { createFixture } from "../fixtures/create";
-import { fixtureBinDirectory } from "../fixtures/bin";
-import { fixtureParts } from "../fixtures/preparation";
-import { startRunOwner, type RunOwner } from "../run-owner";
-import { EvaluationConfigurationError, type EvaluationOptions } from "./types";
+  startRunOwner,
+  type RunOwner,
+} from "../workspace/index";
+import {
+  createFixture,
+  fixtureBinDirectory,
+  fixtureParts,
+} from "../fixtures/index";
+import { EvaluationConfigurationError } from "../host-contract/index";
+import type { EvaluationOptions } from "./types";
 import type { PreparedFixture, PreparedInvocation } from "./plan";
 import { evaluationWarning } from "./progress";
 import {
   INVOCATION_PLACEHOLDER,
   LEGACY_CODEX_PLACEHOLDER,
 } from "./invocation-plan";
-import type { ArtifactReference as PreparationArtifactReference } from "../contract-types";
-export type { ArtifactReference as PreparationArtifactReference } from "../contract-types";
+import type { ArtifactReference as PreparationArtifactReference } from "../kernel/index";
+export type { ArtifactReference as PreparationArtifactReference } from "../kernel/index";
 
 /** Reservations outlive completed contents until all admitted trials drain. */
 export class RunWorkspaceReservations {

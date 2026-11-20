@@ -1,5 +1,5 @@
 import type { Dirent, Stats } from "node:fs";
-import { isMissingFile } from "./tools";
+import { isMissingFile } from "../kernel/index";
 import {
   lstat,
   mkdir,
@@ -10,10 +10,9 @@ import {
   symlink,
   copyFile,
 } from "node:fs/promises";
-import { allocateWorkspace, removeWorkspace } from "./workspace-state";
+import { allocateWorkspace, removeWorkspace } from "../workspace/index";
 import { dirname, isAbsolute, join, resolve } from "node:path";
-import { insideRoot as contained } from "../paths";
-import { runGit } from "../git";
+import { insideRoot as contained, runGit } from "../platform/index";
 import { fixtureParts } from "./preparation";
 
 const MAX_GIT_OUTPUT = 16 * 1024 * 1024;

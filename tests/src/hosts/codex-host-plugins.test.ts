@@ -11,11 +11,8 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import {
-  allocateWorkspace,
-  removeWorkspace,
-} from "../../../src/fixtures/workspace-state";
-import { createCodexHost } from "../../../src/hosts/codex";
+import { allocateWorkspace, removeWorkspace } from "../../../src/workspace";
+import { createCodexHost } from "../../../src/hosts/index";
 import {
   defined,
   expectUnknown,

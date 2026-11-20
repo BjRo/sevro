@@ -6,7 +6,7 @@ import { evaluate, type EvaluationProgress } from "../../src/index";
 import baseline from "../../examples/basic/graded.json";
 import { createTemporaryFixtures } from "../fixtures/filesystem";
 import { parseRunEvidence } from "../fixtures/assertions";
-import { removeWorkspace } from "../../src/fixtures/workspace-state";
+import { removeWorkspace } from "../../src/workspace";
 import { cli } from "../fixtures/cli-fixtures";
 
 const roots: string[] = [];

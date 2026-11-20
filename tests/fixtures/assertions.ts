@@ -2,8 +2,9 @@ import {
   assertCliResult,
   assertReport,
   assertRunEvidence,
-} from "../../src/schema";
-import type { CliResultData, RunEvidenceData } from "../../src/schema-types";
+  type CliResultData,
+  type RunEvidenceData,
+} from "../../src/schema/index";
 import type { ResolvedCase } from "../../src/engine";
 import { expect } from "bun:test";
 

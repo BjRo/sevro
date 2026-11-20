@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { lstat, readFile, readdir, realpath } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import type { PreparationResult } from "../../src/extension-session";
+import type { PreparationResult } from "../../src/extensions/index";
 
 export const guideRoot = resolve(import.meta.dir, "../..");
 export const guidePath = ".agents/skills/sevro-guide/SKILL.md";

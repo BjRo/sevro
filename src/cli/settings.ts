@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import type { HostAdapter } from "../engine";
+import type { HostAdapter } from "../host-contract/index";
 import type { PreparedInvocation } from "./preparation";
 import { nativeRoutes } from "./invocation";
 

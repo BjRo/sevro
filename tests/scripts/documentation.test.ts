@@ -10,7 +10,7 @@ import {
   gradeOutput,
   isOutputGrader,
   prepareOutputChecks,
-} from "../../src/graders/output";
+} from "../../src/graders/index";
 import { guideCli } from "../fixtures/documentation-tools";
 
 function prepared(

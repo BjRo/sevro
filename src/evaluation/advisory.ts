@@ -2,23 +2,21 @@ import {
   advisoryPrompt,
   parseAdvisoryAssessment,
   type AdvisoryAssessment,
-} from "../advisory";
-import type { CandidateArtifactRoots } from "../candidate-artifacts";
-import type { TrialEvidenceWriter } from "../evidence/trial-writer";
-import { usage } from "../evidence/usage";
-import { buildBlindAdvisoryFixture } from "../fixtures/advisory";
-import { removeWorkspace } from "../fixtures/workspace-state";
-import { HostDiagnosticPersistenceError } from "../host-diagnostics";
-import type { CheckOutcome } from "../results";
-import type { AdvisoryReviewData } from "../schema-types";
-import type { RuntimePolicy } from "../runtime/config";
-import { gradingRuntimePolicy, scopedHostArtifacts } from "./grading-host";
-import { evaluationWarning } from "./progress";
+  type CheckOutcome,
+} from "../kernel/index";
+import type { CandidateArtifactRoots, RuntimePolicy } from "../runtime/index";
 import {
   TrialPersistenceError,
-  type HostAdapter,
-  type HostResult,
-} from "./types";
+  usage,
+  type TrialEvidenceWriter,
+} from "../evidence/index";
+import { buildBlindAdvisoryFixture } from "../fixtures/index";
+import { removeWorkspace } from "../workspace/index";
+import { HostDiagnosticPersistenceError } from "../diagnostics/index";
+import type { AdvisoryReviewData } from "../schema/index";
+import { gradingRuntimePolicy, scopedHostArtifacts } from "./grading-host";
+import { evaluationWarning } from "./progress";
+import type { HostAdapter, HostResult } from "../host-contract/index";
 
 export type AdvisoryReview = AdvisoryReviewData;
 

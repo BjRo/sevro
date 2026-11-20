@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
@@ -45,10 +45,10 @@ async function fixture() {
     resolve(import.meta.dir, "../../scripts/release-documentation.ts"),
     join(source, "scripts/release-documentation.ts"),
   );
-  await mkdir(join(source, "src"));
-  await copyFile(
-    resolve(import.meta.dir, "../../src/value-guards.ts"),
-    join(source, "src/value-guards.ts"),
+  await cp(
+    resolve(import.meta.dir, "../../src/kernel"),
+    join(source, "src/kernel"),
+    { recursive: true },
   );
   const manifest = {
     name: "@bjoernrochel/sevro",
@@ -74,7 +74,7 @@ async function fixture() {
     "docs/installing.md":
       "<!-- sevro-current-release:start -->\n\n## Current release\n\nThe current release is `0.1.0-rc.1`. Install this exact version with npm:\n\n```sh\nnpm install --save-exact @bjoernrochel/sevro@0.1.0-rc.1\n```\n\nOr with Bun:\n\n```sh\nbun add --exact @bjoernrochel/sevro@0.1.0-rc.1\n```\n\n<!-- sevro-current-release:end -->\n",
     "dist/src/cli.js": "#!/usr/bin/env node\nconsole.log('READY');\n",
-    "dist/src/hosts/skill-hook-handler.js": "export {};\n",
+    "dist/src/skill-tracking/skill-hook-handler.js": "export {};\n",
     "dist/examples/basic/host.js": "export default {};\n",
     "src/cli.ts": "#!/usr/bin/env bun\nconsole.log('READY');\n",
     "schemas/run-evidence-v1.schema.json": "{}\n",

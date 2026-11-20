@@ -1,6 +1,6 @@
-import { runnerRoot } from "../runner-paths";
+import { runnerRoot } from "../platform/index";
 import { fileURLToPath } from "node:url";
-import { configurationRoot } from "../hosts/codex-configuration";
+import { configurationRoot } from "../hosts/index";
 import {
   InvocationError,
   parseInvocation,
@@ -10,11 +10,9 @@ import {
 import {
   loadRuntimeConfiguration,
   runtimeNativeGoalEnabled,
-} from "../runtime/config";
-import {
   canonicalRuntimeRoot,
   requireRuntimeReadRoots,
-} from "../runtime/paths";
+} from "../runtime/index";
 import { loadCase, loadPreparationSources } from "./loading";
 import { candidateHost, secondaryHost, selectedConcurrency } from "./hosts";
 

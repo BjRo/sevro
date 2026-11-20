@@ -1,21 +1,34 @@
 import { rm } from "node:fs/promises";
-import { hashJson } from "../identity";
+import {
+  hashJson,
+  type Assessment,
+  type CheckOutcome,
+  type Diagnostic,
+  type ExecutionStatus,
+  type ObservationCompleteness,
+  type TaskVerdict,
+  InstrumentationEvidenceError,
+  snapshotInstrumentation,
+  verifyAppliedInstrumentation,
+  type InstrumentationRequest,
+} from "../kernel/index";
 import {
   allocateCandidateRuntime,
   candidateArtifactRoots,
   releaseCandidateRuntime,
   type CandidateArtifactRoots,
-} from "../candidate-artifacts";
+} from "../runtime/index";
 import { join } from "node:path";
-import { advisoryBaseRevision } from "../fixtures/advisory";
+import { advisoryBaseRevision } from "../fixtures/index";
 import type { EvaluationContext } from "./context";
 import { prepareTrialWorkspace } from "./resources";
-import { hostArtifacts, hostObservations } from "../evidence/host-results";
 import {
+  hostArtifacts,
+  hostObservations,
   TrialEvidenceWriter,
+  usage,
   type TrialObservation,
-} from "../evidence/trial-writer";
-import { usage } from "../evidence/usage";
+} from "../evidence/index";
 import { runAdvisoryReview, type AdvisoryReview } from "./advisory";
 import { evaluationProgress, evaluationWarning } from "./progress";
 import {
@@ -28,39 +41,22 @@ import {
 import { gradeSemanticChecks } from "./semantic";
 import {
   HostExecutionFailure,
-  type EvaluationOptions,
   type HostAdapter,
   type HostResult,
-} from "./types";
-import type { EvaluationResult } from "../extension-session";
-import type {
-  Diagnostic,
-  ExecutionStatus,
-  ObservationCompleteness,
-  TaskVerdict,
-} from "../contract-types";
+} from "../host-contract/index";
+import type { EvaluationOptions } from "./types";
+import type { EvaluationResult } from "../extensions/index";
 import {
   clearFixtureContents,
   removeDisposableDirectory,
-} from "../fixtures/cleanup";
-import { retainWorkspace } from "../fixtures/workspace-state";
-import { gitHeadRevision } from "../graders/git-head";
-import {
-  InstrumentationEvidenceError,
-  snapshotInstrumentation,
-  verifyAppliedInstrumentation,
-  type InstrumentationRequest,
-} from "../instrumentation";
-import { materializeNativeTranscriptView } from "../native-transcript-view";
-import {
-  applyTaskVerdictPolicy,
-  assessTrial,
-  type Assessment,
-  type CheckOutcome,
-} from "../results";
-import type { RunEvidenceDataTrialEvidence } from "../schema-types";
+  retainWorkspace,
+} from "../workspace/index";
+import { gitHeadRevision } from "../graders/index";
+import { materializeNativeTranscriptView } from "../transcripts/index";
+import { applyTaskVerdictPolicy, assessTrial } from "../results/index";
+import type { RunEvidenceDataTrialEvidence } from "../schema/index";
 import { scheduleTrials } from "./scheduler";
-import { rethrowDiagnosticPersistenceError } from "../host-diagnostics";
+import { rethrowDiagnosticPersistenceError } from "../diagnostics/index";
 
 const MAX_FINAL_MESSAGE_BYTES = 8 * 1024 * 1024;
 

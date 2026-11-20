@@ -24,11 +24,9 @@ async function fixture(version = "0.1.0-rc.4") {
     recursive: true,
     filter: (path) => !path.endsWith(".md"),
   });
-  await mkdir(join(root, "src"));
-  await cp(
-    join(source, "src/value-guards.ts"),
-    join(root, "src/value-guards.ts"),
-  );
+  await cp(join(source, "src/kernel"), join(root, "src/kernel"), {
+    recursive: true,
+  });
   await symlink(join(source, "node_modules"), join(root, "node_modules"));
   const manifest: unknown = JSON.parse(
     await readFile(join(source, "package.json"), "utf8"),

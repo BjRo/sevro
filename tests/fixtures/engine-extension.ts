@@ -1,5 +1,5 @@
 import validExchange from "../../src/generated/extension.cjs";
-import { isRecord } from "../../src/value-guards";
+import { isRecord } from "../../src/kernel/index";
 
 function responses(value: unknown): Record<string, unknown> {
   if (!isRecord(value)) throw new Error("Expected configured method responses");

@@ -1,13 +1,14 @@
-import { spawn, type Subprocess } from "../runtime-process";
+import {
+  spawn,
+  type Subprocess,
+  ProcessDeadline,
+  terminateOwnedProcessGroup,
+} from "../platform/index";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, isAbsolute, join } from "node:path";
-import { isRecord } from "../value-guards";
-import { requireCandidateRuntime } from "../candidate-artifacts";
-import {
-  ProcessDeadline,
-  terminateOwnedProcessGroup,
-} from "../process-lifecycle";
+import { isRecord } from "../kernel/index";
+import { requireCandidateRuntime } from "../runtime/index";
 
 const MAX_COMMAND_BYTES = 64 * 1024;
 const MAX_ENV_BYTES = 16 * 1024;

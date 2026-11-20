@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { runtimeModule } from "../runner-paths";
+import { runtimeModule } from "../platform/index";
 
 export function templateSettings(template: string) {
   if (template === "repository-skill")

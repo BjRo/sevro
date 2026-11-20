@@ -1,19 +1,22 @@
 export {
   EvaluationConfigurationError,
   HostExecutionFailure,
-} from "./evaluation/types";
+} from "./host-contract/index";
 export type {
   HostResult,
   HostAdapter,
   ResolvedCase,
+} from "./host-contract/index";
+export type {
   EvaluationOptions,
   EvaluationProgress,
   CliResult,
-} from "./evaluation/types";
-export { runEvaluation } from "./evaluation/run";
-export { loadRuntimeConfiguration } from "./runtime/config";
-export type { RuntimeConfiguration, RuntimePolicy } from "./runtime/config";
+} from "./evaluation/index";
+export { runEvaluation } from "./evaluation/index";
+export { loadRuntimeConfiguration } from "./runtime/index";
 export type {
   RuntimeArtifactDirectory,
-  CandidateArtifactRoots,
-} from "./candidate-artifacts";
+  RuntimeConfiguration,
+  RuntimePolicy,
+} from "./runtime/index";
+export type { CandidateArtifactRoots } from "./runtime/index";

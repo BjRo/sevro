@@ -1,10 +1,15 @@
-import { runtimeSeedSources } from "../runtime/config";
-import { minimalRoots } from "../paths";
-import { shellQuote } from "../shell";
 import {
+  runtimeSeedSources,
+  insideRuntimeRoot as inside,
+  runtimeExecutableProtection,
+  prepareRuntimeState,
+  sharedCacheDenyRoots,
+  sharedCacheRoots,
   candidateArtifactEnvironment,
   candidateArtifactReadRoots,
-} from "../candidate-artifacts";
+  nativeStateParent,
+} from "../runtime/index";
+import { minimalRoots, shellQuote } from "../platform/index";
 import {
   cp,
   mkdir,
@@ -14,29 +19,19 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { delimiter, dirname, join } from "node:path";
-import type { HostAdapter } from "../engine";
-import { nativeStateParent } from "../native-transcript-state";
+import type { HostAdapter } from "../host-contract/index";
 import {
   workspaceBoundaryException,
   workspaceStatePath,
-} from "../fixtures/workspace-state";
+} from "../workspace/index";
 import {
   candidateTranscriptEnvironment,
   candidateTranscriptRoots,
-} from "../native-transcripts";
-import { prepareHookMounts, runtimeHooksEnabled } from "../runtime/hooks";
-import {
-  insideRuntimeRoot as inside,
-  runtimeExecutableProtection,
-} from "../runtime/paths";
-import { prepareRuntimeState } from "../runtime/state";
-import {
-  sharedCacheDenyRoots,
-  sharedCacheRoots,
-} from "../runtime/shared-cache";
-import { stageClaudeAuthentication } from "./claude-credential";
+} from "../transcripts/index";
+import { prepareHookMounts, runtimeHooksEnabled } from "../hooks/index";
+import { stageClaudeAuthentication } from "../claude-login/index";
 import { claudeHostSettings } from "./claude-settings";
-import { evaluationProtectedRoots } from "./isolation-roots";
+import { evaluationProtectedRoots } from "../isolation/index";
 type Request = Parameters<HostAdapter["run"]>[0];
 export interface ClaudeHostOptions {
   binary: string;

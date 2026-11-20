@@ -12,9 +12,9 @@ import { aggregateCoverage } from "../../scripts/coverage/aggregate";
 import { fixtureGit } from "./filesystem";
 
 const hostModules = [
-  "src/hosts/linux-sandbox.ts",
-  "src/hosts/claude-keychain.ts",
-  "src/hosts/mac-sandbox.ts",
+  "src/isolation/linux-sandbox.ts",
+  "src/claude-login/claude-keychain.ts",
+  "src/isolation/mac-sandbox.ts",
   "src/runtime/discovery-apple.ts",
 ];
 
@@ -43,8 +43,8 @@ export async function coverageShardCandidate(repo: string, root: string) {
   // Keep Git setup at the real tooling boundary; the synthetic runner is pick().
   writeSource(
     project,
-    "src/git.ts",
-    `export { gitArguments, gitEnvironment } from ${JSON.stringify(join(repo, "src/git.ts"))};\n`,
+    "src/platform/index.ts",
+    `export { gitArguments, gitEnvironment } from ${JSON.stringify(join(repo, "src/platform/index.ts"))};\n`,
   );
   writeSource(
     project,

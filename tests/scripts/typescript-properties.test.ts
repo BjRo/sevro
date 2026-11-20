@@ -1,11 +1,13 @@
 import { expect, test } from "bun:test";
 import fc from "fast-check";
-import { prepareGeneratedFixture } from "../../src/fixtures/generated";
-import { prepareRepositoryFixture } from "../../src/fixtures/repository";
-import { summarizeCodexEvents } from "../../src/hosts/codex-events";
-import { canonicalJson, hashJson } from "../../src/identity";
-import { resolvedFixture } from "../../src/resolved-case";
-import { assertCliResult } from "../../src/schema";
+import {
+  prepareGeneratedFixture,
+  prepareRepositoryFixture,
+} from "../../src/fixtures/index";
+import { summarizeCodexEvents } from "../../src/host-events/index";
+import { canonicalJson, hashJson } from "../../src/kernel/index";
+import { resolvedFixture } from "../../src/cases/index";
+import { assertCliResult } from "../../src/schema/index";
 
 const settings = { seed: 20261007, numRuns: 200, endOnFailure: true };
 

@@ -1,4 +1,4 @@
-import type { CliResultData, ReportData } from "../schema-types";
+import type { CliResultData, ReportData } from "../schema/index";
 
 function line(value: string): string {
   return value.replaceAll(/\p{Cc}/gu, " ").slice(0, 4096);

@@ -1,5 +1,4 @@
-import { prepareRunInvocation } from "./cli/preparation";
-import { evaluateInvocation } from "./cli/evaluation";
+import { prepareRunInvocation, evaluateInvocation } from "./cli/index";
 import type { EvaluateOptions, EvaluationResult } from "./api-types";
 
 export type {

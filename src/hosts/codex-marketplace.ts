@@ -1,12 +1,12 @@
 import type { Dirent } from "node:fs";
 import { readFile, readdir, realpath, stat } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
-import { insideRoot as inside } from "../paths";
-import { fixtureParts } from "../fixtures/preparation";
-import type { HostAdapter } from "../engine";
-import { runCodexProcess } from "./codex-process";
-import { isRecord, isUnknownArray } from "../value-guards";
-import type { HostDiagnostics } from "../host-diagnostics";
+import { insideRoot as inside } from "../platform/index";
+import { fixtureParts } from "../fixtures/index";
+import type { HostAdapter } from "../host-contract/index";
+import { runCodexProcess } from "../native-process/index";
+import { isRecord, isUnknownArray } from "../kernel/index";
+import type { HostDiagnostics } from "../diagnostics/index";
 type Request = Parameters<HostAdapter["run"]>[0];
 type Declaration = NonNullable<Request["codexMarketplace"]>;
 interface InstallContext {

@@ -8,10 +8,11 @@ import {
   type HostAdapter,
 } from "../../../src/engine";
 import {
-  materializeGeneratedFixture,
+  createFixture,
   prepareGeneratedFixture,
-} from "../../../src/fixtures/generated";
-import { gitHeadRevision, gitHeadState } from "../../../src/graders/git-head";
+} from "../../../src/fixtures/index";
+import type { GeneratedFixture } from "../../../src/host-contract/index";
+import { gitHeadRevision, gitHeadState } from "../../../src/graders/index";
 import {
   defined,
   expectUnknown,
@@ -21,9 +22,18 @@ import {
 import { createTemporaryFixtures, fixtureGit } from "../../fixtures/filesystem";
 
 const roots: string[] = [];
-const { temporaryFixture, cleanupTemporaryFixtures } =
+const { temporaryFixture, retainTemporaryFixture, cleanupTemporaryFixtures } =
   createTemporaryFixtures(roots);
 afterEach(cleanupTemporaryFixtures);
+
+async function generatedWorkspace(fixture: GeneratedFixture): Promise<string> {
+  const workspace = await createFixture(
+    { kind: "generated", fixture },
+    { projectRoot: await temporaryFixture() },
+  );
+  retainTemporaryFixture(workspace);
+  return workspace;
+}
 
 const isolatedNativeHost =
   process.platform === "darwin" ||
@@ -41,13 +51,8 @@ const fixture = {
 };
 
 test("Git HEAD capture with a live cancellation signal retains the real revision and ancestry", async () => {
-  const workspace = await temporaryFixture(
-    join(tmpdir(), "sevro-git-head-signal-"),
-  );
-
-  await materializeGeneratedFixture(
+  const workspace = await generatedWorkspace(
     prepareGeneratedFixture({ kind: "generated", commits: fixture.commits }),
-    workspace,
   );
   const revision = await fixtureGit(workspace, "rev-parse", "HEAD");
   const controller = new AbortController();
@@ -63,13 +68,8 @@ test("Git HEAD capture with a live cancellation signal retains the real revision
 test.each(["before capture", "during metadata preflight"])(
   "Git HEAD capture honours cancellation %s without changing fixture history",
   async (timing) => {
-    const workspace = await temporaryFixture(
-      join(tmpdir(), "sevro-git-head-cancel-"),
-    );
-
-    await materializeGeneratedFixture(
+    const workspace = await generatedWorkspace(
       prepareGeneratedFixture({ kind: "generated", commits: fixture.commits }),
-      workspace,
     );
     const revision = await fixtureGit(workspace, "rev-parse", "HEAD");
     const controller = new AbortController();
@@ -193,15 +193,8 @@ for (const failure of gitStateFailures) {
 
 test("generated fixture builds stable history and a declared index state", async () => {
   const prepared = prepareGeneratedFixture(fixture);
-  const first = await temporaryFixture(
-    join(tmpdir(), "sevro-generated-first-"),
-  );
-  const second = await temporaryFixture(
-    join(tmpdir(), "sevro-generated-second-"),
-  );
-
-  await materializeGeneratedFixture(prepared, first);
-  await materializeGeneratedFixture(prepared, second);
+  const first = await generatedWorkspace(prepared);
+  const second = await generatedWorkspace(prepared);
   expect(await fixtureGit(first, "rev-parse", "HEAD")).toBe(
     await fixtureGit(second, "rev-parse", "HEAD"),
   );
@@ -230,18 +223,13 @@ test("generated fixture builds stable history and a declared index state", async
   expect(() =>
     prepareGeneratedFixture({ ...fixture, staged: ["other.txt"] }),
   ).toThrow(/staging/);
-  const scaffold = await temporaryFixture(
-    join(tmpdir(), "sevro-generated-scaffold-"),
-  );
-
-  await materializeGeneratedFixture(
+  const scaffold = await generatedWorkspace(
     prepareGeneratedFixture({
       kind: "generated",
       commits: fixture.commits,
       files: { "guide.txt": "scaffolding\n" },
       commitFiles: true,
     }),
-    scaffold,
   );
   expect(await fixtureGit(scaffold, "log", "-1", "--format=%s")).toBe(
     "Add evaluation scaffolding",

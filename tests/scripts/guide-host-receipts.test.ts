@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runEvaluation } from "../../src/engine";
-import { createCodexHost } from "../../src/hosts/codex";
+import { createCodexHost } from "../../src/hosts/index";
 import { defined, parseRunEvidence } from "../fixtures/assertions";
 import { createTemporaryFixtures } from "../fixtures/filesystem";
 

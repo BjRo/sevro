@@ -1,25 +1,28 @@
 import { realpath } from "node:fs/promises";
 import {
   EvaluationConfigurationError,
-  type EvaluationOptions,
   type HostAdapter,
   type ResolvedCase,
-} from "./types";
-import { prepareFixtureSetup, type FixtureSetup } from "../fixtures/setup";
-import type { FixtureSource } from "../fixtures/create";
-import { type SemanticCheckDeclaration } from "../graders/semantic";
-import { canonicalJson, createEvaluationIdentity, hashJson } from "../identity";
+} from "../host-contract/index";
+import type { EvaluationOptions } from "./types";
 import {
-  prepareInstrumentation,
-  type InstrumentationRequest,
-} from "../instrumentation";
-import {
+  prepareFixtureSetup,
   fixtureParts,
   prepareArtifacts,
+  resolveRepositorySource,
+  type FixtureSetup,
+  type FixtureSource,
   type InlineArtifact,
-} from "../fixtures/preparation";
-import { projectProvenance, runnerProvenance } from "../provenance";
-import { resolveRepositorySource } from "../fixtures/repository";
+} from "../fixtures/index";
+import { type SemanticCheckDeclaration } from "../graders/index";
+import {
+  canonicalJson,
+  createEvaluationIdentity,
+  hashJson,
+  prepareInstrumentation,
+  type InstrumentationRequest,
+} from "../kernel/index";
+import { projectProvenance, runnerProvenance } from "../provenance/index";
 import {
   prepareEvaluationChecks,
   type EvaluationCheckPlan,
@@ -29,7 +32,7 @@ import {
   prepareInvocationPlan,
   type PreparedInvocation,
 } from "./invocation-plan";
-import type { PreparationResult } from "../extension-session";
+import type { PreparationResult } from "../extensions/index";
 
 export type { PreparedChecks } from "./check-plan";
 export type { PreparedInvocation } from "./invocation-plan";

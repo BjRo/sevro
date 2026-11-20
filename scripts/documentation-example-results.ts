@@ -1,8 +1,11 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import MarkdownIt from "markdown-it";
-import { assertCliResult, assertRunEvidence } from "../src/schema";
-import type { CliResultData } from "../src/schema-types";
+import {
+  assertCliResult,
+  assertRunEvidence,
+  type CliResultData,
+} from "../src/schema/index";
 import { runDocumentationCommand } from "./documentation-process";
 
 export function shellExample(text: string, id: string): string {

@@ -2,7 +2,7 @@ import { expect } from "bun:test";
 import { chmod, mkdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { createCodexHost } from "../../src/hosts/codex";
+import { createCodexHost } from "../../src/hosts/index";
 import { createTemporaryFixtures } from "./filesystem";
 
 export const isolatedNativeHost =

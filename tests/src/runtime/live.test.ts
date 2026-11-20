@@ -2,8 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { createClaudeHost } from "../../../src/hosts/claude";
-import { createCodexHost } from "../../../src/hosts/codex";
+import { createClaudeHost, createCodexHost } from "../../../src/hosts/index";
 import { defined } from "../../fixtures/assertions";
 import { createTemporaryFixtures } from "../../fixtures/filesystem";
 

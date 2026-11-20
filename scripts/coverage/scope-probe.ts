@@ -27,7 +27,7 @@ function exerciseScope(
   const script = join(root, "exercise.ts");
   writeFileSync(
     script,
-    `import { isRecord } from ${JSON.stringify(join(prepared.project, "src/value-guards.ts"))};\n` +
+    `import { isRecord } from ${JSON.stringify(join(prepared.project, "src/kernel/index.ts"))};\n` +
       `import validate from ${JSON.stringify(join(prepared.project, "src/generated/extension.cjs"))};\n` +
       `const message = {protocol:"sevro.discovery.v1",id:"request-1",method:"describe",params:{protocols:["sevro.extension.v1"],engineCapabilities:[],hostCapabilities:[]}};\n` +
       `if (!isRecord(message) || !validate(message) || validate({})) throw new Error("Generated CJS validation failed");\n`,

@@ -1,12 +1,12 @@
 import {
   EvaluationConfigurationError,
-  type EvaluationOptions,
   type HostAdapter,
   type ResolvedCase,
-} from "./types";
-import { fixtureParts, type InlineArtifact } from "../fixtures/preparation";
-import { isStringArray } from "../value-guards";
-import type { PreparationResult } from "../extension-session";
+} from "../host-contract/index";
+import type { EvaluationOptions } from "./types";
+import { fixtureParts, type InlineArtifact } from "../fixtures/index";
+import { isStringArray } from "../kernel/index";
+import type { PreparationResult } from "../extensions/index";
 
 interface InvocationArtifacts {
   extensionPreparation: PreparationResult | null;

@@ -3,21 +3,32 @@ import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  createFixture,
   prepareFixtureSetup,
-  runFixtureSetup,
-} from "../../../src/fixtures/setup";
+  type FixtureSetup,
+} from "../../../src/fixtures/index";
 import { defined } from "../../fixtures/assertions";
 import { createTemporaryFixtures } from "../../fixtures/filesystem";
 
 const roots: string[] = [];
-const { temporaryFixture, cleanupTemporaryFixtures } =
+const { temporaryFixture, retainTemporaryFixture, cleanupTemporaryFixtures } =
   createTemporaryFixtures(roots);
 afterEach(cleanupTemporaryFixtures);
 
-test("fixture setup resolves symbolic roots and runs only the declared argv", async () => {
-  const workspace = await temporaryFixture(
-    join(tmpdir(), "sevro-setup-workspace-"),
+async function setUpFixture(
+  setup: FixtureSetup,
+  projectRoot: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  const workspace = await createFixture(
+    { kind: "inline", files: {} },
+    { setup, projectRoot, signal },
   );
+  retainTemporaryFixture(workspace);
+  return workspace;
+}
+
+test("fixture setup resolves symbolic roots and runs only the declared argv", async () => {
   const projectRoot = await temporaryFixture(
     join(tmpdir(), "sevro-setup-project-"),
   );
@@ -34,7 +45,7 @@ test("fixture setup resolves symbolic roots and runs only the declared argv", as
     },
   });
   expect(setup).not.toBeNull();
-  await runFixtureSetup(defined(setup), { workspace, projectRoot });
+  const workspace = await setUpFixture(defined(setup), projectRoot);
   expect(await readFile(join(workspace, "setup.txt"), "utf8")).toBe(
     `${projectRoot}/cases|${workspace}`,
   );
@@ -49,7 +60,7 @@ test("fixture setup resolves symbolic roots and runs only the declared argv", as
   ).toThrow(/invalid fixture setup environment/);
 });
 test("fixture setup failure and cancellation never report success", async () => {
-  const workspace = await temporaryFixture(
+  const projectRoot = await temporaryFixture(
     join(tmpdir(), "sevro-setup-failure-"),
   );
 
@@ -58,16 +69,12 @@ test("fixture setup failure and cancellation never report success", async () => 
       command: [process.execPath, "-e", "process.exit(17)"],
     }),
   );
-  expect(
-    runFixtureSetup(failed, { workspace, projectRoot: workspace }),
-  ).rejects.toThrow("fixture setup failed (17)");
+  const refused = setUpFixture(failed, projectRoot);
+  expect(refused).rejects.toThrow("fixture setup failed (17)");
+  await refused.catch(() => undefined);
   const abort = new AbortController();
   abort.abort();
-  expect(
-    runFixtureSetup(failed, {
-      workspace,
-      projectRoot: workspace,
-      signal: abort.signal,
-    }),
-  ).rejects.toThrow("fixture setup cancelled");
+  const cancelled = setUpFixture(failed, projectRoot, abort.signal);
+  expect(cancelled).rejects.toThrow("fixture setup cancelled");
+  await cancelled.catch(() => undefined);
 });

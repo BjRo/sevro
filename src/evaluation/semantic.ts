@@ -1,31 +1,29 @@
-import { clearFixtureContents } from "../fixtures/cleanup";
-import type { CandidateArtifactRoots } from "../candidate-artifacts";
-import { createFixture } from "../fixtures/create";
-import { hostArtifacts } from "../evidence/host-results";
-import { usage } from "../evidence/usage";
+import { clearFixtureContents } from "../workspace/index";
+import type { CandidateArtifactRoots, RuntimePolicy } from "../runtime/index";
+import { createFixture } from "../fixtures/index";
+import {
+  hostArtifacts,
+  usage,
+  type TrialEvidenceWriter,
+  type TrialObservation,
+} from "../evidence/index";
 import { gradingRuntimePolicy, scopedHostArtifacts } from "./grading-host";
 import {
   HostExecutionFailure,
   type HostAdapter,
   type HostResult,
-} from "./types";
-import { readSemanticArtifact } from "../graders/artifact";
+} from "../host-contract/index";
 import {
+  readSemanticArtifact,
   parseSemanticVerdicts,
   semanticCheckGroups,
   semanticPrompt,
   type PreparedSemanticCheck,
   type SemanticVerdict,
-} from "../graders/semantic";
-import { sha256 } from "../identity";
-import type { CheckOutcome } from "../results";
-import type {
-  TrialEvidenceWriter,
-  TrialObservation,
-} from "../evidence/trial-writer";
+} from "../graders/index";
+import { sha256, type CheckOutcome } from "../kernel/index";
 import type { GradingFailure, GradingResult } from "./grading";
-import type { RuntimePolicy } from "../runtime/config";
-import { HostDiagnosticPersistenceError } from "../host-diagnostics";
+import { HostDiagnosticPersistenceError } from "../diagnostics/index";
 
 interface SemanticGradingInput {
   readonly checks: readonly PreparedSemanticCheck[];

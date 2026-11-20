@@ -1,7 +1,7 @@
 import { pathToFileURL } from "node:url";
-import type { ResolvedCase } from "../engine";
-import { openExtensionSession, type ExtensionCase } from "../extension-session";
-import { resolvedFixture } from "../resolved-case";
+import type { ResolvedCase } from "../host-contract/index";
+import { openExtensionSession, type ExtensionCase } from "../extensions/index";
+import { resolvedFixture } from "../cases/index";
 import { InvocationError, type Invocation } from "./invocation";
 import { parseCase, loadExtensionOptions } from "./loading";
 import type { PreparedInvocation } from "./preparation";

@@ -3,7 +3,7 @@ import { constants } from "node:fs";
 import { delimiter, isAbsolute, join } from "node:path";
 import { runtimeMetadataQuery } from "./query";
 import { requireRuntimeReadRoots } from "./paths";
-import { containsControl } from "../value-guards";
+import { containsControl } from "../kernel/index";
 
 export interface RuntimeDiscoverySource {
   provider: "homebrew" | "apple-developer";

@@ -1,10 +1,6 @@
 import { chmod, lstat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { isRecord } from "../value-guards";
-
-export function isMissingFile(error: unknown): boolean {
-  return error instanceof Error && "code" in error && error.code === "ENOENT";
-}
+import { isMissingFile, isRecord } from "../kernel/index";
 
 function validContent(content: unknown): content is string {
   return (

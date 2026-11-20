@@ -3,7 +3,7 @@ import {
   isRecord,
   isStringArray,
   isUnknownArray,
-} from "../../../src/value-guards";
+} from "../../../src/kernel/index";
 import type { Path } from "./boundaries";
 
 interface Boundary {

@@ -3,7 +3,7 @@ import standaloneCode from "ajv/dist/standalone/index.js";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { format } from "prettier";
-import { RUNTIME_ROLES } from "../src/runtime/config";
+import { RUNTIME_ROLES } from "../src/runtime/index";
 import runtimeSchema from "../schemas/runtime-v1.schema.json";
 import { schemaNames } from "./schema-catalog";
 

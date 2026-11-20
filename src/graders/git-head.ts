@@ -1,13 +1,15 @@
-import { spawn, type Subprocess } from "../runtime-process";
-import { isRecord } from "../value-guards";
-import { lstat } from "node:fs/promises";
-import { join } from "node:path";
-import { gitArguments, gitEnvironment } from "../git";
 import {
+  spawn,
+  type Subprocess,
+  gitArguments,
+  gitEnvironment,
   captureBoundedText,
   ProcessDeadline,
   terminateOwnedProcessGroup,
-} from "../process-lifecycle";
+} from "../platform/index";
+import { isRecord } from "../kernel/index";
+import { lstat } from "node:fs/promises";
+import { join } from "node:path";
 
 const MAX_OUTPUT_BYTES = 128;
 const TIMEOUT_MS = 10_000;

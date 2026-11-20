@@ -1,7 +1,7 @@
-import { parseClaudeEvents, type ClaudeEvents } from "./claude-events";
+import { parseClaudeEvents, type ClaudeEvents } from "../host-events/index";
 import { lstat, readdir, readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { requireRecord } from "../value-guards";
+import { requireRecord } from "../kernel/index";
 
 type RecordValue = Record<string, unknown>;
 function record(value: unknown): RecordValue {

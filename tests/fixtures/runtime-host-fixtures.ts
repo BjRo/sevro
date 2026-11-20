@@ -6,7 +6,7 @@ import {
   type EvaluationOptions,
   type HostAdapter,
 } from "../../src/engine";
-import { createCodexHost } from "../../src/hosts/codex";
+import { createCodexHost } from "../../src/hosts/index";
 import { defined } from "./assertions";
 import { createTemporaryFixtures } from "./filesystem";
 

@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { homedir } from "node:os";
-import { terminateOwnedProcessGroup } from "../process-lifecycle";
+import { terminateOwnedProcessGroup } from "../platform/index";
 
 export class RuntimeMetadataQueryError extends Error {
   constructor(

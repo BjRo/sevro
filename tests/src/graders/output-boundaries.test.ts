@@ -4,13 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   readSemanticArtifact,
-  validateArtifactPath,
-} from "../../../src/graders/artifact";
-import {
+  prepareSemanticChecks,
   gradeOutput,
   prepareOutputChecks,
   type OutputCheckDeclaration,
-} from "../../../src/graders/output";
+} from "../../../src/graders/index";
 import { defined } from "../../fixtures/assertions";
 import { createTemporaryFixtures } from "../../fixtures/filesystem";
 
@@ -47,9 +45,15 @@ test.each(
 )(
   "semantic artifact declarations refuse invalid ordinary value $path",
   ({ path }) => {
-    expect(() => {
-      validateArtifactPath(path);
-    }).toThrow("semantic artifact path must be relative");
+    expect(() =>
+      prepareSemanticChecks([
+        {
+          id: "artifact",
+          grader: "sevro.semantic",
+          configuration: { proposition: "documented", artifactPath: path },
+        },
+      ]),
+    ).toThrow("semantic artifact path must be relative");
   },
 );
 

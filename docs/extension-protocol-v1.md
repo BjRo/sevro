@@ -257,7 +257,7 @@ extension data it needs. The runner verifies extension identity and source
 digest for the run; a changed executable or configuration cannot silently
 continue the same run.
 
-The session client in [`extension-session.ts`](../src/extension-session.ts)
+The session client in [`extension-session.ts`](../src/extensions/extension-session.ts)
 implements discovery, `resolve`, `prepare`, and `evaluate` as separate process
 calls. Its caller declares the extension source-file closure; the client also
 includes the executable and hashes that closure before discovery and before

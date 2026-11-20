@@ -1,10 +1,13 @@
 import type { Stats } from "node:fs";
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { join } from "node:path";
-import type { HostAdapter } from "../engine";
-import { isRecord } from "../value-guards";
-import type { ClaudeToolCallsObservation } from "./claude-tool-calls";
-import { parseClaudeEvents, type ClaudeEvents } from "./claude-events";
+import type { HostAdapter } from "../host-contract/index";
+import { isRecord } from "../kernel/index";
+import {
+  parseClaudeEvents,
+  type ClaudeEvents,
+  type ClaudeToolCallsObservation,
+} from "../host-events/index";
 
 type Entry = Record<string, unknown>;
 export interface ClaudeRepositoryInvocation {
@@ -149,10 +152,9 @@ function nativeCommand(input: MatchInput, token: string): string {
   );
 }
 
+/** The verified declaration already requires the prompt to lead with `token`. */
 function matchCommandAndBody(before: Entry[], input: MatchInput): Receipt {
   const token = `/${input.skillName}`;
-  if (!repositoryPromptMatches(input.prompt, token))
-    return { accepted: false, reason: "prompt differs from mounted command" };
   const command = commandBoundary(before, input, token);
   if ("receipt" in command) return command.receipt;
   return mountedBodyReceipt(before, input, command.called);

@@ -20,12 +20,12 @@ phase and checks the complete source inventory. Each phase reports its elapsed
 time, including when it fails. The complete command runs these same phases in
 order; `--fast` runs only `static` without installing dependencies.
 
-| Phase     | Checks                                                                                        |
-| --------- | --------------------------------------------------------------------------------------------- |
-| `static`  | Schema freshness, documentation contracts, formatting, type-aware lint and typing             |
-| `docs`    | All guide dry runs, tutorial examples and recipe checks                                       |
-| `tests`   | Coverage integrity controls, the complete instrumented Bun suite and both coverage thresholds |
-| `package` | Packed-package installation and installed CLI workflows on Bun and Node                       |
+| Phase     | Checks                                                                                                     |
+| --------- | ---------------------------------------------------------------------------------------------------------- |
+| `static`  | Schema freshness, documentation contracts, formatting, type-aware lint, typing and module dependency rules |
+| `docs`    | All guide dry runs, tutorial examples and recipe checks                                                    |
+| `tests`   | Coverage integrity controls, the complete instrumented Bun suite and both coverage thresholds              |
+| `package` | Packed-package installation and installed CLI workflows on Bun and Node                                    |
 
 Use the same prerequisites as the corresponding complete-gate checks. A single
 phase is partial evidence; full acceptance requires all four on the same candidate.
@@ -34,6 +34,32 @@ enforces both coverage thresholds on their combined counters over the complete
 production inventory. Local `--phase tests` and the complete command still run
 the suite in one process. See the [shard commands](../scripts/coverage/README.md#test-shards)
 for reproducing the CI split.
+
+## Module dependencies
+
+`bun run check:deps` runs [dependency-cruiser](../.dependency-cruiser.json) over
+`src`, `tests`, `scripts` and `examples` in the `static` phase. It refuses import
+cycles, orphaned production files, unresolvable production imports, production
+imports of development dependencies, and generated validators reached outside
+the schema boundary. It also enforces the module layering described in
+[module structure](architecture.md#module-structure) and requires every
+cross-module import to target the module's `index.ts`. Tests follow the same
+rule: they exercise a module through its interface rather than its other files.
+Type-only imports count.
+
+The check ignores only violations listed in
+`.dependency-cruiser-known-violations.json`. That baseline is empty: every
+violation fails the check. `bun run deps:baseline` rewrites it in shrink-only
+mode, so it cannot record new violations; adding to the baseline requires review.
+Entries match the written import specifier, so changing the specifier of a
+known violation makes it new until a reviewed full regeneration records it.
+
+One tool has a narrow, reviewed exemption. The
+[runtime startup benchmark](../scripts/benchmark-runtime-startup.ts) times
+phases of any Sevro checkout, including older layouts. It wraps runtime state
+preparation, Codex plugin installation and the grading runtime policy in the
+files that define them, so every caller is measured. Its own rule permits
+exactly those three files; all other imports use interfaces or entry points.
 
 ## Source dispositions
 

@@ -1,8 +1,7 @@
 import { dirname, join } from "node:path";
-import { atomicWriteJson } from "../storage";
-import type { CliResult } from "../engine";
-import { createReport } from "../report";
-import { withResultsLock } from "../results-lock";
+import { atomicWriteJson } from "../platform/index";
+import type { CliResult } from "../evaluation/index";
+import { createReport, withResultsLock } from "../results/index";
 
 /** Latest means the last successfully retained CLI result, including dry/failing runs. */
 export async function retainCliResult(result: CliResult, resultsRoot: string) {

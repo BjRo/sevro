@@ -1,11 +1,11 @@
 import { prepareEvaluation, type PreparedEvaluation } from "./plan";
 import { type CliResult, type EvaluationOptions } from "./types";
-import { canonicalJson, hashJson } from "../identity";
-import { exitCodeFor, summarizeCases } from "../results";
-import { runtimePolicySnapshot } from "../runtime/config";
-import { cleanupExpiredWorkspaces } from "../fixtures/workspace-state";
-import { assertCliResult, assertRunEvidence } from "../schema";
-import { atomicWriteJson } from "../storage";
+import { canonicalJson, hashJson } from "../kernel/index";
+import { exitCodeFor, summarizeCases } from "../results/index";
+import { runtimePolicySnapshot } from "../runtime/index";
+import { cleanupExpiredWorkspaces } from "../workspace/index";
+import { assertCliResult, assertRunEvidence } from "../schema/index";
+import { atomicWriteJson } from "../platform/index";
 import {
   allocateRunResources,
   retainPreparationArtifacts,

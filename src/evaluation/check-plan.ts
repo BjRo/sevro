@@ -1,46 +1,40 @@
 import { isAbsolute } from "node:path";
-import { validQualifiedId } from "../value-guards";
-import { validInlineFixture } from "../case-validation";
+import {
+  validQualifiedId,
+  hashJson,
+  isOptionalNonblankString,
+  isRecord,
+} from "../kernel/index";
+import { validInlineFixture, resolvedFixture } from "../cases/index";
 import {
   EvaluationConfigurationError,
-  type EvaluationOptions,
+  type GeneratedFixture,
   type HostAdapter,
+  type RepositoryFixture,
   type ResolvedCase,
-} from "./types";
+} from "../host-contract/index";
+import type { EvaluationOptions } from "./types";
 import {
   prepareGeneratedFixture,
-  type GeneratedFixture,
-} from "../fixtures/generated";
+  fixtureParts,
+  prepareRepositoryFixture,
+  type FixtureSource,
+} from "../fixtures/index";
 import {
   prepareGitHeadChecks,
   type GitHeadCheckDeclaration,
   type PreparedGitHeadCheck,
-} from "../graders/git-head";
-import {
   isOutputGrader,
   prepareOutputChecks,
   type OutputCheckDeclaration,
   type PreparedOutputCheck,
-} from "../graders/output";
-import {
   prepareSemanticChecks,
   type SemanticCheckDeclaration,
   type PreparedSemanticCheck,
-} from "../graders/semantic";
-import {
   prepareShellChecks,
   type ShellCheckDeclaration,
   type PreparedShellCheck,
-} from "../graders/shell";
-import { hashJson } from "../identity";
-import { fixtureParts } from "../fixtures/preparation";
-import {
-  prepareRepositoryFixture,
-  type RepositoryFixture,
-} from "../fixtures/repository";
-import { resolvedFixture } from "../resolved-case";
-import { isOptionalNonblankString, isRecord } from "../value-guards";
-import type { FixtureSource } from "../fixtures/create";
+} from "../graders/index";
 
 interface CaseCheckDeclarations {
   allBuiltinDeclarations: OutputCheckDeclaration[];

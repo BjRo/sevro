@@ -1,21 +1,11 @@
 import { join } from "node:path";
-import type { HostAdapter } from "../engine";
+import type { HostAdapter } from "../host-contract/index";
 import {
   requireCandidateRuntime,
   requireCandidateArtifactRoots,
-} from "../candidate-artifacts";
-import { requireNativeTranscriptView } from "../native-transcript-state";
-import { isOptionalNonblankString } from "../value-guards";
-
-export const MAX_HOST_TIMEOUT_MS = 30 * 60_000;
-
-export function validHostTimeout(timeoutMs: number): boolean {
-  return (
-    Number.isSafeInteger(timeoutMs) &&
-    timeoutMs >= 1 &&
-    timeoutMs <= MAX_HOST_TIMEOUT_MS
-  );
-}
+  requireNativeTranscriptView,
+} from "../runtime/index";
+import { isOptionalNonblankString } from "../kernel/index";
 
 /** Common admission checks run before native state or processes are allocated. */
 export async function validateNativeHostRequest(

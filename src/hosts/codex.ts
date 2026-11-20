@@ -1,53 +1,62 @@
 import { existsSync } from "node:fs";
-import { candidateCodexStateRetained } from "../candidate-codex-state";
+import {
+  candidateCodexStateRetained,
+  allocateNativeState,
+  runtimeNativeGoalEnabled,
+  runtimeObservations,
+} from "../runtime/index";
 import { lstat, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
-import type { HostAdapter, HostResult } from "../engine";
-import { allocateNativeState } from "../native-transcript-state";
+import type { HostAdapter, HostResult } from "../host-contract/index";
 import {
   failedNativeTranscripts,
   retainEnabledNativeTranscripts,
-} from "../native-transcripts";
-import { runtimeNativeGoalEnabled } from "../runtime/config";
+} from "../transcripts/index";
 import {
   releaseRuntimeHooks,
   runtimeHookObservation,
   type HookMounts,
-} from "../runtime/hooks";
-import { runtimeObservations } from "../runtime/state";
-import { validateNativeHostRequest, validHostTimeout } from "./native-request";
-import { runCodexAppServer } from "./codex-app-server";
-import { summarizeCodexEvents, type CodexEventSummary } from "./codex-events";
+} from "../hooks/index";
+import { validateNativeHostRequest } from "./native-request";
+import { runCodexAppServer } from "../codex-app-server/index";
+import {
+  summarizeCodexEvents,
+  type CodexEventSummary,
+} from "../host-events/index";
 import { verifyCodexInvocation } from "./codex-invocation";
 import { installCodexPlugins } from "./codex-marketplace";
 import {
   codexNativeCallObservation,
+  codexNativeControls,
   codexNativeSessionLastOrdinal,
-} from "./codex-native-calls";
-import { runCodexProcess, CodexProcessFailure } from "./codex-process";
+} from "../native-controls/index";
+import {
+  CodexProcessFailure,
+  runCodexProcess,
+  validHostTimeout,
+} from "../native-process/index";
 import {
   codexHookMounts,
   prepareCodexState,
   type CodexHostOptions,
 } from "./codex-state";
-import { codexNativeControls } from "./native-controls";
-import { workspaceFingerprint } from "./workspace-fingerprint";
-import { codexSkillCatalogRoots } from "./skill-hook-catalog";
+import { workspaceFingerprint } from "../workspace/index";
 import {
+  codexSkillCatalogRoots,
   prepareSkillTracking,
   skillTrackingObservation,
   skillActivationClaims,
   skillExposureClaims,
   type SkillTracking,
-} from "./skill-hooks";
+} from "../skill-tracking/index";
 import {
   cleanupNativeState,
   createHostDiagnostics,
   diagnoseHostRequest,
   diagnosticConfiguration,
   type HostDiagnostics,
-} from "../host-diagnostics";
+} from "../diagnostics/index";
 export type { CodexHostOptions } from "./codex-state";
 const DEFAULT_TIMEOUT_MS = 10 * 60_000;
 
