@@ -94,7 +94,7 @@ _Avoid_: log, metric, event
 
 **Attempt**:
 One run's retained result directory in a results root, counted and pruned as a unit whether it passed, failed or was interrupted.
-_Avoid_: trial, execution
+_Avoid_: trial; run (the evaluation itself, of which an attempt is the retained directory)
 
 **Evidence**:
 The retained, atomically written record of a trial or run from which results can be re-read and reported.
@@ -131,7 +131,7 @@ A host's built-in objective-tracking mechanism, enabled through runtime hooks an
 _Avoid_: task goal, objective
 
 **Continuation**:
-A second, follow-up turn delivered to the same native session within one trial.
+The single follow-up turn a case may declare, delivered to the same native session within one trial.
 _Avoid_: retry, second run
 
 ## Skills
@@ -153,7 +153,7 @@ Whether, and how completely, a skill's body was available to the candidate, repo
 _Avoid_: visibility, availability
 
 **Skill invocation**:
-A case's explicit instruction that the candidate call a declared skill by its host-specific token, from either a repository or a host plugin.
+An explicit instruction, declared by an extension and rendered into the case's prompt, that the candidate call one skill by its host-specific token, from either a repository or a host plugin.
 _Avoid_: skill call, mention
 
 ## Isolation
@@ -163,7 +163,7 @@ A path the candidate and grading commands must neither read nor write, such as t
 _Avoid_: blocked path, denied dir
 
 **Private state**:
-The host-owned directory that holds a native host request's credentials, configuration and transcripts outside the workspace.
+The runner-owned directory that holds a native host request's credentials, configuration and transcripts outside the workspace; the native host uses it as its home and configuration root, and the runner removes it afterwards.
 _Avoid_: temp dir, home
 
 **Isolation policy**:
