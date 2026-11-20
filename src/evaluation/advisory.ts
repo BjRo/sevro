@@ -1,7 +1,7 @@
 import {
   advisoryPrompt,
-  parseAdvisoryAssessment,
-  type AdvisoryAssessment,
+  parseAdvisoryRecommendation,
+  type AdvisoryRecommendation,
   type CheckOutcome,
 } from "../kernel/index";
 import type { CandidateArtifactRoots, RuntimePolicy } from "../runtime/index";
@@ -53,14 +53,16 @@ function defaultAdvisoryReview(host: HostAdapter): AdvisoryReview {
   };
 }
 
-function completeAdvisoryAssessment(response: HostResult): AdvisoryAssessment {
+function completeAdvisoryRecommendation(
+  response: HostResult,
+): AdvisoryRecommendation {
   if (
     response.executionFailed ||
     !response.complete ||
     response.finalMessage === null
   )
     throw new Error("advisory response is incomplete");
-  return parseAdvisoryAssessment(response.finalMessage);
+  return parseAdvisoryRecommendation(response.finalMessage);
 }
 
 async function cleanupAdvisoryWorkspace(
@@ -123,7 +125,7 @@ async function executeAdvisoryReview(
       input.host.id,
       response.finalMessage,
     );
-    review.assessment = completeAdvisoryAssessment(response);
+    review.assessment = completeAdvisoryRecommendation(response);
     review.status = "completed";
   } catch (error) {
     if (

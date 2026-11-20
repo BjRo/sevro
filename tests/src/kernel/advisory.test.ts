@@ -1,11 +1,11 @@
 import { expect, test } from "bun:test";
 import {
   advisoryPrompt,
-  parseAdvisoryAssessment,
-  type AdvisoryAssessment,
+  parseAdvisoryRecommendation,
+  type AdvisoryRecommendation,
 } from "../../../src/kernel/index";
 
-const valid: AdvisoryAssessment = {
+const valid: AdvisoryRecommendation = {
   verdict: "pass",
   overallScore: 4,
   dimensions: {
@@ -23,22 +23,22 @@ test.each([
   {
     label: "null root",
     value: null,
-    diagnostic: "advisory assessment must be an object",
+    diagnostic: "advisory recommendation must be an object",
   },
   {
     label: "array root",
     value: [],
-    diagnostic: "advisory assessment must be an object",
+    diagnostic: "advisory recommendation must be an object",
   },
   {
     label: "null dimensions",
     value: { ...valid, dimensions: null },
-    diagnostic: "advisory assessment must be an object",
+    diagnostic: "advisory recommendation must be an object",
   },
   {
     label: "array dimensions",
     value: { ...valid, dimensions: [] },
-    diagnostic: "advisory assessment must be an object",
+    diagnostic: "advisory recommendation must be an object",
   },
   {
     label: "unknown verdict",
@@ -76,17 +76,17 @@ test.each([
   {
     label: "nonarray strengths",
     value: { ...valid, strengths: "covered" },
-    diagnostic: "advisory assessment list is invalid",
+    diagnostic: "advisory recommendation list is invalid",
   },
   {
     label: "nonarray weaknesses",
     value: { ...valid, weaknesses: {} },
-    diagnostic: "advisory assessment list is invalid",
+    diagnostic: "advisory recommendation list is invalid",
   },
   {
     label: "33 strengths",
     value: { ...valid, strengths: Array.from({ length: 33 }, () => "covered") },
-    diagnostic: "advisory assessment list is invalid",
+    diagnostic: "advisory recommendation list is invalid",
   },
   {
     label: "33 weaknesses",
@@ -94,24 +94,24 @@ test.each([
       ...valid,
       weaknesses: Array.from({ length: 33 }, () => "needs work"),
     },
-    diagnostic: "advisory assessment list is invalid",
+    diagnostic: "advisory recommendation list is invalid",
   },
 ])("advisory external JSON refuses $label", ({ value, diagnostic }) => {
-  expect(() => parseAdvisoryAssessment(JSON.stringify(value))).toThrow(
+  expect(() => parseAdvisoryRecommendation(JSON.stringify(value))).toThrow(
     diagnostic,
   );
 });
 
-test("advisory assessment accepts the exact list bound and retains a valid low-score failure", () => {
-  const assessment: AdvisoryAssessment = {
+test("advisory recommendation accepts the exact list bound and retains a valid low-score failure", () => {
+  const recommendation: AdvisoryRecommendation = {
     ...valid,
     verdict: "fail",
     overallScore: 1,
     strengths: Array.from({ length: 32 }, () => "bounded strength"),
     weaknesses: Array.from({ length: 32 }, () => "bounded weakness"),
   };
-  expect(parseAdvisoryAssessment(JSON.stringify(assessment))).toEqual(
-    assessment,
+  expect(parseAdvisoryRecommendation(JSON.stringify(recommendation))).toEqual(
+    recommendation,
   );
 });
 
@@ -125,26 +125,28 @@ test("advisory prompt records omitted check detail as unknown without inventing 
   expect(prompt).not.toContain('"detail":""');
 });
 
-test("advisory assessment accepts a structured independent review", () => {
-  expect(parseAdvisoryAssessment(JSON.stringify(valid))).toEqual(valid);
+test("advisory recommendation accepts a structured independent review", () => {
+  expect(parseAdvisoryRecommendation(JSON.stringify(valid))).toEqual(valid);
   expect(
-    parseAdvisoryAssessment(`\`\`\`json\n${JSON.stringify(valid)}\n\`\`\``),
+    parseAdvisoryRecommendation(`\`\`\`json\n${JSON.stringify(valid)}\n\`\`\``),
   ).toEqual(valid);
 });
 
-test("advisory assessment rejects weak passes, extra fields, and oversized output", () => {
+test("advisory recommendation rejects weak passes, extra fields, and oversized output", () => {
   expect(() =>
-    parseAdvisoryAssessment(JSON.stringify({ ...valid, overallScore: 2 })),
+    parseAdvisoryRecommendation(JSON.stringify({ ...valid, overallScore: 2 })),
   ).toThrow(/score/);
   expect(() =>
-    parseAdvisoryAssessment(
+    parseAdvisoryRecommendation(
       JSON.stringify({ ...valid, taskVerdict: "passed" }),
     ),
   ).toThrow(/fields/);
   expect(() =>
-    parseAdvisoryAssessment(JSON.stringify({ ...valid, summary: "" })),
+    parseAdvisoryRecommendation(JSON.stringify({ ...valid, summary: "" })),
   ).toThrow(/nonempty/);
-  expect(() => parseAdvisoryAssessment("x".repeat(65537))).toThrow(/64 KiB/);
+  expect(() => parseAdvisoryRecommendation("x".repeat(65537))).toThrow(
+    /64 KiB/,
+  );
 });
 
 test("advisory prompt keeps task and check facts explicit and bounded", () => {

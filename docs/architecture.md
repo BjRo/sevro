@@ -163,7 +163,7 @@ depend only on its own layer or lower ones:
 
 The base modules depend on nothing above them. The [kernel](../src/kernel/index.ts)
 holds pure building blocks: result contract types, value guards, canonical
-identity hashing, and the instrumentation and advisory-assessment contracts. The
+identity hashing, and the instrumentation and advisory-recommendation contracts. The
 [platform module](../src/platform/index.ts) adapts processes, Git, paths, the
 shell, SQLite locks and atomic file writes without knowledge of Sevro features.
 The [schema module](../src/schema/index.ts) owns the wire types and the runtime

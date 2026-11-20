@@ -54,15 +54,23 @@ _Avoid_: assertion, test
 
 **Grader**:
 The kind of judgment that evaluates a check: output, shell, Git HEAD, semantic or extension-supplied.
-_Avoid_: judge (reserved for advisory review), validator
+_Avoid_: judge (the model a semantic check runs on), validator
+
+**Judge**:
+The separate model a semantic check or advisory review runs on, kept apart from the candidate.
+_Avoid_: evaluator, grader (a grader is the kind of judgment, not the model)
 
 **Semantic check**:
 A check graded by a separate model reading the candidate's response against a stated criterion; the model's per-check pass or fail answer is a semantic verdict.
 _Avoid_: LLM judge, AI grading
 
 **Advisory review**:
-An optional, independent model review of a completed trial whose recommendation never changes the task verdict.
-_Avoid_: judge verdict, second opinion
+An optional, independent review of a completed trial by a judge, producing an advisory recommendation that never changes the task verdict.
+_Avoid_: second opinion
+
+**Advisory recommendation**:
+The judge's structured opinion of a trial in an advisory review: a pass or fail recommendation, dimension scores, strengths, weaknesses and a summary.
+_Avoid_: advisory assessment, advisory verdict
 
 **Task verdict**:
 The engine's decision whether a trial, case or run accomplished its task: passed, failed or not assessed. It is derived from check statuses and may be adjusted by a task-verdict policy; neither advisory review nor domain outcomes change it.
