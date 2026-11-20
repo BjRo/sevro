@@ -76,8 +76,9 @@ test("native run prepares, executes and assembles a passive host result", async 
 });
 
 async function ownedResources(context: NativeRunContext, stages: string[]) {
-  const helper = join(context.stateRoot, "helper");
-  await mkdir(helper);
+  const helper = await temporaryFixture(
+    join(tmpdir(), "sevro-native-run-helper-"),
+  );
   await mkdir(join(context.stateRoot, "receipts"));
   context.cleanupRoots.push(helper);
   context.hooks = {
@@ -96,18 +97,21 @@ async function ownedResources(context: NativeRunContext, stages: string[]) {
       },
     ],
   };
+  return helper;
 }
 
 test("native run releases hooks before removing state and helper roots", async () => {
   const f = await fixture();
   const prepare = f.adapter.prepare;
+  let helperRoot = "";
   f.adapter.prepare = async (context, prompt) => {
-    await ownedResources(context, f.stages);
+    helperRoot = await ownedResources(context, f.stages);
     return prepare(context, prompt);
   };
   await runNativeRun(f.adapter, f.request);
   expect(f.stages.at(-1)).toBe("hooks-released");
   expect(existsSync(f.stateRoot())).toBe(false);
+  expect(existsSync(helperRoot)).toBe(false);
 });
 
 for (const phase of ["preparation", "turns"] as const) {
@@ -115,9 +119,10 @@ for (const phase of ["preparation", "turns"] as const) {
     const f = await fixture();
     f.adapter.retainHostDiagnostics = true;
     const prepare = f.adapter.prepare;
+    let helperRoot = "";
     f.adapter.prepare = async (context, prompt) => {
       const state = await prepare(context, prompt);
-      await ownedResources(context, f.stages);
+      helperRoot = await ownedResources(context, f.stages);
       if (phase === "preparation") throw new Error("preparation failed");
       return state;
     };
@@ -145,6 +150,7 @@ for (const phase of ["preparation", "turns"] as const) {
     expect(captured[0]).toContain(`${phase} failed`);
     expect(f.stages.at(-1)).toBe("hooks-released");
     expect(existsSync(f.stateRoot())).toBe(false);
+    expect(existsSync(helperRoot)).toBe(false);
   });
 }
 
