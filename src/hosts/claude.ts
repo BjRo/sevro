@@ -1,27 +1,17 @@
 import { existsSync } from "node:fs";
-import { readFile, realpath, rm, stat } from "node:fs/promises";
+import { readFile, realpath, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
-import type { HostAdapter, HostResult } from "../host-contract/index";
-import {
-  allocateNativeState,
-  insideRuntimeRoot as inside,
-  runtimeObservations,
-} from "../runtime/index";
-import {
-  failedNativeTranscripts,
-  retainEnabledNativeTranscripts,
-} from "../transcripts/index";
+import type { HostAdapter } from "../host-contract/index";
+import { insideRuntimeRoot as inside } from "../runtime/index";
 import { fixtureParts } from "../fixtures/index";
-import {
-  prepareHookMounts,
-  releaseRuntimeHooks,
-  runtimeHookObservation,
-  runtimeHooksEnabled,
-  type HookMounts,
-} from "../hooks/index";
+import { runtimeHooksEnabled } from "../hooks/index";
 import { isRecord } from "../kernel/index";
 import { runClaudeTurns, type ClaudeSession } from "./claude-continuation";
-import { validateNativeHostRequest } from "./native-request";
+import {
+  runNativeRun,
+  type NativeRunAdapter,
+  type NativeRunOutcome,
+} from "./native-run";
 import {
   claudeSkillActivationsObservation,
   claudeToolCallsObservation,
@@ -35,9 +25,6 @@ import {
 } from "./claude-repository-invocation";
 import { prepareClaudeState, type ClaudeHostOptions } from "./claude-state";
 import {
-  cleanupNativeState,
-  createHostDiagnostics,
-  diagnoseHostRequest,
   diagnosticConfiguration,
   type HostDiagnostics,
 } from "../diagnostics/index";
@@ -264,7 +251,7 @@ export function createClaudeHost(options: ClaudeHostOptions): HostAdapter {
       "sevro.claude.continuation",
     ],
     run(request) {
-      return runClaudeRequest(options, timeoutMs, request);
+      return runNativeRun(claudeRunAdapter(options, timeoutMs), request);
     },
   };
 }
@@ -281,103 +268,63 @@ async function repositoryMount(
   return verifyClaudeRepositoryInvocation(request);
 }
 
-async function runClaudeRequest(
-  options: ClaudeHostOptions,
-  timeoutMs: number,
-  request: Request,
-): Promise<HostResult> {
-  const diagnostics = createHostDiagnostics(
-    "claude",
-    options.retainHostDiagnostics,
-    request,
-  );
-  return diagnoseHostRequest(diagnostics, async () => {
-    diagnostics.stage = "request-validation";
-    await diagnostics.readCredentials(options.credentialFile);
-    return executeClaudeRequest(options, timeoutMs, request, diagnostics);
-  });
-}
-
 /** Every turn shares one access token, so it must outlive all of them. */
 function claudeLoginLifetime(timeoutMs: number, request: Request): number {
   const turns = request.followUpPrompt === undefined ? 1 : 2;
   return timeoutMs * turns + CLAUDE_LOGIN_MARGIN_MS;
 }
 
-async function executeClaudeRequest(
+function claudeRunAdapter(
   options: ClaudeHostOptions,
   timeoutMs: number,
-  request: Request,
-  diagnostics: HostDiagnostics,
-): Promise<HostResult> {
-  const { pluginDirs, repositoryInvocation } = await validateClaudeRequest(
-    options,
-    request,
-  );
-  diagnostics.stage = "state-allocation";
-  const stateRoot = await allocateNativeState(
-    "claude-",
-    request.runtimePolicy ? request.workspace : undefined,
-  );
-  let hooks: HookMounts | undefined;
-  try {
-    diagnostics.stage = "state-preparation";
-    const state = await prepareClaudeState(
-      stateRoot,
-      options,
-      request,
-      pluginDirs,
-      claudeLoginLifetime(timeoutMs, request),
-    );
-    diagnostics.registerCredentials(state.env, CLAUDE_AUTH_VARIABLES);
-    hooks = state.hooks;
-    const run = claudeProcessRunner(
-      options,
-      timeoutMs,
-      request,
-      state,
-      diagnostics,
-    );
-    const execution = await runClaudeTurns({
-      prompt: request.prompt,
-      followUpPrompt: request.followUpPrompt,
-      workspace: request.workspace,
-      run,
-    });
-    const result = await claudeResult(
-      execution,
-      claudeObservationRoot(stateRoot, state.credential, request),
-      request,
-      repositoryInvocation,
-    );
-    await diagnostics.retainFailure(
-      result,
-      "Claude host execution did not complete",
-    );
-    await addHookObservation(result, state.hooks);
-    await retainEnabledNativeTranscripts(
-      result,
-      request.runtimePolicy,
-      join(stateRoot, "native-home", "projects"),
-      "claude",
-      request.runtimeRole,
-    );
-    return result;
-  } catch (cause) {
-    return await failedNativeTranscripts(
-      cause,
-      request.runtimePolicy,
-      join(stateRoot, "native-home", "projects"),
-      "claude",
-      request.runtimeRole,
-      diagnostics,
-    );
-  } finally {
-    await cleanupNativeState(diagnostics, async () => {
-      await releaseRuntimeHooks(hooks);
-      await rm(stateRoot, { recursive: true, force: true });
-    });
+): NativeRunAdapter<
+  Awaited<ReturnType<typeof validateClaudeRequest>>,
+  Awaited<ReturnType<typeof prepareClaudeState>> & {
+    repositoryInvocation: RepositoryInvocation | null;
   }
+> {
+  return {
+    host: "claude",
+    credentialFile: options.credentialFile,
+    retainHostDiagnostics: options.retainHostDiagnostics,
+    transcriptDirectory: "native-home/projects",
+    hookPosition: "last",
+    validate: (request) => validateClaudeRequest(options, request),
+    async prepare(context, admission) {
+      const state = await prepareClaudeState(
+        context.stateRoot,
+        options,
+        context.request,
+        admission.pluginDirs,
+        claudeLoginLifetime(timeoutMs, context.request),
+      );
+      context.diagnostics.registerCredentials(state.env, CLAUDE_AUTH_VARIABLES);
+      context.hooks = state.hooks;
+      return { ...state, repositoryInvocation: admission.repositoryInvocation };
+    },
+    async execute(context, state) {
+      const { request, diagnostics, stateRoot } = context;
+      const run = claudeProcessRunner(
+        options,
+        timeoutMs,
+        request,
+        state,
+        diagnostics,
+      );
+      const execution = await runClaudeTurns({
+        prompt: request.prompt,
+        followUpPrompt: request.followUpPrompt,
+        workspace: request.workspace,
+        run,
+      });
+      return claudeResult(
+        execution,
+        claudeObservationRoot(stateRoot, state.credential, request),
+        request,
+        state.repositoryInvocation,
+      );
+    },
+  };
 }
 
 function claudeProcessRunner(
@@ -410,7 +357,6 @@ async function validateClaudeRequest(
   options: ClaudeHostOptions,
   request: Request,
 ) {
-  await validateNativeHostRequest(request, "Claude");
   const pluginDirs = request.claudePluginDirs
     ? await pluginDirectories(request.workspace, request.claudePluginDirs)
     : [];
@@ -426,14 +372,6 @@ function requireIsolatedHookSources(
 ): void {
   if (runtimeHooksEnabled(request.runtimePolicy) && options.projectSettings)
     throw new Error("native goals require isolated hook sources");
-}
-
-async function addHookObservation(
-  result: HostResult,
-  hooks: Awaited<ReturnType<typeof prepareHookMounts>> | undefined,
-): Promise<void> {
-  if (!hooks) return;
-  result.observations?.push(await runtimeHookObservation(hooks));
 }
 
 function claudeTurnArgs(
@@ -514,18 +452,19 @@ async function claudeObservations(
     invocation,
     tools,
   );
-  return [
-    tools,
-    ...runtimeObservations(request.runtimePolicy, request.runtimeRole),
-    await observeClaudeNativeGoal(
-      configRoot,
-      execution.followUpEvents ?? execution.events,
-    ),
-    claudeNativeControls(execution.events, execution.code),
-    ...(repository ? [repository] : []),
-    ...(execution.continuation ? [execution.continuation] : []),
-    claudeSkillActivationsObservation(execution.events, execution.code),
-  ];
+  return {
+    beforeRuntime: [tools],
+    observations: [
+      await observeClaudeNativeGoal(
+        configRoot,
+        execution.followUpEvents ?? execution.events,
+      ),
+      claudeNativeControls(execution.events, execution.code),
+      ...(repository ? [repository] : []),
+      ...(execution.continuation ? [execution.continuation] : []),
+      claudeSkillActivationsObservation(execution.events, execution.code),
+    ],
+  };
 }
 
 function claudeArtifacts(execution: Execution) {
@@ -578,7 +517,7 @@ async function claudeResult(
   configRoot: string,
   request: Request,
   invocation: RepositoryInvocation | null,
-): Promise<HostResult> {
+): Promise<NativeRunOutcome> {
   const summary = summarizeClaudeEvents(execution.events, execution.code);
   const observations = await claudeObservations(
     execution,
@@ -587,12 +526,13 @@ async function claudeResult(
     invocation,
   );
   return {
-    finalMessage: summary.finalMessage,
-    complete: summary.complete,
-    executionFailed: !summary.complete,
-    observations,
-    artifacts: claudeArtifacts(execution),
-    actualCondition: "passive",
-    ...measuredClaudeUsage(summary, execution),
+    result: {
+      finalMessage: summary.finalMessage,
+      complete: summary.complete,
+      executionFailed: !summary.complete,
+      artifacts: claudeArtifacts(execution),
+      ...measuredClaudeUsage(summary, execution),
+    },
+    ...observations,
   };
 }
