@@ -56,19 +56,22 @@ import { mkdir, realpath, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 const workspace = await realpath(process.cwd());
 const scenario = await Bun.file(join(workspace, "scenario.json")).json();
+// Scenarios write "session-one" for the session Sevro names on the command line.
+const named = process.argv[process.argv.indexOf("--session-id") + 1];
+const bind = (text) => text.replaceAll("session-one", named);
 const skillDir = join(workspace, ".claude/skills/probe");
 const project = join(process.env.CLAUDE_CONFIG_DIR, "projects", workspace.replace(/[^A-Za-z0-9]/g, "-"));
 await mkdir(project, { recursive: true });
 if (scenario.transcript !== null) {
-  const text = scenario.transcript.replaceAll("{SKILL_DIR}", skillDir);
-  const session = join(project, "session-one.jsonl");
+  const text = bind(scenario.transcript.replaceAll("{SKILL_DIR}", skillDir));
+  const session = join(project, named + ".jsonl");
   if (scenario.link) {
     const target = join(process.env.CLAUDE_CONFIG_DIR, "linked.jsonl");
     await writeFile(target, text);
     await symlink(target, session);
   } else await writeFile(session, text);
 }
-process.stdout.write(scenario.stream + "\\n");
+process.stdout.write(bind(scenario.stream) + "\\n");
 `;
 
 interface Scenario {

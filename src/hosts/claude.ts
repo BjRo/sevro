@@ -7,7 +7,11 @@ import { existsSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
 import type { HostAdapter } from "../host-contract/index";
 import { runtimeHooksEnabled } from "../hooks/index";
-import { runClaudeTurns, type ClaudeSession } from "./claude-continuation";
+import {
+  runClaudeNativeSession,
+  type ClaudeNativeSession,
+  type ClaudeSessionOption,
+} from "./claude-native-session";
 import {
   runNativeHostRequest,
   type NativeHost,
@@ -36,7 +40,6 @@ export type { ClaudeHostOptions } from "./claude-state";
 const DEFAULT_TIMEOUT_MS = 10 * 60_000;
 
 type Request = Parameters<HostAdapter["run"]>[0];
-type Execution = Awaited<ReturnType<typeof runClaudeTurns>>;
 
 function validClaudeOptions(
   options: ClaudeHostOptions,
@@ -159,18 +162,14 @@ function claudeNativeHost(
         state,
         diagnostics,
       );
-      const execution = await runClaudeTurns({
+      const session = await runClaudeNativeSession({
         prompt: request.prompt,
         followUpPrompt: request.followUpPrompt,
         workspace: request.workspace,
+        configRoot: claudeConfigRoot(stateRoot, state.credential, request),
         run,
       });
-      return claudeResult(
-        execution,
-        claudeObservationRoot(stateRoot, state.credential, request),
-        request,
-        state.repositoryInvocation,
-      );
+      return claudeResult(session, state.repositoryInvocation);
     },
   };
 }
@@ -182,7 +181,7 @@ function claudeProcessRunner(
   state: Awaited<ReturnType<typeof prepareClaudeState>>,
   diagnostics: HostDiagnostics,
 ) {
-  return (prompt: string, session?: ClaudeSession) => {
+  return (prompt: string, session: ClaudeSessionOption) => {
     diagnostics.stage = "claude-execution";
     return runClaudeProcess({
       diagnostics,
@@ -225,7 +224,7 @@ function requireIsolatedHookSources(
 function claudeTurnArgs(
   options: ClaudeHostOptions,
   prompt: string,
-  session: ClaudeSession | undefined,
+  session: ClaudeSessionOption,
   settingsPath: string,
   pluginDirs: string[],
 ): string[] {
@@ -252,12 +251,14 @@ function claudeTurnArgs(
     "--mcp-config",
     '{"mcpServers":{}}',
     "--no-chrome",
-    ...(session ? [session.option, session.id] : []),
+    session.option,
+    session.id,
     ...pluginDirs.flatMap((path) => ["--plugin-dir", path]),
   ];
 }
 
-function claudeObservationRoot(
+/** Where this request's Claude configuration, and so its native transcripts, live. */
+function claudeConfigRoot(
   stateRoot: string,
   credential: string,
   request: Request,
@@ -268,119 +269,96 @@ function claudeObservationRoot(
 }
 
 async function repositoryObservation(
-  execution: Execution,
-  configRoot: string,
-  request: Request,
+  session: ClaudeNativeSession,
   invocation: ClaudeRepositoryInvocation | null,
   tools: ReturnType<typeof claudeToolCallsObservation>,
 ) {
   if (!invocation) return null;
   return claudeRepositoryInvocationObservation({
     invocation,
-    stream: execution.initialEvents ?? execution.events,
-    configRoot: configRoot,
-    workspace: request.workspace,
-    tools: execution.initialEvents
-      ? claudeToolCallsObservation(execution.initialEvents, 0)
+    session,
+    // Repository invocation is initial-turn evidence.
+    tools: session.followUp
+      ? claudeToolCallsObservation(session.initial.events, 0)
       : tools,
   });
 }
 
 async function claudeObservations(
-  execution: Execution,
-  configRoot: string,
-  request: Request,
+  session: ClaudeNativeSession,
   invocation: ClaudeRepositoryInvocation | null,
 ) {
-  const tools = claudeToolCallsObservation(execution.events, execution.code);
-  const repository = await repositoryObservation(
-    execution,
-    configRoot,
-    request,
-    invocation,
-    tools,
-  );
+  const { events, code } = session.combined;
+  const tools = claudeToolCallsObservation(events, code);
+  const repository = await repositoryObservation(session, invocation, tools);
   return {
     beforeRuntime: [tools],
     observations: [
-      await observeClaudeNativeGoal(
-        configRoot,
-        execution.followUpEvents ?? execution.events,
-      ),
-      claudeNativeControls(execution.events, execution.code),
+      await observeClaudeNativeGoal(session),
+      claudeNativeControls(events, code),
       ...(repository ? [repository] : []),
-      ...(execution.continuation ? [execution.continuation] : []),
-      claudeSkillActivationsObservation(execution.events, execution.code),
+      ...(session.continuation ? [session.continuation] : []),
+      claudeSkillActivationsObservation(events, code),
     ],
   };
 }
 
-function claudeArtifacts(execution: Execution) {
+function eventArtifact(id: string, text: string) {
+  return { id, bytes: Buffer.from(text, "utf8") };
+}
+
+function claudeArtifacts(session: ClaudeNativeSession) {
+  const { out, err } = session.combined;
   return [
-    { id: "sevro.claude.events", bytes: Buffer.from(execution.out, "utf8") },
-    ...(execution.initialOut !== undefined
+    eventArtifact("sevro.claude.events", out),
+    ...(session.followUp
       ? [
-          {
-            id: "sevro.claude.initial-events",
-            bytes: Buffer.from(execution.initialOut, "utf8"),
-          },
+          eventArtifact("sevro.claude.initial-events", session.initial.out),
+          eventArtifact("sevro.claude.follow-up-events", session.followUp.out),
         ]
       : []),
-    ...(execution.followUpOut !== undefined
-      ? [
-          {
-            id: "sevro.claude.follow-up-events",
-            bytes: Buffer.from(execution.followUpOut, "utf8"),
-          },
-        ]
-      : []),
-    ...(execution.err
-      ? [
-          {
-            id: "sevro.claude.stderr",
-            bytes: Buffer.from(execution.err, "utf8"),
-          },
-        ]
-      : []),
+    ...(err ? [eventArtifact("sevro.claude.stderr", err)] : []),
   ];
 }
 
+/** Results not bound to the named session are not measured. */
 function measuredClaudeUsage(
   summary: ReturnType<typeof summarizeClaudeEvents>,
-  execution: Execution,
+  session: ClaudeNativeSession,
 ) {
+  if (!session.bound)
+    return {
+      inputTokens: null,
+      outputTokens: null,
+      costUsd: null,
+      usageComplete: false,
+    };
   return {
-    inputTokens:
-      execution.sessionResultsBound === false ? null : summary.inputTokens,
-    outputTokens:
-      execution.sessionResultsBound === false ? null : summary.outputTokens,
-    costUsd: execution.sessionResultsBound === false ? null : summary.costUsd,
-    usageComplete:
-      execution.sessionResultsBound !== false && summary.usageComplete,
+    inputTokens: summary.inputTokens,
+    outputTokens: summary.outputTokens,
+    costUsd: summary.costUsd,
+    usageComplete: summary.usageComplete,
   };
 }
 
 async function claudeResult(
-  execution: Execution,
-  configRoot: string,
-  request: Request,
+  session: ClaudeNativeSession,
   invocation: ClaudeRepositoryInvocation | null,
 ): Promise<NativeHostRequestOutcome> {
-  const summary = summarizeClaudeEvents(execution.events, execution.code);
-  const observations = await claudeObservations(
-    execution,
-    configRoot,
-    request,
-    invocation,
+  const summary = summarizeClaudeEvents(
+    session.combined.events,
+    session.combined.code,
   );
+  const observations = await claudeObservations(session, invocation);
   return {
     result: {
       finalMessage: summary.finalMessage,
       complete: summary.complete,
       executionFailed: !summary.complete,
-      artifacts: claudeArtifacts(execution),
-      ...measuredClaudeUsage(summary, execution),
+      artifacts: claudeArtifacts(session),
+      ...measuredClaudeUsage(summary, session),
     },
+    ...(session.bound ? { rootSessionId: session.id } : {}),
     ...observations,
   };
 }

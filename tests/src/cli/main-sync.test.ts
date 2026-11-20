@@ -460,7 +460,7 @@ test("public CLI retains Claude native goal facts without the objective", async 
     `#!/usr/bin/env bun
 import {mkdir, writeFile} from "node:fs/promises";
 import {join} from "node:path";
-const id = "11111111-1111-1111-1111-111111111111";
+const id = process.argv[process.argv.indexOf("--session-id") + 1];
 const directory = join(process.env.CLAUDE_CONFIG_DIR, "projects", "fixture");
 await mkdir(directory, {recursive:true});
 await writeFile(join(directory,id+".jsonl"), JSON.stringify({type:"attachment",sessionId:id,attachment:{type:"goal_status",condition:"PRIVATE_GOAL_OBJECTIVE",met:true}})+"\\n");
@@ -530,7 +530,7 @@ console.log(JSON.stringify({type:"result",subtype:"success",is_error:false,sessi
     source: "sevro.host.claude",
     completeness: "complete",
     data: {
-      threadId: "11111111-1111-1111-1111-111111111111",
+      threadId: stringMatching(/^[0-9a-f-]{36}$/),
       goalStatus: "complete",
       goals: [{ status: "complete", characters: 22 }],
     },

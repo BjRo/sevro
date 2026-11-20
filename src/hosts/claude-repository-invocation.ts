@@ -1,7 +1,5 @@
-import type { Stats } from "node:fs";
-import { lstat, readFile, realpath } from "node:fs/promises";
-import { join } from "node:path";
 import type { ClaudeRepositoryInvocation } from "./claude-invocation";
+import type { ClaudeNativeSession } from "./claude-native-session";
 import { isRecord } from "../kernel/index";
 import {
   parseClaudeEvents,
@@ -173,9 +171,7 @@ function bodyCorrelated(
 /** Read only the completed bound native session; retain no arguments or body. */
 export async function claudeRepositoryInvocationObservation(input: {
   invocation: ClaudeRepositoryInvocation;
-  stream: string | ClaudeEvents;
-  configRoot: string;
-  workspace: string;
+  session: ClaudeNativeSession;
   tools: ClaudeToolCallsObservation;
 }) {
   let receipt: { accepted: boolean | null; reason: string } = {
@@ -201,53 +197,14 @@ export async function claudeRepositoryInvocationObservation(input: {
   };
 }
 
-function repositorySessionId(stream: string | ClaudeEvents): string | null {
-  const sessions = [
-    ...new Set(
-      entries(stream)
-        .filter(
-          (entry) =>
-            entry.type === "result" ||
-            (entry.type === "system" && entry.subtype === "init"),
-        )
-        .map((entry) => entry.session_id),
-    ),
-  ];
-  const [id] = sessions;
-  if (
-    sessions.length !== 1 ||
-    typeof id !== "string" ||
-    !/^[A-Za-z0-9_-]{1,128}$/.test(id)
-  )
-    return null;
-  return id;
-}
-
 async function repositoryReceipt(
   input: Parameters<typeof claudeRepositoryInvocationObservation>[0],
 ): Promise<Receipt> {
-  const sessionId = repositorySessionId(input.stream);
-  if (sessionId === null)
-    return { accepted: null, reason: "native session evidence unavailable" };
-  const workspace = await realpath(input.workspace);
-  const path = join(
-    await realpath(input.configRoot),
-    "projects",
-    workspace.replace(/[^A-Za-z0-9]/g, "-"),
-    `${sessionId}.jsonl`,
-  );
-  const entry = await lstat(path);
-  if (!regularTranscript(entry) || (await realpath(path)) !== path)
+  if (!input.session.initialBound)
     return { accepted: null, reason: "native session evidence unavailable" };
   return matchClaudeRepositoryInvocation({
     ...input.invocation,
-    sessionId,
-    transcript: await readFile(path, "utf8"),
+    sessionId: input.session.id,
+    transcript: await input.session.transcript(),
   });
-}
-
-function regularTranscript(entry: Stats): boolean {
-  return (
-    entry.isFile() && !entry.isSymbolicLink() && entry.size <= 8 * 1024 * 1024
-  );
 }

@@ -22,7 +22,11 @@ writeFileSync(
   join(process.cwd(), "authentication.json"),
   JSON.stringify(capture),
 );
-const session = "00000000-0000-4000-8000-000000000001";
+// Sevro names every native session; the fake records it under that id.
+const sessionOption = process.argv.includes("--resume")
+  ? "--resume"
+  : "--session-id";
+const session = process.argv[process.argv.indexOf(sessionOption) + 1] ?? "";
 const project = join(
   config,
   "projects",

@@ -28,21 +28,7 @@ export async function retainEnabledNativeTranscripts(
   rootSessionId?: string,
 ): Promise<void> {
   if (policy?.nativeTranscripts === true)
-    await retainNativeTranscripts(
-      result,
-      root,
-      host,
-      role,
-      rootSessionId ?? observedRootSession(result),
-    );
-}
-
-function observedRootSession(result: HostResult): string | undefined {
-  const observation = result.observations?.find(
-    (item) => item.id === "sevro.host.native-goal",
-  );
-  const session = observation?.data.threadId;
-  return typeof session === "string" ? session : undefined;
+    await retainNativeTranscripts(result, root, host, role, rootSessionId);
 }
 
 export async function failedNativeTranscripts(

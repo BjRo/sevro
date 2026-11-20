@@ -391,12 +391,13 @@ test("Claude native capture associates root and child files with their native se
     `#!${process.execPath}
 import {mkdir,writeFile} from 'node:fs/promises';
 const path = process.env.CLAUDE_CONFIG_DIR + '/projects/' + process.cwd().replace(/[^A-Za-z0-9]/g, '-');
-await mkdir(path + '/11111111-1111-4111-8111-111111111111/subagents', {recursive:true});
-await writeFile(path + '/11111111-1111-4111-8111-111111111111.jsonl', JSON.stringify({type:'assistant',sessionId:'11111111-1111-4111-8111-111111111111',message:{model:'synthetic',content:[{type:'tool_use',name:'Agent',id:'task',input:{}}]}})+'\\n'+JSON.stringify({type:'user',sessionId:'11111111-1111-4111-8111-111111111111',message:{content:[{type:'tool_result',tool_use_id:'task'}]},toolUseResult:{status:'completed',agentId:'child'}})+'\\n');
-await writeFile(path + '/11111111-1111-4111-8111-111111111111/subagents/agent-child.jsonl', JSON.stringify({type:'assistant',sessionId:'11111111-1111-4111-8111-111111111111',agentId:'child',message:{content:[{type:'tool_use',name:'Skill',id:'read',input:{skill:'example:read'}}]}}));
-await writeFile(path + '/11111111-1111-4111-8111-111111111111/subagents/agent-child.meta.json', '{"toolUseId":"task","parentAgentId":null}');
-console.log(JSON.stringify({type:'system',subtype:'init',session_id:'11111111-1111-4111-8111-111111111111'}));
-console.log(JSON.stringify({type:'result',session_id:'11111111-1111-4111-8111-111111111111',subtype:'success',is_error:false,result:'ready'}));
+const session = process.argv[process.argv.indexOf('--session-id') + 1];
+await mkdir(path + '/' + session + '/subagents', {recursive:true});
+await writeFile(path + '/' + session + '.jsonl', JSON.stringify({type:'assistant',sessionId:session,message:{model:'synthetic',content:[{type:'tool_use',name:'Agent',id:'task',input:{}}]}})+'\\n'+JSON.stringify({type:'user',sessionId:session,message:{content:[{type:'tool_result',tool_use_id:'task'}]},toolUseResult:{status:'completed',agentId:'child'}})+'\\n');
+await writeFile(path + '/' + session + '/subagents/agent-child.jsonl', JSON.stringify({type:'assistant',sessionId:session,agentId:'child',message:{content:[{type:'tool_use',name:'Skill',id:'read',input:{skill:'example:read'}}]}}));
+await writeFile(path + '/' + session + '/subagents/agent-child.meta.json', '{"toolUseId":"task","parentAgentId":null}');
+console.log(JSON.stringify({type:'system',subtype:'init',session_id:session}));
+console.log(JSON.stringify({type:'result',session_id:session,subtype:'success',is_error:false,result:'ready'}));
 `,
     { mode: 0o700 },
   );
@@ -427,9 +428,7 @@ console.log(JSON.stringify({type:'result',session_id:'11111111-1111-4111-8111-11
       (item) => item.id === "sevro.host.native-transcripts",
     ),
   );
-  expect(capture.data.rootSessionId).toBe(
-    "11111111-1111-4111-8111-111111111111",
-  );
+  expect(capture.data.rootSessionId).toMatch(/^[0-9a-f-]{36}$/);
   expect(capture.data.files).toHaveLength(3);
   expect(capture.completeness).toBe("complete");
 });

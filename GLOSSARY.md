@@ -118,8 +118,12 @@ _Avoid_: driver, connector; do not use for the per-host part of a native host re
 One request for a native host to do its work once (a trial's candidate, a semantic check or an advisory review), carried out in its own private state through admission, preparation, one or two turns, evidence retention and cleanup; a run contains many of them.
 _Avoid_: native run, harness request, host execution
 
+**Native session**:
+The host's own conversation that carries a native host request's turns under one session id and is resumed for a continuation; its native transcript is the host's record of it.
+_Avoid_: thread (Codex's word for the same thing), chat, conversation
+
 **Native transcript**:
-The host's own record of a native host request, retained as evidence when the runtime policy enables it.
+The host's own record of a native session, retained as evidence when the runtime policy enables it.
 _Avoid_: session log, chat history
 
 **Native control**:
@@ -131,7 +135,7 @@ A host's built-in objective-tracking mechanism, enabled through runtime hooks an
 _Avoid_: task goal, objective
 
 **Continuation**:
-The single follow-up turn a case may declare, delivered to the same native session within one trial.
+The single follow-up turn a case may declare, delivered by resuming the trial's native session.
 _Avoid_: retry, second run
 
 ## Skills
