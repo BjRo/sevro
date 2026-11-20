@@ -52,6 +52,48 @@ export const nativeFeedbackResponse = JSON.stringify({
   },
 });
 
+const rollout = "$CODEX_HOME/sessions/2026/09/27/rollout-thread-1.jsonl";
+function tokenCountEntry(ordinal: number, input: number, output: number) {
+  return JSON.stringify({
+    ordinal,
+    type: "event_msg",
+    payload: {
+      type: "token_count",
+      info: {
+        total_token_usage: { input_tokens: input, output_tokens: output },
+      },
+    },
+  });
+}
+function childSession(
+  id: string,
+  parent: string | null,
+  input: number,
+  output: number,
+) {
+  const source = parent
+    ? { subagent: { thread_spawn: { parent_thread_id: parent, depth: 1 } } }
+    : "exec";
+  const meta = JSON.stringify({
+    ordinal: 0,
+    type: "session_meta",
+    payload: { id, source },
+  });
+  return `printf '%s\\n' '${meta}' '${tokenCountEntry(1, input, output)}' > "$CODEX_HOME/sessions/2026/09/27/rollout-${id}.jsonl"`;
+}
+
+const subagentSessions = `if [ -f "$workspace/subagent-usage.flag" ]; then
+  ${childSession("child-1", "thread-1", 30, 3)}
+  ${childSession("grandchild-1", "child-1", 5, 1)}
+  ${childSession("unrelated-1", null, 1000, 100)}
+fi`;
+
+const rolloutUsage = `mkdir -p "$CODEX_HOME/sessions/2026/09/27"
+if [ ! -f "$workspace/native-feedback.flag" ]; then
+  printf '%s\\n' '${tokenCountEntry(1, 12, 4)}' >> "${rollout}"
+fi
+${subagentSessions}`;
+
 export function codexFixtureScript(roots: string[], quotedCodex: string) {
   const loginShell = process.platform === "linux" ? "/bin/bash" : "/bin/zsh";
   return `#!/bin/sh
@@ -74,6 +116,7 @@ if [ "$1" = resume ]; then
     printf '%s\\n' '{"type":"item.completed","item":{"id":"follow-up-skill","type":"command_execution","command":"cat '"$skill_file"'","aggregated_output":"---\\nname: probe\\ndescription: Test probe\\n---\\nRead this skill.\\n","exit_code":0,"status":"completed"}}'
   fi
   printf '%s\\n' '{"type":"item.completed","item":{"type":"agent_message","text":"follow-up ready"}}'
+  printf '%s\\n' '${tokenCountEntry(3, 17, 6)}' >> "${rollout}"
   printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":5,"output_tokens":2}}'
   exit 0
 fi
@@ -126,6 +169,7 @@ fi
 printf '%s\\n' '{"type":"item.completed","item":{"type":"agent_message","text":"ready"}}'
 if [ -f "$workspace/incomplete.flag" ]; then exit 0; fi
 if [ -f "$workspace/unknown-usage.flag" ]; then printf '%s\\n' '{"type":"turn.completed"}'; exit 0; fi
+${rolloutUsage}
 printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":12,"output_tokens":4}}'
 `;
 }

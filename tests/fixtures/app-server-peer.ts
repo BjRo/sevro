@@ -1,5 +1,11 @@
 #!/usr/bin/env bun
-import { appendFileSync, existsSync, readFileSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { createInterface } from "node:readline";
 import { join } from "node:path";
 if (defined(process.argv[2]) === "sandbox") process.exit(0);
@@ -14,6 +20,44 @@ const goal = (status: string) => ({
 const turns: Array<Record<string, unknown>> = [];
 let continued = false;
 let clientTurns = 0;
+// Persist cumulative root totals and one subagent rollout, as Codex does.
+const sessions = join(defined(process.env.CODEX_HOME), "sessions/2026/09/27");
+let rootOrdinal = 0;
+const rootUsage = { inputTokens: 0, outputTokens: 0 };
+const tokenCount = (ordinal: number, input: number, output: number) =>
+  JSON.stringify({
+    ordinal,
+    type: "event_msg",
+    payload: {
+      type: "token_count",
+      info: {
+        total_token_usage: { input_tokens: input, output_tokens: output },
+      },
+    },
+  }) + "\n";
+const meta = (id: string, source: unknown) =>
+  JSON.stringify({
+    ordinal: 0,
+    type: "session_meta",
+    payload: { id, source },
+  }) + "\n";
+const reportUsage = (input: number, output: number) => {
+  mkdirSync(sessions, { recursive: true });
+  const root = join(sessions, "rollout-2026-09-27T00-00-00-root.jsonl");
+  if (rootOrdinal === 0) writeFileSync(root, meta("root", "vscode"));
+  rootUsage.inputTokens += input;
+  rootUsage.outputTokens += output;
+  appendFileSync(
+    root,
+    tokenCount(++rootOrdinal, rootUsage.inputTokens, rootUsage.outputTokens),
+  );
+  writeFileSync(
+    join(sessions, "rollout-2026-09-27T00-00-01-child.jsonl"),
+    meta("child", {
+      subagent: { thread_spawn: { parent_thread_id: "root", depth: 1 } },
+    }) + tokenCount(1, 9, 1),
+  );
+};
 const begin = (id: string) => {
   turns.push({ id, status: "inProgress", items: [] });
   send({
@@ -38,6 +82,7 @@ const begin = (id: string) => {
   }
 };
 const finish = (id: string, text: string) => {
+  reportUsage(100, 10);
   const turn = defined(turns.find((row) => row.id === id));
   turn.status = "completed";
   turn.items = [
@@ -78,6 +123,7 @@ function startTurn(reply: (result: unknown) => void) {
     return;
   }
   if (existsSync(join(process.cwd(), "failure.txt"))) {
+    reportUsage(40, 4);
     send({
       method: "error",
       params: {

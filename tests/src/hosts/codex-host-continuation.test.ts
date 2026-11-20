@@ -78,12 +78,104 @@ test("failed app-server execution cannot yield a complete owner-dispatch receipt
     },
   });
   expect(result.complete).toBe(false);
+  expect(result).toMatchObject({
+    inputTokens: 49,
+    outputTokens: 5,
+    usageComplete: false,
+    costUsd: null,
+  });
   expectUnknown(result.observations).toContainEqual({
     id: "sevro.codex.explicit-invocation",
     completeness: "partial",
     data: {
       method: "explicit_invocation",
       primarySkill: "probe",
+    },
+  });
+});
+
+async function appServerPeerHost(
+  selected: Awaited<ReturnType<typeof ordinaryCodexRequest>>,
+) {
+  await mkdir(join(selected.workspace, ".git"));
+  const binary = join(dirname(selected.paths.fakeBinary), "usage-peer");
+  await writeFile(
+    binary,
+    `#!/bin/sh\nexec '${process.execPath}' '${join(import.meta.dir, "../../fixtures/app-server-peer.ts")}' "$@"\n`,
+    { mode: 0o700 },
+  );
+  return createCodexHost({
+    ...ordinaryCodexOptions,
+    ...selected.paths,
+    binary,
+    sandboxBinary: defined(Bun.which("codex")),
+    entrypoint: "app-server",
+  });
+}
+
+test.each([
+  ["native continuation", false, 209, 21],
+  ["client feedback", true, 309, 31],
+] as const)(
+  "Codex app-server reports whole-tree usage from native rollouts: %s",
+  async (_name, feedback, inputTokens, outputTokens) => {
+    if (!isolatedNativeHost || !Bun.which("codex")) return;
+    const selected = await ordinaryCodexRequest(roots);
+    if (feedback)
+      await writeFile(join(selected.workspace, "feedback.txt"), "feedback");
+    const host = await appServerPeerHost(selected);
+    const result = await host.run({
+      ...selected.request,
+      ...(feedback ? { followUpPrompt: "Continue." } : {}),
+    });
+    expect(result.complete).toBe(true);
+    // Root totals are cumulative across turns; the subagent adds 9/1.
+    expect(result).toMatchObject({
+      inputTokens,
+      outputTokens,
+      usageComplete: true,
+      costUsd: null,
+    });
+    expectUnknown(result.observations).toContainEqual({
+      id: "sevro.codex.usage",
+      completeness: "complete",
+      data: {
+        scope: "thread_tree",
+        threads: 2,
+        rootInputTokens: inputTokens - 9,
+        rootOutputTokens: outputTokens - 1,
+        unlinkedSessions: 0,
+        incompleteReasons: [],
+      },
+    });
+  },
+);
+
+test("Codex exec sums nested subagent usage and excludes unlinked sessions", async () => {
+  if (!isolatedNativeHost || !Bun.which("codex")) return;
+  const selected = await ordinaryCodexRequest(roots);
+  await writeFile(join(selected.workspace, "subagent-usage.flag"), "");
+  const result = await selected.host.run(selected.request);
+  expect(result.complete).toBe(true);
+  expect(
+    await readFile(join(selected.workspace, "argv.txt"), "utf8"),
+  ).not.toContain("--ephemeral");
+  expect(result).toMatchObject({
+    inputTokens: 47,
+    outputTokens: 8,
+    usageComplete: true,
+    costUsd: null,
+  });
+  expectUnknown(result.observations).toContainEqual({
+    id: "sevro.codex.usage",
+    completeness: "complete",
+    data: {
+      scope: "thread_tree",
+      threads: 3,
+      rootInputTokens: 12,
+      rootOutputTokens: 4,
+      unlinkedSessions: 1,
+      incompleteReasons: [],
     },
   });
 });
@@ -223,7 +315,7 @@ test("Codex continuation ignores Git-private fixture state at the boundary", asy
     data: {
       method: "same_thread_resume",
       threadId: "thread-1",
-      nativeAfterOrdinal: null,
+      nativeAfterOrdinal: 1,
       preFollowUpWorktreeUnchanged: true,
     },
   });

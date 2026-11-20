@@ -27,6 +27,7 @@ import {
   type CodexPrivateState,
 } from "./codex-private-state";
 import { workspaceFingerprint } from "../workspace/index";
+import { codexTreeUsage, type CodexTreeUsage } from "../codex-usage/index";
 import {
   skillTrackingObservation,
   skillActivationClaims,
@@ -258,10 +259,7 @@ function initialTurnArgs(context: ExecutionContext): string[] {
     "--json",
     "--strict-config",
     "--skip-git-repo-check",
-    ...(context.request.followUpPrompt ||
-    context.request.runtimePolicy?.nativeTranscripts
-      ? []
-      : ["--ephemeral"]),
+    // Persist rollouts in the private home: usage is measured from them.
     "--ignore-rules",
     "--dangerously-bypass-hook-trust",
     "-C",
@@ -356,8 +354,7 @@ function appServerSummary(result: AppServerResult): CodexEventSummary {
     threadId: result.evidence.threadId ?? "",
     complete: result.code === 0,
     finalMessage: result.finalMessage,
-    // App-server reports cumulative thread totals, not per-turn usage. Keep
-    // usage unknown rather than count continuations or feedback more than once.
+    // Host usage is measured from the native thread tree, not this summary.
     inputTokens: null,
     outputTokens: null,
     usageComplete: false,
@@ -540,30 +537,14 @@ function codexArtifacts(turns: TurnResult) {
       : []),
   ];
 }
-function tokenCount(
-  initial: number | null,
-  followUp: number | null | undefined,
-): number | null {
-  if (followUp === undefined) return initial;
-  return initial !== null && followUp !== null ? initial + followUp : null;
-}
-function codexUsageComplete(
-  summary: CodexEventSummary,
-  followUp: CodexEventSummary | null,
-): boolean {
-  return summary.usageComplete && (followUp?.usageComplete ?? true);
-}
-function codexUsage(turns: TurnResult) {
+/** Whole-tree usage; complete only when every turn and session is measured. */
+function codexUsage(turns: TurnResult, tree: CodexTreeUsage) {
+  const turnsComplete =
+    turns.summary.complete && (turns.followUpSummary?.complete ?? true);
   return {
-    inputTokens: tokenCount(
-      turns.summary.inputTokens,
-      turns.followUpSummary?.inputTokens,
-    ),
-    outputTokens: tokenCount(
-      turns.summary.outputTokens,
-      turns.followUpSummary?.outputTokens,
-    ),
-    usageComplete: codexUsageComplete(turns.summary, turns.followUpSummary),
+    inputTokens: tree.inputTokens,
+    outputTokens: tree.outputTokens,
+    usageComplete: turnsComplete && tree.complete,
     costUsd: null,
   };
 }
@@ -572,15 +553,22 @@ async function codexHostResult(
   turns: TurnResult,
 ): Promise<NativeHostRequestOutcome> {
   const final = turns.followUpSummary ?? turns.summary;
+  const tree = await codexTreeUsage(
+    context.state.codexHome,
+    turns.summary.threadId,
+  );
   return {
     result: {
       finalMessage: final.finalMessage,
       ...(turns.appServer ? { executionFailed: !turns.summary.complete } : {}),
       complete: final.finalMessage !== null,
       artifacts: codexArtifacts(turns),
-      ...codexUsage(turns),
+      ...codexUsage(turns, tree),
     },
-    observations: await codexObservations(context, turns),
+    observations: [
+      ...(await codexObservations(context, turns)),
+      tree.observation,
+    ],
     rootSessionId: turns.summary.threadId,
   };
 }
