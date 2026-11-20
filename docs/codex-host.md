@@ -10,12 +10,7 @@ unavailable.
 
 The optional `app-server` entrypoint uses the stdio app-server transport and
 waits for the original root thread to complete its native turns. Its final
-response comes from the completing root turn. Token usage is the root thread's
-last `thread/tokenUsage/updated` total. Because that total is cumulative, native
-continuation and feedback turns count once. Subagent threads are excluded and
-cost stays unknown. Usage is complete only after a successful, settled run. A
-failed run keeps its last observed total as incomplete, and a malformed total
-leaves usage unmeasured.
+response comes from the completing root turn.
 Both entrypoints use the same isolated Codex home and permission-profile
 preflight. See [native goal trials](development-cli.md#native-goal-trials) for
 selection, native-goal observations, and follow-up behavior. The JSONL parser
@@ -152,6 +147,26 @@ path. Sevro therefore retains native marketplace/plugin installation and receipt
 verification, fresh credentials/configuration, hook rewriting, preflight, and
 invocation evidence for every request. See the [startup measurements](https://github.com/BjRo/sevro/blob/main/docs/evidence/runtime-startup-30/README.md)
 for measured boundaries, copy-on-write assessment, and limitations.
+
+## Token usage
+
+For both entrypoints, reported token usage covers the whole thread tree: the
+root thread plus every subagent it spawned, at any depth. Both entrypoints
+persist native rollouts in the request's private Codex home, so `exec` runs
+without `--ephemeral`. The host adds each tree session's last cumulative
+`token_count` total; subagents are linked through
+`thread_spawn.parent_thread_id`. Follow-up and native continuation turns
+therefore count once. If a session's totals restart, as after a resumed
+process, each segment is added once. Cost stays unknown.
+
+The `sevro.codex.usage` observation states the `thread_tree` scope, the number
+of measured threads, the root thread's own totals, how many unrelated
+sessions were excluded, and any incomplete reasons. Usage is complete only when
+every turn completed and every tree session was found and measured. A missing
+or ambiguous root rollout, an unreadable, oversized or malformed session, an
+incomplete session search, or a tree session without a usage total leaves usage
+incomplete; measured sessions still contribute. Nothing is estimated, and no
+rollout content is retained by this observation.
 
 ## Retired skill-read evidence
 

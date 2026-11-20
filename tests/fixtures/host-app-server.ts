@@ -171,26 +171,15 @@ function startTurn(id: unknown): void {
     });
     return;
   }
-  usageNotifications(turnId);
+  notify("thread/tokenUsage/updated", {
+    tokenUsage: { total: { inputTokens: 0, outputTokens: 7 } },
+  });
   notify("item/completed", { item: commandItem() });
   notify("item/completed", { item: commandItem() });
   notify("item/completed", {
     item: { id: "reasoning", type: "reasoning", text: "PRIVATE_REASONING" },
   });
   completeTurnNotification(turnId);
-}
-// Totals are cumulative per thread: turn n reports 11n input and 7n output.
-function usageNotifications(turnId: string): void {
-  const total =
-    mode === "malformed-usage"
-      ? { inputTokens: "11", outputTokens: 7 }
-      : { inputTokens: 11 * turnCount, outputTokens: 7 * turnCount };
-  notify("thread/tokenUsage/updated", { turnId, tokenUsage: { total } });
-  notify("thread/tokenUsage/updated", {
-    threadId: "child",
-    turnId: "child-turn",
-    tokenUsage: { total: { inputTokens: 9000, outputTokens: 900 } },
-  });
 }
 function endAfterTurnResponse(): boolean {
   if (mode === "stalled-turn") return true;
@@ -312,12 +301,6 @@ function afterRead(): void {
     },
     "native-read-race": () => {
       announceNativeTurn();
-    },
-    "late-usage": () => {
-      notify("thread/tokenUsage/updated", {
-        turnId: "first",
-        tokenUsage: { total: { inputTokens: 50, outputTokens: 70 } },
-      });
     },
     "settlement-foreign": () => {
       notify("thread/goal/cleared", { threadId: "foreign" });

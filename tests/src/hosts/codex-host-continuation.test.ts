@@ -79,8 +79,8 @@ test("failed app-server execution cannot yield a complete owner-dispatch receipt
   });
   expect(result.complete).toBe(false);
   expect(result).toMatchObject({
-    inputTokens: 40,
-    outputTokens: 4,
+    inputTokens: 49,
+    outputTokens: 5,
     usageComplete: false,
     costUsd: null,
   });
@@ -114,10 +114,10 @@ async function appServerPeerHost(
 }
 
 test.each([
-  ["native continuation", false, 200, 20],
-  ["client feedback", true, 300, 30],
+  ["native continuation", false, 209, 21],
+  ["client feedback", true, 309, 31],
 ] as const)(
-  "Codex app-server reports the root thread's final cumulative usage: %s",
+  "Codex app-server reports whole-tree usage from native rollouts: %s",
   async (_name, feedback, inputTokens, outputTokens) => {
     if (!isolatedNativeHost || !Bun.which("codex")) return;
     const selected = await ordinaryCodexRequest(roots);
@@ -129,15 +129,56 @@ test.each([
       ...(feedback ? { followUpPrompt: "Continue." } : {}),
     });
     expect(result.complete).toBe(true);
-    // Child-thread totals stay out; follow-up turns are not counted twice.
+    // Root totals are cumulative across turns; the subagent adds 9/1.
     expect(result).toMatchObject({
       inputTokens,
       outputTokens,
       usageComplete: true,
       costUsd: null,
     });
+    expectUnknown(result.observations).toContainEqual({
+      id: "sevro.codex.usage",
+      completeness: "complete",
+      data: {
+        scope: "thread_tree",
+        threads: 2,
+        rootInputTokens: inputTokens - 9,
+        rootOutputTokens: outputTokens - 1,
+        unlinkedSessions: 0,
+        incompleteReasons: [],
+      },
+    });
   },
 );
+
+test("Codex exec sums nested subagent usage and excludes unlinked sessions", async () => {
+  if (!isolatedNativeHost || !Bun.which("codex")) return;
+  const selected = await ordinaryCodexRequest(roots);
+  await writeFile(join(selected.workspace, "subagent-usage.flag"), "");
+  const result = await selected.host.run(selected.request);
+  expect(result.complete).toBe(true);
+  expect(
+    await readFile(join(selected.workspace, "argv.txt"), "utf8"),
+  ).not.toContain("--ephemeral");
+  expect(result).toMatchObject({
+    inputTokens: 47,
+    outputTokens: 8,
+    usageComplete: true,
+    costUsd: null,
+  });
+  expectUnknown(result.observations).toContainEqual({
+    id: "sevro.codex.usage",
+    completeness: "complete",
+    data: {
+      scope: "thread_tree",
+      threads: 3,
+      rootInputTokens: 12,
+      rootOutputTokens: 4,
+      unlinkedSessions: 1,
+      incompleteReasons: [],
+    },
+  });
+});
 
 test("Codex host refuses an otherwise valid stream without a completed turn", async () => {
   if (!isolatedNativeHost || !Bun.which("codex")) return;
@@ -274,7 +315,7 @@ test("Codex continuation ignores Git-private fixture state at the boundary", asy
     data: {
       method: "same_thread_resume",
       threadId: "thread-1",
-      nativeAfterOrdinal: null,
+      nativeAfterOrdinal: 1,
       preFollowUpWorktreeUnchanged: true,
     },
   });

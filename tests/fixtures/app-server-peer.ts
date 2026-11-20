@@ -1,5 +1,11 @@
 #!/usr/bin/env bun
-import { appendFileSync, existsSync, readFileSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { createInterface } from "node:readline";
 import { join } from "node:path";
 if (defined(process.argv[2]) === "sandbox") process.exit(0);
@@ -14,43 +20,43 @@ const goal = (status: string) => ({
 const turns: Array<Record<string, unknown>> = [];
 let continued = false;
 let clientTurns = 0;
+// Persist cumulative root totals and one subagent rollout, as Codex does.
+const sessions = join(defined(process.env.CODEX_HOME), "sessions/2026/09/27");
+let rootOrdinal = 0;
 const rootUsage = { inputTokens: 0, outputTokens: 0 };
-// Report cumulative root-thread totals as Codex does after each model response.
-// A child thread's totals never belong to the root thread's usage.
-const reportUsage = (turnId: string, input: number, output: number) => {
+const tokenCount = (ordinal: number, input: number, output: number) =>
+  JSON.stringify({
+    ordinal,
+    type: "event_msg",
+    payload: {
+      type: "token_count",
+      info: {
+        total_token_usage: { input_tokens: input, output_tokens: output },
+      },
+    },
+  }) + "\n";
+const meta = (id: string, source: unknown) =>
+  JSON.stringify({
+    ordinal: 0,
+    type: "session_meta",
+    payload: { id, source },
+  }) + "\n";
+const reportUsage = (input: number, output: number) => {
+  mkdirSync(sessions, { recursive: true });
+  const root = join(sessions, "rollout-2026-09-27T00-00-00-root.jsonl");
+  if (rootOrdinal === 0) writeFileSync(root, meta("root", "vscode"));
   rootUsage.inputTokens += input;
   rootUsage.outputTokens += output;
-  const breakdown = (inputTokens: number, outputTokens: number) => ({
-    totalTokens: inputTokens + outputTokens,
-    inputTokens,
-    cachedInputTokens: 0,
-    outputTokens,
-    reasoningOutputTokens: 0,
-  });
-  send({
-    method: "thread/tokenUsage/updated",
-    params: {
-      threadId: "child",
-      turnId: "child-turn",
-      tokenUsage: {
-        total: breakdown(9000, 900),
-        last: breakdown(9000, 900),
-        modelContextWindow: null,
-      },
-    },
-  });
-  send({
-    method: "thread/tokenUsage/updated",
-    params: {
-      threadId: "root",
-      turnId,
-      tokenUsage: {
-        total: breakdown(rootUsage.inputTokens, rootUsage.outputTokens),
-        last: breakdown(input, output),
-        modelContextWindow: 200000,
-      },
-    },
-  });
+  appendFileSync(
+    root,
+    tokenCount(++rootOrdinal, rootUsage.inputTokens, rootUsage.outputTokens),
+  );
+  writeFileSync(
+    join(sessions, "rollout-2026-09-27T00-00-01-child.jsonl"),
+    meta("child", {
+      subagent: { thread_spawn: { parent_thread_id: "root", depth: 1 } },
+    }) + tokenCount(1, 9, 1),
+  );
 };
 const begin = (id: string) => {
   turns.push({ id, status: "inProgress", items: [] });
@@ -76,7 +82,7 @@ const begin = (id: string) => {
   }
 };
 const finish = (id: string, text: string) => {
-  reportUsage(id, 100, 10);
+  reportUsage(100, 10);
   const turn = defined(turns.find((row) => row.id === id));
   turn.status = "completed";
   turn.items = [
@@ -117,7 +123,7 @@ function startTurn(reply: (result: unknown) => void) {
     return;
   }
   if (existsSync(join(process.cwd(), "failure.txt"))) {
-    reportUsage("first", 40, 4);
+    reportUsage(40, 4);
     send({
       method: "error",
       params: {

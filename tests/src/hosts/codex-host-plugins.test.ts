@@ -89,8 +89,8 @@ exec '${selected.paths.fakeBinary}' "$@"
       expect(result.finalMessage).toBe("ready");
       if (entrypoint === "app-server")
         expect(result).toMatchObject({
-          inputTokens: 200,
-          outputTokens: 20,
+          inputTokens: 209,
+          outputTokens: 21,
           usageComplete: true,
         });
       expectUnknown(result.observations).toContainEqual({

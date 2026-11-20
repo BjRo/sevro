@@ -540,7 +540,7 @@ The app-server uses the same isolated Codex home, installed plugins, permission
 profile and isolation preflight as the exec route. Native goal facts are retained
 as `sevro.host.native-goal`; the objective text is excluded. Failed transport
 or turns retain partial evidence and cannot pass the task. Token usage covers
-the root thread only, without subagents; see the [Codex host](codex-host.md).
+the whole thread tree, including subagents; see [Codex token usage](codex-host.md#token-usage).
 Its declared feedback boundary retains whether a
 goal was observed and its status before user input was delivered.
 

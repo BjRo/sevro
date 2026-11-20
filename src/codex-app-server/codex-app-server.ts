@@ -66,33 +66,6 @@ export interface AppServerEvidence {
   errorsDropped?: number;
 }
 
-/**
- * Root-thread token usage from the last `thread/tokenUsage/updated` total.
- * Totals are cumulative, so follow-up and native turns count once; child
- * threads are excluded. Usage is complete only for a settled successful run.
- */
-export interface AppServerUsage {
-  inputTokens: number | null;
-  outputTokens: number | null;
-  usageComplete: boolean;
-}
-
-type UsageTotal = { inputTokens: number; outputTokens: number };
-
-function tokenCount(value: unknown): value is number {
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
-}
-
-/** A malformed total yields `null`; usage then stays unmeasured. */
-function usageTotal(value: unknown): UsageTotal | null {
-  const total = isRecord(value) ? value.total : undefined;
-  if (!isRecord(total)) return null;
-  const { inputTokens, outputTokens } = total;
-  return tokenCount(inputTokens) && tokenCount(outputTokens)
-    ? { inputTokens, outputTokens }
-    : null;
-}
-
 function publicErrorMessage(value: unknown): {
   message: string | null;
   messageTruncated?: boolean;
@@ -529,8 +502,6 @@ class AppServerSession {
   private goalSeen = false;
   private emittedItems = new Set<string>();
   private followUp?: string;
-  private usageTotal: UsageTotal | null = null;
-  private usageMalformed = false;
 
   constructor(
     readonly rpc: AppServerRpc,
@@ -639,19 +610,6 @@ class AppServerSession {
     errors.push(errorReceipt(source, this.threadId, turnId, willRetry, value));
   }
 
-  private observeUsage(params: RecordValue): void {
-    const total = usageTotal(params.tokenUsage);
-    if (total === null) this.usageMalformed = true;
-    else this.usageTotal = total;
-  }
-
-  usage(code: number): AppServerUsage {
-    const total = this.usageMalformed ? null : this.usageTotal;
-    if (total === null)
-      return { inputTokens: null, outputTokens: null, usageComplete: false };
-    return { ...total, usageComplete: code === 0 };
-  }
-
   private async onNotification({
     method,
     params,
@@ -673,9 +631,6 @@ class AppServerSession {
         break;
       case "thread/goal/updated":
         this.observeGoal(params);
-        break;
-      case "thread/tokenUsage/updated":
-        this.observeUsage(params);
         break;
       case "thread/goal/cleared":
         throw new Error("Participant cleared the observed native goal");
@@ -788,13 +743,11 @@ class AppServerSession {
       appServerGoalStatus(event.params.goal, this.threadId);
   }
 
-  /** Readback and file I/O can race with terminal events and late usage. */
+  /** Readback and file I/O can race with a terminal protocol event. */
   assertSettled(): void {
     this.rpc.assertHealthy();
     for (const event of this.rpc.queue) {
       if (event.params.threadId !== this.threadId) continue;
-      if (event.method === "thread/tokenUsage/updated")
-        this.observeUsage(event.params);
       this.checkPendingSettlement(event);
     }
   }
@@ -964,7 +917,6 @@ export async function runCodexAppServer(options: AppServerRunOptions): Promise<{
   err: string;
   code: number;
   finalMessage: string | null;
-  usage: AppServerUsage;
   evidence: AppServerEvidence;
 }> {
   const { request, argv, env } = options;
@@ -985,7 +937,6 @@ export async function runCodexAppServer(options: AppServerRunOptions): Promise<{
     err: rpc.stderr,
     code: finalCode,
     finalMessage: completedMessage(session, finalCode),
-    usage: session.usage(finalCode),
     evidence: session.evidence,
   };
 }
