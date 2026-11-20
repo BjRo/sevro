@@ -14,6 +14,44 @@ const goal = (status: string) => ({
 const turns: Array<Record<string, unknown>> = [];
 let continued = false;
 let clientTurns = 0;
+const rootUsage = { inputTokens: 0, outputTokens: 0 };
+// Report cumulative root-thread totals as Codex does after each model response.
+// A child thread's totals never belong to the root thread's usage.
+const reportUsage = (turnId: string, input: number, output: number) => {
+  rootUsage.inputTokens += input;
+  rootUsage.outputTokens += output;
+  const breakdown = (inputTokens: number, outputTokens: number) => ({
+    totalTokens: inputTokens + outputTokens,
+    inputTokens,
+    cachedInputTokens: 0,
+    outputTokens,
+    reasoningOutputTokens: 0,
+  });
+  send({
+    method: "thread/tokenUsage/updated",
+    params: {
+      threadId: "child",
+      turnId: "child-turn",
+      tokenUsage: {
+        total: breakdown(9000, 900),
+        last: breakdown(9000, 900),
+        modelContextWindow: null,
+      },
+    },
+  });
+  send({
+    method: "thread/tokenUsage/updated",
+    params: {
+      threadId: "root",
+      turnId,
+      tokenUsage: {
+        total: breakdown(rootUsage.inputTokens, rootUsage.outputTokens),
+        last: breakdown(input, output),
+        modelContextWindow: 200000,
+      },
+    },
+  });
+};
 const begin = (id: string) => {
   turns.push({ id, status: "inProgress", items: [] });
   send({
@@ -38,6 +76,7 @@ const begin = (id: string) => {
   }
 };
 const finish = (id: string, text: string) => {
+  reportUsage(id, 100, 10);
   const turn = defined(turns.find((row) => row.id === id));
   turn.status = "completed";
   turn.items = [
@@ -78,6 +117,7 @@ function startTurn(reply: (result: unknown) => void) {
     return;
   }
   if (existsSync(join(process.cwd(), "failure.txt"))) {
+    reportUsage("first", 40, 4);
     send({
       method: "error",
       params: {

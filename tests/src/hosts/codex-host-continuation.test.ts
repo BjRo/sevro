@@ -78,6 +78,12 @@ test("failed app-server execution cannot yield a complete owner-dispatch receipt
     },
   });
   expect(result.complete).toBe(false);
+  expect(result).toMatchObject({
+    inputTokens: 40,
+    outputTokens: 4,
+    usageComplete: false,
+    costUsd: null,
+  });
   expectUnknown(result.observations).toContainEqual({
     id: "sevro.codex.explicit-invocation",
     completeness: "partial",
@@ -87,6 +93,51 @@ test("failed app-server execution cannot yield a complete owner-dispatch receipt
     },
   });
 });
+
+async function appServerPeerHost(
+  selected: Awaited<ReturnType<typeof ordinaryCodexRequest>>,
+) {
+  await mkdir(join(selected.workspace, ".git"));
+  const binary = join(dirname(selected.paths.fakeBinary), "usage-peer");
+  await writeFile(
+    binary,
+    `#!/bin/sh\nexec '${process.execPath}' '${join(import.meta.dir, "../../fixtures/app-server-peer.ts")}' "$@"\n`,
+    { mode: 0o700 },
+  );
+  return createCodexHost({
+    ...ordinaryCodexOptions,
+    ...selected.paths,
+    binary,
+    sandboxBinary: defined(Bun.which("codex")),
+    entrypoint: "app-server",
+  });
+}
+
+test.each([
+  ["native continuation", false, 200, 20],
+  ["client feedback", true, 300, 30],
+] as const)(
+  "Codex app-server reports the root thread's final cumulative usage: %s",
+  async (_name, feedback, inputTokens, outputTokens) => {
+    if (!isolatedNativeHost || !Bun.which("codex")) return;
+    const selected = await ordinaryCodexRequest(roots);
+    if (feedback)
+      await writeFile(join(selected.workspace, "feedback.txt"), "feedback");
+    const host = await appServerPeerHost(selected);
+    const result = await host.run({
+      ...selected.request,
+      ...(feedback ? { followUpPrompt: "Continue." } : {}),
+    });
+    expect(result.complete).toBe(true);
+    // Child-thread totals stay out; follow-up turns are not counted twice.
+    expect(result).toMatchObject({
+      inputTokens,
+      outputTokens,
+      usageComplete: true,
+      costUsd: null,
+    });
+  },
+);
 
 test("Codex host refuses an otherwise valid stream without a completed turn", async () => {
   if (!isolatedNativeHost || !Bun.which("codex")) return;

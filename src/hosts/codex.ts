@@ -356,11 +356,7 @@ function appServerSummary(result: AppServerResult): CodexEventSummary {
     threadId: result.evidence.threadId ?? "",
     complete: result.code === 0,
     finalMessage: result.finalMessage,
-    // App-server reports cumulative thread totals, not per-turn usage. Keep
-    // usage unknown rather than count continuations or feedback more than once.
-    inputTokens: null,
-    outputTokens: null,
-    usageComplete: false,
+    ...result.usage,
   };
 }
 function initialSummary(

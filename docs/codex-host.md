@@ -10,7 +10,12 @@ unavailable.
 
 The optional `app-server` entrypoint uses the stdio app-server transport and
 waits for the original root thread to complete its native turns. Its final
-response comes from the completing root turn; token usage remains unknown.
+response comes from the completing root turn. Token usage is the root thread's
+last `thread/tokenUsage/updated` total. Because that total is cumulative, native
+continuation and feedback turns count once. Subagent threads are excluded and
+cost stays unknown. Usage is complete only after a successful, settled run. A
+failed run keeps its last observed total as incomplete, and a malformed total
+leaves usage unmeasured.
 Both entrypoints use the same isolated Codex home and permission-profile
 preflight. See [native goal trials](development-cli.md#native-goal-trials) for
 selection, native-goal observations, and follow-up behavior. The JSONL parser

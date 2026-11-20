@@ -89,9 +89,9 @@ exec '${selected.paths.fakeBinary}' "$@"
       expect(result.finalMessage).toBe("ready");
       if (entrypoint === "app-server")
         expect(result).toMatchObject({
-          inputTokens: null,
-          outputTokens: null,
-          usageComplete: false,
+          inputTokens: 200,
+          outputTokens: 20,
+          usageComplete: true,
         });
       expectUnknown(result.observations).toContainEqual({
         id: "sevro.host.hooks",
