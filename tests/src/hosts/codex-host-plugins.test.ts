@@ -107,6 +107,71 @@ exec '${selected.paths.fakeBinary}' "$@"
   },
 );
 
+test("Codex renders hook and skill grants into one profile before plugin installation", async () => {
+  const selected = await ordinaryMarketplace(roots);
+  const workspace = await allocateWorkspace();
+  try {
+    await mkdir(join(workspace, ".git"));
+    await cp(selected.root, join(workspace, "marketplace"), {
+      recursive: true,
+    });
+    const binary = join(dirname(selected.paths.fakeBinary), "profile-capture");
+    // The profile is captured as plugin installation sees it and again at execution.
+    await writeFile(
+      binary,
+      `#!/bin/sh
+if [ "$1" = plugin ] && [ ! -f '${workspace}/install-profile.toml' ]; then
+  /bin/cp "$CODEX_HOME/config.toml" '${workspace}/install-profile.toml'
+fi
+if [ "$1" = exec ]; then
+  /bin/cp "$CODEX_HOME/config.toml" '${workspace}/exec-profile.toml'
+  printf '%s' "$CODEX_HOME" > '${workspace}/codex-home.txt'
+fi
+exec '${selected.paths.fakeBinary}' "$@"
+`,
+      { mode: 0o700 },
+    );
+    const host = createCodexHost({
+      ...ordinaryCodexOptions,
+      ...selected.paths,
+      binary,
+      sandboxBinary: defined(Bun.which("codex")),
+    });
+    const result = await host.run({
+      ...selected.request,
+      workspace,
+      codexMarketplace: selected.declaration,
+      runtimePolicy: {
+        format: "sevro.runtime.v1",
+        environment: {},
+        readOnlyRoots: [],
+        codexState: true,
+      },
+    });
+    expect(result.complete).toBe(true);
+    const installProfile = await readFile(
+      join(workspace, "install-profile.toml"),
+      "utf8",
+    );
+    const execProfile = await readFile(
+      join(workspace, "exec-profile.toml"),
+      "utf8",
+    );
+    const codexHome = await readFile(join(workspace, "codex-home.txt"), "utf8");
+    const stateRoot = dirname(codexHome);
+    const hookGrant = `${JSON.stringify(join(stateRoot, "runtime-plugins", "plugin-0"))} = "read"`;
+    expect(installProfile.split(hookGrant)).toHaveLength(2);
+    for (const skills of [
+      join(codexHome, "skills"),
+      join(stateRoot, "home", ".agents", "skills"),
+    ])
+      expect(installProfile).toContain(`${JSON.stringify(skills)} = "write"`);
+    expect(execProfile.split(hookGrant)).toHaveLength(2);
+  } finally {
+    await removeWorkspace(workspace);
+  }
+});
+
 test.each(["preparation-failure", "cancellation"] as const)(
   "Codex removes private plugin projections after %s",
   async (ending) => {

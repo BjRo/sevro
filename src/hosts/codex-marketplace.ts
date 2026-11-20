@@ -1,3 +1,5 @@
+import { pluginSkillPath } from "./invocation-rules";
+import { marketplaceNamesValid } from "./codex-invocation";
 import type { Dirent } from "node:fs";
 import { readFile, readdir, realpath, stat } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
@@ -17,15 +19,6 @@ interface InstallContext {
   diagnostics: HostDiagnostics;
 }
 
-function validPluginNames(declaration: Declaration): boolean {
-  const names = declaration.pluginNames;
-  return (
-    /^[a-z][a-z0-9-]*$/.test(declaration.marketplaceName) &&
-    names.length > 0 &&
-    names.every((name) => /^[a-z][a-z0-9-]*$/.test(name)) &&
-    new Set(names).size === names.length
-  );
-}
 function validArtifactPaths(
   declaration: Declaration,
   paths: Set<string>,
@@ -46,7 +39,13 @@ async function marketplaceRoot(
   declaration: Declaration,
 ): Promise<string> {
   const paths = new Set(declaration.artifactPaths);
-  if (!validPluginNames(declaration) || !validArtifactPaths(declaration, paths))
+  if (
+    !marketplaceNamesValid(
+      declaration.marketplaceName,
+      declaration.pluginNames,
+    ) ||
+    !validArtifactPaths(declaration, paths)
+  )
     throw new Error("invalid Codex marketplace declaration");
   const root = join(workspace, ...fixtureParts(declaration.artifactRoot));
   const actualWorkspace = await realpath(workspace),
@@ -269,9 +268,9 @@ async function verifyInstalledInvocation(
 ): Promise<void> {
   const selected = request.explicitSkillInvocation;
   if (selected?.pluginName !== plugin) return;
-  const skill = await stat(
-    join(path, "skills", selected.skillName, "SKILL.md"),
-  ).catch(() => null);
+  const skill = await stat(pluginSkillPath(path, selected.skillName)).catch(
+    () => null,
+  );
   if (!skill?.isFile())
     throw new Error("invoked Codex skill is absent from the installation");
 }

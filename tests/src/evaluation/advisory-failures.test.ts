@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { runEvaluation } from "../../../src/engine";
+import { HostExecutionFailure, runEvaluation } from "../../../src/engine";
 import { defined, parseRunEvidence } from "../../fixtures/assertions";
 import { createEvaluation } from "../../fixtures/evaluation-fixtures";
 import { createTemporaryFixtures } from "../../fixtures/filesystem";
@@ -75,6 +75,61 @@ test("records a failed advisory host without accepting its passing assessment", 
     "failed review trace",
   );
   expect(workspace).not.toBe("");
+  expect(existsSync(workspace)).toBe(true);
+  roots.push(workspace);
+});
+
+test("retains a stopped advisory host's own evidence and usage", async () => {
+  const options = await evaluation({ finalMessage: "ready", complete: true });
+  options.case.fixture = {
+    kind: "generated",
+    commits: [{ message: "base", files: { "README.md": "base\n" } }],
+  };
+  let workspace = "";
+  options.advisoryHost = {
+    id: "example.advisory",
+    model: "review-v1",
+    effort: "none",
+    run(request) {
+      workspace = request.workspace;
+      // A native host reports preflight or process failures this way.
+      throw new HostExecutionFailure("advisory host stopped", {
+        finalMessage: null,
+        complete: false,
+        inputTokens: 7,
+        outputTokens: 3,
+        costUsd: 0.01,
+        usageComplete: true,
+        artifacts: [
+          { id: "codex.process", bytes: Buffer.from("preflight failed") },
+        ],
+      });
+    },
+  };
+  const outcome = await runEvaluation(options);
+  expect(outcome.result.task.verdict).toBe("passed");
+  expect(outcome.result.exitCode).toBe(0);
+  const evidence = parseRunEvidence(
+    await readFile(outcome.result.evidencePath, "utf8"),
+  );
+  const trial = defined(evidence.trials[0]);
+  const review = defined(trial.advisoryReview);
+  expect(review.status).toBe("failed");
+  expect(review.assessment).toBeNull();
+  expect(review.usage).toEqual({
+    inputTokens: 7,
+    outputTokens: 3,
+    costUsd: 0.01,
+    complete: true,
+  });
+  const process = defined(
+    trial.artifactRefs.find(
+      (item) => item.id === "sevro.advisory.codex.process",
+    ),
+  );
+  expect(await readFile(new URL(process.path), "utf8")).toBe(
+    "preflight failed",
+  );
   expect(existsSync(workspace)).toBe(true);
   roots.push(workspace);
 });

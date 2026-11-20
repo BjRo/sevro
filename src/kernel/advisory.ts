@@ -7,7 +7,7 @@ const DIMENSIONS = [
   "scopeDiscipline",
 ] as const;
 
-export type AdvisoryAssessment = {
+export type AdvisoryRecommendation = {
   verdict: "pass" | "fail";
   overallScore: number;
   dimensions: Record<(typeof DIMENSIONS)[number], number>;
@@ -18,13 +18,13 @@ export type AdvisoryAssessment = {
 
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value))
-    throw new Error("advisory assessment must be an object");
+    throw new Error("advisory recommendation must be an object");
   return value as Record<string, unknown>;
 }
 
 function exactKeys(value: Record<string, unknown>, keys: string[]): void {
   if (Object.keys(value).sort().join("\0") !== [...keys].sort().join("\0"))
-    throw new Error("advisory assessment has unexpected or missing fields");
+    throw new Error("advisory recommendation has unexpected or missing fields");
 }
 
 function score(value: unknown): number {
@@ -47,21 +47,23 @@ function text(value: unknown): string {
 
 function textList(value: unknown): string[] {
   if (!Array.isArray(value) || value.length > 32)
-    throw new Error("advisory assessment list is invalid");
+    throw new Error("advisory recommendation list is invalid");
   return value.map(text);
 }
 
 function advisoryJson(raw: string): Record<string, unknown> {
   if (Buffer.byteLength(raw, "utf8") > 64 * 1024)
-    throw new Error("advisory assessment exceeds 64 KiB");
+    throw new Error("advisory recommendation exceeds 64 KiB");
   const trimmed = raw.trim();
   const fenced = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(trimmed);
   const value: unknown = JSON.parse(fenced?.[1] ?? trimmed);
   return object(value);
 }
 
-/** Parse a bounded, exact assessment from an independent review host. */
-export function parseAdvisoryAssessment(raw: string): AdvisoryAssessment {
+/** Parse a bounded, exact recommendation from an independent review host. */
+export function parseAdvisoryRecommendation(
+  raw: string,
+): AdvisoryRecommendation {
   const value = advisoryJson(raw);
   exactKeys(value, [
     "verdict",

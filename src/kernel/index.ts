@@ -1,7 +1,7 @@
 /**
  * Kernel: pure, I/O-free building blocks shared by every layer: the result
  * contract types, value guards, canonical identity hashing, instrumentation
- * and advisory-assessment contracts. It depends on no other Sevro module.
+ * and advisory-recommendation contracts. It depends on no other Sevro module.
  */
 export type {
   ArtifactReference,
@@ -51,6 +51,6 @@ export {
 } from "./instrumentation";
 export {
   advisoryPrompt,
-  parseAdvisoryAssessment,
-  type AdvisoryAssessment,
+  parseAdvisoryRecommendation,
+  type AdvisoryRecommendation,
 } from "./advisory";

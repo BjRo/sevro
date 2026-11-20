@@ -3,6 +3,10 @@ import { mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { parse } from "smol-toml";
+import {
+  createIsolationPolicy,
+  type IsolationDescription,
+} from "../../../src/isolation/index";
 import { codexPermissionProfile } from "../../../src/codex-profile/index";
 import { nativeStatePath } from "../../../src/runtime/index";
 import { createTemporaryFixtures } from "../../fixtures/filesystem";
@@ -12,6 +16,8 @@ const { temporaryFixture, cleanupTemporaryFixtures } =
 afterEach(cleanupTemporaryFixtures);
 
 const ordinaryProfile = {
+  subject: "host" as const,
+  privateStateRoot: "/state",
   id: "sevro_trial",
   workspace: "/tmp/fixture",
   commandHome: "/tmp/fixture/home",
@@ -22,10 +28,10 @@ const ordinaryProfile = {
 
 type ProfileFilesystem = Record<string, string | undefined>;
 
-function profileFilesystem(
-  options: Parameters<typeof codexPermissionProfile>[0],
-): ProfileFilesystem {
-  const profile = parse(codexPermissionProfile(options)) as unknown as {
+async function profileFilesystem(
+  options: Parameters<typeof renderProfile>[0],
+): Promise<ProfileFilesystem> {
+  const profile = parse(await renderProfile(options)) as unknown as {
     permissions: { sevro_trial: { filesystem: ProfileFilesystem } };
   };
   return profile.permissions.sevro_trial.filesystem;
@@ -43,7 +49,7 @@ async function expectSandboxReadOnly(
 
 const profileRefusals: Array<{
   label: string;
-  change: Partial<Parameters<typeof codexPermissionProfile>[0]>;
+  change: Partial<Parameters<typeof renderProfile>[0]>;
 }> = [
   { label: "relative workspace", change: { workspace: "fixture" } },
   { label: "relative home", change: { commandHome: "home" } },
@@ -57,41 +63,41 @@ const profileRefusals: Array<{
     label: "relative executable root",
     change: { executableReadRoots: ["bin"] },
   },
-  { label: "relative plugin root", change: { pluginReadRoot: "plugins" } },
-  { label: "unbounded plugin root", change: { pluginReadRoot: "/" } },
+  { label: "relative plugin root", change: { pluginReadRoots: ["plugins"] } },
+  { label: "unbounded plugin root", change: { pluginReadRoots: ["/"] } },
   { label: "missing protected roots", change: { protectedRoots: [] } },
   { label: "relative protected root", change: { protectedRoots: ["source"] } },
 ];
 test.each(profileRefusals)(
   "Codex profile refuses $label before creating a command policy",
   ({ change }) => {
-    expect(() =>
-      codexPermissionProfile({ ...ordinaryProfile, ...change }),
-    ).toThrow("Codex profile paths must be absolute and protected");
+    expect(renderProfile({ ...ordinaryProfile, ...change })).rejects.toThrow(
+      "host isolation paths must be absolute and protected",
+    );
   },
 );
 
 test.each(["\n", "\t", "\u007f"])(
   "Codex profile refuses control characters in a filesystem policy value %j",
   (character) => {
-    expect(() =>
-      codexPermissionProfile({
+    expect(
+      renderProfile({
         ...ordinaryProfile,
         commandHome: `/tmp/home${character}`,
       }),
-    ).toThrow("Codex profile value contains a control character");
+    ).rejects.toThrow("Codex profile value contains a control character");
   },
 );
 
-test("Codex profile preserves quoted paths and deduplicates declared access roots", () => {
+test("Codex profile preserves quoted paths and deduplicates declared access roots", async () => {
   const profile = parse(
-    codexPermissionProfile({
+    await renderProfile({
       ...ordinaryProfile,
       commandHome: '/tmp/fixture/quoted "home"',
       commandTemp: '/tmp/fixture/quoted "temp"',
       executableReadRoots: ["/bin", "/bin"],
       protectedRoots: ['/tmp/source "quoted"', '/tmp/source "quoted"'],
-      pluginReadRoot: "/tmp/fixture/plugins",
+      pluginReadRoots: ["/tmp/fixture/plugins"],
     }),
   );
   expect(profile).toMatchObject({
@@ -117,8 +123,9 @@ test("Codex profile preserves quoted paths and deduplicates declared access root
   });
 });
 
-test("Codex profile denies roots and strips command credentials", () => {
-  const profile = codexPermissionProfile({
+test("Codex profile denies roots and strips command credentials", async () => {
+  const profile = await renderProfile({
+    ...ordinaryProfile,
     id: "sevro_trial",
     workspace: "/tmp/fixture",
     commandHome: "/tmp/fixture/home",
@@ -130,8 +137,9 @@ test("Codex profile denies roots and strips command credentials", () => {
   expect(profile).toContain('"/auth" = "deny"');
   expect(profile).toContain('inherit = "none"');
   expect(profile).toContain('approval_policy = "never"');
-  expect(() =>
-    codexPermissionProfile({
+  expect(
+    renderProfile({
+      ...ordinaryProfile,
       id: "bad.id",
       workspace: "/tmp/fixture",
       commandHome: "/tmp/fixture/home",
@@ -139,19 +147,19 @@ test("Codex profile denies roots and strips command credentials", () => {
       executableReadRoots: ["/bin"],
       protectedRoots: ["/source"],
     }),
-  ).toThrow(/profile ID/);
+  ).rejects.toThrow(/profile ID/);
 });
 
-test("Codex profile keeps private siblings closed around a narrow native read", () => {
+test("Codex profile keeps private siblings closed around a narrow native read", async () => {
   const namespace = nativeStatePath();
   const roleRoot = join(namespace, "codex-role");
   const pluginRoot = join(roleRoot, "codex-home", "plugins", "cache");
-  const filesystem = profileFilesystem({
+  const filesystem = await profileFilesystem({
     ...ordinaryProfile,
     commandHome: "/tmp/command-home",
     commandTemp: "/tmp/command-temp",
     protectedRoots: [namespace, roleRoot],
-    pluginReadRoot: pluginRoot,
+    pluginReadRoots: [pluginRoot],
   });
   expect(filesystem[":root"]).toBe("deny");
   expect(filesystem[pluginRoot]).toBe("read");
@@ -160,29 +168,29 @@ test("Codex profile keeps private siblings closed around a narrow native read", 
   expect(filesystem[join(roleRoot, "codex-home", "auth.json")]).toBeUndefined();
 });
 
-test("Codex profile retains the namespace deny under a broader read baseline", () => {
+test("Codex profile retains the namespace deny under a broader read baseline", async () => {
   const namespace = nativeStatePath();
-  const filesystem = profileFilesystem({
+  const filesystem = await profileFilesystem({
     ...ordinaryProfile,
     commandHome: "/tmp/command-home",
     commandTemp: "/tmp/command-temp",
     executableReadRoots: ["/bin", dirname(namespace)],
     protectedRoots: [namespace],
-    pluginReadRoot: join(namespace, "codex-role", "plugins", "cache"),
+    pluginReadRoots: [join(namespace, "codex-role", "plugins", "cache")],
   });
   expect(filesystem[namespace]).toBe("deny");
 });
 
-test("Codex profile keeps private denial when the native temp root is custom", () => {
+test("Codex profile keeps private denial when the native temp root is custom", async () => {
   if (process.platform !== "darwin") return;
   const previous = process.env.TMPDIR;
   process.env.TMPDIR = "/Library/Preferences";
   try {
     const namespace = nativeStatePath();
-    const filesystem = profileFilesystem({
+    const filesystem = await profileFilesystem({
       ...ordinaryProfile,
       protectedRoots: [namespace],
-      pluginReadRoot: join(namespace, "plugins", "cache"),
+      pluginReadRoots: [join(namespace, "plugins", "cache")],
     });
     expect(filesystem[namespace]).toBe("deny");
   } finally {
@@ -214,7 +222,8 @@ test("actual Codex sandbox keeps fixture access and denies source and auth", asy
     await writeFile(join(pluginCache, "skill.txt"), "plugin skill\n");
     await writeFile(
       join(codexHome, "config.toml"),
-      codexPermissionProfile({
+      await renderProfile({
+        ...ordinaryProfile,
         id: "sevro_trial",
         workspace: fixture,
         commandHome,
@@ -224,7 +233,7 @@ test("actual Codex sandbox keeps fixture access and denies source and auth", asy
           dirname(await realpath(installedCodex)),
         ],
         protectedRoots: [source, state],
-        pluginReadRoot: pluginCache,
+        pluginReadRoots: [pluginCache],
       }),
       { mode: 0o600 },
     );
@@ -268,4 +277,23 @@ test("actual Codex sandbox keeps fixture access and denies source and auth", asy
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+async function renderProfile(
+  options: IsolationDescription & { id: string },
+): Promise<string> {
+  return codexPermissionProfile({
+    id: options.id,
+    policy: await createIsolationPolicy(options),
+  });
+}
+
+test("Codex policy renderer honors allowed network mode", async () => {
+  const policy = await createIsolationPolicy({
+    ...ordinaryProfile,
+    network: "allowed",
+  });
+  expect(codexPermissionProfile({ id: ordinaryProfile.id, policy })).toContain(
+    "enabled = true",
+  );
 });

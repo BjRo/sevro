@@ -1,63 +1,43 @@
 import { existsSync } from "node:fs";
-import {
-  candidateCodexStateRetained,
-  allocateNativeState,
-  runtimeNativeGoalEnabled,
-  runtimeObservations,
-} from "../runtime/index";
-import { lstat, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { runtimeNativeGoalEnabled } from "../runtime/index";
+import { lstat } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
-import type { HostAdapter, HostResult } from "../host-contract/index";
+import type { HostAdapter } from "../host-contract/index";
 import {
-  failedNativeTranscripts,
-  retainEnabledNativeTranscripts,
-} from "../transcripts/index";
-import {
-  releaseRuntimeHooks,
-  runtimeHookObservation,
-  type HookMounts,
-} from "../hooks/index";
-import { validateNativeHostRequest } from "./native-request";
+  runNativeHostRequest,
+  type NativeHost,
+  type NativeHostRequestContext,
+  type NativeHostRequestOutcome,
+} from "./native-host-request";
 import { runCodexAppServer } from "../codex-app-server/index";
 import {
   summarizeCodexEvents,
   type CodexEventSummary,
 } from "../host-events/index";
 import { verifyCodexInvocation } from "./codex-invocation";
-import { installCodexPlugins } from "./codex-marketplace";
 import {
   codexNativeCallObservation,
   codexNativeControls,
   codexNativeSessionLastOrdinal,
 } from "../native-controls/index";
+import { runCodexProcess, validHostTimeout } from "../native-process/index";
 import {
-  CodexProcessFailure,
-  runCodexProcess,
-  validHostTimeout,
-} from "../native-process/index";
-import {
-  codexHookMounts,
-  prepareCodexState,
+  prepareCodexPrivateState,
   type CodexHostOptions,
-} from "./codex-state";
+  type CodexPrivateState,
+} from "./codex-private-state";
 import { workspaceFingerprint } from "../workspace/index";
 import {
-  codexSkillCatalogRoots,
-  prepareSkillTracking,
   skillTrackingObservation,
   skillActivationClaims,
   skillExposureClaims,
   type SkillTracking,
 } from "../skill-tracking/index";
 import {
-  cleanupNativeState,
-  createHostDiagnostics,
-  diagnoseHostRequest,
   diagnosticConfiguration,
   type HostDiagnostics,
 } from "../diagnostics/index";
-export type { CodexHostOptions } from "./codex-state";
+export type { CodexHostOptions } from "./codex-private-state";
 const DEFAULT_TIMEOUT_MS = 10 * 60_000;
 
 type Request = Parameters<HostAdapter["run"]>[0];
@@ -71,13 +51,12 @@ type Observation = {
   completeness: "complete" | "partial";
   data: Record<string, unknown>;
 };
-type CodexState = Awaited<ReturnType<typeof prepareCodexState>>;
+type CodexState = CodexPrivateState["state"];
 interface ExecutionContext {
   options: CodexHostOptions;
   request: Request;
   state: CodexState;
   timeoutMs: number;
-  hooks: HookMounts;
   skillTracking: SkillTracking;
   diagnostics: HostDiagnostics;
 }
@@ -177,165 +156,61 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
       options.retainHostDiagnostics,
     ),
     run(request) {
-      return runCodexRequest(options, timeoutMs, limit, request);
+      return runNativeHostRequest(
+        codexNativeHost(options, timeoutMs, limit),
+        request,
+      );
     },
   };
 }
 
-function allocateCodexRequestState(request: Request): Promise<string> {
-  return allocateNativeState(
-    "codex-",
-    request.runtimePolicy ? request.workspace : undefined,
-  );
-}
-
-async function runCodexRequest(
+function codexNativeHost(
   options: CodexHostOptions,
   timeoutMs: number,
   limit: number | null,
-  request: Request,
-): Promise<HostResult> {
-  const diagnostics = createHostDiagnostics(
-    "codex",
-    options.retainHostDiagnostics,
-    request,
-  );
-  return diagnoseHostRequest(diagnostics, async () => {
-    diagnostics.stage = "request-validation";
-    await diagnostics.readCredentials(options.authFile);
-    return executeCodexRequest(options, timeoutMs, limit, request, diagnostics);
-  });
-}
-
-async function executeCodexRequest(
-  options: CodexHostOptions,
-  timeoutMs: number,
-  limit: number | null,
-  request: Request,
-  diagnostics: HostDiagnostics,
-): Promise<HostResult> {
-  await validateCodexRequest(options, request);
-  diagnostics.stage = "state-allocation";
-  const stateRoot = await allocateCodexRequestState(request);
-  const helperRoot =
-    process.platform === "linux"
-      ? await mkdtemp(join(tmpdir(), "sevro-codex-helper-"))
-      : undefined;
-  let activeHooks: HookMounts | undefined;
-  try {
-    diagnostics.stage = "state-preparation";
-    const state = await prepareCodexState(
-      stateRoot,
-      options,
-      limit,
-      request,
-      helperRoot,
-    );
-    const installedPluginRoots = await installCodexPlugins({
-      binary: options.binary,
-      env: state.env,
-      pluginCacheRoot: state.pluginCacheRoot,
-      request,
-      diagnostics,
-    });
-    diagnostics.stage = "hooks-preparation";
-    const hooks = await codexHookMounts(request, state, installedPluginRoots);
-    activeHooks = hooks;
-    const skillTracking = await prepareCodexSkillTracking(
-      state,
-      request,
-      installedPluginRoots,
-    );
-    await codexPreflight(options, request, state, diagnostics);
-    const context: ExecutionContext = {
-      options,
-      request,
-      state,
-      timeoutMs,
-      hooks,
-      skillTracking,
-      diagnostics,
-    };
-    const turns = await new CodexTurnExecution(context).run();
-    if (turns.summary.complete) diagnostics.stage = "result-processing";
-    return await retainCodexResult(context, turns);
-  } catch (cause) {
-    return await failedNativeTranscripts(
-      cause,
-      request.runtimePolicy,
-      join(stateRoot, "codex-home", "sessions"),
-      "codex",
-      request.runtimeRole,
-      diagnostics,
-    );
-  } finally {
-    await cleanupNativeState(diagnostics, async () => {
-      await releaseRuntimeHooks(activeHooks);
-      if (!candidateCodexStateRetained(request.candidateRuntimeRoot, stateRoot))
-        await rm(stateRoot, { recursive: true, force: true });
-      if (helperRoot) await rm(helperRoot, { recursive: true, force: true });
-    });
-  }
-}
-
-async function retainCodexResult(context: ExecutionContext, turns: TurnResult) {
-  const result = await codexHostResult(context, turns);
-  await context.diagnostics.retainFailure(
-    result,
-    "Codex host execution did not complete",
-  );
-  await retainEnabledNativeTranscripts(
-    result,
-    context.request.runtimePolicy,
-    join(context.state.codexHome, "sessions"),
-    "codex",
-    context.request.runtimeRole,
-    turns.summary.threadId,
-  );
-  return result;
-}
-
-async function prepareCodexSkillTracking(
-  state: CodexState,
-  request: Request,
-  pluginRoots: string[],
-): Promise<SkillTracking> {
-  const roots = await codexSkillCatalogRoots(request.workspace, pluginRoots, [
-    { directory: join(state.codexHome, "skills"), boundary: state.codexHome },
-    {
-      directory: join(state.parentHome, ".agents/skills"),
-      boundary: state.parentHome,
-    },
-    {
-      directory: join(state.commandHome, ".agents/skills"),
-      boundary: state.commandHome,
-    },
-    {
-      directory: join(state.commandHome, ".codex/skills"),
-      boundary: state.commandHome,
-    },
-  ]);
-  const tracking = await prepareSkillTracking({
-    privateRoot: state.codexHome,
+): NativeHost<void, ExecutionContext> {
+  return {
     host: "codex",
-    roots,
-  });
-  await writeFile(
-    join(state.codexHome, "hooks.json"),
-    JSON.stringify({ hooks: tracking.hooks }),
-    {
-      flag: "wx",
-      mode: 0o600,
+    credentialFile: options.authFile,
+    retainHostDiagnostics: options.retainHostDiagnostics,
+    transcriptDirectory: "codex-home/sessions",
+    hookPosition: "first",
+    validate: (request) => validateCodexRequest(options, request),
+    prepare: (context) =>
+      prepareCodexRequest(context, options, timeoutMs, limit),
+    async execute(_context, state) {
+      const turns = await new CodexTurnExecution(state).run();
+      if (turns.summary.complete) state.diagnostics.stage = "result-processing";
+      return codexHostResult(state, turns);
     },
+  };
+}
+
+async function prepareCodexRequest(
+  context: NativeHostRequestContext,
+  options: CodexHostOptions,
+  timeoutMs: number,
+  limit: number | null,
+): Promise<ExecutionContext> {
+  const { state, skillTracking } = await prepareCodexPrivateState(
+    context,
+    options,
+    limit,
   );
-  return tracking;
+  return {
+    options,
+    request: context.request,
+    state,
+    timeoutMs,
+    skillTracking,
+    diagnostics: context.diagnostics,
+  };
 }
 
 async function validateCodexRequest(
   options: CodexHostOptions,
   request: Request,
 ): Promise<void> {
-  await validateNativeHostRequest(request, "Codex");
   requireCodexGoalRoute(request, options);
   await verifyCodexInvocation(request);
   await requireCodexFixtureConfiguration(request);
@@ -362,75 +237,6 @@ function requireCodexGoalRoute(
   )
     throw new Error("native-goal runtime policy requires Codex app-server");
 }
-function sandboxArgs(
-  state: CodexState,
-  request: Request,
-  command: string[],
-): string[] {
-  return [
-    state.sandboxBinary,
-    "sandbox",
-    "-P",
-    state.profileId,
-    "-C",
-    request.workspace,
-    ...command,
-  ];
-}
-async function sandboxPreflight(
-  state: CodexState,
-  request: Request,
-  command: string[],
-  diagnostics: HostDiagnostics,
-) {
-  return runCodexProcess({
-    diagnostics,
-    argv: sandboxArgs(state, request, command),
-    cwd: request.workspace,
-    env: state.env,
-    timeoutMs: 60_000,
-    phase: "isolation-preflight",
-    signal: request.signal,
-  });
-}
-async function codexPreflight(
-  options: CodexHostOptions,
-  request: Request,
-  state: CodexState,
-  diagnostics: HostDiagnostics,
-): Promise<void> {
-  diagnostics.stage = "isolation-preflight";
-  const probe = join(state.commandTemp, "isolation-probe");
-  await writeFile(probe, "probe\n", { flag: "wx", mode: 0o600 });
-  const checked = await sandboxPreflight(
-    state,
-    request,
-    [
-      "/bin/sh",
-      "-c",
-      '/bin/cat "$1" >/dev/null && ! /bin/ls "$2" >/dev/null 2>&1 && ! /bin/cat "$3" >/dev/null 2>&1 && ! /bin/cat "$4" >/dev/null 2>&1 || exit 70; "$5" --version >/dev/null 2>&1 || exit 71',
-      "sevro-probe",
-      probe,
-      options.projectRoot,
-      join(state.codexHome, "auth.json"),
-      // The opt-in config read is tested separately; credentials always stay denied.
-      join(
-        state.codexHome,
-        request.runtimePolicy?.codexState === true
-          ? "auth.json"
-          : "config.toml",
-      ),
-      state.sandboxBinary,
-    ],
-    diagnostics,
-  );
-  if (checked.code === 71)
-    throw new CodexProcessFailure("executable-preflight", checked);
-  if (checked.code !== 0)
-    throw new CodexProcessFailure("isolation-preflight", checked);
-  await rm(probe);
-}
-
 function routeArgs(context: ExecutionContext): string[] {
   return [
     "-m",
@@ -707,11 +513,6 @@ async function codexObservations(context: ExecutionContext, turns: TurnResult) {
     turns.summary.complete,
   );
   return [
-    ...(await codexHookObservations(context)),
-    ...runtimeObservations(
-      context.request.runtimePolicy,
-      context.request.runtimeRole,
-    ),
     ...appServerObservation(turns.appServer),
     native,
     codexNativeControls(native),
@@ -723,10 +524,6 @@ async function codexObservations(context: ExecutionContext, turns: TurnResult) {
   ];
 }
 
-async function codexHookObservations(context: ExecutionContext) {
-  if (!context.request.runtimePolicy) return [];
-  return [await runtimeHookObservation(context.hooks)];
-}
 function codexArtifacts(turns: TurnResult) {
   return [
     {
@@ -773,15 +570,17 @@ function codexUsage(turns: TurnResult) {
 async function codexHostResult(
   context: ExecutionContext,
   turns: TurnResult,
-): Promise<HostResult> {
+): Promise<NativeHostRequestOutcome> {
   const final = turns.followUpSummary ?? turns.summary;
   return {
-    finalMessage: final.finalMessage,
-    ...(turns.appServer ? { executionFailed: !turns.summary.complete } : {}),
-    complete: final.finalMessage !== null,
+    result: {
+      finalMessage: final.finalMessage,
+      ...(turns.appServer ? { executionFailed: !turns.summary.complete } : {}),
+      complete: final.finalMessage !== null,
+      artifacts: codexArtifacts(turns),
+      ...codexUsage(turns),
+    },
     observations: await codexObservations(context, turns),
-    artifacts: codexArtifacts(turns),
-    actualCondition: "passive",
-    ...codexUsage(turns),
+    rootSessionId: turns.summary.threadId,
   };
 }

@@ -1,0 +1,95 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`Codex TOML output with local HTTP %s 1`] = `
+"default_permissions = "sevro_golden"
+approval_policy = "never"
+allow_login_shell = false
+[features]
+hooks = false
+
+[shell_environment_policy]
+inherit = "none"
+ignore_default_excludes = false
+
+[shell_environment_policy.set]
+PATH = "/tools:/bin"
+"LANG" = "C"
+HOME = "/state/home"
+TMPDIR = "/state/tmp"
+TMPPREFIX = "/state/tmp/"
+
+[permissions.sevro_golden]
+extends = ":workspace"
+
+[permissions.sevro_golden.filesystem]
+":root" = "deny"
+":minimal" = "read"
+"/source" = "deny"
+"/state" = "deny"
+"/runtime-tools" = "read"
+"/state/plugins" = "read"
+"/state/view" = "read"
+"/tools" = "read"
+"/state/skills" = "write"
+"/cache" = "write"
+"/state/home" = "write"
+"/state/tmp" = "write"
+"/state/runtime" = "write"
+"/workspace/.git" = "write"
+
+[permissions.sevro_golden.filesystem.":workspace_roots"]
+"." = "write"
+
+[permissions.sevro_golden.network]
+enabled = false
+"
+`;
+
+exports[`Codex TOML output with local HTTP %s 2`] = `
+"default_permissions = "sevro_golden"
+approval_policy = "never"
+allow_login_shell = false
+[features]
+hooks = false
+network_proxy = true
+
+[shell_environment_policy]
+inherit = "none"
+ignore_default_excludes = false
+
+[shell_environment_policy.set]
+PATH = "/tools:/bin"
+"LANG" = "C"
+HOME = "/state/home"
+TMPDIR = "/state/tmp"
+TMPPREFIX = "/state/tmp/"
+
+[permissions.sevro_golden]
+extends = ":workspace"
+
+[permissions.sevro_golden.filesystem]
+":root" = "deny"
+":minimal" = "read"
+"/source" = "deny"
+"/state" = "deny"
+"/runtime-tools" = "read"
+"/state/plugins" = "read"
+"/state/view" = "read"
+"/tools" = "read"
+"/state/skills" = "write"
+"/cache" = "write"
+"/state/home" = "write"
+"/state/tmp" = "write"
+"/state/runtime" = "write"
+"/workspace/.git" = "write"
+
+[permissions.sevro_golden.filesystem.":workspace_roots"]
+"." = "write"
+
+[permissions.sevro_golden.network]
+enabled = true
+allow_local_binding = true
+allow_upstream_proxy = false
+domains = { "localhost" = "allow", "127.0.0.1" = "allow", "::1" = "allow" }
+"
+`;

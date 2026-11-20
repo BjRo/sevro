@@ -1,6 +1,6 @@
 # Read results and evidence
 
-Read all three states before calling an evaluation successful:
+Read all three parts of the assessment (execution, grading and task) before calling an evaluation successful:
 
 | Example                    | Execution | Grading       | Task         |
 | -------------------------- | --------- | ------------- | ------------ |
@@ -21,7 +21,7 @@ Do not assume a run-directory name or publish private host artifacts.
 Human output lists each trial, failed/unavailable check
 reasons, measured candidate duration, unknown/known usage and retained paths.
 Preparation/candidate/grading/evidence progress appears on stderr. Stage completion
-means the attempt ended; read the three result states to determine its outcome.
+means the attempt ended; read the assessment to determine its outcome.
 See the [evaluation workflow](evaluation-workflow.md) for the complete progression.
 
 ## Interpret skill exposure

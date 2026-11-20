@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
-  createFixture,
+  materializeFixture,
   prepareArtifacts,
   prepareFixtureSetup,
 } from "../../../src/fixtures/index";
@@ -156,7 +156,7 @@ symlinkSync(${JSON.stringify(target)}, ${JSON.stringify(link)});`,
       ],
     }),
   );
-  const workspace = await createFixture(
+  const workspace = await materializeFixture(
     { kind: "inline", files: {} },
     {
       setup,

@@ -1,7 +1,6 @@
 import { parseClaudeEvents, type ClaudeEvents } from "../host-events/index";
-import { lstat, readdir, readFile } from "node:fs/promises";
-import { basename, join } from "node:path";
 import { requireRecord } from "../kernel/index";
+import type { ClaudeNativeSession } from "./claude-native-session";
 
 type RecordValue = Record<string, unknown>;
 function record(value: unknown): RecordValue {
@@ -87,49 +86,22 @@ function requireBoundSession(events: RecordValue[], sessionId: string): void {
     throw new Error("Original native session not retained");
 }
 
-async function sessionPaths(
-  path: string,
-  sessionId: string,
-  bound = { entries: 0 },
-): Promise<string[]> {
-  const entries = await readdir(path, { withFileTypes: true });
-  bound.entries += entries.length;
-  if (bound.entries > 1024)
-    throw new Error("Native transcript tree exceeds limit");
-  if (entries.some((entry) => entry.isSymbolicLink()))
-    throw new Error("Native transcript tree contains a symlink");
-  return (
-    await Promise.all(
-      entries.map(async (entry) =>
-        entry.isDirectory()
-          ? sessionPaths(join(path, entry.name), sessionId, bound)
-          : basename(entry.name) === `${sessionId}.jsonl`
-            ? [join(path, entry.name)]
-            : [],
-      ),
-    )
-  ).flat();
-}
-
-/** Read only this trial's original native session; never manufacture a goal. */
+/** Read only this trial's native session; never manufacture a goal. */
 export async function observeClaudeNativeGoal(
-  configRoot: string,
-  stream: string | ClaudeEvents,
+  session: ClaudeNativeSession,
 ): Promise<{
   id: string;
   completeness: "complete" | "unavailable";
   data: Record<string, unknown>;
 }> {
   try {
-    const id = originalSessionId(stream);
-    const bytes = await nativeTranscript(configRoot, id);
     return {
       id: "sevro.host.native-goal",
       completeness: "complete",
       data: claudeNativeGoalEvidence(
-        stream,
-        new TextDecoder("utf-8", { fatal: true }).decode(bytes),
-        id,
+        session.final.events,
+        await session.transcript(),
+        session.id,
       ),
     };
   } catch (error) {
@@ -145,37 +117,4 @@ export async function observeClaudeNativeGoal(
       },
     };
   }
-}
-
-function originalSessionId(stream: string | ClaudeEvents): string {
-  const initializations = records(stream).filter(
-    (event) => event.type === "system" && event.subtype === "init",
-  );
-  const ids = new Set(initializations.map((event) => event.session_id));
-  const [id] = ids;
-  if (ids.size !== 1 || typeof id !== "string" || !/^[a-f0-9-]{36}$/i.test(id))
-    throw new Error("Missing or ambiguous original Claude session");
-  return id;
-}
-
-async function nativeTranscript(
-  configRoot: string,
-  id: string,
-): Promise<Buffer> {
-  const paths = await sessionPaths(join(configRoot, "projects"), id);
-  const path = uniqueTranscriptPath(paths);
-  const entry = await lstat(path);
-  if (!entry.isFile() || entry.size > 8 * 1024 * 1024)
-    throw new Error("Native transcript is unsafe or oversized");
-  const bytes = await readFile(path);
-  if (bytes.length > 8 * 1024 * 1024)
-    throw new Error("Native transcript exceeds limit");
-  return bytes;
-}
-
-function uniqueTranscriptPath(paths: string[]): string {
-  const [path] = paths;
-  if (paths.length !== 1 || path === undefined)
-    throw new Error("Missing or ambiguous native transcript");
-  return path;
 }

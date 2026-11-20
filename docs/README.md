@@ -19,6 +19,7 @@ Start with the task you want to complete. These pages work without an agent.
 | Save recurring evaluation selections           | [Run settings](run-settings-v1.md)                       |
 | Resolve a symptom                              | [Troubleshooting](troubleshooting.md)                    |
 | Trace runner lifecycle, ownership, and changes | [Architecture](architecture.md)                          |
+| Look up a Sevro term                           | [Glossary](../GLOSSARY.md)                               |
 | Change Sevro or its documentation              | [Contributing](../CONTRIBUTING.md)                       |
 | Understand licensing and branding              | [Licensing](licensing.md) and [assets](assets/README.md) |
 

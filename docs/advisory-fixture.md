@@ -15,9 +15,9 @@ broken symlinks and limits Git output, untracked file count, and untracked
 bytes. A failed build removes its temporary directory.
 
 `advisoryPrompt` passes the task and deterministic check facts to a separate
-review host. `parseAdvisoryAssessment` accepts one bounded JSON response with a
+review host. `parseAdvisoryRecommendation` accepts one bounded JSON response with a
 pass or fail recommendation, overall score, four dimension scores, strengths,
 weaknesses, and a summary. The engine invokes this route when given an
-`advisoryHost` and a Git fixture. It records the route, response, assessment,
+`advisoryHost` and a Git fixture. It records the route, response, recommendation,
 and usage in trial evidence. A reviewer failure or recommendation never
 changes the task verdict. The development CLI exposes adapter and Codex routes.

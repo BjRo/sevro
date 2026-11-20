@@ -10,6 +10,7 @@ import {
   defined,
   expectUnknown,
   parseRunEvidence,
+  stringMatching,
 } from "../../fixtures/assertions";
 import { syntheticClaudeLogin } from "../../fixtures/claude-login";
 import { createTemporaryFixtures } from "../../fixtures/filesystem";
@@ -30,7 +31,7 @@ import { join } from "node:path";
 const config = process.env.CLAUDE_CONFIG_DIR;
 if (!config) throw new Error("Missing synthetic Claude config");
 const mode = process.argv[process.argv.indexOf("-p") + 1];
-const session = "00000000-0000-4000-8000-000000000001";
+const session = process.argv[process.argv.indexOf("--session-id") + 1];
 const projects = join(config, "projects");
 const directory = join(projects, "fixture");
 await mkdir(directory, { recursive: true });
@@ -46,7 +47,8 @@ if (mode === "metadata-file") await writeFile(join(directory,"index.txt"),"retai
 if (mode === "linked-tree") await symlink(directory, join(projects,"linked"));
 if (mode === "many-files") await Promise.all(Array.from({length:1025},(_,index)=>writeFile(join(directory,index+".txt"),"index")));
 const failed = mode === "failed-turn";
-for(const entry of [{type:"system",subtype:"init",session_id:session},{type:"result",subtype:failed?"error_during_execution":"success",is_error:failed,session_id:session,result:failed?"model unavailable":"ready"}]) process.stdout.write(JSON.stringify(entry)+"\\n");
+const reported = mode === "foreign-stream" ? "11111111-1111-4111-8111-111111111111" : session;
+for(const entry of [{type:"system",subtype:"init",session_id:reported},{type:"result",subtype:failed?"error_during_execution":"success",is_error:failed,session_id:reported,result:failed?"model unavailable":"ready",usage:{input_tokens:3,output_tokens:2},total_cost_usd:0}]) process.stdout.write(JSON.stringify(entry)+"\\n");
 `;
 }
 
@@ -290,7 +292,7 @@ test.each(["no-goal", "sidechain-only", "metadata-file"])(
       completeness: "complete",
       data: {
         method: "native_session",
-        threadId: "00000000-0000-4000-8000-000000000001",
+        threadId: stringMatching(/^[0-9a-f-]{36}$/),
         goals: [],
         goalStatus: null,
       },
@@ -330,6 +332,28 @@ test.each([
     );
   },
 );
+test("Claude results naming another session are neither measured nor native goal evidence", async () => {
+  if (!isolatedNativeHost) return;
+  const { host, workspace } = await nativeGoalHostFixture();
+  const result = await host.run({
+    prompt: "foreign-stream",
+    workspace,
+    condition: "passive",
+  });
+  expect(result.complete).toBe(true);
+  expect(result).toMatchObject({
+    inputTokens: null,
+    outputTokens: null,
+    costUsd: null,
+    usageComplete: false,
+  });
+  expect(
+    result.observations?.find((item) => item.id === "sevro.host.native-goal"),
+  ).toMatchObject({
+    completeness: "unavailable",
+    data: { failure: "Native session did not finish successfully" },
+  });
+});
 // eslint-disable-next-line max-lines-per-function -- Keep this single integration scenario's fixture, process invocation, and exact assertions together; sevro/test-callback-lines independently caps this callback at 200.
 test("failed Claude execution retains private evidence without grading", async () => {
   if (!isolatedNativeHost) return;
@@ -560,12 +584,13 @@ const args = prompt.slice("/probe".length).trim();
 const body = (await Bun.file(join(skillDir, "SKILL.md")).text()).replace(/^---\\r?\\n[\\s\\S]*?\\r?\\n---\\r?\\n/, "").trim();
 const project = join(process.env.CLAUDE_CONFIG_DIR, "projects", workspace.replace(/[^A-Za-z0-9]/g, "-"));
 await mkdir(project, { recursive: true });
-const command = { type: "user", sessionId: "session-one", message: { content: "<command-message>probe</command-message>\\n<command-name>/probe</command-name>" + (args ? "\\n<command-args>" + args + "</command-args>" : "") } };
-const loaded = { type: "user", sessionId: "session-one", isMeta: true, message: { content: "Base directory for this skill: " + skillDir + "\\n\\n" + body + "\\n\\nARGUMENTS: " + args } };
-const assistant = { type: "assistant", sessionId: "session-one", message: { content: [{ type: "tool_use", id: "skill-one", name: "Skill", input: { skill: "probe" } }] } };
-const skillResult = { type: "user", sessionId: "session-one", message: { content: [{ type: "tool_result", tool_use_id: "skill-one", content: "Skill loaded", is_error: false }] } };
-await writeFile(join(project, "session-one.jsonl"), [command, ...(await Bun.file("unverified.flag").exists() ? [] : [loaded]), assistant].map(entry => JSON.stringify(entry)).join("\\n"));
-for (const entry of [{ type: "system", subtype: "init", session_id: "session-one" }, assistant, skillResult, { type: "result", subtype: "success", is_error: false, result: "ready", session_id: "session-one" }]) process.stdout.write(JSON.stringify(entry) + "\\n");
+const sessionOne = process.argv[process.argv.indexOf("--session-id") + 1];
+const command = { type: "user", sessionId: sessionOne, message: { content: "<command-message>probe</command-message>\\n<command-name>/probe</command-name>" + (args ? "\\n<command-args>" + args + "</command-args>" : "") } };
+const loaded = { type: "user", sessionId: sessionOne, isMeta: true, message: { content: "Base directory for this skill: " + skillDir + "\\n\\n" + body + "\\n\\nARGUMENTS: " + args } };
+const assistant = { type: "assistant", sessionId: sessionOne, message: { content: [{ type: "tool_use", id: "skill-one", name: "Skill", input: { skill: "probe" } }] } };
+const skillResult = { type: "user", sessionId: sessionOne, message: { content: [{ type: "tool_result", tool_use_id: "skill-one", content: "Skill loaded", is_error: false }] } };
+await writeFile(join(project, sessionOne + ".jsonl"), [command, ...(await Bun.file("unverified.flag").exists() ? [] : [loaded]), assistant].map(entry => JSON.stringify(entry)).join("\\n"));
+for (const entry of [{ type: "system", subtype: "init", session_id: sessionOne }, assistant, skillResult, { type: "result", subtype: "success", is_error: false, result: "ready", session_id: sessionOne }]) process.stdout.write(JSON.stringify(entry) + "\\n");
 `,
     { mode: 0o755 },
   );

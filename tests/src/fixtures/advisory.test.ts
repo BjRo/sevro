@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   advisoryBaseRevision,
-  buildBlindAdvisoryFixture,
+  buildBlindAdvisoryWorkspace,
 } from "../../../src/fixtures/index";
 import { createTemporaryFixtures, fixtureGit } from "../../fixtures/filesystem";
 
@@ -60,7 +60,7 @@ async function advisoryRefusal(
   baseRevision: string,
 ): Promise<Error> {
   try {
-    roots.push(await buildBlindAdvisoryFixture(source, { baseRevision }));
+    roots.push(await buildBlindAdvisoryWorkspace(source, { baseRevision }));
   } catch (error) {
     if (error instanceof Error) return error;
     throw error;
@@ -107,7 +107,7 @@ test.each([".git", ".GIT", ".git/HEAD", ".GiT/config"])(
   "advisory exclusions refuse reserved metadata path %s before copying source",
   async (path) => {
     const { source, baseRevision } = await advisoryBoundSource();
-    const pending = buildBlindAdvisoryFixture(source, {
+    const pending = buildBlindAdvisoryWorkspace(source, {
       baseRevision,
       excludedPaths: [path],
     });
@@ -209,7 +209,7 @@ test("advisory fixture shows the full candidate change without condition files o
   await mkdir(join(source, ".claude"));
   await writeFile(join(source, ".claude", "instructions.md"), "secret\n");
   await writeFile(join(source, "private.txt"), "hidden\n");
-  const view = await buildBlindAdvisoryFixture(source, {
+  const view = await buildBlindAdvisoryWorkspace(source, {
     baseRevision,
     excludedPaths: ["private.txt"],
   });
@@ -242,7 +242,7 @@ test("advisory fixture rejects escaping untracked symlinks", async () => {
   await fixtureGit(source, "commit", "-m", "base fixture");
   const baseRevision = await fixtureGit(source, "rev-parse", "HEAD");
   await symlink("../../outside", join(source, "escape"));
-  expect(buildBlindAdvisoryFixture(source, { baseRevision })).rejects.toThrow(
+  expect(buildBlindAdvisoryWorkspace(source, { baseRevision })).rejects.toThrow(
     /escaping symlink/,
   );
   expect((await lstat(join(source, "escape"))).isSymbolicLink()).toBeTrue();
@@ -259,7 +259,7 @@ test("advisory fixture rejects a tracked symlink chain that escapes", async () =
   await fixtureGit(source, "add", "-A");
   await fixtureGit(source, "commit", "-m", "base fixture");
   const baseRevision = await fixtureGit(source, "rev-parse", "HEAD");
-  expect(buildBlindAdvisoryFixture(source, { baseRevision })).rejects.toThrow(
+  expect(buildBlindAdvisoryWorkspace(source, { baseRevision })).rejects.toThrow(
     /symlink/,
   );
 });

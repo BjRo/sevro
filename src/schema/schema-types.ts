@@ -1,5 +1,5 @@
 import type {
-  AdvisoryAssessment,
+  AdvisoryRecommendation,
   ArtifactReference,
   Assessment,
   CheckOutcome,
@@ -115,7 +115,7 @@ type RunEvidenceDataGrader = {
 };
 export type AdvisoryReviewData = {
   status: "completed" | "failed" | "not_run";
-  assessment: AdvisoryAssessment | null;
+  assessment: AdvisoryRecommendation | null;
   usage: UsageEvidence;
   rawResult: RawResultReference;
 };

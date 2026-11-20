@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  createFixture,
+  materializeFixture,
   prepareFixtureSetup,
   type FixtureSetup,
 } from "../../../src/fixtures/index";
@@ -20,7 +20,7 @@ async function setUpFixture(
   projectRoot: string,
   signal?: AbortSignal,
 ): Promise<string> {
-  const workspace = await createFixture(
+  const workspace = await materializeFixture(
     { kind: "inline", files: {} },
     { setup, projectRoot, signal },
   );

@@ -19,7 +19,7 @@ import {
 } from "./run-owner";
 import { isMissingFile, isRecord } from "../kernel/index";
 import { atomicWriteJson } from "../platform/index";
-import { clearFixtureContents } from "./cleanup";
+import { clearWorkspaceContents } from "./cleanup";
 
 const RETENTION_MS = 24 * 60 * 60_000;
 interface WorkspaceOwner {
@@ -165,7 +165,7 @@ async function clearExpiredWorkspace(
   workspace: string,
   info: Stats | null,
 ): Promise<void> {
-  if (info) await clearFixtureContents(workspace);
+  if (info) await clearWorkspaceContents(workspace);
   await removeWorkspace(workspace);
 }
 

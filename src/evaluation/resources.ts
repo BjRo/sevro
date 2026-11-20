@@ -10,7 +10,7 @@ import {
   type RunOwner,
 } from "../workspace/index";
 import {
-  createFixture,
+  materializeFixture,
   fixtureBinDirectory,
   fixtureParts,
 } from "../fixtures/index";
@@ -18,10 +18,7 @@ import { EvaluationConfigurationError } from "../host-contract/index";
 import type { EvaluationOptions } from "./types";
 import type { PreparedFixture, PreparedInvocation } from "./plan";
 import { evaluationWarning } from "./progress";
-import {
-  INVOCATION_PLACEHOLDER,
-  LEGACY_CODEX_PLACEHOLDER,
-} from "./invocation-plan";
+import { renderSkillInvocation } from "../hosts/index";
 import type { ArtifactReference as PreparationArtifactReference } from "../kernel/index";
 export type { ArtifactReference as PreparationArtifactReference } from "../kernel/index";
 
@@ -170,16 +167,10 @@ function renderTrialPrompt(
   workspace: string,
   invocation: PreparedInvocation,
 ): string {
-  return prompt
-    .replaceAll("{{sevro.workspace}}", workspace)
-    .replaceAll(
-      INVOCATION_PLACEHOLDER,
-      invocation.invocationToken ?? INVOCATION_PLACEHOLDER,
-    )
-    .replaceAll(
-      LEGACY_CODEX_PLACEHOLDER,
-      invocation.invocationToken ?? LEGACY_CODEX_PLACEHOLDER,
-    );
+  return renderSkillInvocation(
+    prompt.replaceAll("{{sevro.workspace}}", workspace),
+    invocation.invocationToken,
+  );
 }
 
 type TrialPreparationOptions = Pick<
@@ -197,7 +188,7 @@ export async function prepareTrialWorkspace(
 ) {
   const reservation = workspaces.candidate(trial);
   workspaces.retain(reservation);
-  const workspace = await createFixture(fixture.source, {
+  const workspace = await materializeFixture(fixture.source, {
     artifacts: fixture.inlineArtifacts,
     sources: options.preparationSources,
     setup: fixture.fixtureSetup,

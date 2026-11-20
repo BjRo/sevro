@@ -2,7 +2,10 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { createFixture, prepareArtifacts } from "../../../src/fixtures/index";
+import {
+  materializeFixture,
+  prepareArtifacts,
+} from "../../../src/fixtures/index";
 import { defined } from "../../fixtures/assertions";
 import { createTemporaryFixtures } from "../../fixtures/filesystem";
 import { inlineArtifact } from "../../fixtures/preparation-fixtures";
@@ -111,7 +114,7 @@ test("refuses a preparation declaration with both inline bytes and a mapped sour
 test("refuses a regular file as an artifact parent without replacing its bytes", async () => {
   const root = await temporaryFixture();
   const workspace = await temporaryFixture();
-  const pending = createFixture(
+  const pending = materializeFixture(
     { kind: "inline", files: { assets: "existing content" } },
     {
       artifacts: await prepareArtifacts([inlineArtifact()], []),

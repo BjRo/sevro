@@ -12,18 +12,16 @@ import { join } from "node:path";
 import { shellQuote as quote } from "../platform/index";
 import {
   insideRuntimeRoot,
-  prepareRuntimeState,
-  requireRuntimeReadRoots,
+  prepareRoleRuntime,
+  rolePath,
   runtimeSeedDigest,
-  sharedCacheDenyRoots,
-  sharedCacheRoots,
+  type RoleRuntime,
   type RuntimePolicy,
   nativeStateParent,
-  requireNativeHookRoots,
 } from "../runtime/index";
 import {
-  macSandboxProfile,
-  prepareLinuxSandboxCommand,
+  createIsolationPolicy,
+  prepareIsolatedCommand,
   type IsolatedCommand,
 } from "../isolation/index";
 import { isRecord, isUnknownArray } from "../kernel/index";
@@ -51,8 +49,7 @@ interface HookRewrite {
 
 interface HookExecution {
   environment: Record<string, string>;
-  profile?: string;
-  isolation?: IsolatedCommand;
+  isolation: IsolatedCommand;
 }
 
 export function runtimeHooksEnabled(
@@ -86,14 +83,14 @@ export async function prepareHookMounts(options: {
     ),
   );
   mountRoot = await realpath(mountRoot);
-  let runtime: ReturnType<typeof prepareRuntimeState> | undefined;
+  let runtime: Promise<RoleRuntime> | undefined;
   const prepareRuntime = () =>
-    (runtime ??= prepareRuntimeState(
-      options.workspace,
-      options.policy,
-      "hooks",
-      join(options.privateRoot, "hook-runtime"),
-    ));
+    (runtime ??= prepareRoleRuntime({
+      workspace: options.workspace,
+      policy: options.policy,
+      role: "hooks",
+      root: join(options.privateRoot, "hook-runtime"),
+    }));
   const selected = selectedPlugins(options.policy);
   const plugins: HookMounts["plugins"] = [],
     isolation: IsolatedCommand[] = [],
@@ -149,7 +146,7 @@ function lazyHookExecution(
   index: number,
   root: string,
   readRoots: { ordinary: string[]; curated: string[] },
-  prepareRuntime: () => ReturnType<typeof prepareRuntimeState>,
+  prepareRuntime: () => Promise<RoleRuntime>,
   isolation: IsolatedCommand[],
 ): () => Promise<HookExecution> {
   let execution: Promise<HookExecution> | undefined;
@@ -162,12 +159,12 @@ function lazyHookExecution(
         readRoots,
         runtime,
       );
-      if (boundary.isolation) isolation.push(boundary.isolation);
+      isolation.push(boundary);
       return {
-        ...boundary,
+        isolation: boundary,
         environment: {
           ...runtime.environment,
-          PATH: hookPath(runtime.environment),
+          PATH: rolePath("command", { declared: runtime.environment.PATH }),
           CLAUDE_PLUGIN_ROOT: root,
           PLUGIN_ROOT: root,
         },
@@ -179,47 +176,25 @@ async function prepareHookIsolation(
   options: Parameters<typeof prepareHookMounts>[0],
   index: number,
   roots: { ordinary: string[]; curated: string[] },
-  runtime: Awaited<ReturnType<typeof prepareRuntimeState>>,
-): Promise<{ profile?: string; isolation?: IsolatedCommand }> {
-  const cacheRoots = await sharedCacheRoots(
-    options.policy,
-    "hooks",
-    options.protectedRoots,
-  );
-  const protectedRoots = [
-    ...options.protectedRoots,
-    ...sharedCacheDenyRoots(options.policy, "hooks"),
-  ];
-  if (process.platform === "linux")
-    return {
-      isolation: await prepareLinuxSandboxCommand({
-        argv: ["/bin/true"],
-        workspace: options.workspace,
-        protectedRoots,
-        privateStateRoot: options.privateRoot,
-        denyNetwork: true,
-        readOnlyRoots: roots.ordinary,
-        hookReadRoots: roots.curated,
-        writableRuntimeRoot: runtime.root,
-        writableCacheRoots: cacheRoots,
-      }),
-    };
-  const profile = join(options.privateRoot, `hooks-${index}.sb`);
-  await writeFile(
-    profile,
-    macSandboxProfile(
-      protectedRoots,
-      true,
-      roots.ordinary,
-      runtime.root,
-      roots.curated,
-      options.workspace,
-      undefined,
-      cacheRoots,
-    ) + "\n(deny process-info* (require-not (target self)))\n",
-    { mode: 0o600 },
-  );
-  return { profile };
+  runtime: RoleRuntime,
+): Promise<IsolatedCommand> {
+  const policy = await createIsolationPolicy({
+    subject: "hook",
+    workspace: options.workspace,
+    protectedRoots: options.protectedRoots,
+    privateStateRoot: options.privateRoot,
+    network: "deny",
+    runtimePolicy: options.policy,
+    runtimeRole: "hooks",
+    readOnlyRoots: roots.ordinary,
+    hookReadRoots: roots.curated,
+    writableRuntimeRoot: runtime.root,
+  });
+  return prepareIsolatedCommand({
+    policy,
+    argv: ["/bin/true"],
+    profilePath: join(options.privateRoot, `hooks-${index}.sb`),
+  });
 }
 
 async function hookReadRoots(
@@ -227,19 +202,11 @@ async function hookReadRoots(
   root: string,
 ) {
   const trusted = insideRuntimeRoot(await nativeStateParent(), root);
-  const ordinary = [
-    ...options.policy.readOnlyRoots,
-    ...(trusted ? [] : [root]),
-  ];
+  const ordinary = trusted ? [] : [root];
   const curated = trusted ? [root] : [];
-  requireRuntimeReadRoots(ordinary, options.protectedRoots);
-  await requireNativeHookRoots(curated, options.privateRoot);
   return { ordinary, curated };
 }
 
-function hookPath(environment: Record<string, string>): string {
-  return environment.PATH ?? "/usr/bin:/bin:/usr/sbin:/sbin";
-}
 function selectedPlugins(policy: RuntimePolicy): Set<string> {
   return new Set(policy.hooks?.plugins ?? []);
 }
@@ -388,9 +355,7 @@ function isolatedHookCommand(
   environment: string[],
   command: string,
 ): string {
-  const prefix = state.isolation
-    ? state.isolation.argv.slice(0, -1)
-    : ["/usr/bin/sandbox-exec", "-f", state.profile ?? ""];
+  const prefix = state.isolation.argv.slice(0, -1);
   return [
     ...prefix,
     "/usr/bin/env",

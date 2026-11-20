@@ -165,7 +165,7 @@ export interface BlindAdvisoryOptions {
   excludedPaths?: string[];
 }
 
-/** Capture the candidate fixture's baseline before the host edits it. */
+/** Capture the candidate workspace's baseline before the host edits it. */
 export async function advisoryBaseRevision(workspace: string): Promise<string> {
   const revision = (await git(workspace, ["rev-parse", "--verify", "HEAD"]))
     .toString("utf8")
@@ -176,7 +176,7 @@ export async function advisoryBaseRevision(workspace: string): Promise<string> {
 }
 
 /** Rebuild a condition-blind Git view of the complete candidate change. */
-export async function buildBlindAdvisoryFixture(
+export async function buildBlindAdvisoryWorkspace(
   candidateWorkspace: string,
   options: BlindAdvisoryOptions,
 ): Promise<string> {
