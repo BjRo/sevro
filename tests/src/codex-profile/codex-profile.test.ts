@@ -72,7 +72,7 @@ test.each(profileRefusals)(
   "Codex profile refuses $label before creating a command policy",
   ({ change }) => {
     expect(renderProfile({ ...ordinaryProfile, ...change })).rejects.toThrow(
-      "Codex profile paths must be absolute and protected",
+      "host isolation paths must be absolute and protected",
     );
   },
 );

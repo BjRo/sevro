@@ -441,11 +441,13 @@ test("a verified peer path remains denied after its fixture is removed", async (
     await Bun.write(join(peer, "temporary.txt"), "peer");
     const canonicalPeer = await realpath(peer);
     await rm(peer, { recursive: true });
+    // A removed alias cannot be verified; a removed canonical path can.
+    expect(canonicalPeer).not.toBe(peer);
     expect(
       prepareIsolatedCommand({
         argv: ["/bin/true"],
         workspace,
-        protectedRoots: [canonicalPeer],
+        protectedRoots: [peer],
         privateStateRoot: join(root, "state"),
       }),
     ).rejects.toThrow();
@@ -453,7 +455,6 @@ test("a verified peer path remains denied after its fixture is removed", async (
       argv: ["/usr/bin/true"],
       workspace,
       protectedRoots: [canonicalPeer],
-      protectedRootsCanonical: true,
       privateStateRoot: join(root, "state"),
     });
     const proc = Bun.spawn(command.argv, {

@@ -2,7 +2,10 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, realpath, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createIsolationPolicy } from "../../../src/isolation/index";
+import {
+  createIsolationPolicy,
+  evaluationProtectedRoots,
+} from "../../../src/isolation/index";
 import { createTemporaryFixtures } from "../../fixtures/filesystem";
 
 const { temporaryFixture, cleanupTemporaryFixtures } =
@@ -139,7 +142,6 @@ test("hook isolation policy expresses process privacy without renderer text from
     workspace,
     privateStateRoot: state,
     protectedRoots: [root + "/source"],
-    protectedRootsCanonical: true,
     network: "deny",
   });
   expect(policy.hideProcessInfo).toBe(true);
@@ -157,11 +159,12 @@ test("isolation policy discovers evaluator protection from a description", async
     subject: "host",
     workspace,
     privateStateRoot: join(root, "state"),
-    protection: {
+    protectedRoots: await evaluationProtectedRoots({
+      workspace,
       projectRoot: source,
       resultsRoot: results,
       additionalRoots: [],
-    },
+    }),
   });
   expect(policy.deny).toContain(source);
   expect(policy.deny).toContain(results);
@@ -186,14 +189,15 @@ test("evaluation isolation policy protects preparation, fixture source, and run 
     subject: "host",
     workspace,
     privateStateRoot: join(root, "private"),
-    protection: {
+    protectedRoots: await evaluationProtectedRoots({
+      workspace,
       projectRoot: source,
       resultsRoot: source,
       additionalRoots: [],
       runStateRoot,
       preparationRoot,
       repositoryRoot,
-    },
+    }),
   });
   expect(policy.deny).toContain(runStateRoot);
   expect(policy.deny).toContain(preparationRoot);

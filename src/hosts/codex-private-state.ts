@@ -5,10 +5,12 @@
  */
 import {
   runtimeExecutableProtection,
-  prepareRuntimeState,
-  candidateArtifactEnvironment,
-  candidateArtifactReadRoots,
+  candidateGrantEnvironment,
+  candidateGrantReadRoots,
+  prepareRoleRuntime,
   retainCandidatePrivateState,
+  rolePath,
+  undeclaredRuntimePolicy,
   type CandidateArtifactPath,
 } from "../runtime/index";
 import { shellQuote } from "../platform/index";
@@ -28,16 +30,13 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { delimiter, dirname, join, sep } from "node:path";
+import { dirname, join, sep } from "node:path";
 import type { HostAdapter } from "../host-contract/index";
-import {
-  candidateTranscriptEnvironment,
-  candidateTranscriptRoots,
-} from "../transcripts/index";
 import { prepareHookMounts } from "../hooks/index";
 import { codexPermissionProfile } from "../codex-profile/index";
 import {
   createIsolationPolicy,
+  evaluationProtectedRoots,
   type IsolationPolicy,
 } from "../isolation/index";
 import { installCodexPlugins } from "./codex-marketplace";
@@ -293,11 +292,7 @@ async function codexHookMounts(
     privateRoot: state.codexHome,
     pluginRoots: installedPluginRoots,
     protectedRoots: state.protectedRoots,
-    policy: request.runtimePolicy ?? {
-      format: "sevro.runtime.v1",
-      environment: {},
-      readOnlyRoots: [],
-    },
+    policy: request.runtimePolicy ?? undeclaredRuntimePolicy(),
   });
   for (const [index, root] of installedPluginRoots.entries()) {
     const curated = hooks.directories[index];
@@ -402,8 +397,10 @@ function codexProfileEnvironment(
   return {
     ...codexCommandEnvironment(request, environment),
     ...codexTranscriptEnvironment(request, paths.codexHome),
-    ...candidateTranscriptEnvironment(request.candidateTranscriptRoot),
-    ...candidateArtifactEnvironment(request.candidateArtifactRoots),
+    ...candidateGrantEnvironment({
+      transcriptRoot: request.candidateTranscriptRoot,
+      artifactRoots: request.candidateArtifactRoots,
+    }),
     ...(request.runtimePolicy?.codexState === true
       ? {
           SEVRO_CODEX_AGENT_SKILLS: join(paths.parentHome, ".agents", "skills"),
@@ -434,8 +431,10 @@ function codexNativeReadRoots(request: Request, home: string) {
       ? [join(home, "config.toml"), join(home, "skills", ".system")]
       : []),
     ...codexTranscriptRoots(request, home),
-    ...candidateTranscriptRoots(request.candidateTranscriptRoot),
-    ...candidateArtifactReadRoots(request.candidateArtifactRoots),
+    ...candidateGrantReadRoots({
+      transcriptRoot: request.candidateTranscriptRoot,
+      artifactRoots: request.candidateArtifactRoots,
+    }),
   ];
 }
 
@@ -461,12 +460,12 @@ function codexCommandEnvironment(
   environment: Record<string, string> | undefined,
 ): Record<string, string> | undefined {
   if (!environment) return undefined;
-  const path =
-    environment.PATH ??
-    "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
   return {
     ...environment,
-    PATH: [request.fixtureBinDir, path].filter(Boolean).join(delimiter),
+    PATH: rolePath("host-command", {
+      fixtureBinDir: request.fixtureBinDir,
+      declared: environment.PATH,
+    }),
   };
 }
 
@@ -488,11 +487,6 @@ async function fixtureShellRoot(
   return root;
 }
 
-function codexPath(fixtureBin: string | undefined): string {
-  const path = process.env.PATH ?? "/usr/bin:/bin";
-  return fixtureBin ? `${fixtureBin}${delimiter}${path}` : path;
-}
-
 function codexEnvironment(
   paths: CodexPaths,
   request: Request,
@@ -512,9 +506,11 @@ function codexEnvironment(
   };
 }
 
+/** A declared PATH reaches the Codex process as declared, without fixture tools. */
 function declaredCodexPath(request: Request): string {
   return (
-    request.runtimePolicy?.environment.PATH ?? codexPath(request.fixtureBinDir)
+    request.runtimePolicy?.environment.PATH ??
+    rolePath("native-host", { fixtureBinDir: request.fixtureBinDir })
   );
 }
 
@@ -524,12 +520,12 @@ async function codexRuntime(
   stateRoot: string,
 ) {
   if (!request.runtimePolicy) return undefined;
-  const runtime = await prepareRuntimeState(
-    request.workspace,
-    request.runtimePolicy,
-    request.runtimeRole ?? "candidate",
-    request.candidateRuntimeRoot ?? join(stateRoot, "runtime"),
-  );
+  const runtime = await prepareRoleRuntime({
+    workspace: request.workspace,
+    policy: request.runtimePolicy,
+    role: request.runtimeRole ?? "candidate",
+    root: request.candidateRuntimeRoot ?? join(stateRoot, "runtime"),
+  });
   paths.commandHome = runtime.home;
   paths.commandTemp = runtime.temp;
   return runtime;
@@ -644,7 +640,7 @@ async function requireIsolatedGitMetadata(workspace: string): Promise<void> {
   }
 }
 
-function codexIsolationPolicy(
+async function codexIsolationPolicy(
   stateRoot: string,
   options: CodexHostOptions,
   request: Request,
@@ -660,14 +656,16 @@ function codexIsolationPolicy(
     subject: "host",
     workspace: request.workspace,
     privateStateRoot: stateRoot,
-    protection: {
+    protectedRoots: await evaluationProtectedRoots({
+      workspace: request.workspace,
+      runtimePolicy: request.runtimePolicy,
       projectRoot: options.projectRoot,
       resultsRoot: options.resultsRoot,
       additionalRoots: [
         ...options.additionalProtectedRoots,
         ...(process.platform === "linux" ? [] : [stateRoot]),
       ],
-    },
+    }),
     runtimePolicy: request.runtimePolicy,
     runtimeRole: request.runtimeRole,
     network: "deny",

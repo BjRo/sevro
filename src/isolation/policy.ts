@@ -1,5 +1,6 @@
 import { evaluationProtectedRoots } from "./isolation-roots";
-import { isAbsolute } from "node:path";
+import { dirname, isAbsolute } from "node:path";
+import { isMissingFile } from "../kernel/index";
 import { mkdir, realpath } from "node:fs/promises";
 import {
   requireNativeTranscriptViews,
@@ -25,6 +26,7 @@ export interface IsolationOptions extends IsolationDescription {
   argv: string[];
 }
 
+/** What to protect, by purpose; resolve it with `evaluationProtectedRoots`. */
 export type IsolationProtection = Omit<
   Parameters<typeof evaluationProtectedRoots>[0],
   "workspace"
@@ -44,9 +46,11 @@ export interface IsolationDescription {
   nativeReadRoots?: string[];
   nativeWriteRoots?: string[];
   workspace: string;
-  protection?: IsolationProtection;
-  protectedRoots?: string[];
-  protectedRootsCanonical?: boolean;
+  /**
+   * Resolved protected roots; the policy adds the runtime policy's seed
+   * sources. Host policies use them as given; other subjects canonicalize them.
+   */
+  protectedRoots: string[];
   privateStateRoot: string;
   network?: IsolationNetwork;
   readOnlyRoots?: string[];
@@ -90,7 +94,7 @@ export async function createIsolationPolicy(
   description: IsolationDescription,
 ): Promise<IsolationPolicy> {
   if (description.subject !== "host") await requireCuratedGrants(description);
-  const roots = await policyProtection(description);
+  const roots = policyProtection(description);
   const resolved = { ...description, protectedRoots: roots };
   if (description.subject === "host") requireHostPaths(resolved);
   requireIsolationPaths(resolved);
@@ -181,11 +185,9 @@ async function policyPaths(
     };
   }
   const workspace = await realpath(description.workspace);
-  const roots = description.protectedRootsCanonical
-    ? description.protectedRoots
-    : await Promise.all(
-        description.protectedRoots.map((path) => realpath(path)),
-      );
+  const roots = await Promise.all(
+    description.protectedRoots.map(canonicalProtectedRoot),
+  );
   await mkdir(description.privateStateRoot, { recursive: true, mode: 0o700 });
   const privateStateRoot = await realpath(description.privateStateRoot);
   const runtime = await commandRuntimeRoot(
@@ -215,7 +217,7 @@ function requireHostPaths(
     !description.protectedRoots.length ||
     !description.protectedRoots.every(isAbsolute)
   )
-    throw new Error("Codex profile paths must be absolute and protected");
+    throw new Error("host isolation paths must be absolute and protected");
 }
 
 function validCommandPaths(description: IsolationDescription): boolean {
@@ -255,33 +257,29 @@ function policyHooksEnabled(policy: RuntimePolicy | undefined): boolean {
   return hooks.nativeGoal === true || (hooks.plugins ?? []).length > 0;
 }
 
-async function policyProtection(
-  description: IsolationDescription,
-): Promise<string[]> {
-  const seeds = runtimeSeedSources(description.runtimePolicy);
-  const protection = description.protection;
-  const roots = protection
-    ? await evaluationPolicyRoots(description, protection)
-    : [...(description.protectedRoots ?? []), ...seeds];
-  return [
-    ...roots,
-    ...sharedCacheDenyRoots(description.runtimePolicy, description.runtimeRole),
-  ];
+/**
+ * A peer may remove its workspace after its roots were resolved. A missing root
+ * stays denied as given only when its parent is canonical, so it is no alias.
+ */
+async function canonicalProtectedRoot(path: string): Promise<string> {
+  try {
+    return await realpath(path);
+  } catch (cause) {
+    if (
+      !isMissingFile(cause) ||
+      (await realpath(dirname(path))) !== dirname(path)
+    )
+      throw cause;
+    return path;
+  }
 }
 
-async function evaluationPolicyRoots(
-  description: IsolationDescription,
-  protection: IsolationProtection,
-): Promise<string[]> {
-  const host = description.subject === "host";
-  const roots = await evaluationProtectedRoots({
-    ...protection,
-    workspace: description.workspace,
-    runtimePolicy: host ? description.runtimePolicy : undefined,
-  });
-  return host
-    ? roots
-    : [...roots, ...runtimeSeedSources(description.runtimePolicy)];
+function policyProtection(description: IsolationDescription): string[] {
+  return [
+    ...description.protectedRoots,
+    ...runtimeSeedSources(description.runtimePolicy),
+    ...sharedCacheDenyRoots(description.runtimePolicy, description.runtimeRole),
+  ];
 }
 
 function requireHostReadGrants(description: IsolationDescription): void {
@@ -290,7 +288,7 @@ function requireHostReadGrants(description: IsolationDescription): void {
     ...(description.pluginReadRoots ?? []),
   ];
   if (!grants.every(boundedHostReadGrant))
-    throw new Error("Codex profile paths must be absolute and protected");
+    throw new Error("host isolation paths must be absolute and protected");
 }
 
 function boundedHostReadGrant(path: string): boolean {

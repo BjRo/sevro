@@ -6,17 +6,15 @@ import {
   terminateOwnedProcessGroup,
 } from "../platform/index";
 import {
-  prepareRuntimeState,
+  candidateTranscriptReadRoots,
+  prepareRoleEnvironment,
+  type RoleRuntime,
   type RuntimePolicy,
-  candidateArtifactEnvironment,
   type CandidateArtifactRoots,
 } from "../runtime/index";
-import { mkdir, stat } from "node:fs/promises";
-import { delimiter, join } from "node:path";
-import {
-  prepareIsolatedCommand,
-  type IsolationProtection,
-} from "../isolation/index";
+import { stat } from "node:fs/promises";
+import { join } from "node:path";
+import { prepareIsolatedCommand } from "../isolation/index";
 import { hashJson } from "../kernel/index";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -264,87 +262,40 @@ interface ShellRunOptions {
   fixtureBinDir?: string;
   toolchainBinDir?: string;
   uvRuntimeCache?: boolean;
-  protectedRoots?: string[];
-  protection?: IsolationProtection;
-  protectedRootsCanonical?: boolean;
+  protectedRoots: string[];
   privateStateRoot: string;
   signal?: AbortSignal;
 }
-async function shellRuntime(options: ShellRunOptions) {
-  if (options.runtimePolicy) {
-    const runtime = await prepareRuntimeState(
-      options.workspace,
-      options.runtimePolicy,
-      "checks",
-      join(options.privateStateRoot, "runtime", hashJson(options.workspace)),
-    );
-    return {
-      ...runtime,
-      uvCache: join(runtime.root, "uv-cache"),
-      privateRuntimeRoot: runtime.root,
-    };
-  }
-  const root = join(
+/** The checks role environment, plus Git configuration isolation. */
+async function shellEnvironment(options: ShellRunOptions) {
+  const { runtime, environment } = await prepareRoleEnvironment({
+    workspace: options.workspace,
+    policy: options.runtimePolicy,
+    role: "checks",
+    root: join(
       options.privateStateRoot,
       "runtime",
       hashJson(options.workspace),
     ),
-    home = join(root, "check-home"),
-    temp = join(root, "check-tmp");
-  await Promise.all([
-    mkdir(home, { recursive: true, mode: 0o700 }),
-    mkdir(temp, { recursive: true, mode: 0o700 }),
-  ]);
+    fixtureBinDir: options.fixtureBinDir,
+    toolchainBinDir: options.toolchainBinDir,
+    uvRuntimeCache: options.uvRuntimeCache,
+    candidate: {
+      artifactRoots: options.candidateArtifactRoots,
+      transcriptRoot: options.candidateTranscriptRoot,
+    },
+  });
   return {
-    root,
-    home,
-    temp,
-    uvCache: join(options.workspace, ".git", "sevro-runtime", "uv-cache"),
-    environment: {} as Record<string, string>,
-    privateRuntimeRoot: root,
-    writableCacheRoots: [],
+    runtime,
+    environment: {
+      ...environment,
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_CONFIG_NOSYSTEM: "1",
+    },
   };
 }
-type ShellRuntime = Awaited<ReturnType<typeof shellRuntime>>;
+type ShellRuntime = RoleRuntime;
 type Isolation = Awaited<ReturnType<typeof prepareIsolatedCommand>>;
-function shellRuntimeEnvironment(
-  runtime: ShellRuntime,
-  enabled: boolean | undefined,
-): Record<string, string> {
-  return enabled
-    ? {
-        UV_CACHE_DIR: runtime.uvCache,
-        UV_PROJECT_ENVIRONMENT: join(runtime.root, "project-environment"),
-        UV_OFFLINE: "1",
-        PYTHONDONTWRITEBYTECODE: "1",
-      }
-    : {};
-}
-function shellEnvironment(
-  options: ShellRunOptions,
-  runtime: ShellRuntime,
-): Record<string, string> {
-  return {
-    ...runtime.environment,
-    ...candidateArtifactEnvironment(options.candidateArtifactRoots),
-    ...(options.candidateTranscriptRoot
-      ? { SEVRO_CANDIDATE_TRANSCRIPTS: options.candidateTranscriptRoot }
-      : {}),
-    PATH: [
-      options.fixtureBinDir,
-      options.toolchainBinDir,
-      runtime.environment.PATH ?? "/usr/bin:/bin:/usr/sbin:/sbin",
-    ]
-      .filter(Boolean)
-      .join(delimiter),
-    HOME: runtime.home,
-    TMPDIR: runtime.temp,
-    LANG: process.env.LANG ?? "C",
-    GIT_CONFIG_GLOBAL: "/dev/null",
-    GIT_CONFIG_NOSYSTEM: "1",
-    ...shellRuntimeEnvironment(runtime, options.uvRuntimeCache),
-  };
-}
 async function requireShellRuntimeCache(
   options: ShellRunOptions,
   runtime: ShellRuntime,
@@ -368,7 +319,7 @@ class ShellExecution {
     private check: PreparedShellCheck,
     private options: ShellRunOptions,
     private isolation: Isolation,
-    private runtime: ShellRuntime,
+    private environment: Record<string, string>,
   ) {
     this.deadline = new ProcessDeadline({
       timeoutMs: check.timeoutMs,
@@ -402,7 +353,7 @@ class ShellExecution {
   private spawn() {
     this.proc = spawn(this.isolation.argv, {
       cwd: this.options.workspace,
-      env: shellEnvironment(this.options, this.runtime),
+      env: this.environment,
       detached: true,
       stdin: "ignore",
       stdout: this.check.captureStdout ? "pipe" : "ignore",
@@ -424,23 +375,21 @@ export async function runShellCheck(
   options: ShellRunOptions,
 ): Promise<ShellCheckResult> {
   if (options.signal?.aborted) throw new Error("shell check cancelled");
-  const runtime = await shellRuntime(options);
+  const { runtime, environment } = await shellEnvironment(options);
   const isolated = await prepareIsolatedCommand({
     argv: ["/bin/sh", "-e", "-c", check.run],
     workspace: options.workspace,
     protectedRoots: options.protectedRoots,
-    protection: options.protection,
     runtimePolicy: options.runtimePolicy,
     runtimeRole: "checks",
-    protectedRootsCanonical: options.protectedRootsCanonical,
     privateStateRoot: options.privateStateRoot,
     network: "deny",
     candidateArtifactRoots: options.candidateArtifactRoots,
-    transcriptReadRoots: options.candidateTranscriptRoot
-      ? [options.candidateTranscriptRoot]
-      : [],
-    writableRuntimeRoot: runtime.privateRuntimeRoot,
+    transcriptReadRoots: candidateTranscriptReadRoots(
+      options.candidateTranscriptRoot,
+    ),
+    writableRuntimeRoot: runtime.root,
   });
   await requireShellRuntimeCache(options, runtime);
-  return new ShellExecution(check, options, isolated, runtime).run();
+  return new ShellExecution(check, options, isolated, environment).run();
 }

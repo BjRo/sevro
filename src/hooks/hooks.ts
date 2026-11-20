@@ -12,8 +12,10 @@ import { join } from "node:path";
 import { shellQuote as quote } from "../platform/index";
 import {
   insideRuntimeRoot,
-  prepareRuntimeState,
+  prepareRoleRuntime,
+  rolePath,
   runtimeSeedDigest,
+  type RoleRuntime,
   type RuntimePolicy,
   nativeStateParent,
 } from "../runtime/index";
@@ -81,14 +83,14 @@ export async function prepareHookMounts(options: {
     ),
   );
   mountRoot = await realpath(mountRoot);
-  let runtime: ReturnType<typeof prepareRuntimeState> | undefined;
+  let runtime: Promise<RoleRuntime> | undefined;
   const prepareRuntime = () =>
-    (runtime ??= prepareRuntimeState(
-      options.workspace,
-      options.policy,
-      "hooks",
-      join(options.privateRoot, "hook-runtime"),
-    ));
+    (runtime ??= prepareRoleRuntime({
+      workspace: options.workspace,
+      policy: options.policy,
+      role: "hooks",
+      root: join(options.privateRoot, "hook-runtime"),
+    }));
   const selected = selectedPlugins(options.policy);
   const plugins: HookMounts["plugins"] = [],
     isolation: IsolatedCommand[] = [],
@@ -144,7 +146,7 @@ function lazyHookExecution(
   index: number,
   root: string,
   readRoots: { ordinary: string[]; curated: string[] },
-  prepareRuntime: () => ReturnType<typeof prepareRuntimeState>,
+  prepareRuntime: () => Promise<RoleRuntime>,
   isolation: IsolatedCommand[],
 ): () => Promise<HookExecution> {
   let execution: Promise<HookExecution> | undefined;
@@ -162,7 +164,7 @@ function lazyHookExecution(
         isolation: boundary,
         environment: {
           ...runtime.environment,
-          PATH: hookPath(runtime.environment),
+          PATH: rolePath("command", { declared: runtime.environment.PATH }),
           CLAUDE_PLUGIN_ROOT: root,
           PLUGIN_ROOT: root,
         },
@@ -174,7 +176,7 @@ async function prepareHookIsolation(
   options: Parameters<typeof prepareHookMounts>[0],
   index: number,
   roots: { ordinary: string[]; curated: string[] },
-  runtime: Awaited<ReturnType<typeof prepareRuntimeState>>,
+  runtime: RoleRuntime,
 ): Promise<IsolatedCommand> {
   const policy = await createIsolationPolicy({
     subject: "hook",
@@ -205,9 +207,6 @@ async function hookReadRoots(
   return { ordinary, curated };
 }
 
-function hookPath(environment: Record<string, string>): string {
-  return environment.PATH ?? "/usr/bin:/bin:/usr/sbin:/sbin";
-}
 function selectedPlugins(policy: RuntimePolicy): Set<string> {
   return new Set(policy.hooks?.plugins ?? []);
 }

@@ -16,6 +16,7 @@ import {
   allocateCandidateRuntime,
   candidateArtifactRoots,
   releaseCandidateRuntime,
+  undeclaredRuntimePolicy,
   type CandidateArtifactRoots,
 } from "../runtime/index";
 import { join } from "node:path";
@@ -257,11 +258,7 @@ class EvaluationTrial {
   private candidateRuntimePolicy() {
     if (this.options.runtimePolicy) return this.options.runtimePolicy;
     if (!this.context.prepared.fixture.fixtureSetup) return undefined;
-    return {
-      format: "sevro.runtime.v1" as const,
-      environment: {},
-      readOnlyRoots: [],
-    };
+    return undeclaredRuntimePolicy();
   }
 
   private candidateReservedIds(): Set<string> {

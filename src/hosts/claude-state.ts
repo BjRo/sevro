@@ -1,9 +1,13 @@
 import {
   insideRuntimeRoot as inside,
   runtimeExecutableProtection,
-  prepareRuntimeState,
-  candidateArtifactEnvironment,
+  candidateGrantEnvironment,
+  candidateTranscriptReadRoots,
   nativeStateParent,
+  prepareRoleRuntime,
+  rolePath,
+  uvRuntimeEnvironment,
+  type RoleRuntime,
 } from "../runtime/index";
 import { shellQuote } from "../platform/index";
 import {
@@ -14,16 +18,12 @@ import {
   symlink,
   writeFile,
 } from "node:fs/promises";
-import { delimiter, dirname, join } from "node:path";
+import { dirname, join } from "node:path";
 import type { HostAdapter } from "../host-contract/index";
 import {
   workspaceBoundaryException,
   workspaceStatePath,
 } from "../workspace/index";
-import {
-  candidateTranscriptEnvironment,
-  candidateTranscriptRoots,
-} from "../transcripts/index";
 import { prepareHookMounts, runtimeHooksEnabled } from "../hooks/index";
 import { stageClaudeAuthentication } from "../claude-login/index";
 import { claudeHostSettings } from "./claude-settings";
@@ -74,12 +74,13 @@ async function createClaudePrivateState(
 async function protectedClaudeRoots(
   request: Request,
   options: ClaudeHostOptions,
+  stateRoot: string,
   credential: string,
 ) {
   const roots = await evaluationProtectedRoots({
     minimal: !request.runtimePolicy,
     runtimePolicy: request.runtimePolicy,
-    ownedStateRoot: dirname(dirname(dirname(credential))),
+    ownedStateRoot: stateRoot,
     workspace: request.workspace,
     projectRoot: options.projectRoot,
     resultsRoot: options.resultsRoot,
@@ -147,36 +148,24 @@ function claudeEnvironment(
     ...state.authentication.environment,
     ...request.runtimePolicy?.environment,
     CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1",
-    PATH: claudePath(request, toolchain),
+    PATH: rolePath("native-host", {
+      fixtureBinDir: request.fixtureBinDir,
+      toolchainBinDir: toolchain,
+      declared: request.runtimePolicy?.environment.PATH,
+    }),
     LANG: process.env.LANG ?? "C",
     HOME: runtime ? join(runtime, "host-home") : state.home,
     TMPDIR: state.temp,
     CLAUDE_CONFIG_DIR: dirname(state.credential),
     NO_COLOR: "1",
-    ...claudeRuntimeEnvironment(runtime),
+    ...claudeUvEnvironment(runtime),
   };
 }
 
-function claudePath(request: Request, toolchain: string | null): string {
-  const path =
-    request.runtimePolicy?.environment.PATH ??
-    process.env.PATH ??
-    "/usr/bin:/bin";
-  return [request.fixtureBinDir, toolchain, path]
-    .filter(Boolean)
-    .join(delimiter);
-}
-
-function claudeRuntimeEnvironment(
-  runtime: string | null,
-): Record<string, string> {
+/** Claude's opted-in UV cache lives beside the workspace's private Git metadata. */
+function claudeUvEnvironment(runtime: string | null): Record<string, string> {
   return runtime
-    ? {
-        UV_CACHE_DIR: join(runtime, "uv-cache"),
-        UV_PROJECT_ENVIRONMENT: join(runtime, "project-environment"),
-        UV_OFFLINE: "1",
-        PYTHONDONTWRITEBYTECODE: "1",
-      }
+    ? uvRuntimeEnvironment(runtime, join(runtime, "uv-cache"))
     : {};
 }
 
@@ -195,7 +184,12 @@ export async function prepareClaudeState(
     state.credential,
     request,
   );
-  const roots = await protectedClaudeRoots(request, options, state.credential);
+  const roots = await protectedClaudeRoots(
+    request,
+    options,
+    stateRoot,
+    state.credential,
+  );
   const toolchain = await claudeToolchainDirectory(options, roots);
   const runtime = await prepareClaudeRuntime(options, roots, request.workspace);
   const settingsPath = join(state.privateRoot, "settings.json");
@@ -223,7 +217,7 @@ export async function prepareClaudeState(
     runtimeRole: request.runtimeRole,
     pluginReadRoots: [...pluginDirs, ...effectivePlugins],
     nativeReadRoots: transcripts.readRoots,
-    transcriptReadRoots: candidateTranscriptRoots(
+    transcriptReadRoots: candidateTranscriptReadRoots(
       request.candidateTranscriptRoot,
     ),
     candidateArtifactRoots: request.candidateArtifactRoots,
@@ -238,8 +232,10 @@ export async function prepareClaudeState(
   Object.assign(env, transcripts.environment);
   Object.assign(
     env,
-    candidateTranscriptEnvironment(request.candidateTranscriptRoot),
-    candidateArtifactEnvironment(request.candidateArtifactRoots),
+    candidateGrantEnvironment({
+      transcriptRoot: request.candidateTranscriptRoot,
+      artifactRoots: request.candidateArtifactRoots,
+    }),
   );
   if (runtime) await mkdir(join(runtime, "host-home"), { mode: 0o700 });
   return {
@@ -339,17 +335,18 @@ async function applyClaudeRuntimeEnvironment(
   runtime: string | null,
   stateRoot: string,
 ): Promise<string | undefined> {
-  const isolated = await prepareRuntimeState(
-    request.workspace,
-    claudeCommandPolicy(request),
-    request.runtimeRole ?? "candidate",
-    claudeRuntimeDirectory(request, stateRoot),
-  );
-  if (request.runtimePolicy) {
+  const isolated = await prepareRoleRuntime({
+    workspace: request.workspace,
+    policy: request.runtimePolicy,
+    role: request.runtimeRole ?? "candidate",
+    root: claudeRuntimeDirectory(request, stateRoot),
+  });
+  if (isolated.declared) {
     Object.assign(env, isolated.environment);
-    env.PATH = [request.fixtureBinDir, isolated.environment.PATH ?? env.PATH]
-      .filter(Boolean)
-      .join(delimiter);
+    env.PATH = rolePath("native-host", {
+      fixtureBinDir: request.fixtureBinDir,
+      declared: isolated.environment.PATH ?? env.PATH,
+    });
     return isolated.root;
   }
   applyLegacyClaudeCommandEnvironment(env, isolated, runtime);
@@ -364,19 +361,9 @@ function claudeRuntimeDirectory(request: Request, stateRoot: string) {
 
 function applyLegacyClaudeCommandEnvironment(
   env: Record<string, string>,
-  isolated: Awaited<ReturnType<typeof prepareRuntimeState>>,
+  isolated: RoleRuntime,
   runtime: string | null,
 ): void {
   if (!runtime) env.HOME = isolated.home;
   env.TMPDIR = isolated.temp;
-}
-
-function claudeCommandPolicy(request: Request) {
-  return (
-    request.runtimePolicy ?? {
-      format: "sevro.runtime.v1" as const,
-      environment: {},
-      readOnlyRoots: [],
-    }
-  );
 }

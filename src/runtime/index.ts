@@ -49,6 +49,19 @@ export {
   requireNativeTranscriptViews,
 } from "./native-transcript-state";
 export {
+  candidateGrantEnvironment,
+  candidateGrantReadRoots,
+  candidateTranscriptReadRoots,
+  prepareRoleEnvironment,
+  prepareRoleRuntime,
+  rolePath,
+  undeclaredRuntimePolicy,
+  uvRuntimeEnvironment,
+  type CandidateGrants,
+  type RoleProcess,
+  type RoleRuntime,
+} from "./role-environment";
+export {
   allocateCandidateRuntime,
   candidateArtifactEnvironment,
   candidateArtifactReadRoots,

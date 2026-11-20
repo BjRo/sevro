@@ -9,16 +9,6 @@ import {
   type HostDiagnostics,
 } from "../diagnostics/index";
 
-export function candidateTranscriptRoots(root: string | undefined): string[] {
-  return root ? [root] : [];
-}
-
-export function candidateTranscriptEnvironment(
-  root: string | undefined,
-): Record<string, string> {
-  return root ? { SEVRO_CANDIDATE_TRANSCRIPTS: root } : {};
-}
-
 export async function retainEnabledNativeTranscripts(
   result: HostResult,
   policy: RuntimePolicy | undefined,

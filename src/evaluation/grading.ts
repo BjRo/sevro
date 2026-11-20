@@ -8,7 +8,10 @@ import {
   runShellCheck,
   type PreparedShellCheck,
 } from "../graders/index";
-import type { IsolationProtection } from "../isolation/index";
+import {
+  evaluationProtectedRoots,
+  type IsolationProtection,
+} from "../isolation/index";
 import { sha256, type CheckOutcome } from "../kernel/index";
 import type { TrialObservation } from "../evidence/index";
 import {
@@ -64,6 +67,7 @@ export function gradeCandidateOutput(input: {
 
 interface ShellGradingInput {
   readonly checks: readonly PreparedShellCheck[];
+  /** Resolved before every check, so newly created peer state stays protected. */
   readonly protectedRoots: (IsolationProtection & { workspace: string }) | null;
   readonly execution: Omit<
     Parameters<typeof runShellCheck>[1],
@@ -115,8 +119,10 @@ export async function gradeShellChecks(
     for (const check of input.checks) {
       const graded = await gradeShellCheck(check, {
         ...input.execution,
-        protection: input.protectedRoots,
-        protectedRootsCanonical: true,
+        protectedRoots: await evaluationProtectedRoots({
+          ...input.protectedRoots,
+          workspace: input.execution.workspace,
+        }),
       });
       checks.push(graded.check);
       observations.push(graded.observation);

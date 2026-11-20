@@ -3,8 +3,6 @@
  * the read-only transcript views handed to grading.
  */
 export {
-  candidateTranscriptEnvironment,
-  candidateTranscriptRoots,
   failedNativeTranscripts,
   retainEnabledNativeTranscripts,
 } from "./native-transcripts";

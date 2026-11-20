@@ -166,6 +166,10 @@ _Avoid_: skill call, mention
 
 ## Isolation
 
+**Role environment**:
+The base environment and runtime directories Sevro gives an isolated process for its runtime role, before a host adds its own settings.
+_Avoid_: sandbox env, process env
+
 **Protected root**:
 A path the candidate and grading commands must neither read nor write, such as the project source, results or another trial's workspace.
 _Avoid_: blocked path, denied dir
