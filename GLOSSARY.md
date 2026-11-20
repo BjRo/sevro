@@ -7,7 +7,7 @@ concepts across code, documentation and architecture reviews.
 ## Evaluation
 
 **Case**:
-One declared task for an agent: a prompt, a fixture and the criteria that grade the result.
+One declared task for an agent: a prompt, a fixture and the checks that grade its task.
 _Avoid_: test, scenario, benchmark item
 
 **Task**:
@@ -27,7 +27,7 @@ One trial's own directory into which the fixture is materialized; the candidate 
 _Avoid_: checkout, working copy, participant fixture
 
 **Run**:
-One evaluation by one candidate of one or more cases (currently always one), each repeated over its trials and assessed against its pass threshold, summarized as one result.
+One evaluation by one candidate of one or more cases (currently always one), each repeated over its trials and assessed against its pass threshold, summarized in one overall assessment.
 _Avoid_: job, session
 
 **Trial**:
@@ -43,7 +43,7 @@ The project's declaration of which host tools, read-only roots, caches, hooks an
 _Avoid_: sandbox config, environment
 
 **Runtime role**:
-What an isolated execution is for, named after what it serves: `candidate` (the candidate's turns), `checks` (shell check commands), `hooks` (runtime hook commands), `semantic` (semantic checks) or `advisory` (advisory review).
+What an isolated process is for, named after what it serves: `candidate` (the candidate's turns), `checks` (shell check commands), `hooks` (runtime hook commands), `semantic` (semantic checks) or `advisory` (advisory review).
 _Avoid_: mode, phase; reading a role name as the Candidate or Check concept itself
 
 ## Grading and results
@@ -61,8 +61,8 @@ The separate model a semantic check or advisory review runs on, kept apart from 
 _Avoid_: evaluator, grader (a grader is the kind of judgment, not the model)
 
 **Semantic check**:
-A check graded by a separate model reading the candidate's response against a stated criterion; the model's per-check pass or fail answer is a semantic verdict.
-_Avoid_: LLM judge, AI grading
+A check graded by a judge reading the candidate's response against a stated criterion; the judge's per-check pass or fail answer is a semantic verdict.
+_Avoid_: LLM grading, AI grading
 
 **Advisory review**:
 An optional, independent review of a completed trial by a judge, producing an advisory recommendation that never changes the task verdict.
@@ -77,7 +77,7 @@ The engine's decision whether a trial, case or run accomplished its task: passed
 _Avoid_: verdict (alone), score, pass/fail
 
 **Task-verdict policy**:
-A named policy an extension offers and a run must explicitly select, under which the extension recommends each trial's task verdict. It can override a failed check, but never execution failure, grader errors or missing evidence.
+A named policy an extension offers and a run must explicitly select, under which the extension recommends each trial's task verdict. It can override a failed check, but never a failed execution status, a grading error or missing evidence.
 _Avoid_: verdict override, policy extension
 
 **Domain outcome**:
@@ -104,7 +104,7 @@ _Avoid_: logs, artifacts (alone), output
 
 **Host**:
 The agent program a trial runs, such as Codex or Claude Code, or a custom executable.
-_Avoid_: harness (Darrow's word for the same thing; in Sevro it means test scaffolding), runner, provider
+_Avoid_: harness (Darrow's word for the same thing; in Sevro it means test scaffolding), runner (Sevro itself), provider
 
 **Native host**:
 A host Sevro launches as its real CLI inside private state and isolation, rather than a custom executable; it supplies its own admission, preparation and turn interpretation to each native host request.
@@ -159,11 +159,11 @@ _Avoid_: skill call, mention
 ## Isolation
 
 **Protected root**:
-A path the candidate and grading commands must neither read nor write, such as the project source, results or another fixture.
+A path the candidate and grading commands must neither read nor write, such as the project source, results or another trial's workspace.
 _Avoid_: blocked path, denied dir
 
 **Private state**:
-The runner-owned directory that holds a native host request's credentials, configuration and transcripts outside the workspace; the native host uses it as its home and configuration root, and the runner removes it afterwards.
+The directory Sevro allocates and removes for one native host request, holding its credentials, configuration and transcripts outside the workspace; the native host uses it as its home and configuration root.
 _Avoid_: temp dir, home
 
 **Isolation policy**:
