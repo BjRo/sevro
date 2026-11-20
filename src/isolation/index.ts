@@ -15,3 +15,4 @@ export {
 export { evaluationProtectedRoots } from "./isolation-roots";
 export { macSandboxProfile } from "./mac-sandbox";
 export { prepareLinuxSandboxCommand } from "./linux-sandbox";
+export { linuxSandboxArguments } from "./linux-sandbox";

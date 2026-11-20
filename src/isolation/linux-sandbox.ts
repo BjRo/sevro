@@ -85,38 +85,13 @@ export async function prepareLinuxSandboxCommand(
       mountProtectedRoot(path, kinds[index], blockedFile),
     );
     return {
-      argv: [
-        BWRAP,
-        "--die-with-parent",
-        "--unshare-user",
-        "--unshare-pid",
-        ...networkArgs(Boolean(options.denyNetwork)),
-        "--ro-bind",
-        "/",
-        "/",
-        "--dev-bind",
-        "/dev",
-        "/dev",
-        "--proc",
-        "/proc",
-        "--bind",
-        "/tmp",
-        "/tmp",
-        ...masks,
-        "--bind",
+      argv: linuxSandboxArguments(options, {
         workspace,
-        workspace,
-        ...readRoots.flatMap((path) => ["--ro-bind", path, path]),
-        ...transcriptMounts(options),
-        ...candidateArtifactMounts(options),
-        ...hookMounts(options),
-        ...(ownedRoot ? ["--bind", ownedRoot, ownedRoot] : []),
-        ...writableCacheRoots.flatMap((path) => ["--bind", path, path]),
-        "--chdir",
-        workspace,
-        "--",
-        ...options.argv,
-      ],
+        masks,
+        readRoots,
+        ownedRoot,
+        writableCacheRoots,
+      }),
       release: async () => {
         await rm(blockedFile, { force: true });
       },
@@ -156,4 +131,50 @@ function hookMounts(options: IsolationOptions): string[] {
     path,
     path,
   ]);
+}
+
+/** Render the Linux launch without spawning a sandbox. */
+export function linuxSandboxArguments(
+  options: IsolationOptions,
+  mounts: {
+    workspace: string;
+    masks: string[];
+    readRoots: string[];
+    ownedRoot?: string;
+    writableCacheRoots: string[];
+  },
+): string[] {
+  const { workspace, masks, readRoots, ownedRoot, writableCacheRoots } = mounts;
+  return [
+    BWRAP,
+    "--die-with-parent",
+    "--unshare-user",
+    "--unshare-pid",
+    ...networkArgs(Boolean(options.denyNetwork)),
+    "--ro-bind",
+    "/",
+    "/",
+    "--dev-bind",
+    "/dev",
+    "/dev",
+    "--proc",
+    "/proc",
+    "--bind",
+    "/tmp",
+    "/tmp",
+    ...masks,
+    "--bind",
+    workspace,
+    workspace,
+    ...readRoots.flatMap((path) => ["--ro-bind", path, path]),
+    ...transcriptMounts(options),
+    ...candidateArtifactMounts(options),
+    ...hookMounts(options),
+    ...(ownedRoot ? ["--bind", ownedRoot, ownedRoot] : []),
+    ...writableCacheRoots.flatMap((path) => ["--bind", path, path]),
+    "--chdir",
+    workspace,
+    "--",
+    ...options.argv,
+  ];
 }

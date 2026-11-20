@@ -14,3 +14,4 @@ export {
   codexAgentConcurrency,
   configurationRoot,
 } from "./codex-configuration";
+export { claudeHostSettings } from "./claude-settings";

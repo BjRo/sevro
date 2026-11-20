@@ -1,0 +1,88 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`SBPL output with local HTTP %s 1`] = `
+"(version 1)
+(allow default)
+(deny network*)
+(deny file-read* (subpath "/protected/source"))
+(deny file-write* (subpath "/protected/source"))
+(deny file-read* (require-all (subpath "/protected/state") (require-not (subpath "/protected/state/view")) (require-not (subpath "/protected/state/runtime"))))
+(deny file-write* (require-all (subpath "/protected/state") (require-not (subpath "/protected/state/runtime"))))
+(deny file-write* (subpath "/tools"))
+(deny file-write* (subpath "/protected/state/view"))
+(allow file-read-metadata (literal "/protected/state"))
+"
+`;
+
+exports[`SBPL output with local HTTP %s 2`] = `
+"(version 1)
+(allow default)
+(deny network*)
+(allow network-bind (local ip "*:*"))
+(allow network-inbound (local ip "localhost:*"))
+(allow network-outbound (remote ip "localhost:*"))
+(deny file-read* (subpath "/protected/source"))
+(deny file-write* (subpath "/protected/source"))
+(deny file-read* (require-all (subpath "/protected/state") (require-not (subpath "/protected/state/view")) (require-not (subpath "/protected/state/runtime"))))
+(deny file-write* (require-all (subpath "/protected/state") (require-not (subpath "/protected/state/runtime"))))
+(deny file-write* (subpath "/tools"))
+(deny file-write* (subpath "/protected/state/view"))
+(allow file-read-metadata (literal "/protected/state"))
+"
+`;
+
+exports[`bwrap argument output 1`] = `
+[
+  "/usr/bin/bwrap",
+  "--die-with-parent",
+  "--unshare-user",
+  "--unshare-pid",
+  "--unshare-net",
+  "--ro-bind",
+  "/",
+  "/",
+  "--dev-bind",
+  "/dev",
+  "/dev",
+  "--proc",
+  "/proc",
+  "--bind",
+  "/tmp",
+  "/tmp",
+  "--tmpfs",
+  "/protected/source",
+  "--chmod",
+  "0111",
+  "/protected/source",
+  "--ro-bind",
+  "/blocked",
+  "/protected/file",
+  "--bind",
+  "/workspace",
+  "/workspace",
+  "--ro-bind",
+  "/tools",
+  "/tools",
+  "--ro-bind",
+  "/transcripts",
+  "/transcripts",
+  "--ro-bind",
+  "/artifacts",
+  "/artifacts",
+  "--ro-bind",
+  "/plugins",
+  "/plugins",
+  "--bind",
+  "/protected/state/runtime",
+  "/protected/state/runtime",
+  "--bind",
+  "/cache",
+  "/cache",
+  "--chdir",
+  "/workspace",
+  "--",
+  "/bin/sh",
+  "-c",
+  "true",
+]
+`;
