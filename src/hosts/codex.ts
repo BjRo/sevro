@@ -1,7 +1,6 @@
 import { existsSync } from "node:fs";
 import { runtimeNativeGoalEnabled } from "../runtime/index";
-import { lstat, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { lstat } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import type { HostAdapter } from "../host-contract/index";
 import {
@@ -16,26 +15,19 @@ import {
   type CodexEventSummary,
 } from "../host-events/index";
 import { verifyCodexInvocation } from "./codex-invocation";
-import { installCodexPlugins } from "./codex-marketplace";
 import {
   codexNativeCallObservation,
   codexNativeControls,
   codexNativeSessionLastOrdinal,
 } from "../native-controls/index";
+import { runCodexProcess, validHostTimeout } from "../native-process/index";
 import {
-  CodexProcessFailure,
-  runCodexProcess,
-  validHostTimeout,
-} from "../native-process/index";
-import {
-  codexHookMounts,
-  prepareCodexState,
+  prepareCodexPrivateState,
   type CodexHostOptions,
-} from "./codex-state";
+  type CodexPrivateState,
+} from "./codex-private-state";
 import { workspaceFingerprint } from "../workspace/index";
 import {
-  codexSkillCatalogRoots,
-  prepareSkillTracking,
   skillTrackingObservation,
   skillActivationClaims,
   skillExposureClaims,
@@ -45,7 +37,7 @@ import {
   diagnosticConfiguration,
   type HostDiagnostics,
 } from "../diagnostics/index";
-export type { CodexHostOptions } from "./codex-state";
+export type { CodexHostOptions } from "./codex-private-state";
 const DEFAULT_TIMEOUT_MS = 10 * 60_000;
 
 type Request = Parameters<HostAdapter["run"]>[0];
@@ -59,7 +51,7 @@ type Observation = {
   completeness: "complete" | "partial";
   data: Record<string, unknown>;
 };
-type CodexState = Awaited<ReturnType<typeof prepareCodexState>>;
+type CodexState = CodexPrivateState["state"];
 interface ExecutionContext {
   options: CodexHostOptions;
   request: Request;
@@ -200,79 +192,19 @@ async function prepareCodexRequest(
   timeoutMs: number,
   limit: number | null,
 ): Promise<ExecutionContext> {
-  const { request, diagnostics, stateRoot } = context;
-  const helperRoot =
-    process.platform === "linux"
-      ? await mkdtemp(join(tmpdir(), "sevro-codex-helper-"))
-      : undefined;
-  if (helperRoot) context.cleanupRoots.push(helperRoot);
-  const state = await prepareCodexState(
-    stateRoot,
+  const { state, skillTracking } = await prepareCodexPrivateState(
+    context,
     options,
     limit,
-    request,
-    helperRoot,
   );
-  const installedPluginRoots = await installCodexPlugins({
-    binary: options.binary,
-    env: state.env,
-    pluginCacheRoot: state.pluginCacheRoot,
-    request,
-    diagnostics,
-  });
-  diagnostics.stage = "hooks-preparation";
-  const hooks = await codexHookMounts(request, state, installedPluginRoots);
-  context.hooks = hooks;
-  const skillTracking = await prepareCodexSkillTracking(
-    state,
-    request,
-    installedPluginRoots,
-  );
-  await codexPreflight(options, request, state, diagnostics);
   return {
     options,
-    request,
+    request: context.request,
     state,
     timeoutMs,
     skillTracking,
-    diagnostics,
+    diagnostics: context.diagnostics,
   };
-}
-
-async function prepareCodexSkillTracking(
-  state: CodexState,
-  request: Request,
-  pluginRoots: string[],
-): Promise<SkillTracking> {
-  const roots = await codexSkillCatalogRoots(request.workspace, pluginRoots, [
-    { directory: join(state.codexHome, "skills"), boundary: state.codexHome },
-    {
-      directory: join(state.parentHome, ".agents/skills"),
-      boundary: state.parentHome,
-    },
-    {
-      directory: join(state.commandHome, ".agents/skills"),
-      boundary: state.commandHome,
-    },
-    {
-      directory: join(state.commandHome, ".codex/skills"),
-      boundary: state.commandHome,
-    },
-  ]);
-  const tracking = await prepareSkillTracking({
-    privateRoot: state.codexHome,
-    host: "codex",
-    roots,
-  });
-  await writeFile(
-    join(state.codexHome, "hooks.json"),
-    JSON.stringify({ hooks: tracking.hooks }),
-    {
-      flag: "wx",
-      mode: 0o600,
-    },
-  );
-  return tracking;
 }
 
 async function validateCodexRequest(
@@ -305,75 +237,6 @@ function requireCodexGoalRoute(
   )
     throw new Error("native-goal runtime policy requires Codex app-server");
 }
-function sandboxArgs(
-  state: CodexState,
-  request: Request,
-  command: string[],
-): string[] {
-  return [
-    state.sandboxBinary,
-    "sandbox",
-    "-P",
-    state.profileId,
-    "-C",
-    request.workspace,
-    ...command,
-  ];
-}
-async function sandboxPreflight(
-  state: CodexState,
-  request: Request,
-  command: string[],
-  diagnostics: HostDiagnostics,
-) {
-  return runCodexProcess({
-    diagnostics,
-    argv: sandboxArgs(state, request, command),
-    cwd: request.workspace,
-    env: state.env,
-    timeoutMs: 60_000,
-    phase: "isolation-preflight",
-    signal: request.signal,
-  });
-}
-async function codexPreflight(
-  options: CodexHostOptions,
-  request: Request,
-  state: CodexState,
-  diagnostics: HostDiagnostics,
-): Promise<void> {
-  diagnostics.stage = "isolation-preflight";
-  const probe = join(state.commandTemp, "isolation-probe");
-  await writeFile(probe, "probe\n", { flag: "wx", mode: 0o600 });
-  const checked = await sandboxPreflight(
-    state,
-    request,
-    [
-      "/bin/sh",
-      "-c",
-      '/bin/cat "$1" >/dev/null && ! /bin/ls "$2" >/dev/null 2>&1 && ! /bin/cat "$3" >/dev/null 2>&1 && ! /bin/cat "$4" >/dev/null 2>&1 || exit 70; "$5" --version >/dev/null 2>&1 || exit 71',
-      "sevro-probe",
-      probe,
-      options.projectRoot,
-      join(state.codexHome, "auth.json"),
-      // The opt-in config read is tested separately; credentials always stay denied.
-      join(
-        state.codexHome,
-        request.runtimePolicy?.codexState === true
-          ? "auth.json"
-          : "config.toml",
-      ),
-      state.sandboxBinary,
-    ],
-    diagnostics,
-  );
-  if (checked.code === 71)
-    throw new CodexProcessFailure("executable-preflight", checked);
-  if (checked.code !== 0)
-    throw new CodexProcessFailure("isolation-preflight", checked);
-  await rm(probe);
-}
-
 function routeArgs(context: ExecutionContext): string[] {
   return [
     "-m",

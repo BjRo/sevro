@@ -163,8 +163,16 @@ A path the candidate and grading commands must neither read nor write, such as t
 _Avoid_: blocked path, denied dir
 
 **Private state**:
-The directory Sevro allocates and removes for one native host request, holding its credentials, configuration and transcripts outside the workspace; the native host uses it as its home and configuration root.
+The directory Sevro allocates for one native host request, holding its credentials, configuration and transcripts outside the workspace; the native host uses it as its home and configuration root. It is removed when its native host request ends, unless retained in the candidate runtime.
 _Avoid_: temp dir, home
+
+**Candidate runtime**:
+A trial's retained candidate home plus any retained private state, kept through grading and removed with the trial.
+_Avoid_: candidate home (only part of it), runtime state
+
+**Candidate artifact**:
+A named file or directory from the candidate's state that graders may read, never write, after the candidate has finished.
+_Avoid_: output, artifact (alone; host artifacts are diagnostics evidence)
 
 **Isolation policy**:
 The single validated statement of what an isolated process is denied, may read and may write, and which network access it has.

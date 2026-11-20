@@ -13,7 +13,7 @@ import {
 } from "../hooks/index";
 import {
   allocateNativeState,
-  candidateCodexStateRetained,
+  candidatePrivateStateRetained,
   requireCandidateArtifactRoots,
   requireCandidateRuntime,
   requireNativeTranscriptView,
@@ -138,7 +138,9 @@ async function executeNativeHostRequest<Admission, State>(
   } finally {
     await cleanupNativeState(diagnostics, async () => {
       await releaseRuntimeHooks(context.hooks);
-      if (!candidateCodexStateRetained(request.candidateRuntimeRoot, stateRoot))
+      if (
+        !candidatePrivateStateRetained(request.candidateRuntimeRoot, stateRoot)
+      )
         await rm(stateRoot, { recursive: true, force: true });
       for (const root of context.cleanupRoots)
         await rm(root, { recursive: true, force: true });

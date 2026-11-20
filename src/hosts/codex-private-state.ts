@@ -1,11 +1,15 @@
+/**
+ * The Codex private state of one native host request: its layout, plugin and
+ * hook installation, skill tracking, the single rendered permission profile,
+ * retention in the candidate runtime and the isolation preflight.
+ */
 import {
   runtimeExecutableProtection,
   prepareRuntimeState,
   candidateArtifactEnvironment,
   candidateArtifactReadRoots,
-  codexStateEnabled,
-  retainCandidateCodexState,
-  requireNativeHookRoots,
+  retainCandidatePrivateState,
+  type CandidateArtifactPath,
 } from "../runtime/index";
 import { shellQuote } from "../platform/index";
 import { randomUUID } from "node:crypto";
@@ -15,6 +19,7 @@ import {
   cp,
   lstat,
   mkdir,
+  mkdtemp,
   readFile,
   realpath,
   rm,
@@ -22,6 +27,7 @@ import {
   symlink,
   writeFile,
 } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { delimiter, dirname, join, sep } from "node:path";
 import type { HostAdapter } from "../host-contract/index";
 import {
@@ -34,9 +40,34 @@ import {
   createIsolationPolicy,
   type IsolationPolicy,
 } from "../isolation/index";
+import { installCodexPlugins } from "./codex-marketplace";
+import {
+  codexSkillCatalogRoots,
+  prepareSkillTracking,
+  type SkillTracking,
+} from "../skill-tracking/index";
+import { CodexProcessFailure, runCodexProcess } from "../native-process/index";
+import type { HostDiagnostics } from "../diagnostics/index";
+import type { NativeHostRequestContext } from "./native-host-request";
 type Request = Parameters<HostAdapter["run"]>[0];
+type CodexPaths = Awaited<ReturnType<typeof privateCodexDirectories>>;
 type CodexState = Awaited<ReturnType<typeof prepareCodexState>>;
 const MAX_AUTH_BYTES = 1024 * 1024;
+
+/** Prepared Codex private state, ready for turns. */
+export interface CodexPrivateState {
+  state: CodexState;
+  skillTracking: SkillTracking;
+}
+
+/** The four user-skill locations, keyed by their reserved candidate artifact names. */
+type CodexSkillRoots = Record<
+  | "codex_skills"
+  | "agent_skills"
+  | "command_agent_skills"
+  | "command_codex_skills",
+  { directory: string; boundary: string }
+>;
 
 export interface CodexHostOptions {
   binary: string;
@@ -70,7 +101,188 @@ async function copyAuth(source: string, target: string): Promise<void> {
   await writeFile(target, bytes, { flag: "wx", mode: 0o600 });
 }
 
-export async function codexHookMounts(
+/**
+ * Prepare the complete private state in its required order. The permission
+ * profile is rendered once, before plugin installation runs Codex, so every
+ * read grant (including curated hook mounts) is planned from the layout.
+ */
+export async function prepareCodexPrivateState(
+  context: NativeHostRequestContext,
+  options: CodexHostOptions,
+  limit: number | null,
+): Promise<CodexPrivateState> {
+  const { request, diagnostics, stateRoot } = context;
+  const helperRoot =
+    process.platform === "linux"
+      ? await mkdtemp(join(tmpdir(), "sevro-codex-helper-"))
+      : undefined;
+  if (helperRoot) context.cleanupRoots.push(helperRoot);
+  const state = await prepareCodexState(
+    stateRoot,
+    options,
+    limit,
+    request,
+    helperRoot,
+  );
+  const installedPluginRoots = await installCodexPlugins({
+    binary: options.binary,
+    env: state.env,
+    pluginCacheRoot: state.pluginCacheRoot,
+    request,
+    diagnostics,
+  });
+  diagnostics.stage = "hooks-preparation";
+  context.hooks = await codexHookMounts(request, state, installedPluginRoots);
+  const skillTracking = await prepareCodexSkillTracking(
+    state,
+    installedPluginRoots,
+  );
+  await codexPreflight(options, request, state, diagnostics);
+  return { state, skillTracking };
+}
+
+/** Each curated hook mount `prepareHookMounts` creates for a declared plugin. */
+function plannedHookRoots(request: Request, stateRoot: string): string[] {
+  return (request.codexMarketplace?.pluginNames ?? []).map((_, index) =>
+    join(stateRoot, "runtime-plugins", `plugin-${index}`),
+  );
+}
+
+/** Grants are validated against existing directories, so create them first. */
+async function createPlannedHookRoots(roots: string[]): Promise<void> {
+  for (const root of roots) await mkdir(root, { recursive: true, mode: 0o700 });
+}
+
+function codexSkillRoots(paths: CodexPaths): CodexSkillRoots {
+  return {
+    codex_skills: {
+      directory: join(paths.codexHome, "skills"),
+      boundary: paths.codexHome,
+    },
+    agent_skills: {
+      directory: join(paths.parentHome, ".agents", "skills"),
+      boundary: paths.parentHome,
+    },
+    command_agent_skills: {
+      directory: join(paths.commandHome, ".agents", "skills"),
+      boundary: paths.commandHome,
+    },
+    command_codex_skills: {
+      directory: join(paths.commandHome, ".codex", "skills"),
+      boundary: paths.commandHome,
+    },
+  };
+}
+
+function codexArtifacts(
+  paths: CodexPaths,
+): Record<string, CandidateArtifactPath> {
+  return {
+    codex_config: { path: join(paths.codexHome, "config.toml"), file: true },
+    ...Object.fromEntries(
+      Object.entries(codexSkillRoots(paths)).map(([name, root]) => [
+        name,
+        { path: root.directory },
+      ]),
+    ),
+  };
+}
+
+async function prepareCodexSkillTracking(
+  state: CodexState,
+  pluginRoots: string[],
+): Promise<SkillTracking> {
+  const roots = await codexSkillCatalogRoots(
+    state.workspace,
+    pluginRoots,
+    Object.values(codexSkillRoots(state)),
+  );
+  const tracking = await prepareSkillTracking({
+    privateRoot: state.codexHome,
+    host: "codex",
+    roots,
+  });
+  await writeFile(
+    join(state.codexHome, "hooks.json"),
+    JSON.stringify({ hooks: tracking.hooks }),
+    { flag: "wx", mode: 0o600 },
+  );
+  return tracking;
+}
+
+function sandboxArgs(
+  state: CodexState,
+  request: Request,
+  command: string[],
+): string[] {
+  return [
+    state.sandboxBinary,
+    "sandbox",
+    "-P",
+    state.profileId,
+    "-C",
+    request.workspace,
+    ...command,
+  ];
+}
+
+async function sandboxPreflight(
+  state: CodexState,
+  request: Request,
+  command: string[],
+  diagnostics: HostDiagnostics,
+) {
+  return runCodexProcess({
+    diagnostics,
+    argv: sandboxArgs(state, request, command),
+    cwd: request.workspace,
+    env: state.env,
+    timeoutMs: 60_000,
+    phase: "isolation-preflight",
+    signal: request.signal,
+  });
+}
+
+/** Prove the rendered profile denies credentials before any turn runs. */
+async function codexPreflight(
+  options: CodexHostOptions,
+  request: Request,
+  state: CodexState,
+  diagnostics: HostDiagnostics,
+): Promise<void> {
+  diagnostics.stage = "isolation-preflight";
+  const probe = join(state.commandTemp, "isolation-probe");
+  await writeFile(probe, "probe\n", { flag: "wx", mode: 0o600 });
+  const checked = await sandboxPreflight(
+    state,
+    request,
+    [
+      "/bin/sh",
+      "-c",
+      '/bin/cat "$1" >/dev/null && ! /bin/ls "$2" >/dev/null 2>&1 && ! /bin/cat "$3" >/dev/null 2>&1 && ! /bin/cat "$4" >/dev/null 2>&1 || exit 70; "$5" --version >/dev/null 2>&1 || exit 71',
+      "sevro-probe",
+      probe,
+      options.projectRoot,
+      join(state.codexHome, "auth.json"),
+      // The opt-in config read is tested separately; credentials always stay denied.
+      join(
+        state.codexHome,
+        request.runtimePolicy?.codexState === true
+          ? "auth.json"
+          : "config.toml",
+      ),
+      state.sandboxBinary,
+    ],
+    diagnostics,
+  );
+  if (checked.code === 71)
+    throw new CodexProcessFailure("executable-preflight", checked);
+  if (checked.code !== 0)
+    throw new CodexProcessFailure("isolation-preflight", checked);
+  await rm(probe);
+}
+
+async function codexHookMounts(
   request: Request,
   state: CodexState,
   installedPluginRoots: string[],
@@ -93,26 +305,17 @@ export async function codexHookMounts(
     await rm(root, { recursive: true });
     await cp(curated, root, { recursive: true });
   }
-  await grantCodexHookReads(state, hooks.directories);
+  requirePlannedHookRoots(state.hookRoots, hooks.directories);
   return hooks;
 }
 
-/** Hooks advertise paths relative to these curated copies, not the install cache. */
-async function grantCodexHookReads(
-  state: CodexState,
-  roots: string[],
-): Promise<void> {
-  if (roots.length === 0) return;
-  await requireNativeHookRoots(roots, state.codexHome);
-  const path = join(state.codexHome, "config.toml");
-  const config = await readFile(path, "utf8");
-  const header = `[permissions.${state.profileId}.filesystem]\n`;
-  const grants = roots
-    .map((root) => `${JSON.stringify(root)} = "read"\n`)
-    .join("");
-  await writeFile(path, config.replace(header, header + grants), {
-    mode: 0o600,
-  });
+/** Hooks advertise paths relative to these curated copies, which the profile already grants. */
+function requirePlannedHookRoots(planned: string[], actual: string[]): void {
+  if (
+    planned.length !== actual.length ||
+    planned.some((root, index) => root !== actual[index])
+  )
+    throw new Error("Codex hook mounts differ from the planned read grants");
 }
 
 async function privateCodexDirectories(stateRoot: string) {
@@ -162,7 +365,7 @@ function concurrencyConfiguration(limit: number | null): string {
 }
 
 async function writeCodexProfile(
-  paths: Awaited<ReturnType<typeof privateCodexDirectories>>,
+  paths: CodexPaths,
   profileId: string,
   request: Request,
   policy: IsolationPolicy,
@@ -193,7 +396,7 @@ function fixtureTrustConfiguration(request: Request): string {
 
 function codexProfileEnvironment(
   request: Request,
-  paths: Awaited<ReturnType<typeof privateCodexDirectories>>,
+  paths: CodexPaths,
   environment: Record<string, string> | undefined,
 ) {
   return {
@@ -291,7 +494,7 @@ function codexPath(fixtureBin: string | undefined): string {
 }
 
 function codexEnvironment(
-  paths: Awaited<ReturnType<typeof privateCodexDirectories>>,
+  paths: CodexPaths,
   request: Request,
   shellRoot: string,
 ): Record<string, string> {
@@ -317,7 +520,7 @@ function declaredCodexPath(request: Request): string {
 
 async function codexRuntime(
   request: Request,
-  paths: Awaited<ReturnType<typeof privateCodexDirectories>>,
+  paths: CodexPaths,
   stateRoot: string,
 ) {
   if (!request.runtimePolicy) return undefined;
@@ -335,7 +538,7 @@ async function codexRuntime(
 function applyCodexRuntime(
   runtime: Awaited<ReturnType<typeof codexRuntime>>,
   env: Record<string, string>,
-  paths: Awaited<ReturnType<typeof privateCodexDirectories>>,
+  paths: CodexPaths,
 ): void {
   if (runtime)
     Object.assign(env, runtime.environment, {
@@ -344,7 +547,7 @@ function applyCodexRuntime(
     });
 }
 
-export async function prepareCodexState(
+async function prepareCodexState(
   stateRoot: string,
   options: CodexHostOptions,
   limit: number | null,
@@ -366,14 +569,14 @@ export async function prepareCodexState(
     ]),
   );
   if (helperRoot) readRoots.push(helperRoot);
-  const policy = await codexIsolationPolicy(
-    stateRoot,
-    options,
-    request,
+  const hookRoots = plannedHookRoots(request, stateRoot);
+  await createPlannedHookRoots(hookRoots);
+  const policy = await codexIsolationPolicy(stateRoot, options, request, {
     paths,
     readRoots,
-    runtime?.root,
-  );
+    hookRoots,
+    runtimeRoot: runtime?.root,
+  });
   const protectedRoots = policy.deny;
   requireUnprotectedExecutables(
     readRoots,
@@ -396,38 +599,39 @@ export async function prepareCodexState(
   const env = codexEnvironment(paths, request, shellRoot);
   applyCodexRuntime(runtime, env, paths);
   await prepareCodexStateEvidence(request, stateRoot, paths);
-  return { ...paths, stateRoot, sandboxBinary, profileId, env, protectedRoots };
+  return {
+    ...paths,
+    stateRoot,
+    workspace: request.workspace,
+    sandboxBinary,
+    profileId,
+    env,
+    protectedRoots,
+    hookRoots,
+  };
 }
 
-function codexStateWriteRoots(
-  request: Request,
-  paths: Awaited<ReturnType<typeof privateCodexDirectories>>,
-): string[] {
-  return codexStateEnabled(request.runtimePolicy)
-    ? [
-        join(paths.codexHome, "skills"),
-        join(paths.parentHome, ".agents", "skills"),
-        join(paths.commandHome, ".agents", "skills"),
-        join(paths.commandHome, ".codex", "skills"),
-      ]
+function codexStateWriteRoots(request: Request, paths: CodexPaths): string[] {
+  return request.runtimePolicy?.codexState === true
+    ? Object.values(codexSkillRoots(paths)).map((root) => root.directory)
     : [];
 }
 
 async function prepareCodexStateEvidence(
   request: Request,
   stateRoot: string,
-  paths: Awaited<ReturnType<typeof privateCodexDirectories>>,
+  paths: CodexPaths,
 ): Promise<void> {
-  if (!codexStateEnabled(request.runtimePolicy)) return;
+  if (request.runtimePolicy?.codexState !== true) return;
   const skillRoots = codexStateWriteRoots(request, paths);
   await Promise.all(
     skillRoots.map((root) => mkdir(root, { recursive: true, mode: 0o700 })),
   );
   await mkdir(join(paths.codexHome, "skills", ".system"), { mode: 0o700 });
-  await retainCandidateCodexState(
+  await retainCandidatePrivateState(
     request.candidateRuntimeRoot,
     stateRoot,
-    paths,
+    codexArtifacts(paths),
   );
 }
 
@@ -444,10 +648,14 @@ function codexIsolationPolicy(
   stateRoot: string,
   options: CodexHostOptions,
   request: Request,
-  paths: Awaited<ReturnType<typeof privateCodexDirectories>>,
-  readRoots: string[],
-  runtimeRoot: string | undefined,
+  grants: {
+    paths: CodexPaths;
+    readRoots: string[];
+    hookRoots: string[];
+    runtimeRoot: string | undefined;
+  },
 ) {
+  const { paths, readRoots, hookRoots, runtimeRoot } = grants;
   return createIsolationPolicy({
     subject: "host",
     workspace: request.workspace,
@@ -470,6 +678,7 @@ function codexIsolationPolicy(
     commandTemp: paths.commandTemp,
     executableReadRoots: readRoots,
     pluginReadRoots: request.codexMarketplace ? [paths.pluginCacheRoot] : [],
+    hookReadRoots: hookRoots,
   });
 }
 

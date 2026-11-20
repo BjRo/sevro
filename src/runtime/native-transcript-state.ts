@@ -108,8 +108,9 @@ async function requireNativeHookOwner(
   state: string,
   privateRoot: string,
 ): Promise<void> {
+  // The private root is the request's state root or one of its host subroots.
   if (
-    dirname(privateRoot) !== state ||
+    (privateRoot !== state && dirname(privateRoot) !== state) ||
     (await realpath(privateRoot)) !== privateRoot
   )
     throw new Error("native hook read root must belong to the current request");
