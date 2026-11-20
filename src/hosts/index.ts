@@ -24,3 +24,4 @@ export {
   type NativeRunContext,
   type NativeRunOutcome,
 } from "./native-run";
+export { claudeHostSettings } from "./claude-settings";

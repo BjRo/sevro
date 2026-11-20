@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { prepareLinuxSandboxCommand } from "../../../src/isolation";
+import { prepareIsolatedCommand } from "../../../src/isolation";
 import { createTemporaryFixtures } from "../../fixtures/filesystem";
 
 const { temporaryFixture, cleanupTemporaryFixtures } =
@@ -32,7 +32,7 @@ test.skipIf(!available)(
         writeFile(join(state, "secret"), "private"),
         writeFile(join(tools, "public"), "readable"),
       ]);
-      const isolated = await prepareLinuxSandboxCommand({
+      const isolated = await prepareIsolatedCommand({
         argv: [
           "/bin/sh",
           "-c",
@@ -49,7 +49,7 @@ test.skipIf(!available)(
         privateStateRoot: state,
         readOnlyRoots: [tools],
         writableRuntimeRoot: runtime,
-        denyNetwork: true,
+        network: "deny",
       });
       try {
         const child = Bun.spawn(isolated.argv, {
@@ -85,7 +85,7 @@ test.skipIf(!available)(
     try {
       await Promise.all([workspace, source].map((path) => mkdir(path)));
       expect(
-        prepareLinuxSandboxCommand({
+        prepareIsolatedCommand({
           argv: ["/bin/true"],
           workspace,
           protectedRoots: [source],

@@ -2,10 +2,7 @@ import { realpath } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import { insideRoot as inside } from "../platform/index";
 export { insideRoot as inside } from "../platform/index";
-import {
-  insideRuntimeRoot,
-  type CandidateArtifactRoots,
-} from "../runtime/index";
+import { insideRuntimeRoot } from "../runtime/index";
 import { workspaceBoundaryException } from "../workspace/index";
 
 export class HostIsolationError extends Error {
@@ -15,19 +12,10 @@ export class HostIsolationError extends Error {
   }
 }
 
-export interface IsolationOptions {
-  argv: string[];
+interface IsolationPaths {
   workspace: string;
-  protectedRoots: string[];
-  protectedRootsCanonical?: boolean;
   privateStateRoot: string;
-  denyNetwork?: boolean;
-  localHttp?: boolean;
-  readOnlyRoots?: string[];
-  transcriptReadRoots?: string[];
-  candidateArtifactRoots?: CandidateArtifactRoots;
-  hookReadRoots?: string[];
-  writableRuntimeRoot?: string;
+  protectedRoots: string[];
   writableCacheRoots?: string[];
 }
 
@@ -49,16 +37,14 @@ export async function commandRuntimeRoot(
   return root;
 }
 
-export function requireIsolationPaths(options: IsolationOptions): void {
-  if (!options.argv.length || options.argv.some((part) => !part))
-    throw new HostIsolationError("isolated command must be nonempty");
+export function requireIsolationPaths(options: IsolationPaths): void {
   if (!options.protectedRoots.length)
     throw new HostIsolationError("isolated command needs protected roots");
   if (!absoluteIsolationPaths(options))
     throw new HostIsolationError("isolation paths must be absolute");
 }
 
-function absoluteIsolationPaths(options: IsolationOptions): boolean {
+function absoluteIsolationPaths(options: IsolationPaths): boolean {
   return (
     isAbsolute(options.workspace) &&
     isAbsolute(options.privateStateRoot) &&
