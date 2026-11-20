@@ -5,6 +5,10 @@
  * observations, diagnostics and retention. Its two host adapters supply native
  * preparation and turns. Tests cross this same seam with a fake host adapter.
  *
+ * Skill invocation preparation resolves extension declarations through the owning
+ * host rules. Runtime admission reuses those names, tokens, counts and paths while
+ * verifying materialized mounts before native state allocation.
+ *
  * Each factory validates one route's options and returns a host adapter that
  * runs the native Claude or Codex executable inside private runtime state,
  * then reports its result with bounded native observations. Codex routes may
@@ -25,3 +29,15 @@ export {
   type NativeRunOutcome,
 } from "./native-run";
 export { claudeHostSettings } from "./claude-settings";
+
+export {
+  prepareHostInvocation,
+  renderSkillInvocation,
+  type InvocationPreparation,
+  type PreparedInvocation,
+} from "./skill-invocation";
+export { verifyCodexInvocation } from "./codex-invocation";
+export {
+  verifyClaudeRepositoryMount,
+  verifyClaudePluginInvocation,
+} from "./claude-invocation";

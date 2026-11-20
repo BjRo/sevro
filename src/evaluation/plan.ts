@@ -28,14 +28,11 @@ import {
   type EvaluationCheckPlan,
   type PreparedChecks,
 } from "./check-plan";
-import {
-  prepareInvocationPlan,
-  type PreparedInvocation,
-} from "./invocation-plan";
+import { prepareHostInvocation, type PreparedInvocation } from "../hosts/index";
 import type { PreparationResult } from "../extensions/index";
 
 export type { PreparedChecks } from "./check-plan";
-export type { PreparedInvocation } from "./invocation-plan";
+export type { PreparedInvocation } from "../hosts/index";
 
 interface EnvironmentPlan {
   readonly projectRoot: string;
@@ -389,12 +386,7 @@ function redactedPreparationConfiguration(state: PreparedEvaluationInputs) {
     ...(state.fixture.fixtureSetup
       ? { fixtureSetupDigest: hashJson(state.fixture.fixtureSetup) }
       : {}),
-    ...(state.invocation.codexMarketplace
-      ? { codexMarketplace: state.invocation.codexMarketplace }
-      : {}),
-    ...(state.invocation.claudePluginDirs
-      ? { claudePluginDirs: state.invocation.claudePluginDirs }
-      : {}),
+    ...state.invocation.packageConfiguration,
   };
 }
 
@@ -513,12 +505,7 @@ function fixtureIdentityData(state: PreparedEvaluationInputs) {
     ...(state.fixture.fixtureSetup
       ? { fixtureSetup: state.fixture.fixtureSetup }
       : {}),
-    ...(state.invocation.codexMarketplace
-      ? { codexMarketplace: state.invocation.codexMarketplace }
-      : {}),
-    ...(state.invocation.claudePluginDirs
-      ? { claudePluginDirs: state.invocation.claudePluginDirs }
-      : {}),
+    ...state.invocation.packageConfiguration,
     ...state.invocation.configuration,
   };
 }
@@ -640,7 +627,10 @@ export async function prepareEvaluation(
     environment,
     checks,
   );
-  const invocation = prepareInvocationPlan(options, {
+  const invocation = prepareHostInvocation({
+    case: options.case,
+    hostCapabilities: options.host.hostCapabilities,
+    negotiatedCapabilities: options.extension?.session.identity.capabilities,
     extensionPreparation: environment.extensionPreparation,
     inlineArtifacts: artifacts.inlineArtifacts,
   });
