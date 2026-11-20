@@ -177,13 +177,8 @@ for (const failure of [false, true]) {
       if (failure) throw new Error("turn failed");
       return Promise.resolve({
         result: { finalMessage: "ready", complete: true },
-        observations: [
-          {
-            id: "sevro.host.native-goal",
-            completeness: "complete",
-            data: { threadId: "session" },
-          },
-        ],
+        rootSessionId: "session",
+        observations: [],
       });
     };
     const result = await runNativeHostRequest(f.nativeHost, {
