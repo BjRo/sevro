@@ -429,23 +429,20 @@ class EvaluationTrial {
     this.acceptGradingFailure(graded.failure);
   }
 
-  private shellRootRequest() {
+  private shellIsolationDescription() {
     const isolation = this.options.shellIsolation;
     if (!isolation) return null;
     return {
       workspace: this.fixture.workspace,
       projectRoot: this.context.prepared.fixture.projectRoot,
       resultsRoot: this.options.resultsRoot,
-      additionalRoots: [
-        ...isolation.protectedRoots,
-        ...(this.options.preparationSources
-          ? [this.options.preparationSources.root]
-          : []),
-        ...(this.context.prepared.fixture.source.kind === "repository"
-          ? [this.context.prepared.fixture.source.repository.path]
-          : []),
-        this.context.resources.runStateRoot,
-      ],
+      additionalRoots: isolation.protectedRoots,
+      preparationRoot: this.options.preparationSources?.root,
+      repositoryRoot:
+        this.context.prepared.fixture.source.kind === "repository"
+          ? this.context.prepared.fixture.source.repository.path
+          : undefined,
+      runStateRoot: this.context.resources.runStateRoot,
     };
   }
 
@@ -457,7 +454,7 @@ class EvaluationTrial {
       return;
     const graded = await gradeShellChecks({
       checks: this.context.prepared.checks.preparedShell,
-      protectedRoots: this.shellRootRequest(),
+      protectedRoots: this.shellIsolationDescription(),
       execution: {
         candidateTranscriptRoot: this.state.candidateTranscriptRoot,
         candidateArtifactRoots: this.state.candidateArtifacts,

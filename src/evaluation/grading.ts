@@ -8,7 +8,7 @@ import {
   runShellCheck,
   type PreparedShellCheck,
 } from "../graders/index";
-import { evaluationProtectedRoots } from "../isolation/index";
+import type { IsolationProtection } from "../isolation/index";
 import { sha256, type CheckOutcome } from "../kernel/index";
 import type { TrialObservation } from "../evidence/index";
 import {
@@ -64,8 +64,7 @@ export function gradeCandidateOutput(input: {
 
 interface ShellGradingInput {
   readonly checks: readonly PreparedShellCheck[];
-  readonly protectedRoots:
-    Parameters<typeof evaluationProtectedRoots>[0] | null;
+  readonly protectedRoots: (IsolationProtection & { workspace: string }) | null;
   readonly execution: Omit<
     Parameters<typeof runShellCheck>[1],
     "protectedRoots"
@@ -113,11 +112,10 @@ export async function gradeShellChecks(
   try {
     if (!input.protectedRoots)
       throw new Error("shell checks require explicit protected source roots");
-    const protectedRoots = await evaluationProtectedRoots(input.protectedRoots);
     for (const check of input.checks) {
       const graded = await gradeShellCheck(check, {
         ...input.execution,
-        protectedRoots,
+        protection: input.protectedRoots,
         protectedRootsCanonical: true,
       });
       checks.push(graded.check);

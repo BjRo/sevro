@@ -1,19 +1,28 @@
-import { runnerRoot } from "../platform/index";
+import { runnerRoot, minimalRoots } from "../platform/index";
 import { isMissingFile } from "../kernel/index";
 import { realpath } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
 import { isAbsolute } from "node:path";
 import { protectedWorktrees } from "./protected-worktrees";
-import { nativeStateParent } from "../runtime/index";
+import {
+  nativeStateParent,
+  runtimeSeedSources,
+  type RuntimePolicy,
+} from "../runtime/index";
 import { workspaceStateParent } from "../workspace/index";
 
 /** Include source, results, host configuration, and every active peer fixture. */
 interface ProtectedRootsOptions {
+  minimal?: boolean;
+  runtimePolicy?: RuntimePolicy;
   workspace: string;
   projectRoot: string;
   resultsRoot: string;
   additionalRoots: string[];
   ownedStateRoot?: string;
+  preparationRoot?: string;
+  repositoryRoot?: string;
+  runStateRoot?: string;
 }
 
 async function protectedRootCandidates(options: ProtectedRootsOptions) {
@@ -30,6 +39,8 @@ async function protectedRootCandidates(options: ProtectedRootsOptions) {
     homedir(),
     userInfo().homedir,
     ...options.additionalRoots,
+    ...evaluationSourceRoots(options),
+    ...runtimeSeedSources(options.runtimePolicy),
     ...optionalConfigRoots,
   ];
   if (candidates.some((root) => !isAbsolute(root)))
@@ -64,7 +75,7 @@ export async function evaluationProtectedRoots(
         );
     }
   }
-  return [...new Set(roots)];
+  return protectedRootSet(roots, options.minimal);
 }
 
 function includedProtectedRoot(
@@ -85,4 +96,20 @@ async function canonicalProtectedRoot(
     if (optionalRoots.includes(candidate) && isMissingFile(cause)) return null;
     throw new Error("evaluation protected root is unreadable", { cause });
   }
+}
+
+function evaluationSourceRoots(options: ProtectedRootsOptions): string[] {
+  return [
+    options.preparationRoot,
+    options.repositoryRoot,
+    options.runStateRoot,
+  ].filter((root): root is string => root !== undefined);
+}
+
+function protectedRootSet(
+  roots: string[],
+  minimal: boolean | undefined,
+): string[] {
+  const unique = [...new Set(roots)];
+  return minimal ? minimalRoots(unique) : unique;
 }

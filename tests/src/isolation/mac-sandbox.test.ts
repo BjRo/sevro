@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   evaluationProtectedRoots,
+  createIsolationPolicy,
   HostIsolationError,
   macSandboxProfile,
   prepareIsolatedCommand,
@@ -217,7 +218,6 @@ test("sandbox grants only the current native plugin subtree read-only", async ()
 test.each(invalidSandboxCommands)(
   "sandbox command refuses $label before accessing any declared path",
   ({ change, diagnostic }) => {
-    if (process.platform !== "darwin") return;
     expect(
       prepareIsolatedCommand({
         argv: ["/usr/bin/true"],
@@ -231,7 +231,6 @@ test.each(invalidSandboxCommands)(
 );
 
 test("sandbox private state must stay outside an otherwise disjoint workspace", async () => {
-  if (process.platform !== "darwin") return;
   const root = await temporaryFixture(join(tmpdir(), "sevro-sandbox-state-"));
   try {
     const workspace = join(root, "workspace");
@@ -342,15 +341,29 @@ test("protection refuses ordinary invalid repository metadata rather than treati
     await rm(root, { recursive: true, force: true });
   }
 });
-test("profile denies reads and writes of each protected root", () => {
-  const profile = macSandboxProfile(["/private/source", "/private/evidence"]);
+test("profile denies reads and writes of each protected root", async () => {
+  const description = {
+    subject: "host" as const,
+    workspace: "/workspace",
+    privateStateRoot: "/state",
+    protectedRoots: ["/private/source", "/private/evidence"],
+  };
+  const profile = macSandboxProfile(await createIsolationPolicy(description));
   expect(profile).toContain('(deny file-read* (subpath "/private/source"))');
   expect(profile).toContain('(deny file-write* (subpath "/private/evidence"))');
-  expect(macSandboxProfile(["/private/source"], true)).toContain(
-    "(deny network*)",
-  );
-  expect(() => macSandboxProfile([])).toThrow(HostIsolationError);
-  expect(() => macSandboxProfile(["/bad\npath"])).toThrow(/control character/);
+  expect(
+    macSandboxProfile(
+      await createIsolationPolicy({ ...description, network: "deny" }),
+    ),
+  ).toContain("(deny network*)");
+  expect(
+    createIsolationPolicy({ ...description, protectedRoots: [] }),
+  ).rejects.toThrow(HostIsolationError);
+  const invalid = await createIsolationPolicy({
+    ...description,
+    protectedRoots: ["/bad\npath"],
+  });
+  expect(() => macSandboxProfile(invalid)).toThrow(/control character/);
 });
 test("outer sandbox permits the fixture but denies protected source", async () => {
   if (process.platform !== "darwin") return;
@@ -402,7 +415,6 @@ test("outer sandbox permits the fixture but denies protected source", async () =
   }
 });
 test("workspace cannot overlap a protected root", async () => {
-  if (process.platform !== "darwin") return;
   const root = await temporaryFixture(join(tmpdir(), "sevro-sandbox-overlap-"));
   try {
     expect(

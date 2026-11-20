@@ -1,24 +1,29 @@
 import { expect, test } from "bun:test";
+import { createIsolationPolicy } from "../../../src/isolation/index";
 import { codexPermissionProfile } from "../../../src/codex-profile/index";
 
 test.each([false, true])(
   "Codex TOML output with local HTTP %s",
-  (localHttp) => {
+  async (localHttp) => {
     expect(
       platformIndependent(
         codexPermissionProfile({
           id: "sevro_golden",
-          workspace: "/workspace",
-          commandHome: "/state/home",
-          commandTemp: "/state/tmp",
-          executableReadRoots: ["/tools", "/tools"],
-          protectedRoots: ["/source", "/state"],
-          pluginReadRoot: "/state/plugins",
-          runtimeReadRoots: ["/runtime-tools"],
-          nativeReadRoots: ["/state/view"],
-          nativeWriteRoots: ["/state/skills", "/cache"],
-          runtimeWriteRoot: "/state/runtime",
-          localHttp,
+          policy: await createIsolationPolicy({
+            subject: "host",
+            privateStateRoot: "/state",
+            workspace: "/workspace",
+            commandHome: "/state/home",
+            commandTemp: "/state/tmp",
+            executableReadRoots: ["/tools", "/tools"],
+            protectedRoots: ["/source", "/state"],
+            pluginReadRoots: ["/state/plugins"],
+            readOnlyRoots: ["/runtime-tools"],
+            nativeReadRoots: ["/state/view"],
+            nativeWriteRoots: ["/state/skills", "/cache"],
+            writableRuntimeRoot: "/state/runtime",
+            network: localHttp ? "local-http" : "deny",
+          }),
           commandEnvironment: { PATH: "/tools:/bin", LANG: "C" },
         }),
       ),

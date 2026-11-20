@@ -6,17 +6,17 @@ import {
   terminateOwnedProcessGroup,
 } from "../platform/index";
 import {
-  runtimeLocalHttpEnabled,
-  runtimeSeedSources,
   prepareRuntimeState,
-  sharedCacheDenyRoots,
   type RuntimePolicy,
   candidateArtifactEnvironment,
   type CandidateArtifactRoots,
 } from "../runtime/index";
 import { mkdir, stat } from "node:fs/promises";
 import { delimiter, join } from "node:path";
-import { prepareIsolatedCommand } from "../isolation/index";
+import {
+  prepareIsolatedCommand,
+  type IsolationProtection,
+} from "../isolation/index";
 import { hashJson } from "../kernel/index";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -264,7 +264,8 @@ interface ShellRunOptions {
   fixtureBinDir?: string;
   toolchainBinDir?: string;
   uvRuntimeCache?: boolean;
-  protectedRoots: string[];
+  protectedRoots?: string[];
+  protection?: IsolationProtection;
   protectedRootsCanonical?: boolean;
   privateStateRoot: string;
   signal?: AbortSignal;
@@ -427,26 +428,19 @@ export async function runShellCheck(
   const isolated = await prepareIsolatedCommand({
     argv: ["/bin/sh", "-e", "-c", check.run],
     workspace: options.workspace,
-    protectedRoots: [...options.protectedRoots, ...shellSeedSources(options)],
+    protectedRoots: options.protectedRoots,
+    protection: options.protection,
+    runtimePolicy: options.runtimePolicy,
+    runtimeRole: "checks",
     protectedRootsCanonical: options.protectedRootsCanonical,
     privateStateRoot: options.privateStateRoot,
-    denyNetwork: true,
-    localHttp: runtimeLocalHttpEnabled(options.runtimePolicy, "checks"),
-    readOnlyRoots: options.runtimePolicy?.readOnlyRoots,
+    network: "deny",
     candidateArtifactRoots: options.candidateArtifactRoots,
     transcriptReadRoots: options.candidateTranscriptRoot
       ? [options.candidateTranscriptRoot]
       : [],
     writableRuntimeRoot: runtime.privateRuntimeRoot,
-    writableCacheRoots: runtime.writableCacheRoots,
   });
   await requireShellRuntimeCache(options, runtime);
   return new ShellExecution(check, options, isolated, runtime).run();
-}
-
-function shellSeedSources(options: ShellRunOptions): string[] {
-  return [
-    ...runtimeSeedSources(options.runtimePolicy),
-    ...sharedCacheDenyRoots(options.runtimePolicy, "checks"),
-  ];
 }

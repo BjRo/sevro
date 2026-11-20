@@ -1,22 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { rm, stat, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import {
-  requireNativeTranscriptViews,
-  requireNativeHookRoots,
-  requireRuntimeReadRoots,
-  requireWritableCacheRoots,
-  requireCandidateArtifactRoots,
-} from "../runtime/index";
-import {
-  commandRuntimeRoot,
-  HostIsolationError,
-  requireDisjointState,
-  requireIsolationPaths,
-  type IsolatedCommand,
-  type IsolationOptions,
-} from "./isolation-common";
+import { HostIsolationError, type IsolatedCommand } from "./isolation-common";
+import type { IsolationPolicy } from "./policy";
 
 const BWRAP = "/usr/bin/bwrap";
 
@@ -50,48 +37,23 @@ function mountProtectedRoot(
 
 /** Mask protected inputs before launching an evaluator-owned command. */
 export async function prepareLinuxSandboxCommand(
-  options: IsolationOptions,
+  policy: IsolationPolicy,
+  argv: string[],
 ): Promise<IsolatedCommand> {
   requireLinuxSandbox();
-  await requireNativeTranscriptViews(options.transcriptReadRoots);
-  await requireCandidateArtifactRoots(options.candidateArtifactRoots);
-  await requireNativeHookRoots(options.hookReadRoots, options.privateStateRoot);
-  requireIsolationPaths(options);
-  const workspace = await realpath(options.workspace);
-  const roots = options.protectedRootsCanonical
-    ? options.protectedRoots
-    : await Promise.all(options.protectedRoots.map((path) => realpath(path)));
-  await mkdir(options.privateStateRoot, { recursive: true, mode: 0o700 });
-  const stateRoot = await realpath(options.privateStateRoot);
-  const ownedRoot = await commandRuntimeRoot(
-    stateRoot,
-    options.writableRuntimeRoot,
-  );
-  const readRoots = options.readOnlyRoots ?? [];
-  const writableCacheRoots = await cacheMountRoots(options, [
-    ...roots,
-    stateRoot,
-  ]);
-  requireRuntimeReadRoots(readRoots, [...roots, stateRoot]);
-  requireDisjointState(workspace, roots, stateRoot);
+  const stateRoot = policy.privateStateRoot;
   const blockedFile = resolve(stateRoot, `blocked-${randomUUID()}`);
   await writeFile(blockedFile, "", { flag: "wx", mode: 0o000 });
   try {
-    const protectedRoots = [...new Set([...roots, stateRoot])].sort(
-      (left, right) => left.length - right.length,
-    );
+    const protectedRoots = [
+      ...new Set([...policy.deny, policy.privateStateRoot]),
+    ].sort((left, right) => left.length - right.length);
     const kinds = await Promise.all(protectedRoots.map(protectedKind));
     const masks = protectedRoots.flatMap((path, index) =>
       mountProtectedRoot(path, kinds[index], blockedFile),
     );
     return {
-      argv: linuxSandboxArguments(options, {
-        workspace,
-        masks,
-        readRoots,
-        ownedRoot,
-        writableCacheRoots,
-      }),
+      argv: linuxSandboxArguments(policy, argv, masks),
       release: async () => {
         await rm(blockedFile, { force: true });
       },
@@ -102,55 +64,19 @@ export async function prepareLinuxSandboxCommand(
   }
 }
 
-function cacheMountRoots(options: IsolationOptions, protectedRoots: string[]) {
-  return requireWritableCacheRoots(
-    options.writableCacheRoots ?? [],
-    protectedRoots,
-  );
-}
-
-function transcriptMounts(options: IsolationOptions): string[] {
-  return (options.transcriptReadRoots ?? []).flatMap((path) => [
-    "--ro-bind",
-    path,
-    path,
-  ]);
-}
-
-function candidateArtifactMounts(options: IsolationOptions): string[] {
-  return Object.values(options.candidateArtifactRoots ?? {}).flatMap((path) => [
-    "--ro-bind",
-    path,
-    path,
-  ]);
-}
-
-function hookMounts(options: IsolationOptions): string[] {
-  return (options.hookReadRoots ?? []).flatMap((path) => [
-    "--ro-bind",
-    path,
-    path,
-  ]);
-}
-
-/** Render the Linux launch without spawning a sandbox. */
+/** A policy renderer over validated grants; masks encode protected file kinds. */
 export function linuxSandboxArguments(
-  options: IsolationOptions,
-  mounts: {
-    workspace: string;
-    masks: string[];
-    readRoots: string[];
-    ownedRoot?: string;
-    writableCacheRoots: string[];
-  },
+  policy: IsolationPolicy,
+  argv: string[],
+  masks: string[],
 ): string[] {
-  const { workspace, masks, readRoots, ownedRoot, writableCacheRoots } = mounts;
+  const workspace = policy.workspace;
   return [
     BWRAP,
     "--die-with-parent",
     "--unshare-user",
     "--unshare-pid",
-    ...networkArgs(Boolean(options.denyNetwork)),
+    ...networkArgs(policy.network !== "allowed"),
     "--ro-bind",
     "/",
     "/",
@@ -166,15 +92,19 @@ export function linuxSandboxArguments(
     "--bind",
     workspace,
     workspace,
-    ...readRoots.flatMap((path) => ["--ro-bind", path, path]),
-    ...transcriptMounts(options),
-    ...candidateArtifactMounts(options),
-    ...hookMounts(options),
-    ...(ownedRoot ? ["--bind", ownedRoot, ownedRoot] : []),
-    ...writableCacheRoots.flatMap((path) => ["--bind", path, path]),
+    ...[
+      ...policy.read.runtime,
+      ...policy.read.transcripts,
+      ...policy.read.artifacts,
+      ...policy.read.hooks,
+    ].flatMap((path) => ["--ro-bind", path, path]),
+    ...(policy.write.runtime
+      ? ["--bind", policy.write.runtime, policy.write.runtime]
+      : []),
+    ...policy.write.caches.flatMap((path) => ["--bind", path, path]),
     "--chdir",
     workspace,
     "--",
-    ...options.argv,
+    ...argv,
   ];
 }

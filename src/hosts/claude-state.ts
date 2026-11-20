@@ -1,15 +1,11 @@
 import {
-  runtimeSeedSources,
   insideRuntimeRoot as inside,
   runtimeExecutableProtection,
   prepareRuntimeState,
-  sharedCacheDenyRoots,
-  sharedCacheRoots,
   candidateArtifactEnvironment,
-  candidateArtifactReadRoots,
   nativeStateParent,
 } from "../runtime/index";
-import { minimalRoots, shellQuote } from "../platform/index";
+import { shellQuote } from "../platform/index";
 import {
   cp,
   mkdir,
@@ -31,7 +27,10 @@ import {
 import { prepareHookMounts, runtimeHooksEnabled } from "../hooks/index";
 import { stageClaudeAuthentication } from "../claude-login/index";
 import { claudeHostSettings } from "./claude-settings";
-import { evaluationProtectedRoots } from "../isolation/index";
+import {
+  evaluationProtectedRoots,
+  createIsolationPolicy,
+} from "../isolation/index";
 type Request = Parameters<HostAdapter["run"]>[0];
 export interface ClaudeHostOptions {
   binary: string;
@@ -46,10 +45,6 @@ export interface ClaudeHostOptions {
   projectSettings?: boolean;
   timeoutMs?: number;
   retainHostDiagnostics?: boolean;
-}
-
-function claudeSeedSources(request: Request): string[] {
-  return runtimeSeedSources(request.runtimePolicy);
 }
 
 async function createClaudePrivateState(
@@ -81,17 +76,15 @@ async function protectedClaudeRoots(
   options: ClaudeHostOptions,
   credential: string,
 ) {
-  const candidates = await evaluationProtectedRoots({
+  const roots = await evaluationProtectedRoots({
+    minimal: !request.runtimePolicy,
+    runtimePolicy: request.runtimePolicy,
     ownedStateRoot: dirname(dirname(dirname(credential))),
     workspace: request.workspace,
     projectRoot: options.projectRoot,
     resultsRoot: options.resultsRoot,
-    additionalRoots: [
-      ...options.additionalProtectedRoots,
-      ...claudeSeedSources(request),
-    ],
+    additionalRoots: options.additionalProtectedRoots,
   });
-  const roots = request.runtimePolicy ? candidates : minimalRoots(candidates);
   const namespace = await nativeStateParent();
   if (roots.some((root) => root !== namespace && inside(root, credential)))
     throw new Error("Claude private state overlaps a protected root");
@@ -221,34 +214,25 @@ export async function prepareClaudeState(
     runtime,
     stateRoot,
   );
-  const cacheRoots = await sharedCacheRoots(
-    request.runtimePolicy,
-    request.runtimeRole,
-    roots,
-  );
+  const policy = await createIsolationPolicy({
+    subject: "host",
+    workspace: request.workspace,
+    privateStateRoot: state.privateRoot,
+    protectedRoots: roots,
+    runtimePolicy: transcripts.policy,
+    runtimeRole: request.runtimeRole,
+    pluginReadRoots: [...pluginDirs, ...effectivePlugins],
+    nativeReadRoots: transcripts.readRoots,
+    transcriptReadRoots: candidateTranscriptRoots(
+      request.candidateTranscriptRoot,
+    ),
+    candidateArtifactRoots: request.candidateArtifactRoots,
+    writableRuntimeRoot: runtimeWriteRoot,
+    network: "allowed",
+  });
   await writeFile(
     settingsPath,
-    JSON.stringify(
-      claudeHostSettings(
-        state.privateRoot,
-        state.credential,
-        [...pluginDirs, ...effectivePlugins],
-        [
-          ...roots,
-          ...sharedCacheDenyRoots(request.runtimePolicy, request.runtimeRole),
-        ],
-        transcripts.policy,
-        [
-          ...transcripts.readRoots,
-          ...candidateTranscriptRoots(request.candidateTranscriptRoot),
-          ...candidateArtifactReadRoots(request.candidateArtifactRoots),
-        ],
-        runtimeWriteRoot
-          ? { root: runtimeWriteRoot, workspace: request.workspace, cacheRoots }
-          : undefined,
-        request.workspace,
-      ),
-    ),
+    JSON.stringify(claudeHostSettings(policy, state.credential)),
     { flag: "wx", mode: 0o600 },
   );
   Object.assign(env, transcripts.environment);
@@ -344,7 +328,7 @@ async function claudeHookMounts(
     stateRoot,
     privateRoot,
     pluginRoots: pluginDirs,
-    protectedRoots: [privateRoot, ...roots, ...runtimeSeedSources(policy)],
+    protectedRoots: [privateRoot, ...roots],
     policy,
   });
 }

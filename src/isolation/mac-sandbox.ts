@@ -1,26 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { containsControl } from "../kernel/index";
 import { existsSync } from "node:fs";
-import { mkdir, realpath, rm, writeFile } from "node:fs/promises";
+import { rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import {
-  requireNativeTranscriptViews,
-  requireNativeHookRoots,
-  requireCandidateArtifactRoots,
-  requireWritableCacheRoots,
-  insideRuntimeRoot,
-  isRuntimeHomeRoot,
-  requireRuntimeReadRoots,
-} from "../runtime/index";
+import { insideRuntimeRoot, isRuntimeHomeRoot } from "../runtime/index";
 import { workspaceBoundaryException } from "../workspace/index";
-import {
-  commandRuntimeRoot,
-  HostIsolationError,
-  requireDisjointState,
-  requireIsolationPaths,
-  type IsolatedCommand,
-  type IsolationOptions,
-} from "./isolation-common";
+import { HostIsolationError, type IsolatedCommand } from "./isolation-common";
+import type { IsolationPolicy } from "./policy";
 
 const SANDBOX_EXEC = "/usr/bin/sandbox-exec";
 
@@ -31,51 +17,58 @@ function quoted(path: string): string {
 }
 
 /** Protect canonical roots while preserving explicitly granted access. */
-export function macSandboxProfile(
-  deniedRoots: string[],
-  denyNetwork = false,
-  readOnlyRoots: string[] = [],
-  writableRuntimeRoot?: string,
-  transcriptReadRoots: string[] = [],
-  workspace?: string,
-  localHttp?: boolean,
-  writableCacheRoots?: string[],
-): string {
-  requireProfileRoots(deniedRoots);
-  return [
-    "(version 1)",
-    "(allow default)",
-    ...(denyNetwork ? ["(deny network*)"] : []),
-    ...localHttpRules(localHttp),
-    ...[...new Set(deniedRoots)]
-      .sort()
-      .flatMap((path) => [
-        `(deny file-read* ${workspaceReadFilter(path, readExceptions(path, readOnlyRoots, writableRuntimeRoot, transcriptReadRoots, workspace, writableCacheRoots), workspace)})`,
-        `(deny file-write* ${rootFilter(path, [...writableExceptions(path, writableRuntimeRoot, writableCacheRoots), ...workspaceBoundaryException(path, workspace)])})`,
-      ]),
-    ...deniedRoots.flatMap((path) =>
-      workspaceBoundaryException(path, workspace).map(
-        () => `(deny file-read-data (literal "${quoted(path)}"))`,
-      ),
-    ),
-    ...[...readOnlyRoots, ...transcriptReadRoots].map(
-      (path) => `(deny file-write* (subpath "${quoted(path)}"))`,
-    ),
-    ...deniedRoots.flatMap((root) =>
-      ancestorMetadataRules(
-        root,
-        readExceptions(
-          root,
-          readOnlyRoots,
-          writableRuntimeRoot,
-          transcriptReadRoots,
-          workspace,
-          writableCacheRoots,
+export function macSandboxProfile(policy: IsolationPolicy): string {
+  const deniedRoots = policy.deny;
+  const readOnlyRoots = policy.read.runtime;
+  const writableRuntimeRoot = policy.write.runtime;
+  const transcriptReadRoots = [
+    ...policy.read.transcripts,
+    ...policy.read.hooks,
+    ...policy.read.artifacts,
+  ];
+  const workspace = policy.workspace;
+  const writableCacheRoots = policy.write.caches;
+  const denyNetwork = policy.network !== "allowed";
+  const localHttp = policy.network === "local-http";
+  return (
+    [
+      "(version 1)",
+      "(allow default)",
+      ...(denyNetwork ? ["(deny network*)"] : []),
+      ...localHttpRules(localHttp),
+      ...[...new Set(deniedRoots)]
+        .sort()
+        .flatMap((path) => [
+          `(deny file-read* ${workspaceReadFilter(path, readExceptions(path, readOnlyRoots, writableRuntimeRoot, transcriptReadRoots, workspace, writableCacheRoots), workspace)})`,
+          `(deny file-write* ${rootFilter(path, [...writableExceptions(path, writableRuntimeRoot, writableCacheRoots), ...workspaceBoundaryException(path, workspace)])})`,
+        ]),
+      ...deniedRoots.flatMap((path) =>
+        workspaceBoundaryException(path, workspace).map(
+          () => `(deny file-read-data (literal "${quoted(path)}"))`,
         ),
       ),
-    ),
-    "",
-  ].join("\n");
+      ...[...readOnlyRoots, ...transcriptReadRoots].map(
+        (path) => `(deny file-write* (subpath "${quoted(path)}"))`,
+      ),
+      ...deniedRoots.flatMap((root) =>
+        ancestorMetadataRules(
+          root,
+          readExceptions(
+            root,
+            readOnlyRoots,
+            writableRuntimeRoot,
+            transcriptReadRoots,
+            workspace,
+            writableCacheRoots,
+          ),
+        ),
+      ),
+      "",
+    ].join("\n") +
+    (policy.hideProcessInfo
+      ? "\n(deny process-info* (require-not (target self)))\n"
+      : "")
+  );
 }
 
 function localHttpRules(enabled: boolean | undefined): string[] {
@@ -103,11 +96,6 @@ function ancestorMetadataRules(root: string, readRoots: string[]): string[] {
   return [...ancestors]
     .sort()
     .map((path) => `(allow file-read-metadata (literal "${quoted(path)}"))`);
-}
-
-function requireProfileRoots(roots: string[]): void {
-  if (!roots.length || roots.some((path) => !path.startsWith("/")))
-    throw new HostIsolationError("sandbox roots must be absolute and nonempty");
 }
 
 function readExceptions(
@@ -164,59 +152,21 @@ function ownedException(root: string, ownedRoot: string | undefined): string[] {
 
 /** Build the outer boundary before launching an agent or candidate-controlled code. */
 export async function prepareMacSandboxCommand(
-  options: IsolationOptions,
+  policy: IsolationPolicy,
+  argv: string[],
+  profilePath = resolve(policy.privateStateRoot, `host-${randomUUID()}.sb`),
 ): Promise<IsolatedCommand> {
   requireSandboxAvailable();
-  await requireNativeTranscriptViews(options.transcriptReadRoots);
-  await requireCandidateArtifactRoots(options.candidateArtifactRoots);
-  await requireNativeHookRoots(options.hookReadRoots, options.privateStateRoot);
-  requireIsolationPaths(options);
-  const workspace = await realpath(options.workspace);
-  const roots = options.protectedRootsCanonical
-    ? options.protectedRoots
-    : await Promise.all(options.protectedRoots.map((path) => realpath(path)));
-  await mkdir(options.privateStateRoot, { recursive: true, mode: 0o700 });
-  const stateRoot = await realpath(options.privateStateRoot);
-  const ownedRoot = await commandRuntimeRoot(
-    stateRoot,
-    options.writableRuntimeRoot,
-  );
-  const readRoots = options.readOnlyRoots ?? [];
-  const writableCacheRoots = await requireWritableCacheRoots(
-    options.writableCacheRoots ?? [],
-    [...roots, stateRoot],
-  );
-  requireRuntimeReadRoots(readRoots, [...roots, stateRoot]);
-  requireDisjointState(workspace, roots, stateRoot);
-  const profilePath = resolve(stateRoot, `host-${randomUUID()}.sb`);
-  await writeFile(
-    profilePath,
-    macSandboxProfile(
-      [...roots, stateRoot],
-      options.denyNetwork,
-      readRoots,
-      ownedRoot,
-      curatedReadRoots(options),
-      workspace,
-      options.localHttp,
-      writableCacheRoots,
-    ),
-    { flag: "wx", mode: 0o600 },
-  );
+  await writeFile(profilePath, macSandboxProfile(policy), {
+    flag: "wx",
+    mode: 0o600,
+  });
   return {
-    argv: [SANDBOX_EXEC, "-f", profilePath, ...options.argv],
+    argv: [SANDBOX_EXEC, "-f", profilePath, ...argv],
     release: async () => {
       await rm(profilePath, { force: true });
     },
   };
-}
-
-function curatedReadRoots(options: IsolationOptions): string[] {
-  return [
-    ...(options.transcriptReadRoots ?? []),
-    ...(options.hookReadRoots ?? []),
-    ...Object.values(options.candidateArtifactRoots ?? {}),
-  ];
 }
 
 function requireSandboxAvailable(): void {

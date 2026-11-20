@@ -1,4 +1,4 @@
-import { isAbsolute, join, sep } from "node:path";
+import { join, sep } from "node:path";
 import { minimalRoots as minimalProtectedRoots } from "../platform/index";
 import { containsControl } from "../kernel/index";
 import {
@@ -7,6 +7,7 @@ import {
   nativeStatePath,
   nativeStateProtectedRoots,
 } from "../runtime/index";
+import type { IsolationPolicy, IsolationNetwork } from "../isolation/index";
 import { workspaceBoundaryException } from "../workspace/index";
 
 const LINUX_MINIMAL_READ_ROOTS = [
@@ -29,29 +30,19 @@ function toml(value: string): string {
 /** Runner-owned Codex command policy; the Codex parent keeps access to auth. */
 export function codexPermissionProfile(options: {
   id: string;
-  workspace: string;
-  commandHome: string;
-  commandTemp: string;
-  executableReadRoots: string[];
-  pluginReadRoot?: string;
-  protectedRoots: string[];
+  policy: IsolationPolicy;
   commandEnvironment?: Record<string, string>;
-  runtimeReadRoots?: string[];
-  nativeReadRoots?: string[];
-  nativeWriteRoots?: string[];
-  runtimeWriteRoot?: string;
-  localHttp?: boolean;
 }): string {
   if (!/^[a-z][a-z0-9_]*$/.test(options.id))
     throw new Error("invalid Codex permission profile ID");
-  if (!validProfilePaths(options))
-    throw new Error("Codex profile paths must be absolute and protected");
+  const policy = options.policy;
+  const { home, temp } = commandDirectories(policy);
   const name = options.id;
   return [
     `default_permissions = ${toml(name)}`,
     'approval_policy = "never"',
     "allow_login_shell = false",
-    ...codexFeatureLines(options.localHttp),
+    ...codexFeatureLines(policy.network === "local-http"),
     "",
     "[shell_environment_policy]",
     'inherit = "none"',
@@ -60,11 +51,11 @@ export function codexPermissionProfile(options: {
     "[shell_environment_policy.set]",
     ...commandEnvironmentLines(
       options.commandEnvironment,
-      options.executableReadRoots,
+      policy.read.executables,
     ),
-    `HOME = ${toml(options.commandHome)}`,
-    `TMPDIR = ${toml(options.commandTemp)}`,
-    `TMPPREFIX = ${toml(join(options.commandTemp, sep))}`,
+    `HOME = ${toml(home)}`,
+    `TMPDIR = ${toml(temp)}`,
+    `TMPPREFIX = ${toml(join(temp, sep))}`,
     "",
     `[permissions.${name}]`,
     'extends = ":workspace"',
@@ -75,24 +66,24 @@ export function codexPermissionProfile(options: {
     ...(process.platform === "linux"
       ? []
       : ['":tmpdir" = "deny"', '":slash_tmp" = "deny"']),
-    ...minimalProtectedRoots(profileProtectedRoots(options))
+    ...minimalProtectedRoots(profileProtectedRoots(policy))
       .sort()
       .map((root) => `${toml(root)} = "deny"`),
-    ...readRootLines(options),
-    ...(options.nativeWriteRoots ?? []).map(
+    ...readRootLines(policy),
+    ...[...policy.write.native, ...policy.write.caches].map(
       (root) => `${toml(root)} = "write"`,
     ),
-    `${toml(options.commandHome)} = "write"`,
-    `${toml(options.commandTemp)} = "write"`,
-    ...optionalRootLines(options.runtimeWriteRoot, "write"),
+    `${toml(home)} = "write"`,
+    `${toml(temp)} = "write"`,
+    ...optionalRootLines(policy.write.runtime, "write"),
     // Override Codex's metadata carveout only for this isolated fixture.
-    `${toml(join(options.workspace, ".git"))} = "write"`,
+    `${toml(join(policy.workspace, ".git"))} = "write"`,
     "",
     `[permissions.${name}.filesystem.":workspace_roots"]`,
     '"." = "write"',
     "",
     `[permissions.${name}.network]`,
-    ...networkProfile(options.localHttp),
+    ...networkProfile(policy.network),
     "",
   ].join("\n");
 }
@@ -105,8 +96,9 @@ function codexFeatureLines(localHttp: boolean | undefined): string[] {
   ];
 }
 
-function networkProfile(localHttp: boolean | undefined): string[] {
-  if (!localHttp) return ["enabled = false"];
+function networkProfile(network: IsolationNetwork): string[] {
+  if (network === "deny") return ["enabled = false"];
+  if (network === "allowed") return ["enabled = true"];
   return [
     "enabled = true",
     "allow_local_binding = true",
@@ -115,25 +107,25 @@ function networkProfile(localHttp: boolean | undefined): string[] {
   ];
 }
 
-function profileProtectedRoots(
-  options: Parameters<typeof codexPermissionProfile>[0],
-): string[] {
+function profileProtectedRoots(options: IsolationPolicy): string[] {
   const readRoots = profileReadRoots(options);
   const trustedRoots = [
     ...readRoots,
-    ...(options.nativeWriteRoots ?? []),
-    ...(options.runtimeWriteRoot ? [options.runtimeWriteRoot] : []),
+    ...options.write.native,
+    ...options.write.caches,
+    ...(options.write.runtime ? [options.write.runtime] : []),
   ];
   const baselines = [
     ...LINUX_MINIMAL_READ_ROOTS,
     ...readRoots,
-    ...(options.nativeWriteRoots ?? []),
+    ...options.write.native,
+    ...options.write.caches,
     options.workspace,
-    options.commandHome,
-    options.commandTemp,
-    ...(options.runtimeWriteRoot ? [options.runtimeWriteRoot] : []),
+    options.write.home ?? "",
+    options.write.temp ?? "",
+    ...(options.write.runtime ? [options.write.runtime] : []),
   ];
-  return options.protectedRoots.filter(
+  return options.deny.filter(
     (root) =>
       (!implicitLinuxHomeBoundary(root, readRoots, baselines) ||
         process.platform !== "linux") &&
@@ -243,54 +235,30 @@ function optionalRootLines(
   return root ? [`${toml(root)} = ${toml(permission)}`] : [];
 }
 
-function readRootLines(
-  options: Parameters<typeof codexPermissionProfile>[0],
-): string[] {
+function readRootLines(options: IsolationPolicy): string[] {
   return profileReadRoots(options)
     .sort()
     .map((path) => `${toml(path)} = "read"`);
 }
 
-function profileReadRoots(
-  options: Parameters<typeof codexPermissionProfile>[0],
-): string[] {
+function profileReadRoots(options: IsolationPolicy): string[] {
   const roots = [
-    ...options.executableReadRoots,
-    ...(options.runtimeReadRoots ?? []),
-    ...(options.nativeReadRoots ?? []),
+    ...options.read.executables,
+    ...options.read.runtime,
+    ...options.read.native,
+    ...options.read.transcripts,
+    ...options.read.artifacts,
+    ...options.read.hooks,
   ];
-  if (options.pluginReadRoot) roots.push(options.pluginReadRoot);
+  roots.push(...options.read.plugins);
   return [...new Set(roots)];
 }
 
-function readRoot(path: string): boolean {
-  return isAbsolute(path) && path !== "/";
-}
-
-function optionalReadRoot(path: string | undefined): boolean {
-  return path === undefined || readRoot(path);
-}
-
-function validProfilePaths(
-  options: Parameters<typeof codexPermissionProfile>[0],
-): boolean {
-  const privatePaths = [
-    options.workspace,
-    options.commandHome,
-    options.commandTemp,
-  ];
-  return (
-    privatePaths.every(isAbsolute) &&
-    validExecutableRoots(options.executableReadRoots) &&
-    optionalReadRoot(options.pluginReadRoot) &&
-    validProtectedRoots(options.protectedRoots)
-  );
-}
-
-function validExecutableRoots(paths: string[]): boolean {
-  return paths.length > 0 && paths.every(readRoot);
-}
-
-function validProtectedRoots(paths: string[]): boolean {
-  return paths.length > 0 && paths.every(isAbsolute);
+function commandDirectories(policy: IsolationPolicy): {
+  home: string;
+  temp: string;
+} {
+  const { home, temp } = policy.write;
+  if (!home || !temp) throw new Error("Codex command directories are missing");
+  return { home, temp };
 }

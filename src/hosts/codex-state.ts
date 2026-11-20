@@ -1,11 +1,6 @@
 import {
-  runtimeLocalHttpEnabled,
-  runtimeSeedSources,
-  requireRuntimeReadRoots,
   runtimeExecutableProtection,
   prepareRuntimeState,
-  sharedCacheDenyRoots,
-  sharedCacheRoots,
   candidateArtifactEnvironment,
   candidateArtifactReadRoots,
   codexStateEnabled,
@@ -35,7 +30,10 @@ import {
 } from "../transcripts/index";
 import { prepareHookMounts } from "../hooks/index";
 import { codexPermissionProfile } from "../codex-profile/index";
-import { evaluationProtectedRoots } from "../isolation/index";
+import {
+  createIsolationPolicy,
+  type IsolationPolicy,
+} from "../isolation/index";
 type Request = Parameters<HostAdapter["run"]>[0];
 type CodexState = Awaited<ReturnType<typeof prepareCodexState>>;
 const MAX_AUTH_BYTES = 1024 * 1024;
@@ -167,37 +165,18 @@ async function writeCodexProfile(
   paths: Awaited<ReturnType<typeof privateCodexDirectories>>,
   profileId: string,
   request: Request,
-  readRoots: string[],
-  protectedRoots: string[],
+  policy: IsolationPolicy,
   limit: number | null,
-  commandEnvironment = request.runtimePolicy?.environment,
-  runtimeWriteRoot: string | undefined,
-  writableCacheRoots: string[],
+  commandEnvironment: Record<string, string> | undefined,
 ): Promise<void> {
   const profile = codexPermissionProfile({
-    localHttp: runtimeLocalHttpEnabled(
-      request.runtimePolicy,
-      request.runtimeRole ?? "candidate",
-    ),
+    id: profileId,
+    policy,
     commandEnvironment: codexProfileEnvironment(
       request,
       paths,
       commandEnvironment,
     ),
-    runtimeWriteRoot,
-    runtimeReadRoots: request.runtimePolicy?.readOnlyRoots,
-    nativeReadRoots: codexNativeReadRoots(request, paths.codexHome),
-    nativeWriteRoots: [
-      ...codexStateWriteRoots(request, paths),
-      ...writableCacheRoots,
-    ],
-    id: profileId,
-    workspace: request.workspace,
-    commandHome: paths.commandHome,
-    commandTemp: paths.commandTemp,
-    executableReadRoots: readRoots,
-    ...codexPluginReadRoot(request, paths.pluginCacheRoot),
-    protectedRoots,
   });
   await writeFile(
     join(paths.codexHome, "config.toml"),
@@ -265,10 +244,6 @@ function codexTranscriptRoots(request: Request, home: string) {
 
 function linuxArg0ReadRoots(codexHome: string): string[] {
   return process.platform === "linux" ? [join(codexHome, "tmp", "arg0")] : [];
-}
-
-function codexPluginReadRoot(request: Request, root: string) {
-  return request.codexMarketplace ? { pluginReadRoot: root } : {};
 }
 
 function codexHelperBinary(options: CodexHostOptions, sandboxBinary: string) {
@@ -340,10 +315,6 @@ function declaredCodexPath(request: Request): string {
   );
 }
 
-function codexSeedSources(request: Request): string[] {
-  return runtimeSeedSources(request.runtimePolicy);
-}
-
 async function codexRuntime(
   request: Request,
   paths: Awaited<ReturnType<typeof privateCodexDirectories>>,
@@ -373,16 +344,6 @@ function applyCodexRuntime(
     });
 }
 
-function codexRuntimeProfile(
-  runtime: Awaited<ReturnType<typeof codexRuntime>>,
-) {
-  return {
-    environment: runtime?.environment,
-    root: runtime?.root,
-    writableCacheRoots: runtime?.writableCacheRoots ?? [],
-  };
-}
-
 export async function prepareCodexState(
   stateRoot: string,
   options: CodexHostOptions,
@@ -394,16 +355,6 @@ export async function prepareCodexState(
   const paths = await privateCodexDirectories(stateRoot);
   const runtime = await codexRuntime(request, paths, stateRoot);
   await copyAuth(options.authFile, join(paths.codexHome, "auth.json"));
-  const protectedRoots = await evaluationProtectedRoots({
-    workspace: request.workspace,
-    projectRoot: options.projectRoot,
-    resultsRoot: options.resultsRoot,
-    additionalRoots: [
-      ...options.additionalProtectedRoots,
-      ...(process.platform === "linux" ? [] : [stateRoot]),
-      ...codexSeedSources(request),
-    ],
-  });
   const sandboxBinary = options.sandboxBinary ?? options.binary;
   const helperBinary = codexHelperBinary(options, sandboxBinary);
   if (helperRoot)
@@ -415,15 +366,15 @@ export async function prepareCodexState(
     ]),
   );
   if (helperRoot) readRoots.push(helperRoot);
-  requireCodexRuntimeReadRoots(request, protectedRoots);
-  await sharedCacheRoots(
-    request.runtimePolicy,
-    request.runtimeRole,
-    protectedRoots,
+  const policy = await codexIsolationPolicy(
+    stateRoot,
+    options,
+    request,
+    paths,
+    readRoots,
+    runtime?.root,
   );
-  protectedRoots.push(
-    ...sharedCacheDenyRoots(request.runtimePolicy, request.runtimeRole),
-  );
+  const protectedRoots = policy.deny;
   requireUnprotectedExecutables(
     readRoots,
     runtimeExecutableProtection(
@@ -433,17 +384,13 @@ export async function prepareCodexState(
     ),
   );
   const profileId = `sevro_${randomUUID().replaceAll("-", "")}`;
-  const runtimeProfile = codexRuntimeProfile(runtime);
   await writeCodexProfile(
     paths,
     profileId,
     request,
-    readRoots,
-    protectedRoots,
+    policy,
     limit,
-    runtimeProfile.environment,
-    runtimeProfile.root,
-    runtimeProfile.writableCacheRoots,
+    codexProfileEnvironmentSource(runtime, request),
   );
   const shellRoot = await fixtureShellRoot(request, paths.parentHome);
   const env = codexEnvironment(paths, request, shellRoot);
@@ -493,12 +440,42 @@ async function requireIsolatedGitMetadata(workspace: string): Promise<void> {
   }
 }
 
-function requireCodexRuntimeReadRoots(
+function codexIsolationPolicy(
+  stateRoot: string,
+  options: CodexHostOptions,
   request: Request,
-  protectedRoots: string[],
-): void {
-  requireRuntimeReadRoots(
-    request.runtimePolicy?.readOnlyRoots ?? [],
-    protectedRoots,
-  );
+  paths: Awaited<ReturnType<typeof privateCodexDirectories>>,
+  readRoots: string[],
+  runtimeRoot: string | undefined,
+) {
+  return createIsolationPolicy({
+    subject: "host",
+    workspace: request.workspace,
+    privateStateRoot: stateRoot,
+    protection: {
+      projectRoot: options.projectRoot,
+      resultsRoot: options.resultsRoot,
+      additionalRoots: [
+        ...options.additionalProtectedRoots,
+        ...(process.platform === "linux" ? [] : [stateRoot]),
+      ],
+    },
+    runtimePolicy: request.runtimePolicy,
+    runtimeRole: request.runtimeRole,
+    network: "deny",
+    writableRuntimeRoot: runtimeRoot,
+    nativeReadRoots: codexNativeReadRoots(request, paths.codexHome),
+    nativeWriteRoots: codexStateWriteRoots(request, paths),
+    commandHome: paths.commandHome,
+    commandTemp: paths.commandTemp,
+    executableReadRoots: readRoots,
+    pluginReadRoots: request.codexMarketplace ? [paths.pluginCacheRoot] : [],
+  });
+}
+
+function codexProfileEnvironmentSource(
+  runtime: Awaited<ReturnType<typeof codexRuntime>>,
+  request: Request,
+) {
+  return runtime?.environment ?? request.runtimePolicy?.environment;
 }

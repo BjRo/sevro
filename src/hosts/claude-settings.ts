@@ -1,22 +1,11 @@
 import { isAbsolute } from "node:path";
 import { CLAUDE_AUTH_VARIABLES } from "../claude-login/index";
-import {
-  requireRuntimeReadRoots,
-  isRuntimeHomeRoot,
-  type RuntimePolicy,
-  nativeStatePath,
-} from "../runtime/index";
-import { runtimeHooksEnabled } from "../hooks/index";
+import { isRuntimeHomeRoot, nativeStatePath } from "../runtime/index";
+import type { IsolationPolicy } from "../isolation/index";
 import {
   workspaceStatePath,
   workspaceBoundaryException,
 } from "../workspace/index";
-
-interface WritableRuntime {
-  root: string;
-  workspace: string;
-  cacheRoots: string[];
-}
 
 function absoluteRule(root: string, tool: "Read" | "Edit"): string {
   if (!isAbsolute(root) || /[\r\n()]/.test(root))
@@ -39,71 +28,42 @@ function validPrivatePaths(
 
 /** Keep agent tools away from the CLI's private state while core auth works. */
 export function claudeHostSettings(
-  privateRoot: string,
+  policy: IsolationPolicy,
   credentialFile: string,
-  pluginRoots: string[],
-  protectedRoots: string[],
-  runtimePolicy: RuntimePolicy | undefined,
-  transcriptReadRoots: string[],
-  runtime: WritableRuntime | undefined,
-  workspace: string | undefined,
 ): Record<string, unknown> {
+  const privateRoot = policy.privateStateRoot;
   if (
     !validPrivatePaths(privateRoot, credentialFile, [
-      ...pluginRoots,
-      ...protectedRoots,
+      ...policy.read.plugins,
+      ...policy.deny,
     ])
   )
     throw new Error("Claude private state paths are invalid");
-  const readRoots = runtimeReadRoots(runtimePolicy);
-  requireRuntimeReadRoots(readRoots, [privateRoot, ...protectedRoots]);
-  requireRuntimeReadRoots(runtimeCacheRoots(runtime), [
-    privateRoot,
-    ...protectedRoots,
-  ]);
   return {
-    disableAllHooks: !runtimeHooksEnabled(runtimePolicy),
+    disableAllHooks: !policy.hooksEnabled,
     sandbox: {
       enabled: true,
       allowUnsandboxedCommands: false,
       failIfUnavailable: true,
-      filesystem: claudeFilesystemPolicy(
-        privateRoot,
-        protectedRoots,
-        readRoots,
-        transcriptReadRoots,
-        pluginRoots,
-        runtime,
-        workspace,
-      ),
+      filesystem: claudeFilesystemPolicy(policy),
       credentials: {
         files: [{ path: credentialFile, mode: "deny" }],
         envVars: CLAUDE_AUTH_VARIABLES.map((name) => ({ name, mode: "deny" })),
       },
     },
-    permissions: claudePermissions(
-      privateRoot,
-      protectedRoots,
-      pluginRoots,
-      runtimePolicy,
-      transcriptReadRoots,
-      runtime,
-      workspace,
-    ),
+    permissions: claudePermissions(policy),
   };
 }
 
-function claudeFilesystemPolicy(
-  privateRoot: string,
-  protectedRoots: string[],
-  readRoots: string[],
-  transcriptReadRoots: string[],
-  pluginRoots: string[],
-  runtime: WritableRuntime | undefined,
-  workspace: string | undefined,
-) {
-  const runtimeWriteRoot = runtime?.root;
-  const writableRoots = runtimeWriteRoots(runtime);
+function claudeFilesystemPolicy(policy: IsolationPolicy) {
+  const privateRoot = policy.privateStateRoot;
+  const protectedRoots = policy.deny;
+  const readRoots = policy.read.runtime;
+  const transcriptReadRoots = curatedRoots(policy);
+  const pluginRoots = policy.read.plugins;
+  const workspace = policy.workspace;
+  const runtimeWriteRoot = policy.write.runtime;
+  const writableRoots = runtimeWriteRoots(policy);
   return {
     denyRead: [privateRoot, ...protectedRoots],
     allowRead: [
@@ -121,7 +81,7 @@ function claudeFilesystemPolicy(
         protectedRoots,
         runtimeWriteRoot,
         workspace,
-        runtimeCacheRoots(runtime),
+        policy.write.caches,
       ),
       ...readRoots,
       ...transcriptReadRoots,
@@ -129,16 +89,13 @@ function claudeFilesystemPolicy(
   };
 }
 
-function claudePermissions(
-  privateRoot: string,
-  protectedRoots: string[],
-  pluginRoots: string[],
-  policy: RuntimePolicy | undefined,
-  transcriptReadRoots: string[],
-  runtime: WritableRuntime | undefined,
-  workspace: string | undefined,
-) {
-  const runtimeWriteRoot = runtime?.root;
+function claudePermissions(policy: IsolationPolicy) {
+  const privateRoot = policy.privateStateRoot;
+  const protectedRoots = policy.deny;
+  const pluginRoots = policy.read.plugins;
+  const transcriptReadRoots = curatedRoots(policy);
+  const workspace = policy.workspace;
+  const runtimeWriteRoot = policy.write.runtime;
   const roots = [
     privateRoot,
     ...protectedRoots.filter(
@@ -149,14 +106,14 @@ function claudePermissions(
     workspaceStatePath(),
     workspace,
   )[0];
-  const readRoots = policy
+  const readRoots = policy.runtimeDeclared
     ? roots.filter((root) => !isRuntimeHomeRoot(root))
     : roots;
-  const toolRoots = [...runtimeReadRoots(policy), ...transcriptReadRoots];
-  const writableRoots = runtimeWriteRoots(runtime);
+  const toolRoots = [...policy.read.runtime, ...transcriptReadRoots];
+  const writableRoots = runtimeWriteRoots(policy);
   return {
-    allow: claudeToolAllowRules(runtime, managedWorkspace),
-    ...(policy || managedWorkspace
+    allow: claudeToolAllowRules(policy, managedWorkspace),
+    ...(policy.runtimeDeclared || managedWorkspace
       ? {
           blockReadsOutsideWorkingDirectories: true,
           additionalDirectories: [
@@ -171,7 +128,7 @@ function claudePermissions(
         roots,
         runtimeWriteRoot,
         workspace,
-        runtimeCacheRoots(runtime),
+        policy.write.caches,
       ).flatMap((root) =>
         protectedToolRules(
           root,
@@ -190,10 +147,11 @@ function claudePermissions(
 
 /** A runtime policy always supplies its writable runtime; legacy runs have none. */
 function claudeToolAllowRules(
-  runtime: WritableRuntime | undefined,
+  policy: IsolationPolicy,
   workspace?: string,
 ): string[] {
-  if (!runtime)
+  const root = policy.write.runtime;
+  if (!root)
     return [
       "Bash",
       "Read",
@@ -207,9 +165,9 @@ function claudeToolAllowRules(
     "Skill",
     "Agent",
     "SendMessage",
-    absoluteRule(runtime.workspace, "Edit"),
-    absoluteRule(runtime.root, "Edit"),
-    ...runtime.cacheRoots.map((root) => absoluteRule(root, "Edit")),
+    absoluteRule(policy.workspace, "Edit"),
+    absoluteRule(root, "Edit"),
+    ...policy.write.caches.map((cache) => absoluteRule(cache, "Edit")),
   ];
 }
 
@@ -236,14 +194,16 @@ function sharedHomeGrant(root: string, cacheRoots: string[]): boolean {
   );
 }
 
-function runtimeCacheRoots(runtime: WritableRuntime | undefined): string[] {
-  return runtime?.cacheRoots ?? [];
+function runtimeWriteRoots(policy: IsolationPolicy): string[] {
+  return [...optionalRuntimeRoot(policy.write.runtime), ...policy.write.caches];
 }
 
-function runtimeWriteRoots(runtime: WritableRuntime | undefined): string[] {
+function curatedRoots(policy: IsolationPolicy): string[] {
   return [
-    ...optionalRuntimeRoot(runtime?.root),
-    ...(runtime?.cacheRoots ?? []),
+    ...policy.read.native,
+    ...policy.read.transcripts,
+    ...policy.read.artifacts,
+    ...policy.read.hooks,
   ];
 }
 
@@ -268,8 +228,4 @@ function protectedToolRules(root: string, denyRead: boolean): string[] {
     ...(denyRead ? [absoluteRule(root, "Read")] : []),
     absoluteRule(root, "Edit"),
   ];
-}
-
-function runtimeReadRoots(policy: RuntimePolicy | undefined): string[] {
-  return policy?.readOnlyRoots ?? [];
 }
