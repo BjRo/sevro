@@ -72,6 +72,10 @@ _Avoid_: second opinion
 The judge's structured opinion of a trial in an advisory review: a pass or fail recommendation, dimension scores, strengths, weaknesses and a summary.
 _Avoid_: advisory assessment, advisory verdict
 
+**Judge request**:
+One request for a judge to answer a semantic check group or an advisory review, in its own auxiliary workspace, with its evidence retained under that role.
+_Avoid_: grading request, review call
+
 **Task verdict**:
 The engine's decision whether a trial, case or run accomplished its task: passed, failed or not assessed. It is derived from check statuses and may be adjusted by a task-verdict policy; neither advisory review nor domain outcomes change it.
 _Avoid_: verdict (alone), score, pass/fail

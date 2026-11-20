@@ -1,22 +1,16 @@
 import {
   advisoryPrompt,
   parseAdvisoryRecommendation,
-  type AdvisoryRecommendation,
   type CheckOutcome,
 } from "../kernel/index";
 import type { CandidateArtifactRoots, RuntimePolicy } from "../runtime/index";
-import {
-  TrialPersistenceError,
-  usage,
-  type TrialEvidenceWriter,
-} from "../evidence/index";
+import { usage, type TrialEvidenceWriter } from "../evidence/index";
 import { buildBlindAdvisoryWorkspace } from "../fixtures/index";
 import { removeWorkspace } from "../workspace/index";
-import { HostDiagnosticPersistenceError } from "../diagnostics/index";
 import type { AdvisoryReviewData } from "../schema/index";
-import { gradingRuntimePolicy, scopedHostArtifacts } from "./grading-host";
+import { runJudgeRequest } from "./judge-request";
 import { evaluationWarning } from "./progress";
-import type { HostAdapter, HostResult } from "../host-contract/index";
+import type { HostAdapter } from "../host-contract/index";
 
 export type AdvisoryReview = AdvisoryReviewData;
 
@@ -53,25 +47,10 @@ function defaultAdvisoryReview(host: HostAdapter): AdvisoryReview {
   };
 }
 
-function completeAdvisoryRecommendation(
-  response: HostResult,
-): AdvisoryRecommendation {
-  if (
-    response.executionFailed ||
-    !response.complete ||
-    response.finalMessage === null
-  )
-    throw new Error("advisory response is incomplete");
-  return parseAdvisoryRecommendation(response.finalMessage);
-}
-
-async function cleanupAdvisoryWorkspace(
-  workspace: string | null,
-  successful: boolean,
+async function removeAdvisoryWorkspace(
+  workspace: string,
   effects: AdvisoryEffects,
 ): Promise<void> {
-  if (!workspace) return;
-  if (!successful) return effects.retainWorkspace(workspace);
   try {
     await removeWorkspace(workspace);
   } catch {
@@ -87,60 +66,48 @@ async function executeAdvisoryReview(
   effects: AdvisoryEffects,
   review: AdvisoryReview,
 ): Promise<void> {
-  let workspace: string | null = null;
-  try {
-    if (input.baseRevision === null)
-      throw new Error("advisory base revision is unavailable");
-    workspace = await buildBlindAdvisoryWorkspace(input.candidateWorkspace, {
-      baseRevision: input.baseRevision,
-      excludedPaths: input.excludedPaths,
-    });
-    const response = await input.host.run({
-      retainHostDiagnostics: (bytes) =>
-        effects.evidence.retainArtifacts([
-          {
-            id: "sevro.advisory.sevro.host.diagnostics",
-            bytes: Buffer.from(bytes),
-          },
-        ]),
+  const outcome = await runJudgeRequest(
+    {
+      host: input.host,
+      role: "advisory",
+      artifactPrefix: "sevro.advisory.",
+      responseId: "sevro.advisory.response",
+      declaredChecks: input.declaredChecks,
+      runtimePolicy: input.runtimePolicy,
       candidateTranscriptRoot: input.candidateTranscriptRoot,
       candidateArtifactRoots: input.candidateArtifactRoots,
-      prompt: advisoryPrompt(input.task, [...input.checks]),
-      runtimePolicy: gradingRuntimePolicy(input.runtimePolicy),
-      runtimeRole: "advisory",
-      workspace,
-      condition: "passive",
       signal: input.signal,
-    });
-    review.usage = usage(response);
-    const artifacts = scopedHostArtifacts(
-      response,
-      "sevro.advisory.",
-      effects.evidence.artifactRefs,
-      input.declaredChecks,
-      "sevro.advisory.response",
-    );
-    await effects.evidence.retainArtifacts(artifacts);
-    review.rawResult = await effects.evidence.retainAdvisoryResponse(
-      input.host.id,
-      response.finalMessage,
-    );
-    review.assessment = completeAdvisoryRecommendation(response);
+      createWorkspace() {
+        const baseRevision = input.baseRevision;
+        if (baseRevision === null)
+          throw new Error("advisory base revision is unavailable");
+        return buildBlindAdvisoryWorkspace(input.candidateWorkspace, {
+          baseRevision,
+          excludedPaths: input.excludedPaths,
+        });
+      },
+      disposeWorkspace: (workspace) =>
+        removeAdvisoryWorkspace(workspace, effects),
+      prompt: () =>
+        Promise.resolve(advisoryPrompt(input.task, [...input.checks])),
+      parse: parseAdvisoryRecommendation,
+    },
+    {
+      evidence: effects.evidence,
+      async retainResponse(hostId, message) {
+        review.rawResult = await effects.evidence.retainAdvisoryResponse(
+          hostId,
+          message,
+        );
+      },
+      retainWorkspace: (workspace) => effects.retainWorkspace(workspace),
+    },
+  );
+  if (outcome.response) review.usage = usage(outcome.response);
+  if (outcome.status === "answered") {
+    review.assessment = outcome.answer;
     review.status = "completed";
-  } catch (error) {
-    if (
-      error instanceof HostDiagnosticPersistenceError ||
-      error instanceof TrialPersistenceError
-    )
-      throw error;
-    review.status = "failed";
-  } finally {
-    await cleanupAdvisoryWorkspace(
-      workspace,
-      review.status === "completed",
-      effects,
-    );
-  }
+  } else review.status = "failed";
 }
 
 /** Advisory execution depends on candidate completion, independently of task grading. */
