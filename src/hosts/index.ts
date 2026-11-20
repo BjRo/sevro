@@ -1,9 +1,10 @@
 /**
  * Native host adapters.
  *
- * The native run interface owns shared admission, private state lifetime,
- * observations, diagnostics and retention. Its two host adapters supply native
- * preparation and turns. Tests cross this same seam with a fake host adapter.
+ * The native host request interface owns shared admission, private state
+ * lifetime, observations, diagnostics and retention. Claude and Codex are its
+ * two native hosts and supply native preparation and turns. Tests cross this
+ * same seam with a fake native host.
  *
  * Skill invocation preparation resolves extension declarations through the owning
  * host rules. Runtime admission reuses those names, tokens, counts and paths while
@@ -23,11 +24,11 @@ export {
   configurationRoot,
 } from "./codex-configuration";
 export {
-  runNativeRun,
-  type NativeRunAdapter,
-  type NativeRunContext,
-  type NativeRunOutcome,
-} from "./native-run";
+  runNativeHostRequest,
+  type NativeHost,
+  type NativeHostRequestContext,
+  type NativeHostRequestOutcome,
+} from "./native-host-request";
 export { claudeHostSettings } from "./claude-settings";
 
 export {

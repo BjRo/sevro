@@ -13,22 +13,25 @@ import {
 } from "../hooks/index";
 import {
   allocateNativeState,
-  runtimeObservations,
   candidateCodexStateRetained,
+  requireCandidateArtifactRoots,
+  requireCandidateRuntime,
+  requireNativeTranscriptView,
+  runtimeObservations,
 } from "../runtime/index";
-import { validateNativeHostRequest } from "./native-request";
 import { join } from "node:path";
+import { isOptionalNonblankString } from "../kernel/index";
 import {
   failedNativeTranscripts,
   retainEnabledNativeTranscripts,
 } from "../transcripts/index";
 
-export type NativeRunRequest = Parameters<HostAdapter["run"]>[0];
+export type NativeHostRequest = Parameters<HostAdapter["run"]>[0];
 type Observation = NonNullable<HostResult["observations"]>[number];
 
 /** Owned resources are registered as soon as preparation creates them. */
-export interface NativeRunContext {
-  request: NativeRunRequest;
+export interface NativeHostRequestContext {
+  request: NativeHostRequest;
   stateRoot: string;
   diagnostics: HostDiagnostics;
   /** Assigned immediately after preparation; released before deleting native state. */
@@ -37,85 +40,88 @@ export interface NativeRunContext {
   cleanupRoots: string[];
 }
 
-export interface NativeRunOutcome {
+export interface NativeHostRequestOutcome {
   result: Omit<HostResult, "observations" | "actualCondition">;
   beforeRuntime?: Observation[];
   observations: Observation[];
   rootSessionId?: string;
 }
 
-/** Host adapters supply only admission, preparation, and native turn interpretation. */
-export interface NativeRunAdapter<Admission, State> {
+/** A native host supplies only its admission, preparation, and turn interpretation. */
+export interface NativeHost<Admission, State> {
   host: "claude" | "codex";
   credentialFile?: string;
   retainHostDiagnostics?: boolean;
   transcriptDirectory: string;
   /** Preserve each host's evidence order and diagnostic snapshot timing. */
   hookPosition: "first" | "last";
-  validate: (request: NativeRunRequest) => Promise<Admission>;
-  prepare: (context: NativeRunContext, admission: Admission) => Promise<State>;
+  validate: (request: NativeHostRequest) => Promise<Admission>;
+  prepare: (
+    context: NativeHostRequestContext,
+    admission: Admission,
+  ) => Promise<State>;
   execute: (
-    context: NativeRunContext,
+    context: NativeHostRequestContext,
     state: State,
-  ) => Promise<NativeRunOutcome>;
+  ) => Promise<NativeHostRequestOutcome>;
 }
 
-/** Own admission, diagnostics, evidence retention and cleanup for one native run. */
-export async function runNativeRun<Admission, State>(
-  adapter: NativeRunAdapter<Admission, State>,
-  request: NativeRunRequest,
+/** Own admission, diagnostics, evidence retention and cleanup for one native host request. */
+export async function runNativeHostRequest<Admission, State>(
+  nativeHost: NativeHost<Admission, State>,
+  request: NativeHostRequest,
 ): Promise<HostResult> {
   const diagnostics = createHostDiagnostics(
-    adapter.host,
-    adapter.retainHostDiagnostics,
+    nativeHost.host,
+    nativeHost.retainHostDiagnostics,
     request,
   );
   return diagnoseHostRequest(diagnostics, async () => {
     diagnostics.stage = "request-validation";
-    await diagnostics.readCredentials(adapter.credentialFile);
-    await validateNativeHostRequest(request, hostLabel(adapter.host));
-    const admission = await adapter.validate(request);
+    await diagnostics.readCredentials(nativeHost.credentialFile);
+    await validateNativeHostRequest(request, hostLabel(nativeHost.host));
+    const admission = await nativeHost.validate(request);
     diagnostics.stage = "state-allocation";
     const stateRoot = await allocateNativeState(
-      `${adapter.host}-`,
+      `${nativeHost.host}-`,
       request.runtimePolicy ? request.workspace : undefined,
     );
-    return executeNativeRun(
-      adapter,
+    return executeNativeHostRequest(
+      nativeHost,
       { request, stateRoot, diagnostics, cleanupRoots: [] },
       admission,
     );
   });
 }
 
-async function executeNativeRun<Admission, State>(
-  adapter: NativeRunAdapter<Admission, State>,
-  context: NativeRunContext,
+async function executeNativeHostRequest<Admission, State>(
+  nativeHost: NativeHost<Admission, State>,
+  context: NativeHostRequestContext,
   admission: Admission,
 ): Promise<HostResult> {
   const { request, stateRoot, diagnostics } = context;
   try {
     diagnostics.stage = "state-preparation";
-    const state = await adapter.prepare(context, admission);
-    const outcome = await adapter.execute(context, state);
+    const state = await nativeHost.prepare(context, admission);
+    const outcome = await nativeHost.execute(context, state);
     const result: HostResult = {
       ...outcome.result,
       actualCondition: "passive",
       observations: nativeObservations(context, outcome),
     };
-    if (adapter.hookPosition === "first")
+    if (nativeHost.hookPosition === "first")
       await incorporateHooks(result, context, "first");
     await diagnostics.retainFailure(
       result,
-      `${hostLabel(adapter.host)} host execution did not complete`,
+      `${hostLabel(nativeHost.host)} host execution did not complete`,
     );
-    if (adapter.hookPosition === "last")
+    if (nativeHost.hookPosition === "last")
       await incorporateHooks(result, context, "last");
     await retainEnabledNativeTranscripts(
       result,
       request.runtimePolicy,
-      join(stateRoot, adapter.transcriptDirectory),
-      adapter.host,
+      join(stateRoot, nativeHost.transcriptDirectory),
+      nativeHost.host,
       request.runtimeRole,
       outcome.rootSessionId,
     );
@@ -124,8 +130,8 @@ async function executeNativeRun<Admission, State>(
     return await failedNativeTranscripts(
       cause,
       request.runtimePolicy,
-      join(stateRoot, adapter.transcriptDirectory),
-      adapter.host,
+      join(stateRoot, nativeHost.transcriptDirectory),
+      nativeHost.host,
       request.runtimeRole,
       diagnostics,
     );
@@ -141,8 +147,8 @@ async function executeNativeRun<Admission, State>(
 }
 
 function nativeObservations(
-  context: NativeRunContext,
-  outcome: NativeRunOutcome,
+  context: NativeHostRequestContext,
+  outcome: NativeHostRequestOutcome,
 ): Observation[] {
   return [
     ...(outcome.beforeRuntime ?? []),
@@ -156,7 +162,7 @@ function nativeObservations(
 
 async function incorporateHooks(
   result: HostResult,
-  context: NativeRunContext,
+  context: NativeHostRequestContext,
   position: "first" | "last",
 ): Promise<void> {
   if (!context.hooks || !context.request.runtimePolicy) return;
@@ -170,4 +176,37 @@ async function incorporateHooks(
 
 function hostLabel(host: "claude" | "codex"): "Claude" | "Codex" {
   return host === "claude" ? "Claude" : "Codex";
+}
+
+async function validateNativeHostRequest(
+  request: NativeHostRequest,
+  host: "Codex" | "Claude",
+): Promise<void> {
+  requireFollowUp(request.followUpPrompt, host);
+  await requireNativeTranscriptView(request.candidateTranscriptRoot);
+  await requireCandidateRuntime(
+    request.candidateRuntimeRoot,
+    request.runtimeRole,
+  );
+  await requireCandidateArtifactRoots(request.candidateArtifactRoots);
+  requireFixtureBin(request);
+  requirePassiveRequest(request, host);
+}
+
+function requireFollowUp(prompt: string | undefined, host: string): void {
+  if (!isOptionalNonblankString(prompt))
+    throw new Error(`${host} follow-up prompt must be nonempty`);
+}
+
+function requireFixtureBin(request: NativeHostRequest): void {
+  if (
+    request.fixtureBinDir !== undefined &&
+    request.fixtureBinDir !== join(request.workspace, ".git", "fixture-bin")
+  )
+    throw new Error("fixture binary path is outside the workspace");
+}
+
+function requirePassiveRequest(request: NativeHostRequest, host: string): void {
+  if (request.instrumentation?.length || request.condition !== "passive")
+    throw new Error(`${host} enforcement instrumentation is unavailable`);
 }

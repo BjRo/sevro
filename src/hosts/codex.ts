@@ -5,11 +5,11 @@ import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import type { HostAdapter } from "../host-contract/index";
 import {
-  runNativeRun,
-  type NativeRunAdapter,
-  type NativeRunContext,
-  type NativeRunOutcome,
-} from "./native-run";
+  runNativeHostRequest,
+  type NativeHost,
+  type NativeHostRequestContext,
+  type NativeHostRequestOutcome,
+} from "./native-host-request";
 import { runCodexAppServer } from "../codex-app-server/index";
 import {
   summarizeCodexEvents,
@@ -164,16 +164,19 @@ export function createCodexHost(options: CodexHostOptions): HostAdapter {
       options.retainHostDiagnostics,
     ),
     run(request) {
-      return runNativeRun(codexRunAdapter(options, timeoutMs, limit), request);
+      return runNativeHostRequest(
+        codexNativeHost(options, timeoutMs, limit),
+        request,
+      );
     },
   };
 }
 
-function codexRunAdapter(
+function codexNativeHost(
   options: CodexHostOptions,
   timeoutMs: number,
   limit: number | null,
-): NativeRunAdapter<void, ExecutionContext> {
+): NativeHost<void, ExecutionContext> {
   return {
     host: "codex",
     credentialFile: options.authFile,
@@ -181,7 +184,8 @@ function codexRunAdapter(
     transcriptDirectory: "codex-home/sessions",
     hookPosition: "first",
     validate: (request) => validateCodexRequest(options, request),
-    prepare: (context) => prepareCodexRun(context, options, timeoutMs, limit),
+    prepare: (context) =>
+      prepareCodexRequest(context, options, timeoutMs, limit),
     async execute(_context, state) {
       const turns = await new CodexTurnExecution(state).run();
       if (turns.summary.complete) state.diagnostics.stage = "result-processing";
@@ -190,8 +194,8 @@ function codexRunAdapter(
   };
 }
 
-async function prepareCodexRun(
-  context: NativeRunContext,
+async function prepareCodexRequest(
+  context: NativeHostRequestContext,
   options: CodexHostOptions,
   timeoutMs: number,
   limit: number | null,
@@ -703,7 +707,7 @@ function codexUsage(turns: TurnResult) {
 async function codexHostResult(
   context: ExecutionContext,
   turns: TurnResult,
-): Promise<NativeRunOutcome> {
+): Promise<NativeHostRequestOutcome> {
   const final = turns.followUpSummary ?? turns.summary;
   return {
     result: {

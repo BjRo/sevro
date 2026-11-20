@@ -212,7 +212,7 @@ test("Codex rejects a shared cache retargeted after configuration load", async (
   ).rejects.toThrow("canonical directory");
 });
 
-test("Codex reuses a shared UV cache across separate native runs without copying", async () => {
+test("Codex reuses a shared UV cache across separate native host requests without copying", async () => {
   const { host, root, workspace } = await codexFixture(
     '/bin/cat "$UV_CACHE_DIR/input"; /bin/echo warmed > "$UV_CACHE_DIR/input"',
   );

@@ -12,9 +12,9 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  runNativeRun,
-  type NativeRunAdapter,
-  type NativeRunContext,
+  runNativeHostRequest,
+  type NativeHost,
+  type NativeHostRequestContext,
 } from "../../../src/hosts/index";
 import { createTemporaryFixtures } from "../../fixtures/filesystem";
 
@@ -25,11 +25,11 @@ afterEach(cleanupTemporaryFixtures);
 
 async function fixture() {
   const workspace = await temporaryFixture(
-    join(tmpdir(), "sevro-native-run-test-"),
+    join(tmpdir(), "sevro-native-host-request-test-"),
   );
   const stages: string[] = [];
   let stateRoot = "";
-  const adapter: NativeRunAdapter<string, string> = {
+  const nativeHost: NativeHost<string, string> = {
     host: "claude",
     transcriptDirectory: "native-home/projects",
     hookPosition: "last",
@@ -56,16 +56,16 @@ async function fixture() {
     },
   };
   return {
-    adapter,
+    nativeHost,
     stages,
     request: { prompt: "ready", workspace, condition: "passive" as const },
     stateRoot: () => stateRoot,
   };
 }
 
-test("native run prepares, executes and assembles a passive host result", async () => {
+test("native host request prepares, executes and assembles a passive host result", async () => {
   const f = await fixture();
-  const result = await runNativeRun(f.adapter, f.request);
+  const result = await runNativeHostRequest(f.nativeHost, f.request);
   expect(result).toEqual({
     finalMessage: "ready",
     complete: true,
@@ -75,9 +75,12 @@ test("native run prepares, executes and assembles a passive host result", async 
   expect(f.stages).toEqual(["admission", "state-preparation", "turns"]);
 });
 
-async function ownedResources(context: NativeRunContext, stages: string[]) {
+async function ownedResources(
+  context: NativeHostRequestContext,
+  stages: string[],
+) {
   const helper = await temporaryFixture(
-    join(tmpdir(), "sevro-native-run-helper-"),
+    join(tmpdir(), "sevro-native-host-request-helper-"),
   );
   await mkdir(join(context.stateRoot, "receipts"));
   context.cleanupRoots.push(helper);
@@ -100,38 +103,38 @@ async function ownedResources(context: NativeRunContext, stages: string[]) {
   return helper;
 }
 
-test("native run releases hooks before removing state and helper roots", async () => {
+test("native host request releases hooks before removing state and helper roots", async () => {
   const f = await fixture();
-  const prepare = f.adapter.prepare;
+  const prepare = f.nativeHost.prepare;
   let helperRoot = "";
-  f.adapter.prepare = async (context, prompt) => {
+  f.nativeHost.prepare = async (context, prompt) => {
     helperRoot = await ownedResources(context, f.stages);
     return prepare(context, prompt);
   };
-  await runNativeRun(f.adapter, f.request);
+  await runNativeHostRequest(f.nativeHost, f.request);
   expect(f.stages.at(-1)).toBe("hooks-released");
   expect(existsSync(f.stateRoot())).toBe(false);
   expect(existsSync(helperRoot)).toBe(false);
 });
 
 for (const phase of ["preparation", "turns"] as const) {
-  test(`native run retains ${phase} failure diagnostics before cleanup`, async () => {
+  test(`native host request retains ${phase} failure diagnostics before cleanup`, async () => {
     const f = await fixture();
-    f.adapter.retainHostDiagnostics = true;
-    const prepare = f.adapter.prepare;
+    f.nativeHost.retainHostDiagnostics = true;
+    const prepare = f.nativeHost.prepare;
     let helperRoot = "";
-    f.adapter.prepare = async (context, prompt) => {
+    f.nativeHost.prepare = async (context, prompt) => {
       const state = await prepare(context, prompt);
       helperRoot = await ownedResources(context, f.stages);
       if (phase === "preparation") throw new Error("preparation failed");
       return state;
     };
-    f.adapter.execute = (context) => {
+    f.nativeHost.execute = (context) => {
       context.diagnostics.stage = "fake-turns";
       throw new Error("turns failed");
     };
     const captured: string[] = [];
-    const result = await runNativeRun(f.adapter, {
+    const result = await runNativeHostRequest(f.nativeHost, {
       ...f.request,
       retainHostDiagnostics(bytes) {
         expect(existsSync(f.stateRoot())).toBe(true);
@@ -155,22 +158,22 @@ for (const phase of ["preparation", "turns"] as const) {
 }
 
 for (const failure of [false, true]) {
-  test(`native run retains exact transcript bytes on ${failure ? "failure" : "success"}`, async () => {
+  test(`native host request retains exact transcript bytes on ${failure ? "failure" : "success"}`, async () => {
     const f = await fixture();
     const native = '{"type":"assistant","message":"preserve me"}\n';
-    const prepare = f.adapter.prepare;
-    f.adapter.prepare = async (context, prompt) => {
+    const prepare = f.nativeHost.prepare;
+    f.nativeHost.prepare = async (context, prompt) => {
       const state = await prepare(context, prompt);
       const directory = join(
         context.stateRoot,
-        f.adapter.transcriptDirectory,
+        f.nativeHost.transcriptDirectory,
         "project",
       );
       await mkdir(directory, { recursive: true });
       await writeFile(join(directory, "session.jsonl"), native);
       return state;
     };
-    f.adapter.execute = () => {
+    f.nativeHost.execute = () => {
       if (failure) throw new Error("turn failed");
       return Promise.resolve({
         result: { finalMessage: "ready", complete: true },
@@ -183,7 +186,7 @@ for (const failure of [false, true]) {
         ],
       });
     };
-    const result = await runNativeRun(f.adapter, {
+    const result = await runNativeHostRequest(f.nativeHost, {
       ...f.request,
       runtimePolicy: {
         format: "sevro.runtime.v1",
@@ -207,16 +210,16 @@ for (const failure of [false, true]) {
 }
 
 for (const position of ["first", "last"] as const) {
-  test(`native run incorporates hooks exactly once at the ${position} observation position`, async () => {
+  test(`native host request incorporates hooks exactly once at the ${position} observation position`, async () => {
     const f = await fixture();
-    f.adapter.hookPosition = position;
-    const prepare = f.adapter.prepare;
-    f.adapter.prepare = async (context, prompt) => {
+    f.nativeHost.hookPosition = position;
+    const prepare = f.nativeHost.prepare;
+    f.nativeHost.prepare = async (context, prompt) => {
       const state = await prepare(context, prompt);
       await ownedResources(context, f.stages);
       return state;
     };
-    f.adapter.execute = () =>
+    f.nativeHost.execute = () =>
       Promise.resolve({
         result: {
           finalMessage: "ready",
@@ -228,7 +231,7 @@ for (const position of ["first", "last"] as const) {
         beforeRuntime: [{ id: "before", completeness: "complete", data: {} }],
         observations: [{ id: "after", completeness: "partial", data: {} }],
       });
-    const result = await runNativeRun(f.adapter, {
+    const result = await runNativeHostRequest(f.nativeHost, {
       ...f.request,
       runtimePolicy: {
         format: "sevro.runtime.v1",
@@ -249,16 +252,16 @@ for (const position of ["first", "last"] as const) {
   });
 }
 
-test("native run retains an incomplete result and redacts credentials", async () => {
+test("native host request retains an incomplete result and redacts credentials", async () => {
   const f = await fixture();
   const credentialFile = join(f.request.workspace, "auth.json");
   await writeFile(
     credentialFile,
     JSON.stringify({ OPENAI_API_KEY: "synthetic-secret-token" }),
   );
-  f.adapter.credentialFile = credentialFile;
-  f.adapter.retainHostDiagnostics = true;
-  f.adapter.execute = (context) => {
+  f.nativeHost.credentialFile = credentialFile;
+  f.nativeHost.retainHostDiagnostics = true;
+  f.nativeHost.execute = (context) => {
     context.diagnostics.failure = new Error(
       "failed with synthetic-secret-token",
     );
@@ -267,7 +270,7 @@ test("native run retains an incomplete result and redacts credentials", async ()
       observations: [],
     });
   };
-  const result = await runNativeRun(f.adapter, f.request);
+  const result = await runNativeHostRequest(f.nativeHost, f.request);
   const diagnostics = defined(
     result.artifacts?.find((item) => item.id === "sevro.host.diagnostics"),
   );
@@ -277,10 +280,10 @@ test("native run retains an incomplete result and redacts credentials", async ()
   expect(existsSync(f.stateRoot())).toBe(false);
 });
 
-test("native run rejects common admission before the host adapter allocates resources", async () => {
+test("native host request rejects common admission before the host nativeHost allocates resources", async () => {
   const f = await fixture();
   expect(
-    runNativeRun(f.adapter, { ...f.request, followUpPrompt: "" }),
+    runNativeHostRequest(f.nativeHost, { ...f.request, followUpPrompt: "" }),
   ).rejects.toThrow("Claude follow-up prompt must be nonempty");
   expect(f.stages).toEqual([]);
   expect(f.stateRoot()).toBe("");

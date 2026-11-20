@@ -9,10 +9,10 @@ import type { HostAdapter } from "../host-contract/index";
 import { runtimeHooksEnabled } from "../hooks/index";
 import { runClaudeTurns, type ClaudeSession } from "./claude-continuation";
 import {
-  runNativeRun,
-  type NativeRunAdapter,
-  type NativeRunOutcome,
-} from "./native-run";
+  runNativeHostRequest,
+  type NativeHost,
+  type NativeHostRequestOutcome,
+} from "./native-host-request";
 import {
   claudeSkillActivationsObservation,
   claudeToolCallsObservation,
@@ -108,7 +108,10 @@ export function createClaudeHost(options: ClaudeHostOptions): HostAdapter {
       "sevro.claude.continuation",
     ],
     run(request) {
-      return runNativeRun(claudeRunAdapter(options, timeoutMs), request);
+      return runNativeHostRequest(
+        claudeNativeHost(options, timeoutMs),
+        request,
+      );
     },
   };
 }
@@ -119,10 +122,10 @@ function claudeLoginLifetime(timeoutMs: number, request: Request): number {
   return timeoutMs * turns + CLAUDE_LOGIN_MARGIN_MS;
 }
 
-function claudeRunAdapter(
+function claudeNativeHost(
   options: ClaudeHostOptions,
   timeoutMs: number,
-): NativeRunAdapter<
+): NativeHost<
   Awaited<ReturnType<typeof validateClaudeRequest>>,
   Awaited<ReturnType<typeof prepareClaudeState>> & {
     repositoryInvocation: ClaudeRepositoryInvocation | null;
@@ -362,7 +365,7 @@ async function claudeResult(
   configRoot: string,
   request: Request,
   invocation: ClaudeRepositoryInvocation | null,
-): Promise<NativeRunOutcome> {
+): Promise<NativeHostRequestOutcome> {
   const summary = summarizeClaudeEvents(execution.events, execution.code);
   const observations = await claudeObservations(
     execution,
