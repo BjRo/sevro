@@ -1,7 +1,7 @@
 import type { Stats } from "node:fs";
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { join } from "node:path";
-import type { HostAdapter } from "../host-contract/index";
+import type { ClaudeRepositoryInvocation } from "./claude-invocation";
 import { isRecord } from "../kernel/index";
 import {
   parseClaudeEvents,
@@ -10,13 +10,6 @@ import {
 } from "../host-events/index";
 
 type Entry = Record<string, unknown>;
-export interface ClaudeRepositoryInvocation {
-  skillName: string;
-  skillDir: string;
-  skillText: string;
-  prompt: string;
-}
-
 function entries(text: string | ClaudeEvents): Entry[] {
   return parseClaudeEvents(text).lines.map((line) => {
     if (!line.parsed) throw line.error;
@@ -36,47 +29,6 @@ function content(entry: Entry): string {
     .join("\n");
 }
 
-/** Validate the native project mount before candidate execution. */
-export async function verifyClaudeRepositoryInvocation(
-  request: Parameters<HostAdapter["run"]>[0],
-): Promise<ClaudeRepositoryInvocation> {
-  const selected = request.explicitSkillInvocation;
-  requireRepositorySelection(selected);
-  const { skillName, token } = selected;
-  if (!validRepositoryDeclaration(skillName, token, request.prompt))
-    throw new Error("invalid Claude repository skill invocation");
-  let path = await realpath(request.workspace);
-  for (const [index, part] of [
-    ".claude",
-    "skills",
-    skillName,
-    "SKILL.md",
-  ].entries()) {
-    path = join(path, part);
-    const entry = await lstat(path).catch(() => null);
-    if (!safeSkillEntry(entry, index))
-      throw new Error(
-        "invoked Claude repository skill is unavailable or unsafe",
-      );
-  }
-  return {
-    skillName,
-    skillDir: join(path, ".."),
-    skillText: await readFile(path, "utf8"),
-    prompt: request.prompt,
-  };
-}
-
-function requireRepositorySelection(
-  selected: Parameters<HostAdapter["run"]>[0]["explicitSkillInvocation"],
-): asserts selected is Extract<
-  NonNullable<Parameters<HostAdapter["run"]>[0]["explicitSkillInvocation"]>,
-  { scope: "repository" }
-> {
-  if (!selected || selected.scope !== "repository")
-    throw new Error("Claude repository invocation is not declared");
-}
-
 type Receipt = { accepted: boolean | null; reason: string };
 type MatchInput = ClaudeRepositoryInvocation & {
   transcript: string;
@@ -84,35 +36,6 @@ type MatchInput = ClaudeRepositoryInvocation & {
 };
 type AssistantBoundary = { before: Entry[] } | { receipt: Receipt };
 type CommandBoundary = { called: Entry } | { receipt: Receipt };
-
-function validRepositoryDeclaration(
-  skillName: string,
-  token: string,
-  prompt: string,
-): boolean {
-  return (
-    validRepositorySkillName(skillName) &&
-    token === `/${skillName}` &&
-    prompt.split(token).length - 1 === 1 &&
-    repositoryPromptMatches(prompt, token)
-  );
-}
-function validRepositorySkillName(name: string): boolean {
-  return /^[A-Za-z0-9._-]+$/.test(name) && ![".", ".."].includes(name);
-}
-function repositoryPromptMatches(prompt: string, token: string): boolean {
-  return (
-    prompt === token ||
-    prompt.startsWith(token + " ") ||
-    prompt.startsWith(token + "\n")
-  );
-}
-function safeSkillEntry(entry: Stats | null, index: number): boolean {
-  if (!entry || entry.isSymbolicLink()) return false;
-  return index === 3
-    ? entry.isFile() && entry.size <= 1024 * 1024
-    : entry.isDirectory();
-}
 
 /** Match one exact command and complete body before the assistant starts. */
 export function matchClaudeRepositoryInvocation(input: MatchInput): Receipt {

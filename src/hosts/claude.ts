@@ -1,11 +1,12 @@
+import {
+  verifyClaudeRepositoryMount,
+  verifyClaudePluginInvocation,
+  type ClaudeRepositoryInvocation,
+} from "./claude-invocation";
 import { existsSync } from "node:fs";
-import { readFile, realpath, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 import type { HostAdapter } from "../host-contract/index";
-import { insideRuntimeRoot as inside } from "../runtime/index";
-import { fixtureParts } from "../fixtures/index";
 import { runtimeHooksEnabled } from "../hooks/index";
-import { isRecord } from "../kernel/index";
 import { runClaudeTurns, type ClaudeSession } from "./claude-continuation";
 import {
   runNativeRun,
@@ -19,10 +20,7 @@ import {
 } from "../host-events/index";
 import { observeClaudeNativeGoal } from "./claude-native-goal";
 import { runClaudeProcess, validHostTimeout } from "../native-process/index";
-import {
-  claudeRepositoryInvocationObservation,
-  verifyClaudeRepositoryInvocation,
-} from "./claude-repository-invocation";
+import { claudeRepositoryInvocationObservation } from "./claude-repository-invocation";
 import { prepareClaudeState, type ClaudeHostOptions } from "./claude-state";
 import {
   diagnosticConfiguration,
@@ -38,148 +36,7 @@ export type { ClaudeHostOptions } from "./claude-state";
 const DEFAULT_TIMEOUT_MS = 10 * 60_000;
 
 type Request = Parameters<HostAdapter["run"]>[0];
-type PluginDeclaration = NonNullable<Request["claudePluginDirs"]>;
-type PluginInvocation = NonNullable<Request["explicitSkillInvocation"]> & {
-  scope?: "plugin";
-};
-type RepositoryInvocation = Awaited<
-  ReturnType<typeof verifyClaudeRepositoryInvocation>
->;
 type Execution = Awaited<ReturnType<typeof runClaudeTurns>>;
-
-async function pluginDirectories(
-  workspace: string,
-  declaration: PluginDeclaration,
-): Promise<string[]> {
-  const root = await realpath(workspace);
-  requireUniquePluginDeclaration(declaration);
-  const paths = new Set(declaration.artifactPaths);
-  const directories: string[] = [];
-  for (const relativeRoot of declaration.artifactRoots)
-    directories.push(await declaredPluginDirectory(root, relativeRoot, paths));
-  requireDisjointPluginDirectories(directories);
-  for (const artifactPath of paths)
-    await verifyPluginArtifact(root, artifactPath, declaration, directories);
-  return directories;
-}
-
-function requireUniquePluginDeclaration(declaration: PluginDeclaration): void {
-  if (
-    new Set(declaration.artifactRoots).size !==
-      declaration.artifactRoots.length ||
-    new Set(declaration.artifactPaths).size !== declaration.artifactPaths.length
-  )
-    throw new Error("Claude plugin declaration contains duplicates");
-}
-
-async function declaredPluginDirectory(
-  root: string,
-  relativeRoot: string,
-  paths: Set<string>,
-): Promise<string> {
-  fixtureParts(relativeRoot);
-  if (!paths.has(`${relativeRoot}/.claude-plugin/plugin.json`))
-    throw new Error("Claude plugin manifest is undeclared");
-  const actual = await realpath(join(root, relativeRoot));
-  if (!inside(root, actual))
-    throw new Error("Claude plugin directory escapes workspace");
-  if (!(await stat(join(actual, ".claude-plugin", "plugin.json"))).isFile())
-    throw new Error("Claude plugin manifest is missing");
-  return actual;
-}
-
-function requireDisjointPluginDirectories(directories: string[]): void {
-  if (new Set(directories).size !== directories.length)
-    throw new Error("Claude plugin directories overlap");
-  if (
-    directories.some((item) =>
-      directories.some((other) => item !== other && inside(other, item)),
-    )
-  )
-    throw new Error("Claude plugin directories overlap");
-}
-
-async function verifyPluginArtifact(
-  root: string,
-  artifactPath: string,
-  declaration: PluginDeclaration,
-  directories: string[],
-): Promise<void> {
-  fixtureParts(artifactPath);
-  const index = declaration.artifactRoots.findIndex((item) =>
-    artifactPath.startsWith(`${item}/`),
-  );
-  const directory = directories.at(index);
-  if (index < 0 || directory === undefined)
-    throw new Error("Claude plugin artifact is outside a declared directory");
-  if (!inside(directory, await realpath(join(root, artifactPath))))
-    throw new Error("Claude plugin artifact escapes workspace");
-}
-
-function pluginSelection(request: Request): PluginInvocation | null {
-  const selected = request.explicitSkillInvocation;
-  if (!selected || selected.scope === "repository") return null;
-  return selected;
-}
-
-function requirePluginInvocation(
-  selected: PluginInvocation,
-  prompt: string,
-): void {
-  const { token, pluginName, skillName } = selected;
-  if (
-    token !== `/${pluginName}:${skillName}` ||
-    prompt.split(token).length - 1 !== 1 ||
-    !/^[a-z][a-z0-9-]*$/.test(pluginName) ||
-    !/^[A-Za-z0-9._-]+$/.test(skillName)
-  )
-    throw new Error("invalid Claude explicit skill invocation");
-}
-
-function skillPathDeclared(
-  request: Request,
-  index: number,
-  skillName: string,
-): boolean {
-  const relativeRoot = request.claudePluginDirs?.artifactRoots[index];
-  return !!request.claudePluginDirs?.artifactPaths.includes(
-    `${relativeRoot}/skills/${skillName}/SKILL.md`,
-  );
-}
-
-async function verifyInvocation(
-  request: Request,
-  directories: string[],
-): Promise<void> {
-  const selected = pluginSelection(request);
-  if (!selected) return;
-  requirePluginInvocation(selected, request.prompt);
-  for (const [index, root] of directories.entries()) {
-    if (!skillPathDeclared(request, index, selected.skillName)) continue;
-    if (await mountedPluginSkill(root, selected)) return;
-  }
-  throw new Error("invoked Claude skill is absent from the package");
-}
-
-async function mountedPluginSkill(
-  root: string,
-  selected: PluginInvocation,
-): Promise<boolean> {
-  let manifest: unknown;
-  try {
-    manifest = JSON.parse(
-      await readFile(join(root, ".claude-plugin", "plugin.json"), "utf8"),
-    );
-  } catch (error) {
-    throw new Error("invalid Claude plugin manifest", { cause: error });
-  }
-  if (!isRecord(manifest) || manifest.name !== selected.pluginName)
-    return false;
-  const skill = await stat(
-    join(root, "skills", selected.skillName, "SKILL.md"),
-  ).catch(() => null);
-  return !!skill?.isFile();
-}
 
 function validClaudeOptions(
   options: ClaudeHostOptions,
@@ -256,18 +113,6 @@ export function createClaudeHost(options: ClaudeHostOptions): HostAdapter {
   };
 }
 
-async function repositoryMount(
-  request: Request,
-  options: ClaudeHostOptions,
-): Promise<RepositoryInvocation | null> {
-  if (request.explicitSkillInvocation?.scope !== "repository") return null;
-  if (!options.projectSettings)
-    throw new Error(
-      "Claude repository invocation requires project setting sources",
-    );
-  return verifyClaudeRepositoryInvocation(request);
-}
-
 /** Every turn shares one access token, so it must outlive all of them. */
 function claudeLoginLifetime(timeoutMs: number, request: Request): number {
   const turns = request.followUpPrompt === undefined ? 1 : 2;
@@ -280,7 +125,7 @@ function claudeRunAdapter(
 ): NativeRunAdapter<
   Awaited<ReturnType<typeof validateClaudeRequest>>,
   Awaited<ReturnType<typeof prepareClaudeState>> & {
-    repositoryInvocation: RepositoryInvocation | null;
+    repositoryInvocation: ClaudeRepositoryInvocation | null;
   }
 > {
   return {
@@ -357,12 +202,12 @@ async function validateClaudeRequest(
   options: ClaudeHostOptions,
   request: Request,
 ) {
-  const pluginDirs = request.claudePluginDirs
-    ? await pluginDirectories(request.workspace, request.claudePluginDirs)
-    : [];
-  await verifyInvocation(request, pluginDirs);
+  const pluginDirs = await verifyClaudePluginInvocation(request);
   requireIsolatedHookSources(request, options);
-  const repositoryInvocation = await repositoryMount(request, options);
+  const repositoryInvocation = await verifyClaudeRepositoryMount(
+    request,
+    options.projectSettings,
+  );
   return { pluginDirs, repositoryInvocation };
 }
 
@@ -423,7 +268,7 @@ async function repositoryObservation(
   execution: Execution,
   configRoot: string,
   request: Request,
-  invocation: RepositoryInvocation | null,
+  invocation: ClaudeRepositoryInvocation | null,
   tools: ReturnType<typeof claudeToolCallsObservation>,
 ) {
   if (!invocation) return null;
@@ -442,7 +287,7 @@ async function claudeObservations(
   execution: Execution,
   configRoot: string,
   request: Request,
-  invocation: RepositoryInvocation | null,
+  invocation: ClaudeRepositoryInvocation | null,
 ) {
   const tools = claudeToolCallsObservation(execution.events, execution.code);
   const repository = await repositoryObservation(
@@ -516,7 +361,7 @@ async function claudeResult(
   execution: Execution,
   configRoot: string,
   request: Request,
-  invocation: RepositoryInvocation | null,
+  invocation: ClaudeRepositoryInvocation | null,
 ): Promise<NativeRunOutcome> {
   const summary = summarizeClaudeEvents(execution.events, execution.code);
   const observations = await claudeObservations(
