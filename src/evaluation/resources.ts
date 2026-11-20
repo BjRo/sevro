@@ -10,7 +10,7 @@ import {
   type RunOwner,
 } from "../workspace/index";
 import {
-  createFixture,
+  materializeFixture,
   fixtureBinDirectory,
   fixtureParts,
 } from "../fixtures/index";
@@ -188,7 +188,7 @@ export async function prepareTrialWorkspace(
 ) {
   const reservation = workspaces.candidate(trial);
   workspaces.retain(reservation);
-  const workspace = await createFixture(fixture.source, {
+  const workspace = await materializeFixture(fixture.source, {
     artifacts: fixture.inlineArtifacts,
     sources: options.preparationSources,
     setup: fixture.fixtureSetup,

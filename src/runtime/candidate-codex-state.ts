@@ -2,7 +2,7 @@ import { lstat, realpath, rm } from "node:fs/promises";
 import { basename, dirname, join, relative } from "node:path";
 import { userInfo } from "node:os";
 import { nativeStatePath } from "./native-transcript-state";
-import { clearFixtureContents } from "../workspace/index";
+import { clearWorkspaceContents } from "../workspace/index";
 import type { RuntimePolicy } from "./policy";
 
 interface CodexPaths {
@@ -164,7 +164,7 @@ export function candidateCodexStateRetained(
 export async function releaseCandidateCodexState(root: string): Promise<void> {
   const state = leases.get(root)?.state;
   if (state) {
-    await clearFixtureContents(state.stateRoot);
+    await clearWorkspaceContents(state.stateRoot);
     await rm(state.stateRoot, { recursive: true, force: true });
   }
   leases.delete(root);

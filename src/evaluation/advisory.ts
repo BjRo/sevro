@@ -10,7 +10,7 @@ import {
   usage,
   type TrialEvidenceWriter,
 } from "../evidence/index";
-import { buildBlindAdvisoryFixture } from "../fixtures/index";
+import { buildBlindAdvisoryWorkspace } from "../fixtures/index";
 import { removeWorkspace } from "../workspace/index";
 import { HostDiagnosticPersistenceError } from "../diagnostics/index";
 import type { AdvisoryReviewData } from "../schema/index";
@@ -89,7 +89,7 @@ async function executeAdvisoryReview(
   try {
     if (input.baseRevision === null)
       throw new Error("advisory base revision is unavailable");
-    workspace = await buildBlindAdvisoryFixture(input.candidateWorkspace, {
+    workspace = await buildBlindAdvisoryWorkspace(input.candidateWorkspace, {
       baseRevision: input.baseRevision,
       excludedPaths: input.excludedPaths,
     });

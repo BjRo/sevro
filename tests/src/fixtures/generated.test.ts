@@ -8,7 +8,7 @@ import {
   type HostAdapter,
 } from "../../../src/engine";
 import {
-  createFixture,
+  materializeFixture,
   prepareGeneratedFixture,
 } from "../../../src/fixtures/index";
 import type { GeneratedFixture } from "../../../src/host-contract/index";
@@ -27,7 +27,7 @@ const { temporaryFixture, retainTemporaryFixture, cleanupTemporaryFixtures } =
 afterEach(cleanupTemporaryFixtures);
 
 async function generatedWorkspace(fixture: GeneratedFixture): Promise<string> {
-  const workspace = await createFixture(
+  const workspace = await materializeFixture(
     { kind: "generated", fixture },
     { projectRoot: await temporaryFixture() },
   );

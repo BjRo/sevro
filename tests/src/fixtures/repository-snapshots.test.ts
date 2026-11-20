@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { runEvaluation } from "../../../src/engine";
 import {
-  createFixture,
+  materializeFixture,
   prepareRepositoryFixture,
   resolveRepositorySource,
 } from "../../../src/fixtures/index";
@@ -43,7 +43,7 @@ async function overlayFixture(
     sourceRef: "source",
     files,
   });
-  const workspace = await createFixture(
+  const workspace = await materializeFixture(
     {
       kind: "repository",
       fixture,

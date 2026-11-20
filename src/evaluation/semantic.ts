@@ -1,6 +1,6 @@
-import { clearFixtureContents } from "../workspace/index";
+import { clearWorkspaceContents } from "../workspace/index";
 import type { CandidateArtifactRoots, RuntimePolicy } from "../runtime/index";
-import { createFixture } from "../fixtures/index";
+import { materializeFixture } from "../fixtures/index";
 import {
   hostArtifacts,
   usage,
@@ -124,7 +124,7 @@ class SemanticGrading {
   }
 
   private async semanticWorkspace(): Promise<string> {
-    return createFixture(
+    return materializeFixture(
       { kind: "inline", files: {} },
       {
         projectRoot: this.input.projectRoot,
@@ -294,7 +294,7 @@ class SemanticGrading {
     workspace: string,
     successful: boolean,
   ): Promise<void> {
-    if (successful) await clearFixtureContents(workspace);
+    if (successful) await clearWorkspaceContents(workspace);
     else await this.effects.retainWorkspace(workspace);
   }
 }

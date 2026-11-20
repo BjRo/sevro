@@ -9,7 +9,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
-import { buildBlindAdvisoryFixture } from "../../../src/fixtures/index";
+import { buildBlindAdvisoryWorkspace } from "../../../src/fixtures/index";
 import { createTemporaryFixtures, fixtureGit } from "../../fixtures/filesystem";
 
 const { retainTemporaryFixture, repositoryFixture, cleanupTemporaryFixtures } =
@@ -24,7 +24,7 @@ test("blind advisory review copies contained untracked symlinks and nested files
     "candidate change\n",
   );
   await symlink("../README.md", join(source.repository, "nested", "shortcut"));
-  const view = await buildBlindAdvisoryFixture(source.repository, {
+  const view = await buildBlindAdvisoryWorkspace(source.repository, {
     baseRevision: source.revision,
   });
   retainTemporaryFixture(view);
@@ -62,7 +62,9 @@ for (const tracked of [false, true]) {
     }
     const revision = await fixtureGit(source.repository, "rev-parse", "HEAD");
     expect(
-      buildBlindAdvisoryFixture(source.repository, { baseRevision: revision }),
+      buildBlindAdvisoryWorkspace(source.repository, {
+        baseRevision: revision,
+      }),
     ).rejects.toThrow("broken symlink");
     expect(await readlink(join(source.repository, "broken"))).toBe(
       "missing-target",
@@ -73,7 +75,7 @@ for (const tracked of [false, true]) {
 test("blind advisory review requires an immutable base revision rather than a moving ref", async () => {
   const source = await repositoryFixture();
   expect(
-    buildBlindAdvisoryFixture(source.repository, { baseRevision: "HEAD" }),
+    buildBlindAdvisoryWorkspace(source.repository, { baseRevision: "HEAD" }),
   ).rejects.toThrow("invalid advisory fixture source");
   expect(await fixtureGit(source.repository, "rev-parse", "HEAD")).toBe(
     source.revision,
@@ -85,7 +87,7 @@ test("blind advisory review refuses an absolute symlink back to the source check
   const original = join(source.repository, "README.md");
   await symlink(original, join(source.repository, "absolute-link"));
   expect(
-    buildBlindAdvisoryFixture(source.repository, {
+    buildBlindAdvisoryWorkspace(source.repository, {
       baseRevision: source.revision,
     }),
   ).rejects.toThrow("escaping symlink");

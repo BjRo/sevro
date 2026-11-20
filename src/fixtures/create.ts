@@ -38,7 +38,7 @@ interface FixtureOptions {
   candidateRuntimeRoot?: string;
 }
 
-export async function createFixture(
+export async function materializeFixture(
   source: FixtureSource,
   options: FixtureOptions,
 ): Promise<string> {

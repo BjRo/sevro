@@ -10,7 +10,7 @@ import {
 } from "node:fs/promises";
 import { join } from "node:path";
 import {
-  createFixture,
+  materializeFixture,
   prepareGeneratedFixture,
 } from "../../../src/fixtures/index";
 import { createTemporaryFixtures } from "../../fixtures/filesystem";
@@ -44,7 +44,7 @@ function createToolFixture(
     commits: [{ message: "Baseline", files: { "README.md": "baseline\n" } }],
     ...tools,
   });
-  return createFixture(
+  return materializeFixture(
     { kind: "generated", fixture },
     { projectRoot: root, reservedWorkspace: workspace },
   );

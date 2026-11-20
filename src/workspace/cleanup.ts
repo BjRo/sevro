@@ -28,7 +28,7 @@ export async function removeDisposableDirectory(path: string): Promise<void> {
 }
 
 /** Clear a completed fixture while preserving its reserved root for active peers. */
-export async function clearFixtureContents(workspace: string): Promise<void> {
+export async function clearWorkspaceContents(workspace: string): Promise<void> {
   const root = await lstat(workspace);
   if (!root.isDirectory())
     throw new Error("fixture workspace is not a directory");

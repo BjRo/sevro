@@ -47,7 +47,7 @@ import {
 import type { EvaluationOptions } from "./types";
 import type { EvaluationResult } from "../extensions/index";
 import {
-  clearFixtureContents,
+  clearWorkspaceContents,
   removeDisposableDirectory,
   retainWorkspace,
 } from "../workspace/index";
@@ -171,20 +171,22 @@ class EvaluationTrial {
     private readonly context: EvaluationContext,
     private readonly trial: number,
     private readonly stopAdmission: () => void,
-    private readonly fixture: Awaited<ReturnType<typeof prepareTrialWorkspace>>,
+    private readonly trialWorkspace: Awaited<
+      ReturnType<typeof prepareTrialWorkspace>
+    >,
   ) {
     this.state = initialTrialState(options.dry);
-    this.state.candidateRuntimeRoot = fixture.candidateRuntimeRoot;
+    this.state.candidateRuntimeRoot = trialWorkspace.candidateRuntimeRoot;
     this.evidence = new TrialEvidenceWriter({
       runDir: context.resources.runDir,
       trial,
-      workspace: fixture.workspace,
+      workspace: trialWorkspace.workspace,
       preparationArtifacts: context.preparationArtifacts,
     });
   }
   async run(): Promise<boolean> {
     try {
-      if (this.fixture.preparationCancelled)
+      if (this.trialWorkspace.preparationCancelled)
         return await this.cancelPreparation();
       await this.initializeGradingBases();
       await this.runCandidate();
@@ -219,10 +221,13 @@ class EvaluationTrial {
   }
   private async initializeGradingBases(): Promise<void> {
     this.state.gitHeadBase = this.context.prepared.checks.preparedGitHead.length
-      ? await gitHeadRevision(this.fixture.workspace, this.options.signal)
+      ? await gitHeadRevision(
+          this.trialWorkspace.workspace,
+          this.options.signal,
+        )
       : null;
     this.state.advisoryRevision = this.options.advisoryHost
-      ? await advisoryBaseRevision(this.fixture.workspace)
+      ? await advisoryBaseRevision(this.trialWorkspace.workspace)
       : null;
   }
   private candidateRequest(): Parameters<HostAdapter["run"]>[0] {
@@ -233,13 +238,13 @@ class EvaluationTrial {
           "host-",
         ),
       candidateRuntimeRoot: this.state.candidateRuntimeRoot,
-      prompt: this.fixture.trialPrompt,
-      ...(this.fixture.trialFollowUpPrompt !== undefined
-        ? { followUpPrompt: this.fixture.trialFollowUpPrompt }
+      prompt: this.trialWorkspace.trialPrompt,
+      ...(this.trialWorkspace.trialFollowUpPrompt !== undefined
+        ? { followUpPrompt: this.trialWorkspace.trialFollowUpPrompt }
         : {}),
-      workspace: this.fixture.workspace,
+      workspace: this.trialWorkspace.workspace,
       condition: this.options.condition,
-      fixtureBinDir: this.fixture.fixtureBinDir,
+      fixtureBinDir: this.trialWorkspace.fixtureBinDir,
       runtimePolicy: this.candidateRuntimePolicy(),
       instrumentation: snapshotInstrumentation(
         this.context.prepared.requestedInstrumentation,
@@ -433,7 +438,7 @@ class EvaluationTrial {
     const isolation = this.options.shellIsolation;
     if (!isolation) return null;
     return {
-      workspace: this.fixture.workspace,
+      workspace: this.trialWorkspace.workspace,
       projectRoot: this.context.prepared.fixture.projectRoot,
       resultsRoot: this.options.resultsRoot,
       additionalRoots: isolation.protectedRoots,
@@ -458,8 +463,8 @@ class EvaluationTrial {
       execution: {
         candidateTranscriptRoot: this.state.candidateTranscriptRoot,
         candidateArtifactRoots: this.state.candidateArtifacts,
-        workspace: this.fixture.workspace,
-        fixtureBinDir: this.fixture.fixtureBinDir,
+        workspace: this.trialWorkspace.workspace,
+        fixtureBinDir: this.trialWorkspace.fixtureBinDir,
         toolchainBinDir: this.options.shellIsolation?.toolchainBinDir,
         runtimePolicy: this.options.runtimePolicy,
         uvRuntimeCache: this.options.shellIsolation?.uvRuntimeCache,
@@ -484,7 +489,7 @@ class EvaluationTrial {
     const graded = await gradeGitHeadChecks({
       checks: this.context.prepared.checks.preparedGitHead,
       base: this.state.gitHeadBase,
-      workspace: this.fixture.workspace,
+      workspace: this.trialWorkspace.workspace,
       signal: this.options.signal,
     });
     this.acceptGradingFailure(graded.failure);
@@ -506,7 +511,7 @@ class EvaluationTrial {
         declaredChecks: this.options.case.checks,
         host: this.options.semanticHost,
         message: this.completeCandidateMessage(),
-        candidateWorkspace: this.fixture.workspace,
+        candidateWorkspace: this.trialWorkspace.workspace,
         candidateTranscriptRoot: this.state.candidateTranscriptRoot,
         candidateArtifactRoots: this.state.candidateArtifacts,
         projectRoot: this.context.prepared.fixture.projectRoot,
@@ -539,7 +544,7 @@ class EvaluationTrial {
         source: "sevro.runner",
         completeness: "complete",
         data: {
-          candidate: this.fixture.workspace,
+          candidate: this.trialWorkspace.workspace,
           retainedAuxiliary: this.state.retainedAuxiliaryWorkspaces,
         },
       },
@@ -635,12 +640,12 @@ class EvaluationTrial {
       {
         host,
         candidateCompleted: this.state.execution === "completed",
-        candidateWorkspace: this.fixture.workspace,
+        candidateWorkspace: this.trialWorkspace.workspace,
         candidateTranscriptRoot: this.state.candidateTranscriptRoot,
         candidateArtifactRoots: this.state.candidateArtifacts,
         baseRevision: this.state.advisoryRevision,
         excludedPaths: this.options.advisoryExcludedPaths,
-        task: this.fixture.trialPrompt,
+        task: this.trialWorkspace.trialPrompt,
         checks: this.state.checks,
         declaredChecks: this.options.case.checks,
         runtimePolicy: this.options.runtimePolicy,
@@ -725,7 +730,7 @@ class EvaluationTrial {
       join(
         this.context.resources.stateDir,
         "shell-sandbox/runtime",
-        hashJson(this.fixture.workspace),
+        hashJson(this.trialWorkspace.workspace),
       ),
     );
     if (this.state.candidateTranscriptRoot)
@@ -735,12 +740,14 @@ class EvaluationTrial {
       });
     if (this.state.persisted && !this.retainFailedWorkspace()) {
       try {
-        await clearFixtureContents(this.fixture.workspace);
-        this.context.resources.workspaces.completed(this.fixture.reservation);
+        await clearWorkspaceContents(this.trialWorkspace.workspace);
+        this.context.resources.workspaces.completed(
+          this.trialWorkspace.reservation,
+        );
       } catch {
         evaluationWarning(
           this.options.onWarning,
-          `fixture cleanup failed; retained at ${this.fixture.workspace}`,
+          `fixture cleanup failed; retained at ${this.trialWorkspace.workspace}`,
         );
       }
     }
@@ -771,7 +778,7 @@ export async function executeEvaluationTrials(
         Boolean(context.prepared.fixture.fixtureSetup),
       );
       try {
-        const fixture = await prepareTrialWorkspace(
+        const trialWorkspace = await prepareTrialWorkspace(
           options,
           context.prepared.fixture,
           context.prepared.invocation,
@@ -785,7 +792,7 @@ export async function executeEvaluationTrials(
           context,
           trial,
           stopAdmission,
-          fixture,
+          trialWorkspace,
         ).run();
       } finally {
         await releaseCandidateRuntime(candidateRuntimeRoot);

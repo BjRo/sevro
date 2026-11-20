@@ -1,14 +1,14 @@
 /**
- * Candidate fixture workspaces.
+ * Fixtures and the workspaces they are materialized into.
  *
  * Planning validates generated and repository fixture declarations, setup
- * commands and prepared artifacts, then trials materialize one isolated fixture
- * from the resulting source. Advisory review gets a blind copy of a finished
- * trial. Git snapshots, fixture tools, hooks and setup processes stay inside.
+ * commands and prepared artifacts, then each trial materializes the fixture
+ * into its own isolated workspace. Advisory review gets a blind workspace copy
+ * of a finished trial. Git snapshots, fixture tools, hooks and setup processes stay inside.
  */
-export { buildBlindAdvisoryFixture, advisoryBaseRevision } from "./advisory";
+export { buildBlindAdvisoryWorkspace, advisoryBaseRevision } from "./advisory";
 export { fixtureBinDirectory } from "./bin";
-export { createFixture, type FixtureSource } from "./create";
+export { materializeFixture, type FixtureSource } from "./create";
 export { prepareGeneratedFixture } from "./generated";
 export {
   fixtureParts,

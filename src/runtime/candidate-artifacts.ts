@@ -16,7 +16,7 @@ import {
   type RuntimeArtifactDirectory,
 } from "./artifact-directories";
 import type { RuntimePolicy, RuntimeRole } from "./policy";
-import { clearFixtureContents } from "../workspace/index";
+import { clearWorkspaceContents } from "../workspace/index";
 
 export type CandidateArtifactRoots = Record<string, string>;
 
@@ -163,7 +163,7 @@ export async function releaseCandidateRuntime(
 ): Promise<void> {
   if (root === undefined) return;
   await releaseCandidateCodexState(root);
-  await clearFixtureContents(root);
+  await clearWorkspaceContents(root);
   await rm(root, { recursive: true, force: true });
   leases.delete(root);
 }

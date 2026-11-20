@@ -16,7 +16,7 @@ import { pathToFileURL } from "node:url";
 import { runEvaluation, type HostAdapter } from "../../../src/engine";
 import { openExtensionSession } from "../../../src/extensions/index";
 import {
-  createFixture,
+  materializeFixture,
   prepareArtifacts,
   prepareGeneratedFixture,
   prepareFixtureSetup,
@@ -35,7 +35,7 @@ afterEach(cleanupTemporaryFixtures);
 
 test("direct fixture creation owns a real empty temporary workspace without a reservation", async () => {
   const root = await temporaryFixture();
-  const workspace = await createFixture(
+  const workspace = await materializeFixture(
     { kind: "inline", files: {} },
     { projectRoot: root },
   );
@@ -59,7 +59,7 @@ test("direct fixture creation copies inline bytes and verified artifacts with pr
       executable: true,
     },
   ];
-  const workspace = await createFixture(
+  const workspace = await materializeFixture(
     { kind: "inline", files: fixture.files },
     { artifacts: await prepareArtifacts(declarations, []), projectRoot: root },
   );
@@ -96,7 +96,7 @@ test("direct Git fixture preparation excludes bracket and space filenames litera
     [{ ...inlineArtifact(), relativePath, gitExclude: true }],
     [],
   );
-  const workspace = await createFixture(
+  const workspace = await materializeFixture(
     { kind: "generated", fixture: generated },
     { artifacts, projectRoot: root },
   );
@@ -139,7 +139,7 @@ process.exit(7);
     }),
   );
   const generated = prepareGeneratedFixture(generatedBaseline);
-  const pending = createFixture(
+  const pending = materializeFixture(
     { kind: "generated", fixture: generated },
     { setup, projectRoot: root },
   );
