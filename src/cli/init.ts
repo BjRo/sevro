@@ -1,5 +1,9 @@
-import { examplePath, sourceRuntime } from "../platform/index";
-import { cp, mkdir, rm, writeFile } from "node:fs/promises";
+import {
+  copyIntoReservedDirectory,
+  examplePath,
+  sourceRuntime,
+} from "../platform/index";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import {
@@ -58,11 +62,10 @@ function starterReadme(template: string) {
 async function initialize(template: string, destination: string) {
   await reserveDirectory(destination);
   try {
-    await cp(examplePath("templates", template), destination, {
-      recursive: true,
-      errorOnExist: true,
-      force: false,
-    });
+    await copyIntoReservedDirectory(
+      examplePath("templates", template),
+      destination,
+    );
     await writeFile(
       join(destination, "run.json"),
       JSON.stringify(

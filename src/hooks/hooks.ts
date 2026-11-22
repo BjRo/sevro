@@ -1,7 +1,6 @@
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { existsSync } from "node:fs";
 import {
-  cp,
   mkdir,
   readFile,
   readdir,
@@ -9,7 +8,10 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
-import { shellQuote as quote } from "../platform/index";
+import {
+  copyIntoReservedDirectory,
+  shellQuote as quote,
+} from "../platform/index";
 import {
   insideRuntimeRoot,
   prepareRoleRuntime,
@@ -98,12 +100,9 @@ export async function prepareHookMounts(options: {
   for (const [index, source] of options.pluginRoots.entries()) {
     const root = join(mountRoot, `plugin-${index}`);
     const sourceDigest = await runtimeSeedDigest(source);
-    await cp(source, root, {
-      recursive: true,
-      dereference: true,
-      force: false,
-      errorOnExist: true,
-    });
+    // A host may reserve this mount in advance so its grants can be validated.
+    await mkdir(root, { recursive: true, mode: 0o700 });
+    await copyIntoReservedDirectory(source, root, { dereference: true });
     const manifest = object(
       JSON.parse(
         await readFile(join(root, ".claude-plugin/plugin.json"), "utf8"),
