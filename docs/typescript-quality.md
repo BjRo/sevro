@@ -243,7 +243,10 @@ It also interrupts a real isolated shell check, verifies the interruption exit
 and retained evidence, and refuses a surviving owned child process.
 It reuses the installed-package workflow checks, including synthetic native
 fixtures, with Node selected explicitly. The package quality phase requires
-both the existing Bun package checks and Node acceptance. These deterministic
+both the existing Bun package checks and Node acceptance. CI then repeats Node
+acceptance on the newest Node 24 release, because Node's filesystem behavior
+changes within 24.x: from 24.14, `fs.cp` with `errorOnExist` refuses an
+existing destination directory. These deterministic
 checks do not establish authenticated model behavior.
 
 ## Environment and CI
@@ -251,7 +254,8 @@ checks do not establish authenticated model behavior.
 The discovery backend was observed with Bun 1.3.13, macOS arm64 and Node 24.13.0.
 Implementation also ran on macOS arm64 (Darwin kernel 27.0.0). CI pins
 Codex 0.160.1 and Claude Code 2.1.284 for deterministic native hook tests. Hosted
-CI targets `ubuntu-24.04` x64 with Bun 1.3.13 and Node 24.13.0. Its first
+CI targets `ubuntu-24.04` x64 with Bun 1.3.13 and Node 24.13.0, plus the newest
+Node 24 release for installed Node acceptance in the package job. Its first
 successful hosted run is required before describing that environment as validated.
 GitHub documents the [Ubuntu runner labels](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
 Ubuntu installs `bubblewrap`, `ripgrep`, and `socat` and runs the same native isolation cases;

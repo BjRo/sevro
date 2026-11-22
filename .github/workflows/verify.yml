@@ -93,6 +93,16 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Canonical TypeScript quality phase
         run: bun run check:typescript --phase ${{ matrix.phase }}
+      # 24.13.0 above is the supported floor. Node's filesystem semantics change
+      # within 24.x (24.14 refuses fs.cp onto an existing directory), so the
+      # installed CLI is also accepted on the newest Node 24 release.
+      - uses: actions/setup-node@v4
+        if: matrix.phase == 'package'
+        with:
+          node-version: "24"
+      - name: Installed Node CLI on the newest Node 24 release
+        if: matrix.phase == 'package'
+        run: node --version && bun run test:runtime-node
   test-shards:
     name: TypeScript tests / shard ${{ matrix.shard }} of 4 (Ubuntu x64)
     needs: quality-plan
