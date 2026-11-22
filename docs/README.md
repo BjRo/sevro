@@ -16,6 +16,7 @@ Start with [your first evaluation](getting-started.md), then choose a task.
 ## Configure and integrate
 
 - [Install, update, or remove Sevro](installing.md)
+- [CLI options and defaults](development-cli.md)
 - [Use the embedding API](embedding-api.md)
 - [Run native hosts](native-hosts.md)
 - [Configure tools, goals, and hooks](runtime-v1.md)
@@ -25,6 +26,7 @@ Start with [your first evaluation](getting-started.md), then choose a task.
 
 - [Architecture](architecture.md) and [glossary](../GLOSSARY.md)
 - [Public contracts](contracts.md) and [schemas](../schemas/)
+- [Built-in graders](builtin-graders-v1.md)
 - [Contributing](../CONTRIBUTING.md)
 - [Licensing](licensing.md) and [assets](assets/README.md)
 

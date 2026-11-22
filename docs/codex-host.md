@@ -141,7 +141,7 @@ native policy startup; it is not counted as a performance saving.
 Native plugin installation remains fresh for every host request. Reusing an
 installed home would carry configuration, marketplace registrations, and
 absolute installation paths into a different private namespace. Selected hook
-wrappers additionally embed that request's runtime, sandbox profile, and receipt
+wrappers also embed that request's runtime, sandbox profile, and receipt
 paths. Replaying an old installation receipt cannot establish a new installed
 path. Sevro therefore retains native marketplace/plugin installation and receipt
 verification, fresh credentials/configuration, hook rewriting, preflight, and

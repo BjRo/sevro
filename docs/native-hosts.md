@@ -50,6 +50,8 @@ The CLI reference covers credential scrubbing and follow-ups.
 
 ## Skill activation evidence
 
+For interpretation of retained exposure results, start with [reading results](reading-results.md#interpret-skill-exposure).
+
 Both bundled adapters advertise `sevro.host.skill-activations`. Its observation
 retains qualified `observedSkills`, bounded call identities, and explicit
 `complete` or `partial` collection status. This is the sole activation collector

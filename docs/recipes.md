@@ -76,7 +76,7 @@ Substitute the other recipe name to run its native task. `--dry` prepares and
 retains inputs without calling a model; remove it for execution. Add `--fail`
 to a live command for its deliberate negative control. Native model outcomes
 must be observed; a model can ignore a negative-control instruction. The
-semantic recipe additionally requires its judge route described below.
+semantic recipe also requires its judge route described below.
 
 ## Fix a coding bug with hidden evaluator checks
 

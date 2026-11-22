@@ -79,43 +79,21 @@ This creates a development package; maintainers follow the separate
 
 ## Quality contract and checks
 
-[The TypeScript quality contract](docs/typescript-quality.md) defines the checked
-source inventory, type-aware lint, strict typing, focused functions, reproducible
-properties, and independent statement and branch coverage requirements.
-Run the complete acceptance command:
+Before committing, install the locked dependencies and run:
 
 ```sh
-bun run check:typescript
+bun run check:typescript --fast
 ```
 
-It performs frozen installation, schema freshness, formatting, lint, typing,
-documentation and guide dry-run checks, tutorial examples, the real Bun suite,
-coverage integrity and thresholds, and installed-package validation. Statements
-and branches must each reach at least 95% using raw exact counts over the
-platform-reachable authored production inventory, including unimported files.
-The local-only macOS gate and Ubuntu CI gate each measure their reachable host
-modules; the exact module and branch-outcome exclusions are recorded in coverage
-artifacts. The five explicitly
-inventoried generated AJV validators are excluded from coverage because this
-target measures authored runner behavior; their syntax, schema freshness, typed
-boundaries and runtime tests remain checked. Tests and fixtures remain linted and
-typed; they do not enter the production coverage denominator. New or changed
-source dispositions require review.
+For full acceptance, run `bun run check:typescript`. The
+[TypeScript quality contract](docs/typescript-quality.md) describes the phases,
+source inventory, coverage thresholds, and platform scope. A single phase or
+fast check does not replace full acceptance. CI retains coverage reports under
+`.quality/`.
 
-Before committing, use `bun run check:typescript --fast` after installing the
-locked dependencies. This runs inventory, schema, formatting, lint, typing,
-module dependency and documentation checks; it does not replace full acceptance. CI retains machine-readable coverage
-reports under `.quality/` and exposes the stable `TypeScript quality` status.
-The complete command's `static`, `docs`, `tests` and `package` phases run as
-concurrent CI jobs. CI divides the tests among four duration-balanced jobs and
-requires one combined coverage gate; every test and both 95% thresholds remain
-required. Superseded runs for the same pull request are cancelled. After frozen installation, use
-`bun run check:typescript --phase <name>` to run one phase locally; it does not
-replace acceptance across all four. See the [phase inventory](docs/typescript-quality.md).
-
-Run `bun run check:docs:external` separately and [triage network failures](docs/documentation-quality.md#external-links).
+Run `bun run check:docs:external` separately and
+[triage network failures](docs/documentation-quality.md#external-links).
 Guide changes also need [native evals](docs/guide-evaluation.md).
-Documentation checks supplement #1 rather than replacing its contract.
 
 ## Delivery and CI ownership
 

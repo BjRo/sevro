@@ -10,8 +10,7 @@ installed Node application. Native hosts and isolated checks retain their
 
 ## Try a deterministic installed consumer
 
-In a new directory, [install Sevro](installing.md#current-release), then prepare
-an ESM TypeScript consumer:
+In a new directory, prepare an ESM TypeScript consumer:
 
 ```sh
 npm init -y
@@ -19,6 +18,8 @@ npm pkg set type=module
 npm install --save-dev typescript @types/node
 mkdir project
 ```
+
+Then [install Sevro](installing.md#current-release) in that directory.
 
 Save this as `evaluation.ts`. The bundled case and adapter require no model
 account. The separate `project` directory keeps consumer dependencies outside

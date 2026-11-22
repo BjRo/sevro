@@ -238,7 +238,7 @@ body exposure and successful Claude `Skill` calls.
 This replaces the retired Codex skill-read and Claude nested-skill observations.
 Explicit invocation receipts remain dispatch evidence and do not contribute to
 `observedSkills`; extensions must migrate activation checks to the common ID.
-Codex additionally supplies per-skill `skillExposures` and independent
+Codex also supplies per-skill `skillExposures` and independent
 `collectionStatus` in that observation. Its optional
 `sevro.host.skill-exposure-claims` capability provides complete evidence only
 for listed positive full or partial body exposures, even when collection is

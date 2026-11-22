@@ -17,7 +17,7 @@ invocation attempt, not success. Extensions decide which calls are prohibited.
 An unknown acceptance count cannot establish agent acceptance.
 
 Codex projects labels and counts from its bound native-session observation.
-It additionally retains `directAcceptedAgentCount`, the number of positively
+It also retains `directAcceptedAgentCount`, the number of positively
 correlated direct native spawn acceptances in that source, independently of exec
 inspection. This is an observed count, not a total across unknown launch paths.
 `coverage.nativeCalls` records native-session completeness;
@@ -72,7 +72,7 @@ or displayed output. `execution` is `completed`, `failed`, or `incomplete`;
 `output` is `complete`, `truncated`, or `unavailable`. Output evidence requires
 a unique later output bound to the same native call ID, with recognized text
 blocks. `complete` describes the displayed receipt, not the whole program's
-execution. Execution status additionally requires a successful or failed script
+execution. Execution status also requires a successful or failed script
 header. Missing, ambiguous or
 malformed output yields `incomplete`/`unavailable`; a yielded or unrecognized
 header stays `incomplete`. Displayed truncation does not change source coverage.
