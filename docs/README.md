@@ -2,26 +2,31 @@
 
 <img src="https://raw.githubusercontent.com/BjRo/sevro/main/docs/assets/sevro-wordmark.svg" alt="Sevro wordmark" width="220">
 
-Start with the task you want to complete. These pages work without an agent.
+Start with [your first evaluation](getting-started.md), then choose a task.
 
-| I want to…                                     | Read                                                     |
-| ---------------------------------------------- | -------------------------------------------------------- |
-| Get a result without a model account           | [Your first evaluation](getting-started.md)              |
-| Initialize, prepare, run and iterate           | [Evaluation workflow](evaluation-workflow.md)            |
-| Install, update, remove, or use a checkout     | [Installation](installing.md)                            |
-| Run evaluations and select a host              | [Running evaluations](running-evaluations.md)            |
-| Call Sevro from Node or Bun                    | [Embedding API](embedding-api.md)                        |
-| Create cases and reusable policy               | [Cases and extensions](creating-cases.md)                |
-| Copy a complete coding, skill or runtime setup | [Runnable recipes](recipes.md)                           |
-| Interpret verdicts, evidence, and comparisons  | [Reading results](reading-results.md)                    |
-| Run Codex or Claude with isolation             | [Native hosts](native-hosts.md)                          |
-| Reuse host tools or enable goals and hooks     | [Runtime configuration](runtime-v1.md)                   |
-| Save recurring evaluation selections           | [Run settings](run-settings-v1.md)                       |
-| Resolve a symptom                              | [Troubleshooting](troubleshooting.md)                    |
-| Trace runner lifecycle, ownership, and changes | [Architecture](architecture.md)                          |
-| Look up a Sevro term                           | [Glossary](../GLOSSARY.md)                               |
-| Change Sevro or its documentation              | [Contributing](../CONTRIBUTING.md)                       |
-| Understand licensing and branding              | [Licensing](licensing.md) and [assets](assets/README.md) |
+## Evaluate
+
+- [Initialize, run, and iterate](evaluation-workflow.md)
+- [Run evaluations and select a host](running-evaluations.md)
+- [Create cases and extensions](creating-cases.md)
+- [Try runnable recipes](recipes.md)
+- [Read results and evidence](reading-results.md)
+- [Troubleshoot a failure](troubleshooting.md)
+
+## Configure and integrate
+
+- [Install, update, or remove Sevro](installing.md)
+- [Use the embedding API](embedding-api.md)
+- [Run native hosts](native-hosts.md)
+- [Configure tools, goals, and hooks](runtime-v1.md)
+- [Save run settings](run-settings-v1.md)
+
+## Understand and contribute
+
+- [Architecture](architecture.md) and [glossary](../GLOSSARY.md)
+- [Public contracts](contracts.md) and [schemas](../schemas/)
+- [Contributing](../CONTRIBUTING.md)
+- [Licensing](licensing.md) and [assets](assets/README.md)
 
 ## Ask the guide
 

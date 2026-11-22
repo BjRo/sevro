@@ -4,54 +4,45 @@
   <img src="https://raw.githubusercontent.com/BjRo/sevro/main/docs/assets/sevro-logo.png" alt="Sevro logo: a black S-shaped track with red segments above the sevro wordmark" width="360">
 </p>
 
-Sevro runs repeatable evaluations of coding agents. Give it a case, a host
-adapter, and success criteria; it retains execution, grading results, and
-evidence. Projects own their benchmark cases and policy through Sevro's
-[extension boundary](docs/extension-protocol-v1.md).
+Sevro evaluates coding agents against cases you define. It runs trials, grades
+responses or project changes, and saves evidence so you can inspect the result.
+Use it to compare agent configurations or check whether a skill works.
 
-Sevro grew out of [Darrow](https://github.com/BjRo/darrow), but works without a
-Darrow checkout. Try [your first evaluation](docs/getting-started.md): no model
-account is required.
+Sevro is source-available and works independently of [Darrow](https://github.com/BjRo/darrow).
+Its [extension protocol](docs/extension-protocol-v1.md) lets projects supply their
+own cases and grading policy.
 
-## Status and environments
+## Try it
 
-Sevro is under active development. The npm package is `@bjoernrochel/sevro`;
-its command is `sevro`. The [current release](docs/installing.md#current-release) includes runtime
-configuration, native goals, selected plugin hooks, and the current licensing terms.
-Earlier `rc.1` and `rc.2` packages retain their original BSL grants.
-See [installation](docs/installing.md).
-
-Run the installed package with Node.js 24.13.0 or newer, or Bun 1.3.13.
-Bun is not required for Node users. Native isolation uses macOS `sandbox-exec`
-or Ubuntu `bubblewrap` and `socat`. Contributors keep Bun 1.3.13 for development,
-builds and tests, plus Node 24.13.0 and npm for package acceptance.
-Windows support is unverified. The basic example uses an injected
-deterministic adapter and needs no native model credentials.
-
-## Install and get a first result
+With Node.js 24.13.0 or newer and npm, run:
 
 ```sh
 mkdir sevro-demo
 cd sevro-demo
 npm init -y
+npm install --save-exact @bjoernrochel/sevro
+npx sevro demo
 ```
 
-Install the [current release](docs/installing.md#current-release) in that directory.
-Continue with [your first evaluation](docs/getting-started.md): the exact command,
-expected `passed` result, and retained evidence. Read [installation](docs/installing.md)
-for updates, removal, and source checkouts.
+The demo uses a deterministic adapter, so it needs no model account. It prints
+`execution=completed grading=completed task=passed` and an `evidence=` path
+under `.sevro/results`. It writes results in the current directory and uses a
+separate temporary project. See [your first evaluation](docs/getting-started.md)
+for a custom run and an explanation of the result.
 
-Then follow the [demo-to-iteration workflow](docs/evaluation-workflow.md):
-initialize real assertions, prepare, execute, read progress and inspect the
-latest result.
+Sevro also runs on Bun 1.3.13. Native isolation targets macOS and Ubuntu;
+Windows is unverified. Native hosts have additional
+[prerequisites](docs/native-hosts.md). See [installation](docs/installing.md)
+for pinned versions, updates, and removal.
 
-## Find your next task
+## Next steps
 
-The [documentation hub](docs/README.md) routes to running evaluations, authoring
-cases and extensions, reading results, troubleshooting, and architecture.
-Public v1 contracts are the [extension protocol](docs/extension-protocol-v1.md),
-[results and evidence](docs/results-v1.md), and [report](docs/report-v1.md).
-Machine-readable contracts live in [schemas/](schemas/).
+- [Create and run an evaluation](docs/evaluation-workflow.md).
+- [Write cases and extensions](docs/creating-cases.md) or try a [recipe](docs/recipes.md).
+- [Read results and evidence](docs/reading-results.md).
+- [Use Sevro from Node or Bun](docs/embedding-api.md).
+- Find troubleshooting, architecture, and reference material in the
+  [documentation](docs/README.md).
 
 ## Ask the repository guide
 
