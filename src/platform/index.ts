@@ -15,6 +15,7 @@ export { which } from "./executable";
 export { shellQuote } from "./shell";
 export { openLockDatabase } from "./sqlite-lock";
 export { atomicWriteJson } from "./storage";
+export { copyIntoReservedDirectory } from "./reserved-directory";
 export {
   examplePath,
   runnerRoot,
