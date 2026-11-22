@@ -106,7 +106,7 @@
       "severity": "error",
       "from": { "path": "^src/(workspace|runtime|isolation|hooks)/" },
       "to": {
-        "path": "^src/((host-contract|hosts|host-events|native-controls|native-process|codex-app-server|codex-profile|claude-login|skill-tracking|graders|fixtures|evidence|results|transcripts|extensions|cases|diagnostics|provenance|evaluation|cli)/|(cli|index|engine)\\.ts$)"
+        "path": "^src/((host-contract|hosts|host-events|native-controls|codex-usage|native-process|codex-app-server|codex-profile|claude-login|skill-tracking|graders|fixtures|evidence|results|transcripts|extensions|cases|diagnostics|provenance|evaluation|cli)/|(cli|index|engine)\\.ts$)"
       }
     },
     {
@@ -128,7 +128,7 @@
       "comment": "Feature modules do not depend on evaluation orchestration, the CLI or entry points.",
       "severity": "error",
       "from": {
-        "path": "^src/(host-contract|hosts|host-events|native-controls|native-process|codex-app-server|codex-profile|claude-login|skill-tracking|graders|fixtures|evidence|results|transcripts|extensions|cases|diagnostics|provenance)/"
+        "path": "^src/(host-contract|hosts|host-events|native-controls|codex-usage|native-process|codex-app-server|codex-profile|claude-login|skill-tracking|graders|fixtures|evidence|results|transcripts|extensions|cases|diagnostics|provenance)/"
       },
       "to": { "path": "^src/((evaluation|cli)/|(cli|index|engine)\\.ts$)" }
     },
