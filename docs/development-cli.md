@@ -1,4 +1,11 @@
-# Development CLI
+<a id="development-cli"></a>
+
+# CLI reference
+
+Find [defaults](#run-defaults), [run options](#explicit-run-settings),
+[concurrency](#trial-concurrency), [project and configuration roots](#project-and-configuration-roots),
+and [native goals](#native-goal-trials). For a first run, use the
+[evaluation workflow](evaluation-workflow.md).
 
 The `sevro run` command connects a resolved JSON case or an explicit extension
 to a host route. The installed CLI and source entrypoint use the same engine

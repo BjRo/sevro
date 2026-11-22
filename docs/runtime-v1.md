@@ -3,6 +3,10 @@
 Configure access to existing host tools, private state, reusable caches, native goals,
 and selected plugin hooks in `<project-root>/sevro.json`.
 
+See [host tools](#environment-and-host-tools), [shared caches](#reuse-a-shared-dependency-cache),
+[candidate artifacts](#candidate-artifact-access), [goals and hooks](#goals-and-plugin-hooks),
+and [native transcripts](#native-transcript-access) for individual capabilities.
+
 `--runtime-config-file /absolute/path/runtime.json` selects a replacement file.
 Sevro reads exactly one file before execution, including dry runs. It does not
 merge files, search parent directories, or read a candidate's copy. An absent

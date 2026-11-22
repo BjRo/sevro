@@ -55,36 +55,17 @@ grading, task `failed`, and the named `ready` check's reason. Then edit `case.js
 and `adapter.js` (`adapter.ts` when initialized from contributor sources), prepare again and rerun. Explicit flags override saved settings;
 `--trials 3` repeats the task without rewriting `run.json`.
 
-Progress uses stderr at actual preparation, candidate, grading and evidence
-retention boundaries. Trial numbers distinguish concurrent work, which may
-interleave. Stage `completed` means the attempt finished; the result states whether
-execution/grading succeeded. Dry runs explicitly skip candidate and grading;
-failed candidates skip grading. Failed preparation never prints candidate start.
-Evidence completion follows persistence. Optional synchronous engine observers
-cannot change the result through a thrown exception.
+Progress appears on stderr. Human output includes each trial's states, check
+reasons, candidate duration, and retained paths. Add `--json` for a single
+result on stdout. A completed stage does not mean the task passed; inspect
+execution, grading, and task states as described in [reading results](reading-results.md).
 
-Human completion shows per-trial states, failed/unavailable check reasons,
-measured candidate time, known/unknown usage/cost and `result=`/`evidence=` paths.
-Candidate time measures the host call, not total setup time. Absent metrics remain
-`unknown`; dry duration is unknown. Prompt-only completion stays `not_assessed`.
-Add `--json` to emit one `sevro.cli-result.v1` stdout document; progress remains on
-stderr. See [reading results](reading-results.md).
-
-Each retained CLI evaluation saves `result.json` beside its run evidence and
-atomically publishes `<results-root>/latest.json`. Latest is the last retained CLI
-result, including dry runs and failed assessments. Pre-run failures do not replace
-it. Concurrent runs publish in completion order. Output files stay under excluded
-results storage, preserving project identity. A latest-write failure cannot turn
-an earlier failed assessment into success.
-
-`report --latest` reads `<cwd>/.sevro/results/latest.json`. Use
-`report --latest --results-root ./other-results` for another output root or working
-directory. `--result-file ./path/to/result.json` selects older runs and accepts
-relative paths. Reports validate referenced evidence; missing/moved evidence
-produces a diagnostic. To reclaim native bundle space while keeping reportable
-results and hashes, use [`sevro prune --native-transcripts`](reading-results.md#remove-native-transcript-bundles).
-Reports label bundles intentionally removed by that command as pruned.
-[Report v1](report-v1.md) defines fields and limits.
+`report --latest` reads the latest retained CLI result under
+`<cwd>/.sevro/results`, including a dry run or failed assessment. Use
+`--results-root ./other-results` for another root, or
+`--result-file ./path/to/result.json` for a particular run. Reports require
+retained evidence. See [report v1](report-v1.md) for the contract and
+[reading results](reading-results.md#prune-retained-results) for retention options.
 
 ## Choose another starter
 

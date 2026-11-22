@@ -109,7 +109,7 @@ persistence error.
 [`identity-v1.md`](identity-v1.md) defines the canonical digest and each
 comparison dimension.
 
-Current CLI runs additionally retain the redacted effective-settings preview as
+Current CLI runs also retain the redacted effective-settings preview as
 optional `configuration.resolved` (`sevro.resolved-run-settings.v1`), including
 saved-setting selections and resolved operational paths. This snapshot excludes
 credentials, credential-option paths, private source-closure/mapping paths,
