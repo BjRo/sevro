@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 import type ts from "typescript";
 import { isRecord, isUnknownArray } from "../kernel/index";
+import { CatalogQueries } from "./codex-exec-catalog";
 
 const require = createRequire(import.meta.url);
 let parser: typeof ts | undefined;
@@ -93,6 +94,7 @@ function localName(node: ts.BindingName): string | undefined {
     "load",
     "JSON",
     "String",
+    "ALL_TOOLS",
   ].includes(node.text)
     ? undefined
     : node.text;
@@ -103,9 +105,17 @@ class Submission {
   private readonly collections = new Set<string>();
   private readonly indices = new Set<string>();
   private nodes = 0;
+  private readonly catalog = new CatalogQueries(
+    typescript(),
+    () => this.visit(),
+    localName,
+  );
+  private visit(): boolean {
+    return ++this.nodes <= 2048;
+  }
   expression(node: ts.Expression): boolean {
     const ts = typescript();
-    if (++this.nodes > 2048) return false;
+    if (!this.visit()) return false;
     switch (true) {
       case literal(node):
         return true;
@@ -122,7 +132,7 @@ class Submission {
       case ts.isArrayLiteralExpression(node):
         return node.elements.every((element) => this.expression(element));
       case ts.isIdentifier(node):
-        return this.locals.has(node.text);
+        return this.knownIdentifier(node);
       case ts.isPropertyAccessExpression(node):
         return this.localProperty(node);
       case ts.isCallExpression(node):
@@ -150,6 +160,9 @@ class Submission {
       return false;
     return this.expression(node.initializer);
   }
+  private knownIdentifier(node: ts.Identifier): boolean {
+    return node.text === "ALL_TOOLS" || this.locals.has(node.text);
+  }
   private shorthand(node: ts.ShorthandPropertyAssignment): boolean {
     return !node.objectAssignmentInitializer && this.expression(node.name);
   }
@@ -170,7 +183,7 @@ class Submission {
     );
   }
   private call(node: ts.CallExpression): boolean {
-    if (this.outputEach(node)) return true;
+    if (this.outputEach(node) || this.catalog.query(node)) return true;
     if (!node.arguments.every((argument) => this.expression(argument)))
       return false;
     return helperCall(node.expression) || this.retainToolCall(node.expression);
@@ -207,11 +220,15 @@ class Submission {
     );
   }
   private declaration(node: ts.VariableDeclaration): boolean {
-    if (!node.initializer) return false;
-    const names = this.bindingNames(node.name, node.initializer);
+    const initializer = node.initializer;
+    if (!initializer) return false;
+    const names = this.bindingNames(node.name, initializer);
     if (!names) return false;
-    if (!this.expression(node.initializer)) return false;
+    if (!this.expression(initializer)) return false;
     names.forEach((name) => this.locals.add(name));
+    names.forEach((name) => {
+      this.catalog.retain(name, initializer);
+    });
     this.retainCollection(node.name, node.initializer, names);
     return true;
   }
