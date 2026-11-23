@@ -47,6 +47,17 @@ bounded shape `for (let i = 0; i < results.length; i++)`, indexing the known
 batch with that loop variable. Output loops and conditional expressions cannot
 invoke tools. Destructuring defaults, rest elements,
 holes, nested bindings, duplicate names, and shadowed globals remain unsupported.
+Unshadowed `ALL_TOOLS` metadata reads and pure `filter`/`map` discovery are
+also supported. Filters use a regex literal's `test` on `name`/`description`
+strings or their `+` composition. Maps may project those strings into objects
+and slice them with one or two nonnegative safe-integer literal bounds.
+Callbacks must be synchronous expression-bodied arrows with one plain parameter;
+unknown calls, getters, computed fields and tool calls remain unsupported.
+Filtered catalogs may be retained in constant bindings for subsequent queries.
+The observer parses these forms without executing callbacks or regexes or
+reading the tool catalog. Metadata-only programs add no submitted-call labels;
+adjacent literal tool calls retain their labels. Catalog syntax shares the
+same expression budget as the rest of the submission.
 Tool argument strings, comments and printed tool-looking text
 do not become call labels. A rejected tool request returned by a completed
 script still appears in its submitted-call inventory. This inventory proves
